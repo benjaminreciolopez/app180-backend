@@ -20,8 +20,15 @@ cron.schedule("59 23 * * *", () => ejecutarAutocierre());
 
 app.use(
   cors({
-    origin: ["https://app180-frontend.vercel.app", "http://localhost:3000"],
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://app180-frontend.vercel.app",
+      "https://app180-frontend-git-main-benjamins-projects-1d0caeba.vercel.app",
+    ],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   })
 );
 app.use(express.json());
