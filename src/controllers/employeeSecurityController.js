@@ -44,13 +44,19 @@ export const generateEmployeeInvite = async (req, res) => {
       SET activo = false
       WHERE empleado_id = ${empleadoId} AND activo = true
     `;
+    const empleadoData = await sql`
+    SELECT user_id FROM employees_180
+    WHERE id = ${empleadoId}
+  `;
+
+    const empleadoUserId = empleadoData[0].user_id;
 
     // Generar nuevo token
     const rawToken = crypto.randomBytes(32).toString("hex");
 
     const invite = await sql`
-  INSERT INTO invite_180 (empleado_id, empresa_id, token)
-  VALUES (${empleadoId}, ${empresaId}, ${rawToken})
+  INSERT INTO invite_180 (empleado_id, empresa_id, user_id, token)
+  VALUES (${empleadoId}, ${empresaId}, ${empleadoUserId}, ${rawToken})
   RETURNING id, token, creado
 `;
 
