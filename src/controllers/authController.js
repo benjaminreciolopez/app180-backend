@@ -42,12 +42,13 @@ export const register = async (req, res) => {
 // LOGIN DE USUARIO
 // =====================
 
+// src/controllers/authController.js
+
 export const login = async (req, res) => {
   try {
     const { email, password, device_hash, user_agent } = req.body;
     const ipActual = req.ip;
 
-    // Buscar usuario
     const rows = await sql`
       SELECT * FROM users_180 WHERE email = ${email}
     `;
@@ -58,13 +59,12 @@ export const login = async (req, res) => {
 
     const user = rows[0];
 
-    // Verificar contraseña
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return res.status(400).json({ error: "Contraseña incorrecta" });
     }
 
-    // Ver si el usuario es EMPLEADO
+    // comprobar si es empleado
     const empleadoRows = await sql`
       SELECT id FROM employees_180
       WHERE user_id = ${user.id}
@@ -73,23 +73,18 @@ export const login = async (req, res) => {
     const esEmpleado = empleadoRows.length > 0;
     let empleadoId = esEmpleado ? empleadoRows[0].id : null;
 
-    // ======================================
-    //   SEGURIDAD PARA EMPLEADOS
-    // ======================================
-    if (esEmpleado && user.role === "empleado") {
+    if (esEmpleado) {
       if (!device_hash) {
         return res.status(400).json({
           error: "Falta device_hash (obligatorio para empleados)",
         });
       }
 
-      // Buscar dispositivo existente
       const deviceRows = await sql`
         SELECT * FROM employee_devices_180
         WHERE empleado_id = ${empleadoId}
       `;
 
-      // No tiene ningún dispositivo registrado → REGISTRAR AUTOMÁTICO
       if (deviceRows.length === 0) {
         await sql`
           INSERT INTO employee_devices_180
@@ -102,7 +97,6 @@ export const login = async (req, res) => {
       } else {
         const device = deviceRows[0];
 
-        // Si llega un device_hash diferente → otro móvil
         if (device.device_hash !== device_hash) {
           return res.status(403).json({
             error:
@@ -110,14 +104,12 @@ export const login = async (req, res) => {
           });
         }
 
-        // Si el dispositivo está desactivado → bloquear login
         if (!device.activo) {
           return res.status(403).json({
             error: "Este dispositivo está desactivado por el administrador.",
           });
         }
 
-        // Registrar IP habitual si aún no existe
         if (!device.ip_habitual) {
           await sql`
             UPDATE employee_devices_180
@@ -128,7 +120,6 @@ export const login = async (req, res) => {
       }
     }
 
-    // GENERAR TOKEN JWT
     const token = jwt.sign(
       {
         id: user.id,
@@ -142,6 +133,7 @@ export const login = async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    // 👈 MUY IMPORTANTE: responder exactamente esto
     return res.json({ token, user });
   } catch (err) {
     console.error("❌ Error en login:", err);
