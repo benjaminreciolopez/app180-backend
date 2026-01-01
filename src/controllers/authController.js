@@ -162,46 +162,51 @@ export const activateInstall = async (req, res) => {
     }
 
     const invite = invites[0];
-    // Obtener el user_id del empleado
-    const empleado = (
-      await sql`
-    SELECT user_id FROM employees_180
-    WHERE id = ${invite.empleado_id}
-  `
-    )[0];
-
-    if (!empleado) {
-      return res.status(400).json({ error: "Empleado no existe" });
-    }
 
     if (invite.usado) {
       return res.status(400).json({ error: "La invitación ya fue usada" });
     }
 
-    // Desactivar dispositivos anteriores por seguridad
+    // 🔎 Ver si ya tiene dispositivo
+    const existing = await sql`
+      SELECT * FROM employee_devices_180
+      WHERE empleado_id = ${invite.empleado_id}
+      AND activo = true
+    `;
+
+    // 🚫 Si ya tiene dispositivo y la invitación NO es de cambio → bloquear
+    if (existing.length > 0 && invite.tipo !== "cambio") {
+      return res.status(403).json({
+        error:
+          "Este empleado ya tiene un dispositivo asignado. El administrador debe autorizar un cambio.",
+      });
+    }
+
+    // 🔐 Seguridad: desactivamos anteriores
     await sql`
       UPDATE employee_devices_180
       SET activo = false
       WHERE empleado_id = ${invite.empleado_id}
     `;
 
-    // Registrar nuevo dispositivo
+    // 🔁 Activamos (o creamos) el nuevo
     const device = await sql`
-  INSERT INTO employee_devices_180
-    (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
-  VALUES
-    (${invite.user_id}, ${invite.empleado_id}, ${invite.empresa_id},
-     ${device_hash}, ${user_agent || null}, true, ${ipActual})
-  ON CONFLICT (empleado_id, device_hash)
-  DO UPDATE SET
-    activo = true,
-    ip_habitual = EXCLUDED.ip_habitual,
-    user_agent = EXCLUDED.user_agent,
-    empresa_id = EXCLUDED.empresa_id,
-    updated_at = now()
-  RETURNING *;
-`;
+      INSERT INTO employee_devices_180
+        (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
+      VALUES
+        (${invite.user_id}, ${invite.empleado_id}, ${invite.empresa_id},
+         ${device_hash}, ${user_agent || null}, true, ${ipActual})
+      ON CONFLICT (empleado_id, device_hash)
+      DO UPDATE SET
+        activo = true,
+        ip_habitual = EXCLUDED.ip_habitual,
+        user_agent = EXCLUDED.user_agent,
+        empresa_id = EXCLUDED.empresa_id,
+        updated_at = now()
+      RETURNING *;
+    `;
 
+    // marcar invitación usada
     await sql`
       UPDATE invite_180
       SET usado = true, usado_en = now()
@@ -210,7 +215,7 @@ export const activateInstall = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Dispositivo registrado y acceso activado",
+      message: "Dispositivo registrado correctamente",
       device: device[0],
     });
   } catch (err) {
