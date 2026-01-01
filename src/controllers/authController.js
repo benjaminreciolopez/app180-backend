@@ -188,10 +188,17 @@ export const activateInstall = async (req, res) => {
     // Registrar nuevo dispositivo
     const device = await sql`
   INSERT INTO employee_devices_180
-    (user_id, empleado_id, device_hash, user_agent, activo, ip_habitual)
+    (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
   VALUES
-    (${empleado.user_id}, ${invite.empleado_id}, ${device_hash},
-     ${user_agent || null}, true, ${ipActual})
+    (
+      ${empleado.user_id},
+      ${invite.empleado_id},
+      ${invite.empresa_id},
+      ${device_hash},
+      ${user_agent || null},
+      true,
+      ${ipActual}
+    )
   RETURNING *
 `;
 
