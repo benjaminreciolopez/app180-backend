@@ -144,6 +144,9 @@ export const login = async (req, res) => {
 // ======================================
 // ACTIVACIÓN DEL DISPOSITIVO MEDIANTE INVITACIÓN
 // ======================================
+// ======================================
+// ACTIVACIÓN DEL DISPOSITIVO MEDIANTE INVITACIÓN
+// ======================================
 export const activateInstall = async (req, res) => {
   try {
     const { token, device_hash, user_agent } = req.body;
@@ -167,42 +170,24 @@ export const activateInstall = async (req, res) => {
       return res.status(400).json({ error: "La invitación ya fue usada" });
     }
 
-    // 🔎 Ver si ya tiene dispositivo
-    const existing = await sql`
-      SELECT * FROM employee_devices_180
-      WHERE empleado_id = ${invite.empleado_id}
-      AND activo = true
-    `;
-
-    // 🚫 Si ya tiene dispositivo y la invitación NO es de cambio → bloquear
-    if (existing.length > 0 && invite.tipo !== "cambio") {
-      return res.status(403).json({
-        error:
-          "Este empleado ya tiene un dispositivo asignado. El administrador debe autorizar un cambio.",
-      });
-    }
-
-    // 🔐 Seguridad: desactivamos anteriores
+    // 🔐 SEGURIDAD: eliminamos cualquier dispositivo anterior
     await sql`
-      UPDATE employee_devices_180
-      SET activo = false
+      DELETE FROM employee_devices_180
       WHERE empleado_id = ${invite.empleado_id}
     `;
 
-    // 🔁 Activamos (o creamos) el nuevo
+    // 🔁 Registramos nuevo dispositivo limpio
     const device = await sql`
       INSERT INTO employee_devices_180
         (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
       VALUES
-        (${invite.user_id}, ${invite.empleado_id}, ${invite.empresa_id},
-         ${device_hash}, ${user_agent || null}, true, ${ipActual})
-      ON CONFLICT (empleado_id, device_hash)
-      DO UPDATE SET
-        activo = true,
-        ip_habitual = EXCLUDED.ip_habitual,
-        user_agent = EXCLUDED.user_agent,
-        empresa_id = EXCLUDED.empresa_id,
-        updated_at = now()
+        (${invite.user_id},
+         ${invite.empleado_id},
+         ${invite.empresa_id},
+         ${device_hash},
+         ${user_agent || null},
+         true,
+         ${ipActual})
       RETURNING *;
     `;
 
@@ -215,7 +200,7 @@ export const activateInstall = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Dispositivo registrado correctamente",
+      message: "Dispositivo autorizado y activado",
       device: device[0],
     });
   } catch (err) {
