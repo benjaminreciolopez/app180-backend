@@ -20,11 +20,21 @@ cron.schedule("59 23 * * *", () => ejecutarAutocierre());
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://app180-frontend.vercel.app",
-    ],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      const allowed = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://app180-frontend.vercel.app",
+      ];
+
+      if (allowed.includes(origin) || origin.endsWith(".vercel.app")) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
