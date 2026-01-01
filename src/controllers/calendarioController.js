@@ -1,0 +1,228 @@
+import { sql } from "../db.js";
+
+//
+// Utilidad para obtener rango por defecto (mes actual)
+//
+const getRangoFechas = (desde, hasta) => {
+  if (desde && hasta) return { desde, hasta };
+
+  const hoy = new Date();
+  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+
+  const toStr = (d) => d.toISOString().split("T")[0];
+
+  return {
+    desde: desde || toStr(inicioMes),
+    hasta: hasta || toStr(finMes),
+  };
+};
+
+//
+// CALENDARIO DEL USUARIO (empleado o autónomo)
+//
+export const getCalendarioUsuario = async (req, res) => {
+  try {
+    const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
+
+    // ¿Es empleado?
+    const empleadoRows = await sql`
+      SELECT id, nombre
+      FROM employees_180
+      WHERE user_id = ${req.user.id}
+    `;
+
+    const esEmpleado = empleadoRows.length > 0;
+    const empleadoId = esEmpleado ? empleadoRows[0].id : null;
+    const empleadoNombre = esEmpleado
+      ? empleadoRows[0].nombre
+      : req.user.nombre;
+
+    // AUSENCIAS (solo si es empleado)
+    let ausencias = [];
+    if (esEmpleado) {
+      ausencias = await sql`
+        SELECT id, tipo, fecha_inicio, fecha_fin, estado
+        FROM ausencias_180
+        WHERE empleado_id = ${empleadoId}
+        AND fecha_inicio <= ${hasta}
+        AND fecha_fin >= ${desde}
+        ORDER BY fecha_inicio ASC
+      `;
+    }
+
+    // FICHAJES (empleado o autónomo por user_id)
+    const fichajes = await sql`
+      SELECT 
+        f.id,
+        f.tipo,
+        f.fecha,
+        f.cliente_id,
+        c.nombre AS cliente_nombre
+      FROM fichajes_180 f
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
+      WHERE f.user_id = ${req.user.id}
+      AND f.fecha::date BETWEEN ${desde} AND ${hasta}
+      ORDER BY f.fecha ASC
+    `;
+
+    // Mapear a eventos de calendario
+
+    const eventosAusencias = ausencias.map((a) => ({
+      id: `aus-${a.id}`,
+      tipo: "ausencia",
+      subtipo: a.tipo,
+      title:
+        a.tipo === "baja_medica"
+          ? `${empleadoNombre} - Baja médica`
+          : `${empleadoNombre} - Vacaciones`,
+      start: a.fecha_inicio,
+      end: a.fecha_fin,
+      estado: a.estado,
+      empleado_id: empleadoId,
+      empleado_nombre: empleadoNombre,
+    }));
+
+    const eventosFichajes = fichajes.map((f) => ({
+      id: `fic-${f.id}`,
+      tipo: "fichaje",
+      subtipo: f.tipo, // entrada, salida, etc.
+      title: f.cliente_nombre ? `${f.tipo} - ${f.cliente_nombre}` : f.tipo,
+      start: f.fecha,
+      end: null,
+      empleado_id: empleadoId,
+      empleado_nombre: empleadoNombre,
+      cliente_id: f.cliente_id,
+      cliente_nombre: f.cliente_nombre,
+    }));
+
+    const eventos = [...eventosAusencias, ...eventosFichajes];
+
+    return res.json({
+      desde,
+      hasta,
+      eventos,
+    });
+  } catch (err) {
+    console.error("❌ Error en getCalendarioUsuario:", err);
+    return res
+      .status(500)
+      .json({ error: "Error al obtener calendario del usuario" });
+  }
+};
+
+//
+// CALENDARIO DE EMPRESA (solo admin)
+//
+export const getCalendarioEmpresa = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Acceso denegado" });
+    }
+
+    const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
+
+    // Empresa del admin
+    const empresaRows = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+    if (empresaRows.length === 0) {
+      return res.status(400).json({ error: "Empresa no encontrada" });
+    }
+    const empresaId = empresaRows[0].id;
+
+    // Empleados de la empresa
+    const empleados = await sql`
+      SELECT e.id, e.nombre, u.id AS user_id
+      FROM employees_180 e
+      JOIN users_180 u ON u.id = e.user_id
+      WHERE e.empresa_id = ${empresaId}
+    `;
+
+    if (empleados.length === 0) {
+      return res.json({ desde, hasta, eventos: [] });
+    }
+
+    const empleadoIds = empleados.map((e) => e.id);
+    const userIds = empleados.map((e) => e.user_id);
+
+    // AUSENCIAS de la empresa
+    const ausencias = await sql`
+      SELECT 
+        a.id,
+        a.tipo,
+        a.fecha_inicio,
+        a.fecha_fin,
+        a.estado,
+        a.empleado_id,
+        e.nombre AS empleado_nombre
+      FROM ausencias_180 a
+      JOIN employees_180 e ON e.id = a.empleado_id
+      WHERE a.empresa_id = ${empresaId}
+      AND a.fecha_inicio <= ${hasta}
+      AND a.fecha_fin >= ${desde}
+      ORDER BY a.fecha_inicio ASC
+    `;
+
+    // FICHAJES de los empleados de la empresa
+    const fichajes = await sql`
+      SELECT 
+        f.id,
+        f.tipo,
+        f.fecha,
+        f.cliente_id,
+        f.empleado_id,
+        u.nombre AS empleado_nombre,
+        c.nombre AS cliente_nombre
+      FROM fichajes_180 f
+      LEFT JOIN users_180 u ON u.id = f.user_id
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
+      WHERE f.empleado_id = ANY(${empleadoIds})
+      AND f.fecha::date BETWEEN ${desde} AND ${hasta}
+      ORDER BY f.fecha ASC
+    `;
+
+    const eventosAusencias = ausencias.map((a) => ({
+      id: `aus-${a.id}`,
+      tipo: "ausencia",
+      subtipo: a.tipo,
+      title:
+        a.tipo === "baja_medica"
+          ? `${a.empleado_nombre} - Baja médica`
+          : `${a.empleado_nombre} - Vacaciones`,
+      start: a.fecha_inicio,
+      end: a.fecha_fin,
+      estado: a.estado,
+      empleado_id: a.empleado_id,
+      empleado_nombre: a.empleado_nombre,
+    }));
+
+    const eventosFichajes = fichajes.map((f) => ({
+      id: `fic-${f.id}`,
+      tipo: "fichaje",
+      subtipo: f.tipo,
+      title: f.cliente_nombre
+        ? `${f.empleado_nombre} - ${f.tipo} - ${f.cliente_nombre}`
+        : `${f.empleado_nombre} - ${f.tipo}`,
+      start: f.fecha,
+      end: null,
+      empleado_id: f.empleado_id,
+      empleado_nombre: f.empleado_nombre,
+      cliente_id: f.cliente_id,
+      cliente_nombre: f.cliente_nombre,
+    }));
+
+    const eventos = [...eventosAusencias, ...eventosFichajes];
+
+    return res.json({
+      desde,
+      hasta,
+      eventos,
+    });
+  } catch (err) {
+    console.error("❌ Error en getCalendarioEmpresa:", err);
+    return res
+      .status(500)
+      .json({ error: "Error al obtener calendario de empresa" });
+  }
+};
