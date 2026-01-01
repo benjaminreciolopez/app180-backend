@@ -162,6 +162,17 @@ export const activateInstall = async (req, res) => {
     }
 
     const invite = invites[0];
+    // Obtener el user_id del empleado
+    const empleado = (
+      await sql`
+    SELECT user_id FROM employees_180
+    WHERE id = ${invite.empleado_id}
+  `
+    )[0];
+
+    if (!empleado) {
+      return res.status(400).json({ error: "Empleado no existe" });
+    }
 
     if (invite.usado) {
       return res.status(400).json({ error: "La invitación ya fue usada" });
@@ -176,14 +187,13 @@ export const activateInstall = async (req, res) => {
 
     // Registrar nuevo dispositivo
     const device = await sql`
-      INSERT INTO employee_devices_180
-        (user_id, empleado_id, device_hash, user_agent, activo, ip_habitual)
-      VALUES
-        (${invite.user_id}, ${invite.empleado_id}, ${device_hash}, ${
-      user_agent || null
-    }, true, ${ipActual})
-      RETURNING *
-    `;
+  INSERT INTO employee_devices_180
+    (user_id, empleado_id, device_hash, user_agent, activo, ip_habitual)
+  VALUES
+    (${empleado.user_id}, ${invite.empleado_id}, ${device_hash},
+     ${user_agent || null}, true, ${ipActual})
+  RETURNING *
+`;
 
     await sql`
       UPDATE invite_180
