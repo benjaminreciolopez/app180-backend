@@ -190,16 +190,16 @@ export const activateInstall = async (req, res) => {
   INSERT INTO employee_devices_180
     (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
   VALUES
-    (
-      ${empleado.user_id},
-      ${invite.empleado_id},
-      ${invite.empresa_id},
-      ${device_hash},
-      ${user_agent || null},
-      true,
-      ${ipActual}
-    )
-  RETURNING *
+    (${invite.user_id}, ${invite.empleado_id}, ${invite.empresa_id},
+     ${device_hash}, ${user_agent || null}, true, ${ipActual})
+  ON CONFLICT (empleado_id, device_hash)
+  DO UPDATE SET
+    activo = true,
+    ip_habitual = EXCLUDED.ip_habitual,
+    user_agent = EXCLUDED.user_agent,
+    empresa_id = EXCLUDED.empresa_id,
+    updated_at = now()
+  RETURNING *;
 `;
 
     await sql`
