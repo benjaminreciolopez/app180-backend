@@ -18,7 +18,12 @@ const app = express();
 
 cron.schedule("59 23 * * *", () => ejecutarAutocierre());
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["https://app180-frontend.vercel.app", "http://localhost:3000"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("API APP180 funcionando"));
