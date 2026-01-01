@@ -76,7 +76,7 @@ export const login = async (req, res) => {
     // ======================================
     //   SEGURIDAD PARA EMPLEADOS
     // ======================================
-    if (esEmpleado) {
+    if (esEmpleado && user.role === "empleado") {
       if (!device_hash) {
         return res.status(400).json({
           error: "Falta device_hash (obligatorio para empleados)",
