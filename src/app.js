@@ -47,17 +47,11 @@ app.use("/auth", authRoutes);
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);
 app.use("/calendario", authRequired, calendarioRoutes);
-
-// 👇 ESTE ES EL QUE NOS IMPORTA
 app.use("/turnos", authRequired, turnosRoutes);
 
-// (quita el duplicado)
-/// app.use("/fichajes", fichajeRoutes);
+app.use("/empleado", empleadoRoutes);
+app.use("/reports", reportRoutes);
 
 app.listen(config.port, () =>
   console.log(`Servidor iniciado en puerto ${config.port}`)
 );
-
-app.use("/empleado", empleadoRoutes);
-
-app.use("/reports", reportRoutes);
