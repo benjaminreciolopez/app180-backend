@@ -124,10 +124,18 @@ export const login = async (req, res) => {
         const device = deviceRows[0];
 
         if (device.device_hash !== device_hash) {
-          return res.status(403).json({
-            error:
-              "Este usuario ya tiene asignado un dispositivo. Solicita al administrador autorización para cambiarlo.",
-          });
+          console.log(
+            "⚠️ device_hash distinto pero mismo empleado, actualizando..."
+          );
+
+          await sql`
+    UPDATE employee_devices_180
+    SET device_hash = ${device_hash},
+        ip_habitual = ${ipActual},
+        user_agent = ${user_agent || null},
+        updated_at = now()
+    WHERE id = ${device.id}
+  `;
         }
 
         // Si el hash NO coincide, puede ser PWA / reinstall / borrar datos
