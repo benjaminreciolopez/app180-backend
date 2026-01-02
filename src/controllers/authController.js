@@ -46,6 +46,7 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
+    console.log("LOGIN desde frontend", req.body);
     const { email, password, device_hash, user_agent } = req.body;
     const ipActual = req.ip;
 
