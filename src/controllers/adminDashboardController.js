@@ -31,21 +31,18 @@ export const getAdminDashboard = async (req, res) => {
     `;
     const fichajesHoy = fichajesHoyRow?.count ?? 0;
 
-    // sospechosos de hoy (ajusta campo/condición si en tu esquema es distinto)
+    // sospechosos de hoy
     const [sospechososHoyRow] = await sql`
       SELECT COUNT(*)::int AS count
       FROM fichajes_180
       WHERE sospechoso = true
-        AND DATE(created_at) = CURRENT_DATE
+      AND DATE(created_at) = CURRENT_DATE
     `;
     const sospechososHoy = sospechososHoyRow?.count ?? 0;
 
     // =========================
     // 2) EMPLEADOS FICHANDO AHORA
     // =========================
-    // Idea: cogemos el ÚLTIMO fichaje de cada empleado y nos quedamos
-    // solo con los que están en estado "ENTRADA".
-
     const trabajandoAhora = await sql`
       WITH ultimos AS (
         SELECT
@@ -66,9 +63,9 @@ export const getAdminDashboard = async (req, res) => {
         c.nombre AS cliente_nombre
       FROM ultimos u
       JOIN employees_180 e ON e.id = u.empleado_id
-      LEFT JOIN clientes_180 c ON c.id = u.cliente_id
+      LEFT JOIN clients_180 c ON c.id = u.cliente_id
       WHERE u.rn = 1
-        AND u.estado = 'ENTRADA'
+      AND u.estado = 'ENTRADA'
       ORDER BY u.created_at DESC
       LIMIT 20
     `;
@@ -76,7 +73,6 @@ export const getAdminDashboard = async (req, res) => {
     // =========================
     // 3) ÚLTIMOS FICHAJES
     // =========================
-
     const ultimosFichajes = await sql`
       SELECT
         f.id,
@@ -88,14 +84,11 @@ export const getAdminDashboard = async (req, res) => {
         c.nombre AS cliente_nombre
       FROM fichajes_180 f
       JOIN employees_180 e ON e.id = f.empleado_id
-      LEFT JOIN clientes_180 c ON c.id = f.cliente_id
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
       ORDER BY f.created_at DESC
       LIMIT 10
     `;
 
-    // =========================
-    // RESPUESTA
-    // =========================
     return res.json({
       empleadosActivos,
       fichajesHoy,
