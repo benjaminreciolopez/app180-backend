@@ -9,7 +9,7 @@ import cron from "node-cron";
 import { ejecutarAutocierre } from "./jobs/autocierre.js";
 import { calendarioRoutes } from "./routes/calendarioRoutes.js";
 import turnosRoutes from "./routes/turnosRoutes.js";
-
+import adminRoutes from "./routes/adminRoutes.js";
 import { authRequired } from "./middlewares/authRequired.js";
 import empleadoRoutes from "./routes/empleadoRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
@@ -52,6 +52,7 @@ app.use("/turnos", authRequired, turnosRoutes);
 
 app.use("/empleado", empleadoRoutes);
 app.use("/reports", reportRoutes);
+app.use("/admin", adminRoutes);
 
 app.listen(config.port, () =>
   console.log(`Servidor iniciado en puerto ${config.port}`)

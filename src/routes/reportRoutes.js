@@ -1,7 +1,6 @@
 import express from "express";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
-import { getAdminDashboard } from "../controllers/adminDashboardController.js";
 
 import {
   crearOActualizarReporte,
@@ -26,10 +25,4 @@ router.get("/", roleRequired("admin"), getReportesEmpresa);
 router.patch("/:id/estado", roleRequired("admin"), cambiarEstadoReporte);
 
 router.get("/pending-count", roleRequired("admin"), getPendingCount);
-router.get(
-  "/admin/dashboard",
-  authRequired,
-  roleRequired("admin"),
-  getAdminDashboard
-);
 export default router;
