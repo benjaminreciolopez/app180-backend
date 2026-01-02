@@ -37,6 +37,31 @@ export const register = async (req, res) => {
     return res.status(500).json({ error: "Error al registrar usuario" });
   }
 };
+// GET /empleado/device-hash
+export const getDeviceHash = async (req, res) => {
+  try {
+    const empleadoId = req.user.empleado_id;
+
+    if (!empleadoId) {
+      return res.status(400).json({ error: "No es empleado" });
+    }
+
+    const rows = await sql`
+      SELECT device_hash 
+      FROM employee_devices_180
+      WHERE empleado_id = ${empleadoId}
+    `;
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "No hay dispositivo registrado" });
+    }
+
+    return res.json({ device_hash: rows[0].device_hash });
+  } catch (e) {
+    console.error("❌ getDeviceHash", e);
+    return res.status(500).json({ error: "Error obteniendo device hash" });
+  }
+};
 
 // =====================
 // LOGIN DE USUARIO
