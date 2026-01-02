@@ -104,10 +104,35 @@ export const login = async (req, res) => {
           });
         }
 
-        if (!device.activo) {
-          return res.status(403).json({
-            error: "Este dispositivo está desactivado por el administrador.",
-          });
+        // Si el hash NO coincide, puede ser PWA / reinstall / borrar datos
+        if (device.device_hash !== device_hash) {
+          const mismoNavegador =
+            (device.user_agent &&
+              user_agent &&
+              device.user_agent === user_agent) ||
+            false;
+
+          const mismaIP = device.ip_habitual === ipActual;
+
+          // Reglas de confianza
+          if (mismoNavegador || mismaIP) {
+            console.log(
+              "🔄 Mismo dispositivo detectado, actualizando device_hash..."
+            );
+
+            await sql`
+      UPDATE employee_devices_180
+      SET device_hash = ${device_hash},
+          user_agent = ${user_agent || device.user_agent},
+          ip_habitual = ${ipActual}
+      WHERE id = ${device.id}
+    `;
+          } else {
+            return res.status(403).json({
+              error:
+                "Este usuario ya tiene asignado un dispositivo. Solicita al administrador autorización para cambiarlo.",
+            });
+          }
         }
 
         if (!device.ip_habitual) {
