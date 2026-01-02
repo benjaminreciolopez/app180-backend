@@ -105,26 +105,37 @@ export const login = async (req, res) => {
         }
 
         // Si el hash NO coincide, puede ser PWA / reinstall / borrar datos
+        // ==========================
+        // POLÍTICA DE DISPOSITIVO
+        // ==========================
         if (device.device_hash !== device_hash) {
-          const mismoNavegador =
-            (device.user_agent &&
-              user_agent &&
-              device.user_agent === user_agent) ||
-            false;
+          console.log("⚠️ Device hash diferente detectado");
+          console.log("BD:", device.device_hash);
+          console.log("Nuevo:", device_hash);
+          console.log("UA viejo:", device.user_agent);
+          console.log("UA nuevo:", user_agent);
+          console.log("IP vieja:", device.ip_habitual);
+          console.log("IP nueva:", ipActual);
 
-          const mismaIP = device.ip_habitual === ipActual;
+          // 🔐 NUEVA POLÍTICA:
+          // Si solo existe 1 dispositivo registrado → asumimos mismo móvil
+          const count = await sql`
+    SELECT COUNT(*)::int AS total
+    FROM employee_devices_180
+    WHERE empleado_id = ${empleadoId}
+  `;
 
-          // Reglas de confianza
-          if (mismoNavegador || mismaIP) {
+          if (count[0].total === 1) {
             console.log(
-              "🔄 Mismo dispositivo detectado, actualizando device_hash..."
+              "🔄 Actualizando device_hash por cambio legítimo en iOS"
             );
 
             await sql`
       UPDATE employee_devices_180
       SET device_hash = ${device_hash},
           user_agent = ${user_agent || device.user_agent},
-          ip_habitual = ${ipActual}
+          ip_habitual = ${ipActual},
+          updated_at = now()
       WHERE id = ${device.id}
     `;
           } else {
