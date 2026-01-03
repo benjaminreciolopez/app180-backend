@@ -1,8 +1,9 @@
 import express from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
+import { roleRequired } from "../middlewares/roleRequired.js";
+
 import {
   createEmployee,
-  getEmployeesAdmin,
   getEmployeesAdmin,
   updateEmployeeStatus,
 } from "../controllers/employeeController.js";
@@ -11,29 +12,38 @@ import {
   generateEmployeeInvite,
   updateEmployeeDeviceStatus,
 } from "../controllers/employeeSecurityController.js";
+
 import { asignarTurnoEmpleado } from "../controllers/turnosController.js";
-import { roleRequired } from "../middlewares/roleRequired.js";
 
 const router = express.Router();
 
-router.use(authRequired);
+// 🔐 Todo este router es SOLO ADMIN
+router.use(authRequired, roleRequired("admin"));
 
-// Empleados (CRUD básico)
+// ==========================
+// EMPLEADOS (ADMIN)
+// ==========================
+
+// Listar empleados (dashboard admin)
+router.get("/", getEmployeesAdmin);
+
+// Crear empleado
 router.post("/", createEmployee);
-router.get("/", getEmployees);
+
+// Activar / desactivar empleado
 router.put("/:id/status", updateEmployeeStatus);
 
-// Seguridad de instalación (PWA)
-router.post("/:id/invite", generateEmployeeInvite); // genera enlace único
-router.put("/:id/device-status", updateEmployeeDeviceStatus); // activar/desactivar PWA empleado
+// Asignar turno
 router.put("/:id/turno", asignarTurnoEmpleado);
 
-router.get("/", authRequired, roleRequired("admin"), getEmployeesAdmin);
-router.put(
-  "/:id/turno",
-  authRequired,
-  roleRequired("admin"),
-  asignarTurnoEmpleado
-);
+// ==========================
+// SEGURIDAD / DISPOSITIVOS
+// ==========================
+
+// Generar invitación PWA
+router.post("/:id/invite", generateEmployeeInvite);
+
+// Activar / bloquear dispositivo
+router.put("/:id/device-status", updateEmployeeDeviceStatus);
 
 export default router;
