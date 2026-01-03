@@ -2,7 +2,7 @@ import express from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import {
   createEmployee,
-  getEmployees,
+  getEmployeesAdmin,
   getEmployeesAdmin,
   updateEmployeeStatus,
 } from "../controllers/employeeController.js";
