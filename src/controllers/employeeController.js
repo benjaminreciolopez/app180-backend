@@ -53,24 +53,34 @@ export const createEmployee = async (req, res) => {
 // ==========================
 // LISTAR EMPLEADOS DEL ADMIN
 // ==========================
-export const getEmployees = async (req, res) => {
+export const getEmployeesAdmin = async (req, res) => {
   try {
-    const empresa = await sql`
-  SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-`;
-    const empresaId = empresa[0].id;
-
     const empleados = await sql`
-      SELECT e.id, e.nombre, e.activo, u.email
+      SELECT
+        e.id,
+        e.nombre,
+        u.email,
+        e.activo,
+        t.nombre AS turno_nombre,
+        d.activo AS dispositivo_activo,
+        d.device_hash
       FROM employees_180 e
       JOIN users_180 u ON u.id = e.user_id
-      WHERE empresa_id = ${empresaId}
+      LEFT JOIN turnos_180 t ON t.id = e.turno_id
+      LEFT JOIN LATERAL (
+        SELECT device_hash, activo
+        FROM employee_devices_180
+        WHERE empleado_id = e.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) d ON true
+      ORDER BY e.nombre
     `;
 
     res.json(empleados);
   } catch (err) {
-    console.error("❌ Error en getEmployees:", err);
-    res.status(500).json({ error: "Error al obtener empleados" });
+    console.error("❌ Error listando empleados:", err);
+    res.status(500).json({ error: "Error obteniendo empleados" });
   }
 };
 

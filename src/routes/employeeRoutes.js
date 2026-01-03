@@ -3,6 +3,7 @@ import { authRequired } from "../middlewares/authMiddleware.js";
 import {
   createEmployee,
   getEmployees,
+  getEmployeesAdmin,
   updateEmployeeStatus,
 } from "../controllers/employeeController.js";
 
@@ -27,7 +28,7 @@ router.post("/:id/invite", generateEmployeeInvite); // genera enlace único
 router.put("/:id/device-status", updateEmployeeDeviceStatus); // activar/desactivar PWA empleado
 router.put("/:id/turno", asignarTurnoEmpleado);
 
-router.get("/", authRequired, roleRequired("admin"), getEmployees);
+router.get("/", authRequired, roleRequired("admin"), getEmployeesAdmin);
 router.put(
   "/:id/turno",
   authRequired,
