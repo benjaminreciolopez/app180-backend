@@ -76,8 +76,16 @@ export const login = async (req, res) => {
     const ipActual = req.ip;
 
     const rows = await sql`
-      SELECT * FROM users_180 WHERE email = ${email}
-    `;
+  SELECT
+    id,
+    email,
+    password,
+    nombre,
+    role,
+    password_forced
+  FROM users_180
+  WHERE email = ${email}
+`;
 
     if (rows.length === 0) {
       return res.status(400).json({ error: "Usuario no encontrado" });
@@ -198,13 +206,24 @@ export const login = async (req, res) => {
         nombre: user.nombre,
         empleado_id: empleadoId,
         device_hash: device_hash || null,
+        password_forced: user.password_forced === true, // 👈 CLAVE
       },
       config.jwtSecret,
       { expiresIn: "7d" }
     );
 
     // 👈 MUY IMPORTANTE: responder exactamente esto
-    return res.json({ token, user });
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        nombre: user.nombre,
+        role: user.role,
+        empleado_id: empleadoId,
+        password_forced: user.password_forced === true,
+      },
+    });
   } catch (err) {
     console.error("❌ Error en login:", err);
     return res.status(500).json({ error: "Error al iniciar sesión" });

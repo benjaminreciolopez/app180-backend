@@ -2,38 +2,52 @@ import { sql } from "../db.js";
 import bcrypt from "bcryptjs";
 
 // ==========================
-// CREAR EMPLEADO
+// CREAR EMPLEADO (PASSWORD FORZADO)
 // ==========================
 export const createEmployee = async (req, res) => {
   try {
-    // Obtenemos la empresa del admin
+    // 1️⃣ Obtener empresa del admin
     const empresa = await sql`
-  SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-`;
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
 
     if (empresa.length === 0) {
       return res.status(400).json({ error: "El usuario no es una empresa" });
     }
 
     const empresaId = empresa[0].id;
-    const { email, password, nombre } = req.body;
+    const { email, nombre } = req.body;
 
-    if (!email || !password || !nombre) {
+    if (!email || !nombre) {
       return res.status(400).json({ error: "Faltan datos" });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    // 2️⃣ Password inicial forzado
+    const PASSWORD_INICIAL = "123456";
+    const hashed = await bcrypt.hash(PASSWORD_INICIAL, 10);
 
-    // Crear usuario del empleado
+    // 3️⃣ Crear usuario empleado
     const user = await sql`
-      INSERT INTO users_180 (email, password, nombre, role)
-      VALUES (${email}, ${hashed}, ${nombre}, 'empleado')
+      INSERT INTO users_180 (
+        email,
+        password,
+        nombre,
+        role,
+        password_forced
+      )
+      VALUES (
+        ${email},
+        ${hashed},
+        ${nombre},
+        'empleado',
+        true
+      )
       RETURNING id
     `;
 
     const userId = user[0].id;
 
-    // Registrar empleado asociado al admin
+    // 4️⃣ Crear empleado
     const empleado = await sql`
       INSERT INTO employees_180 (user_id, empresa_id, nombre)
       VALUES (${userId}, ${empresaId}, ${nombre})
@@ -43,6 +57,7 @@ export const createEmployee = async (req, res) => {
     res.json({
       success: true,
       empleado: empleado[0],
+      password_inicial: PASSWORD_INICIAL, // 👈 útil para el admin
     });
   } catch (err) {
     console.error("❌ Error en createEmployee:", err);
