@@ -297,3 +297,76 @@ export const activateInstall = async (req, res) => {
     return res.status(500).json({ error: "Error al activar instalación" });
   }
 };
+
+// src/controllers/authController.js
+
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { current_password, new_password } = req.body;
+
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: "Faltan datos" });
+    }
+
+    if (new_password.length < 6) {
+      return res.status(400).json({
+        error: "La nueva contraseña debe tener al menos 6 caracteres",
+      });
+    }
+
+    const rows = await sql`
+      SELECT id, password, email, nombre, role
+      FROM users_180
+      WHERE id = ${userId}
+    `;
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const user = rows[0];
+
+    const match = await bcrypt.compare(current_password, user.password);
+    if (!match) {
+      return res.status(400).json({ error: "Contraseña actual incorrecta" });
+    }
+
+    const hashed = await bcrypt.hash(new_password, 10);
+
+    await sql`
+      UPDATE users_180
+      SET password = ${hashed},
+          password_forced = false,
+          updated_at = now()
+      WHERE id = ${userId}
+    `;
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        nombre: user.nombre,
+        password_forced: false,
+      },
+      config.jwtSecret,
+      { expiresIn: "7d" }
+    );
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        nombre: user.nombre,
+        role: user.role,
+        password_forced: false,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error en changePassword:", err);
+    return res.status(500).json({ error: "Error al cambiar la contraseña" });
+  }
+};
