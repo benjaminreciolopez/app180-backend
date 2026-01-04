@@ -5,7 +5,6 @@ import { validarFichajeSegunTurno } from "../services/fichajesValidacionService.
 import {
   obtenerJornadaAbierta,
   crearJornada,
-  cerrarJornada,
 } from "../services/jornadasService.js";
 import { calcularMinutos } from "../services/jornadasCalculo.js";
 import { calcularDescansoJornada } from "../services/jornadasDescanso.js";
