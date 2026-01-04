@@ -8,7 +8,11 @@ import {
 } from "../controllers/turnosController.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+
 const router = Router();
+
+// 🔐 Todas las rutas protegidas (admin)
+router.use(authRequired, roleRequired("admin"));
 
 // GET turnos empresa
 router.get("/", getTurnos);
@@ -24,9 +28,5 @@ router.put("/:id", updateTurno);
 
 // Borrar turno
 router.delete("/:id", deleteTurno);
-router.get("/", authRequired, roleRequired("admin"), getTurnos);
-router.post("/", authRequired, roleRequired("admin"), createTurno);
-router.put("/:id", authRequired, roleRequired("admin"), updateTurno);
-router.delete("/:id", authRequired, roleRequired("admin"), deleteTurno);
 
 export default router;
