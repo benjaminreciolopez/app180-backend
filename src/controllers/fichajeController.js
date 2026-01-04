@@ -1,7 +1,15 @@
 import { sql } from "../db.js";
 import { ejecutarAutocierre } from "../jobs/autocierre.js";
 import { detectarFichajeSospechoso } from "../services/fichajeSospechoso.js";
-
+import { validarFichajeSegunTurno } from "../services/fichajesValidacionService.js";
+import {
+  obtenerJornadaAbierta,
+  crearJornada,
+  cerrarJornada,
+} from "../services/jornadasService.js";
+import { calcularMinutos } from "../services/jornadasCalculo.js";
+import { calcularDescansoJornada } from "../services/jornadasDescanso.js";
+import { calcularExtras } from "../services/jornadasExtras.js";
 //
 // Obtener último fichaje del empleado/autónomo
 //
@@ -40,10 +48,10 @@ export const createFichaje = async (req, res) => {
     let empresaId = null;
 
     const empleado = await sql`
-      SELECT id, activo, empresa_id 
-      FROM employees_180 
-      WHERE user_id = ${req.user.id}
-    `;
+  SELECT id, activo, empresa_id, tipo_trabajo, turno_id
+  FROM employees_180 
+  WHERE user_id = ${req.user.id}
+`;
 
     const esEmpleado = empleado.length > 0;
 
@@ -76,22 +84,30 @@ export const createFichaje = async (req, res) => {
       }
 
       // 1.2 Validar cliente obligatorio solo si empresa tiene clientes
+      // 1.2 Validar cliente obligatorio solo si empresa tiene clientes
       const clientesEmpresa = await sql`
-        SELECT id FROM clients_180 WHERE empresa_id = ${empresaId}
-      `;
+  SELECT id FROM clients_180 WHERE empresa_id = ${empresaId}
+`;
 
-      if (clientesEmpresa.length > 0) {
-        if (!cliente_id) {
-          return res.status(400).json({
-            error: "Debes seleccionar un cliente",
-          });
-        }
+      const tipoTrabajo = empleado[0].tipo_trabajo;
 
+      if (
+        clientesEmpresa.length > 0 &&
+        tipoTrabajo === "oficina" &&
+        tipo === "entrada" &&
+        !cliente_id
+      ) {
+        return res.status(400).json({
+          error: "Debes seleccionar un cliente",
+        });
+      }
+
+      if (cliente_id) {
         const cliente = await sql`
-          SELECT id FROM clients_180
-          WHERE id = ${cliente_id}
-          AND empresa_id = ${empresaId}
-        `;
+    SELECT id FROM clients_180
+    WHERE id = ${cliente_id}
+    AND empresa_id = ${empresaId}
+  `;
 
         if (cliente.length === 0) {
           return res.status(400).json({
@@ -100,10 +116,20 @@ export const createFichaje = async (req, res) => {
         }
       }
     }
+    if (esEmpleado) {
+      const v = await validarFichajeSegunTurno({
+        empleadoId,
+        empresaId,
+        fechaHora: new Date(),
+        tipo,
+      });
 
-    // 2. Autocierre inteligente
-    if (tipo === "entrada" || tipo === "salida") {
-      await ejecutarAutocierre();
+      if (!v.ok) {
+        return res.status(v.status || 400).json({
+          error: v.error,
+          code: v.code,
+        });
+      }
     }
 
     // 3. Validación de secuencia
@@ -156,6 +182,71 @@ export const createFichaje = async (req, res) => {
     let nota = analisis.sospechoso ? analisis.razones.join(" | ") : null;
     const detalle_ip = analisis?.ipInfo || null;
     const distancia_km = analisis?.distanciaKm || null;
+    let jornada = null;
+    let jornadaId = null;
+
+    if (esEmpleado) {
+      jornada = await obtenerJornadaAbierta(empleadoId);
+    }
+
+    if (tipo === "entrada" && esEmpleado) {
+      if (!jornada) {
+        jornada = await crearJornada({
+          empresaId,
+          empleadoId,
+          inicio: new Date(),
+        });
+      }
+      jornadaId = jornada.id;
+    }
+
+    if (tipo === "salida" && esEmpleado) {
+      if (!jornada) {
+        return res.status(400).json({
+          error: "No hay jornada abierta para cerrar",
+        });
+      }
+
+      const fin = new Date();
+      const minutos = calcularMinutos(jornada.inicio, fin);
+      const descanso = await calcularDescansoJornada(jornada.id);
+
+      const turno = await sql`
+    SELECT t.*
+    FROM turnos_180 t
+    JOIN employees_180 e ON e.turno_id = t.id
+    WHERE e.id = ${empleadoId}
+  `;
+
+      const minutosExtra = calcularExtras({
+        minutos_trabajados: minutos - descanso,
+        horas_objetivo_dia: turno[0]?.horas_dia_objetivo,
+      });
+
+      await cerrarJornada({
+        jornadaId: jornada.id,
+        fin,
+        minutos_trabajados: minutos - descanso,
+        minutos_descanso: descanso,
+        minutos_extra: minutosExtra,
+        origen_cierre: "app",
+      });
+
+      jornadaId = jornada.id;
+    }
+
+    if ((tipo === "descanso_inicio" || tipo === "descanso_fin") && esEmpleado) {
+      if (!jornada) {
+        return res.status(400).json({
+          error: "No hay jornada abierta para registrar descanso",
+        });
+      }
+      jornadaId = jornada.id;
+    }
+    // 2. Autocierre inteligente
+    if (tipo === "entrada" || tipo === "salida") {
+      await ejecutarAutocierre();
+    }
 
     // 5. Insertar fichaje
     const nuevo = await sql`
@@ -163,6 +254,8 @@ INSERT INTO fichajes_180 (
   user_id,
   empleado_id,
   cliente_id,
+  empresa_id,
+  jornada_id,
   tipo,
   lat,
   lng,
@@ -179,6 +272,8 @@ VALUES (
   ${req.user.id},
   ${empleadoId},
   ${cliente_id || null},
+  ${empresaId},
+  ${jornadaId},
   ${tipo},
   ${lat || null},
   ${lng || null},
