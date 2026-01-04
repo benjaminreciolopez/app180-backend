@@ -18,6 +18,5 @@ router.post("/activate-install", activateInstall);
 
 // 🔐 CAMBIO DE CONTRASEÑA (empleado / admin logueado)
 router.post("/change-password", authRequired, changePassword);
-router.post("/change-password", authRequired, changePassword);
 
 export default router;
