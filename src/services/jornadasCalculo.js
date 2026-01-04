@@ -1,5 +1,12 @@
 import { sql } from "../db.js";
 
+// ⏱️ minutos entre dos fechas
+export function calcularMinutos(inicio, fin) {
+  const diffMs = fin.getTime() - inicio.getTime();
+  return Math.max(0, Math.floor(diffMs / 60000));
+}
+
+// ☕ minutos de descanso de una jornada
 export async function calcularDescansoJornada(jornadaId) {
   const fichajes = await sql`
     SELECT tipo, fecha

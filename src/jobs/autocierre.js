@@ -53,3 +53,7 @@ export const ejecutarAutocierre = async () => {
     console.error("❌ Error ejecutando autocierre:", err);
   }
 };
+export function calcularMinutos(inicio, fin) {
+  const diffMs = fin.getTime() - inicio.getTime();
+  return Math.max(0, Math.floor(diffMs / 60000));
+}
