@@ -2,6 +2,11 @@ import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 
 export const authRequired = (req, res, next) => {
+  // ✅ PERMITIR PREFLIGHT CORS
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
