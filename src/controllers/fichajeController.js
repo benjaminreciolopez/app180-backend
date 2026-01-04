@@ -7,7 +7,7 @@ import {
   crearJornada,
 } from "../services/jornadasService.js";
 import { calcularMinutos } from "../services/jornadasCalculo.js";
-import { calcularDescansoJornada } from "../services/jornadasDescanso.js";
+import { calcularDescansoJornada } from "../services/jornadasCalculo.js";
 import { calcularExtras } from "../services/jornadasExtras.js";
 //
 // Obtener último fichaje del empleado/autónomo
