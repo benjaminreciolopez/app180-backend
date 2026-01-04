@@ -7,7 +7,6 @@ import {
 } from "../controllers/authController.js";
 
 import { authRequired } from "../middlewares/authMiddleware.js";
-import { changePassword } from "../controllers/authController.js";
 import { authRequired } from "../middlewares/authRequired.js";
 
 const router = express.Router();
