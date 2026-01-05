@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { sql } from "../db.js";
 import { config } from "../config.js";
+import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
 
 // =====================
 // REGISTRO DE USUARIO
@@ -116,45 +117,14 @@ export const login = async (req, res) => {
 
       empresaId = empresaRows[0].id;
     }
-    // =========================
-    // EMPLEADO LÓGICO PARA ADMIN (AUTÓNOMO)
-    // =========================
     let empleadoId = null;
 
     if (user.role === "admin") {
-      const empleadoAdminRows = await sql`
-    SELECT id
-    FROM employees_180
-    WHERE user_id = ${user.id}
-      AND empresa_id = ${empresaId}
-  `;
-
-      if (empleadoAdminRows.length === 0) {
-        // 👉 crear empleado automático
-        const nuevoEmpleado = await sql`
-      INSERT INTO employees_180 (
-        user_id,
-        empresa_id,
-        nombre,
-        activo,
-        tipo_trabajo,
-        created_at
-      )
-      VALUES (
-        ${user.id},
-        ${empresaId},
-        ${user.nombre},
-        true,
-        'autonomo',
-        now()
-      )
-      RETURNING id
-    `;
-
-        empleadoId = nuevoEmpleado[0].id;
-      } else {
-        empleadoId = empleadoAdminRows[0].id;
-      }
+      empleadoId = await ensureSelfEmployee({
+        userId: user.id,
+        empresaId,
+        nombre: user.nombre,
+      });
     }
 
     // =========================
@@ -256,7 +226,7 @@ export const login = async (req, res) => {
         password_forced: user.password_forced === true, // 👈 CLAVE
       },
       config.jwtSecret,
-      { expiresIn: "7d" }
+      { expiresIn: "1d" }
     );
 
     // 👈 MUY IMPORTANTE: responder exactamente esto
@@ -406,7 +376,7 @@ export const changePassword = async (req, res) => {
         password_forced: false,
       },
       config.jwtSecret,
-      { expiresIn: "7d" }
+      { expiresIn: "1d" }
     );
 
     return res.json({

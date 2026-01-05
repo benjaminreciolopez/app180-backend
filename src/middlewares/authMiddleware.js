@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
+import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
 
-export const authRequired = (req, res, next) => {
+export const authRequired = async (req, res, next) => {
   // ✅ PERMITIR PREFLIGHT CORS
   if (req.method === "OPTIONS") {
     return next();
@@ -44,7 +45,22 @@ export const authRequired = (req, res, next) => {
       }
     }
 
-    next();
+    // ==========================
+    // 👤 EMPLEADO LÓGICO PARA ADMIN (AUTÓNOMO)
+    // ==========================
+    if (
+      req.user.role === "admin" &&
+      req.user.empresa_id &&
+      !req.user.empleado_id
+    ) {
+      req.user.empleado_id = await ensureSelfEmployee({
+        userId: req.user.id,
+        empresaId: req.user.empresa_id,
+        nombre: req.user.nombre,
+      });
+    }
+
+    return next();
   } catch (err) {
     console.error("JWT ERROR:", err);
     return res.status(401).json({ error: "Token inválido" });

@@ -45,3 +45,36 @@ export const adminPartesDia = async (req, res) => {
     return res.status(500).json({ error: "Error cargando partes del día" });
   }
 };
+
+export const validarParteDia = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    const { empleado_id, fecha, validado, nota_admin } = req.body;
+
+    if (!empleado_id || !fecha || typeof validado !== "boolean") {
+      return res.status(400).json({ error: "Datos incompletos" });
+    }
+
+    const rows = await sql`
+      UPDATE employee_daily_report_180
+      SET
+        validado = ${validado},
+        validado_por = ${adminId},
+        validado_at = now(),
+        resumen = CASE
+          WHEN ${nota_admin} IS NOT NULL
+          THEN resumen || ' | Nota admin: ' || ${nota_admin}
+          ELSE resumen
+        END,
+        updated_at = now()
+      WHERE empleado_id = ${empleado_id}
+        AND fecha = ${fecha}::date
+      RETURNING *
+    `;
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error("❌ validarParteDia:", err);
+    return res.status(500).json({ error: "Error validando parte" });
+  }
+};
