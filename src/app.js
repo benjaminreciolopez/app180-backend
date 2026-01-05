@@ -48,7 +48,7 @@ app.use("/auth", authRoutes);
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);
 app.use("/calendario", authRequired, calendarioRoutes);
-app.use("/turnos", authRequired, turnosRoutes);
+app.use("/turnos", turnosRoutes);
 
 app.use("/empleado", empleadoRoutes);
 app.use("/reports", reportRoutes);
