@@ -471,11 +471,29 @@ export const registrarFichajeManual = async (req, res) => {
       return res.status(404).json({ error: "Empleado no encontrado" });
     }
 
+    // 👉 BUSCAR o CREAR jornada
+    let jornada = await obtenerJornadaAbierta(empleado_id);
+
+    if (tipo === "entrada" && !jornada) {
+      jornada = await crearJornada({
+        empresaId: empleado[0].empresa_id,
+        empleadoId: empleado_id,
+        inicio: new Date(fecha_hora),
+      });
+    }
+
+    if (tipo !== "entrada" && !jornada) {
+      return res.status(400).json({
+        error: "No hay jornada abierta para este fichaje",
+      });
+    }
+
     const nuevo = await sql`
       INSERT INTO fichajes_180 (
         empleado_id,
         empresa_id,
         user_id,
+        jornada_id,
         tipo,
         fecha,
         estado,
@@ -488,10 +506,11 @@ export const registrarFichajeManual = async (req, res) => {
         ${empleado_id},
         ${empleado[0].empresa_id},
         ${empleado[0].user_id},
+        ${jornada.id},
         ${tipo},
         ${fecha_hora},
         'confirmado',
-        'app',
+        'manual_admin',
         ${motivo || null},
         false,
         true
