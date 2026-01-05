@@ -22,23 +22,24 @@ export const adminPartesDia = async (req, res) => {
     const fecha = (req.query.fecha || todayYYYYMMDD()).toString();
 
     const rows = await sql`
-      SELECT
-        r.empleado_id,
-        e.nombre AS empleado_nombre,
-        r.fecha,
-        r.estado,
-        r.resumen,
-        r.horas_trabajadas,
-        r.cliente_id,
-        c.nombre AS cliente_nombre
-      FROM employee_daily_report_180 r
-      JOIN employees_180 e ON e.id = r.empleado_id
-      LEFT JOIN clients_180 c ON c.id = r.cliente_id
-      WHERE r.empresa_id = ${empresaId}
-        AND r.fecha = ${fecha}::date
-      ORDER BY e.nombre ASC
-    `;
-
+  SELECT
+    r.empleado_id,
+    e.nombre AS empleado_nombre,
+    r.fecha,
+    r.estado,
+    r.resumen,
+    r.horas_trabajadas,
+    r.cliente_id,
+    c.nombre AS cliente_nombre,
+    r.validado,
+    r.validado_at
+  FROM employee_daily_report_180 r
+  JOIN employees_180 e ON e.id = r.empleado_id
+  LEFT JOIN clients_180 c ON c.id = r.cliente_id
+  WHERE r.empresa_id = ${empresaId}
+    AND r.fecha = ${fecha}::date
+  ORDER BY e.nombre ASC
+`;
     return res.json({ fecha, items: rows });
   } catch (err) {
     console.error("❌ adminPartesDia:", err);
