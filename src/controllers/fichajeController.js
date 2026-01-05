@@ -14,14 +14,17 @@ import { calcularExtras } from "../services/jornadasExtras.js";
 //
 const getLastFichaje = async (empleadoId) => {
   const rows = await sql`
-    SELECT *
+    SELECT 
+      id,
+      tipo,
+      fecha,
+      jornada_id
     FROM fichajes_180
-    WHERE 
-      (empleado_id = ${empleadoId}
-       OR (empleado_id IS NULL AND ${empleadoId} IS NULL))
+    WHERE empleado_id = ${empleadoId}
     ORDER BY fecha DESC
     LIMIT 1
   `;
+
   return rows.length ? rows[0] : null;
 };
 
@@ -30,7 +33,7 @@ const getLastFichaje = async (empleadoId) => {
 //
 export const createFichaje = async (req, res) => {
   try {
-    const { tipo, cliente_id, lat, lng } = req.body;
+    const { tipo, cliente_id, lat, lng, fecha_hora } = req.body;
 
     const tiposValidos = [
       "entrada",
@@ -42,130 +45,124 @@ export const createFichaje = async (req, res) => {
       return res.status(400).json({ error: "Tipo de fichaje no válido" });
     }
 
-    // 1. Determinar si empleado o autónomo
-    let empleadoId = null;
-    let empresaId = null;
+    const fechaHora = fecha_hora ? new Date(fecha_hora) : new Date();
 
-    const empleado = await sql`
-  SELECT id, activo, empresa_id, tipo_trabajo, turno_id
-  FROM employees_180 
-  WHERE user_id = ${req.user.id}
-`;
+    // =========================
+    // EMPLEADO
+    // =========================
+    const empleadoRows = await sql`
+      SELECT id, activo, empresa_id, tipo_trabajo, turno_id
+      FROM employees_180
+      WHERE user_id = ${req.user.id}
+    `;
 
-    const esEmpleado = empleado.length > 0;
+    if (empleadoRows.length === 0) {
+      return res.status(403).json({ error: "Usuario no es empleado" });
+    }
 
-    if (esEmpleado) {
-      empleadoId = empleado[0].id;
-      empresaId = empleado[0].empresa_id;
+    const empleado = empleadoRows[0];
+    const empleadoId = empleado.id;
+    const empresaId = empleado.empresa_id;
 
-      if (!empleado[0].activo) {
-        return res.status(403).json({ error: "Empleado desactivado" });
-      }
+    if (!empleado.activo) {
+      return res.status(403).json({ error: "Empleado desactivado" });
+    }
 
-      // 1.1 Bloqueo por ausencia aprobada
-      const hoy = new Date().toISOString().split("T")[0];
-
-      const ausencia = await sql`
-        SELECT tipo
-        FROM ausencias_180
-        WHERE empleado_id = ${empleadoId}
+    // =========================
+    // AUSENCIAS
+    // =========================
+    const hoy = fechaHora.toISOString().split("T")[0];
+    const ausencia = await sql`
+      SELECT 1
+      FROM ausencias_180
+      WHERE empleado_id = ${empleadoId}
         AND estado = 'aprobado'
         AND fecha_inicio <= ${hoy}
         AND fecha_fin >= ${hoy}
+    `;
+
+    if (ausencia.length > 0) {
+      return res.status(403).json({
+        error: "No puedes fichar durante una ausencia aprobada",
+      });
+    }
+
+    // =========================
+    // CLIENTE OBLIGATORIO
+    // =========================
+    if (tipo === "entrada" && empleado.tipo_trabajo === "oficina") {
+      const clientes = await sql`
+        SELECT 1 FROM clients_180 WHERE empresa_id = ${empresaId}
       `;
-
-      if (ausencia.length > 0) {
-        const tipoAus =
-          ausencia[0].tipo === "baja_medica" ? "baja médica" : "vacaciones";
-        return res.status(403).json({
-          error: `No puedes fichar porque estás en ${tipoAus}.`,
-        });
-      }
-
-      // 1.2 Validar cliente obligatorio solo si empresa tiene clientes
-      // 1.2 Validar cliente obligatorio solo si empresa tiene clientes
-      const clientesEmpresa = await sql`
-  SELECT id FROM clients_180 WHERE empresa_id = ${empresaId}
-`;
-
-      const tipoTrabajo = empleado[0].tipo_trabajo;
-
-      if (
-        clientesEmpresa.length > 0 &&
-        tipoTrabajo === "oficina" &&
-        tipo === "entrada" &&
-        !cliente_id
-      ) {
+      if (clientes.length > 0 && !cliente_id) {
         return res.status(400).json({
           error: "Debes seleccionar un cliente",
         });
       }
-
-      if (cliente_id) {
-        const cliente = await sql`
-    SELECT id FROM clients_180
-    WHERE id = ${cliente_id}
-    AND empresa_id = ${empresaId}
-  `;
-
-        if (cliente.length === 0) {
-          return res.status(400).json({
-            error: "Cliente no válido para esta empresa",
-          });
-        }
-      }
     }
-    if (esEmpleado) {
-      const v = await validarFichajeSegunTurno({
-        empleadoId,
-        empresaId,
-        fechaHora: new Date(),
-        tipo,
+
+    // =========================
+    // VALIDACIÓN TURNO
+    // =========================
+    const validacionTurno = await validarFichajeSegunTurno({
+      empleadoId,
+      empresaId,
+      fechaHora,
+      tipo,
+    });
+
+    if (!validacionTurno.ok) {
+      return res.status(validacionTurno.status || 400).json({
+        error: validacionTurno.error,
+        code: validacionTurno.code,
       });
-
-      if (!v.ok) {
-        return res.status(v.status || 400).json({
-          error: v.error,
-          code: v.code,
-        });
-      }
     }
 
-    // 3. Validación de secuencia
+    // =========================
+    // SECUENCIA
+    // =========================
     const last = await getLastFichaje(empleadoId);
 
+    if (tipo === "entrada" && last && last.tipo !== "salida") {
+      return res.status(400).json({ error: "Ya hay una entrada abierta" });
+    }
+
+    if (tipo === "salida" && (!last || last.tipo !== "entrada")) {
+      return res.status(400).json({ error: "Debes fichar entrada antes" });
+    }
+
+    // =========================
+    // AUTOCIERRE (ANTES)
+    // =========================
+    if (tipo === "entrada" || tipo === "salida") {
+      await ejecutarAutocierre();
+    }
+
+    // =========================
+    // JORNADA
+    // =========================
+    let jornada = await obtenerJornadaAbierta(empleadoId);
+    let jornadaId = null;
+
     if (tipo === "entrada") {
-      if (last && last.tipo !== "salida") {
-        return res.status(400).json({
-          error: "Ya tienes una entrada activa.",
+      if (!jornada) {
+        jornada = await crearJornada({
+          empresaId,
+          empleadoId,
+          inicio: fechaHora,
         });
       }
+      jornadaId = jornada.id;
+    } else {
+      if (!jornada) {
+        return res.status(400).json({ error: "No hay jornada abierta" });
+      }
+      jornadaId = jornada.id;
     }
 
-    if (tipo === "salida") {
-      if (!last || last.tipo === "salida") {
-        return res.status(400).json({
-          error: "Debes fichar entrada antes de fichar salida",
-        });
-      }
-    }
-
-    if (tipo === "descanso_inicio") {
-      if (!last || !["entrada", "descanso_fin"].includes(last.tipo)) {
-        return res.status(400).json({
-          error: "No puedes iniciar descanso ahora",
-        });
-      }
-    }
-
-    if (tipo === "descanso_fin") {
-      if (!last || last.tipo !== "descanso_inicio") {
-        return res.status(400).json({
-          error: "No puedes finalizar descanso ahora",
-        });
-      }
-    }
-    // 4. Detección de fichaje sospechoso
+    // =========================
+    // SOSPECHOSO
+    // =========================
     const analisis = await detectarFichajeSospechoso({
       userId: req.user.id,
       empleadoId,
@@ -174,130 +171,46 @@ export const createFichaje = async (req, res) => {
       lng,
       clienteId: cliente_id || null,
       deviceHash: req.headers["x-device-id"] || null,
-      reqIp: req.ip || req.headers["x-forwarded-for"] || null,
+      reqIp: req.ip,
     });
 
-    let estado = analisis.sospechoso ? "sospechoso" : "confirmado";
-    let nota = analisis.sospechoso ? analisis.razones.join(" | ") : null;
-    const detalle_ip = analisis?.ipInfo || null;
-    const distancia_km = analisis?.distanciaKm || null;
-    let jornada = null;
-    let jornadaId = null;
+    const estado = analisis.sospechoso ? "sospechoso" : "confirmado";
+    const nota = analisis.sospechoso ? analisis.razones.join(" | ") : null;
 
-    if (esEmpleado) {
-      jornada = await obtenerJornadaAbierta(empleadoId);
-    }
-
-    if (tipo === "entrada" && esEmpleado) {
-      if (!jornada) {
-        jornada = await crearJornada({
-          empresaId,
-          empleadoId,
-          inicio: new Date(),
-        });
-      }
-      jornadaId = jornada.id;
-    }
-
-    if (tipo === "salida" && esEmpleado) {
-      if (!jornada) {
-        return res.status(400).json({
-          error: "No hay jornada abierta para cerrar",
-        });
-      }
-
-      const fin = new Date();
-      const minutos = calcularMinutos(jornada.inicio, fin);
-      const descanso = await calcularDescansoJornada(jornada.id);
-
-      const turno = await sql`
-    SELECT t.*
-    FROM turnos_180 t
-    JOIN employees_180 e ON e.turno_id = t.id
-    WHERE e.id = ${empleadoId}
-  `;
-
-      const minutosExtra = calcularExtras({
-        minutos_trabajados: minutos - descanso,
-        horas_objetivo_dia: turno[0]?.horas_dia_objetivo,
-      });
-
-      await cerrarJornada({
-        jornadaId: jornada.id,
-        fin,
-        minutos_trabajados: minutos - descanso,
-        minutos_descanso: descanso,
-        minutos_extra: minutosExtra,
-        origen_cierre: "app",
-      });
-
-      jornadaId = jornada.id;
-    }
-
-    if ((tipo === "descanso_inicio" || tipo === "descanso_fin") && esEmpleado) {
-      if (!jornada) {
-        return res.status(400).json({
-          error: "No hay jornada abierta para registrar descanso",
-        });
-      }
-      jornadaId = jornada.id;
-    }
-    // 2. Autocierre inteligente
-    if (tipo === "entrada" || tipo === "salida") {
-      await ejecutarAutocierre();
-    }
-
-    // 5. Insertar fichaje
+    // =========================
+    // INSERT
+    // =========================
     const nuevo = await sql`
-INSERT INTO fichajes_180 (
-  user_id,
-  empleado_id,
-  cliente_id,
-  empresa_id,
-  jornada_id,
-  tipo,
-  lat,
-  lng,
-  ip,
-  estado,
-  origen,
-  nota,
-  sospechoso,
-  sospecha_motivo,
-  ip_info,
-  distancia_km
-)
-VALUES (
-  ${req.user.id},
-  ${empleadoId},
-  ${cliente_id || null},
-  ${empresaId},
-  ${jornadaId},
-  ${tipo},
-  ${lat || null},
-  ${lng || null},
-  ${req.ip},
-  ${estado},
-  'app',
-  ${nota},
-  ${analisis.sospechoso},
-  ${analisis.sospechoso ? analisis.razones.join(" | ") : null},
-  ${detalle_ip ? JSON.stringify(detalle_ip) : null},
-  ${distancia_km}
-)
-RETURNING *
-`;
-    if (analisis.sospechoso) {
-      await sql`
-    INSERT INTO notificaciones_180 (empresa_id, mensaje, tipo)
-    VALUES (${empresaId}, ${"Nuevo fichaje sospechoso"}, 'alerta')
-  `;
-    }
+      INSERT INTO fichajes_180 (
+        user_id,
+        empleado_id,
+        cliente_id,
+        empresa_id,
+        jornada_id,
+        tipo,
+        fecha,
+        estado,
+        origen,
+        nota,
+        sospechoso
+      )
+      VALUES (
+        ${req.user.id},
+        ${empleadoId},
+        ${cliente_id || null},
+        ${empresaId},
+        ${jornadaId},
+        ${tipo},
+        ${fechaHora},
+        ${estado},
+        'app',
+        ${nota},
+        ${analisis.sospechoso}
+      )
+      RETURNING *
+    `;
 
-    return res.json({
-      success: true,
-      fichaje: nuevo[0],
-    });
+    return res.json({ success: true, fichaje: nuevo[0] });
   } catch (err) {
     console.error("❌ Error en createFichaje:", err);
     return res.status(500).json({ error: "Error al registrar fichaje" });
@@ -456,38 +369,51 @@ export const registrarFichajeManual = async (req, res) => {
       "descanso_inicio",
       "descanso_fin",
     ];
-
     if (!tiposValidos.includes(tipo)) {
       return res.status(400).json({ error: "Tipo no válido" });
     }
 
-    const empleado = await sql`
+    const fechaHora = new Date(fecha_hora);
+
+    // =========================
+    // EMPLEADO
+    // =========================
+    const empleadoRows = await sql`
       SELECT id, empresa_id, user_id
       FROM employees_180
       WHERE id = ${empleado_id}
     `;
 
-    if (empleado.length === 0) {
+    if (empleadoRows.length === 0) {
       return res.status(404).json({ error: "Empleado no encontrado" });
     }
 
-    // 👉 BUSCAR o CREAR jornada
+    const empleado = empleadoRows[0];
+
+    // =========================
+    // JORNADA
+    // =========================
     let jornada = await obtenerJornadaAbierta(empleado_id);
 
-    if (tipo === "entrada" && !jornada) {
-      jornada = await crearJornada({
-        empresaId: empleado[0].empresa_id,
-        empleadoId: empleado_id,
-        inicio: new Date(fecha_hora),
-      });
+    if (tipo === "entrada") {
+      if (!jornada) {
+        jornada = await crearJornada({
+          empresaId: empleado.empresa_id,
+          empleadoId: empleado_id,
+          inicio: fechaHora,
+        });
+      }
+    } else {
+      if (!jornada) {
+        return res.status(400).json({
+          error: "No hay jornada abierta para este fichaje",
+        });
+      }
     }
 
-    if (tipo !== "entrada" && !jornada) {
-      return res.status(400).json({
-        error: "No hay jornada abierta para este fichaje",
-      });
-    }
-
+    // =========================
+    // INSERT
+    // =========================
     const nuevo = await sql`
       INSERT INTO fichajes_180 (
         empleado_id,
@@ -504,11 +430,11 @@ export const registrarFichajeManual = async (req, res) => {
       )
       VALUES (
         ${empleado_id},
-        ${empleado[0].empresa_id},
-        ${empleado[0].user_id},
+        ${empleado.empresa_id},
+        ${empleado.user_id},
         ${jornada.id},
         ${tipo},
-        ${fecha_hora},
+        ${fechaHora},
         'confirmado',
         'manual_admin',
         ${motivo || null},
@@ -520,8 +446,10 @@ export const registrarFichajeManual = async (req, res) => {
 
     return res.json(nuevo[0]);
   } catch (err) {
-    console.error("❌ Error fichaje manual", err);
-    return res.status(500).json({ error: "Error registrando fichaje manual" });
+    console.error("❌ Error fichaje manual:", err);
+    return res.status(500).json({
+      error: "Error registrando fichaje manual",
+    });
   }
 };
 
@@ -529,21 +457,43 @@ export const getFichajeDetalle = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const fichaje = await sql`
-      SELECT 
-        f.*,
-        e.nombre AS empleado_nombre
-      FROM fichajes_180 f
-      LEFT JOIN employees_180 e ON e.id = f.empleado_id
-      WHERE f.id = ${id}
+    // empresa del admin
+    const empresa = await sql`
+      SELECT id FROM empresa_180
+      WHERE user_id = ${req.user.id}
     `;
 
-    if (fichaje.length === 0)
+    if (empresa.length === 0) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const empresaId = empresa[0].id;
+
+    const fichaje = await sql`
+      SELECT 
+        f.id,
+        f.jornada_id,
+        f.fecha,
+        f.tipo,
+        f.estado,
+        f.sospechoso,
+        f.nota,
+        f.origen,
+        f.creado_manual,
+        e.nombre AS nombre_empleado
+      FROM fichajes_180 f
+      JOIN employees_180 e ON e.id = f.empleado_id
+      WHERE f.id = ${id}
+      AND e.empresa_id = ${empresaId}
+    `;
+
+    if (fichaje.length === 0) {
       return res.status(404).json({ error: "Fichaje no encontrado" });
+    }
 
     res.json(fichaje[0]);
   } catch (err) {
-    console.error("Error obteniendo detalle sospechoso", err);
+    console.error("❌ Error en getFichajeDetalle:", err);
     res.status(500).json({ error: "Error cargando detalle" });
   }
 };
@@ -554,29 +504,44 @@ export const getFichajes = async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180
+    // =========================
+    // EMPRESA DEL ADMIN
+    // =========================
+    const empresaRows = await sql`
+      SELECT id
+      FROM empresa_180
       WHERE user_id = ${req.user.id}
     `;
 
-    if (empresa.length === 0)
+    if (empresaRows.length === 0) {
       return res.status(400).json({ error: "Empresa no encontrada" });
+    }
 
-    const empresaId = empresa[0].id;
+    const empresaId = empresaRows[0].id;
 
-    const resultados = await sql`
-      SELECT 
-        f.*,
-        e.nombre AS empleado_nombre
+    // =========================
+    // FICHAJES
+    // =========================
+    const fichajes = await sql`
+      SELECT
+        f.id,
+        f.jornada_id,
+        f.fecha,
+        f.tipo,
+        f.sospechoso,
+        f.nota,
+        e.nombre AS nombre_empleado
       FROM fichajes_180 f
-      LEFT JOIN employees_180 e ON e.id = f.empleado_id
+      JOIN employees_180 e ON e.id = f.empleado_id
       WHERE e.empresa_id = ${empresaId}
       ORDER BY f.fecha DESC
     `;
 
-    return res.json(resultados);
+    return res.json(fichajes);
   } catch (err) {
     console.error("❌ Error en getFichajes:", err);
-    return res.status(500).json({ error: "Error obteniendo fichajes" });
+    return res.status(500).json({
+      error: "Error obteniendo fichajes",
+    });
   }
 };
