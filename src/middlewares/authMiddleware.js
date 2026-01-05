@@ -7,7 +7,7 @@ export const authRequired = (req, res, next) => {
     return next();
   }
 
-  const authHeader = req.headers.authorization;
+  const authHeader = req.headers.authorization || req.get("Authorization");
 
   if (!authHeader) {
     return res.status(401).json({ error: "Token no proporcionado" });
