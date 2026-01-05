@@ -442,7 +442,7 @@ export const getTodayFichajes = async (req, res) => {
 };
 export const registrarFichajeManual = async (req, res) => {
   try {
-    const { empleado_id, tipo, fecha_hora } = req.body;
+    const { empleado_id, tipo, fecha_hora, motivo } = req.body;
 
     if (!empleado_id || !tipo || !fecha_hora) {
       return res.status(400).json({
@@ -462,7 +462,7 @@ export const registrarFichajeManual = async (req, res) => {
     }
 
     const empleado = await sql`
-      SELECT empresa_id
+      SELECT id, empresa_id, user_id
       FROM employees_180
       WHERE id = ${empleado_id}
     `;
@@ -475,20 +475,26 @@ export const registrarFichajeManual = async (req, res) => {
       INSERT INTO fichajes_180 (
         empleado_id,
         empresa_id,
+        user_id,
         tipo,
         fecha,
         estado,
         origen,
+        nota,
+        sospechoso,
         creado_manual
       )
       VALUES (
         ${empleado_id},
         ${empleado[0].empresa_id},
+        ${empleado[0].user_id},
         ${tipo},
         ${fecha_hora},
         'confirmado',
         'app',
-        ${true}
+        ${motivo || null},
+        false,
+        true
       )
       RETURNING *
     `;
