@@ -6,6 +6,7 @@ import {
   obtenerJornadaAbierta,
   crearJornada,
 } from "../services/jornadasService.js";
+import { syncDailyReport } from "../services/dailyReportService.js";
 import { calcularMinutos } from "../services/jornadasCalculo.js";
 import { calcularDescansoJornada } from "../services/jornadasCalculo.js";
 import { calcularExtras } from "../services/jornadasExtras.js";
@@ -209,7 +210,11 @@ export const createFichaje = async (req, res) => {
       )
       RETURNING *
     `;
-
+    await syncDailyReport({
+      empresaId: empleado.empresa_id,
+      empleadoId: empleado_id,
+      fecha: fechaHora, // vale Date
+    });
     return res.json({ success: true, fichaje: nuevo[0] });
   } catch (err) {
     console.error("❌ Error en createFichaje:", err);
@@ -443,7 +448,11 @@ export const registrarFichajeManual = async (req, res) => {
       )
       RETURNING *
     `;
-
+    await syncDailyReport({
+      empresaId: empleado.empresa_id,
+      empleadoId: empleado_id,
+      fecha: fechaHora, // vale Date
+    });
     return res.json(nuevo[0]);
   } catch (err) {
     console.error("❌ Error fichaje manual:", err);

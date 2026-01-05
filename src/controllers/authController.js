@@ -42,6 +42,10 @@ export const getDeviceHash = async (req, res) => {
   try {
     const empleadoId = req.user.empleado_id;
 
+    if (role === "admin") {
+      return res.json({ device_hash: null });
+    }
+
     if (!empleadoId) {
       return res.status(400).json({ error: "No es empleado" });
     }
@@ -112,21 +116,63 @@ export const login = async (req, res) => {
 
       empresaId = empresaRows[0].id;
     }
-
-    // comprobar si es empleado
     // =========================
-    // EMPLEADO
+    // EMPLEADO LÓGICO PARA ADMIN (AUTÓNOMO)
     // =========================
-    const empleadoRows = await sql`
-  SELECT id, empresa_id
-  FROM employees_180
-  WHERE user_id = ${user.id}
-`;
-
-    const esEmpleado = empleadoRows.length > 0;
     let empleadoId = null;
 
-    if (esEmpleado) {
+    if (user.role === "admin") {
+      const empleadoAdminRows = await sql`
+    SELECT id
+    FROM employees_180
+    WHERE user_id = ${user.id}
+      AND empresa_id = ${empresaId}
+  `;
+
+      if (empleadoAdminRows.length === 0) {
+        // 👉 crear empleado automático
+        const nuevoEmpleado = await sql`
+      INSERT INTO employees_180 (
+        user_id,
+        empresa_id,
+        nombre,
+        activo,
+        tipo_trabajo,
+        created_at
+      )
+      VALUES (
+        ${user.id},
+        ${empresaId},
+        ${user.nombre},
+        true,
+        'autonomo',
+        now()
+      )
+      RETURNING id
+    `;
+
+        empleadoId = nuevoEmpleado[0].id;
+      } else {
+        empleadoId = empleadoAdminRows[0].id;
+      }
+    }
+
+    // =========================
+    // EMPLEADO REAL
+    // =========================
+    if (user.role === "empleado") {
+      const empleadoRows = await sql`
+    SELECT id, empresa_id
+    FROM employees_180
+    WHERE user_id = ${user.id}
+  `;
+
+      if (empleadoRows.length === 0) {
+        return res.status(403).json({
+          error: "Empleado no asociado a ninguna empresa",
+        });
+      }
+
       empleadoId = empleadoRows[0].id;
       empresaId = empleadoRows[0].empresa_id;
 
@@ -344,12 +390,19 @@ export const changePassword = async (req, res) => {
       WHERE id = ${userId}
     `;
 
+    // 🔐 Generar nuevo token manteniendo el contexto completo
     const token = jwt.sign(
       {
         id: user.id,
         email: user.email,
         role: user.role,
         nombre: user.nombre,
+
+        // 👉 MUY IMPORTANTE: mantener contexto
+        empresa_id: req.user.empresa_id ?? null,
+        empleado_id: req.user.empleado_id ?? null,
+
+        // 👉 ya NO forzado
         password_forced: false,
       },
       config.jwtSecret,
@@ -364,6 +417,8 @@ export const changePassword = async (req, res) => {
         email: user.email,
         nombre: user.nombre,
         role: user.role,
+        empresa_id: req.user.empresa_id ?? null,
+        empleado_id: req.user.empleado_id ?? null,
         password_forced: false,
       },
     });
