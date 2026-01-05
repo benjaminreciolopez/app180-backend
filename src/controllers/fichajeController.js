@@ -456,13 +456,17 @@ export const registrarFichajeManual = async (req, res) => {
       "descanso_inicio",
       "descanso_fin",
     ];
+
     if (!tiposValidos.includes(tipo)) {
       return res.status(400).json({ error: "Tipo no válido" });
     }
 
     const empleado = await sql`
-      SELECT empresa_id FROM employees_180 WHERE id = ${empleado_id}
+      SELECT empresa_id
+      FROM employees_180
+      WHERE id = ${empleado_id}
     `;
+
     if (empleado.length === 0) {
       return res.status(404).json({ error: "Empleado no encontrado" });
     }
@@ -474,15 +478,15 @@ export const registrarFichajeManual = async (req, res) => {
         tipo,
         fecha,
         estado,
-        origen,
+        origen
       )
       VALUES (
         ${empleado_id},
         ${empleado[0].empresa_id},
         ${tipo},
-        ${fecha_hora},
+        ${fecha_hora}::timestamptz,
         'confirmado',
-        'manual_admin',
+        'manual_admin'
       )
       RETURNING *
     `;
@@ -490,7 +494,7 @@ export const registrarFichajeManual = async (req, res) => {
     return res.json(nuevo[0]);
   } catch (err) {
     console.error("❌ Error fichaje manual", err);
-    res.status(500).json({ error: "Error registrando fichaje manual" });
+    return res.status(500).json({ error: "Error registrando fichaje manual" });
   }
 };
 
