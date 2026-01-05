@@ -436,7 +436,7 @@ export const registrarFichajeManual = async (req, res) => {
         ${tipo},
         ${fechaHora},
         'confirmado',
-        'manual_admin',
+        'app',
         ${motivo || null},
         false,
         true
