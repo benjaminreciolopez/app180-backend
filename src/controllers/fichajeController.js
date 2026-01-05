@@ -479,6 +479,7 @@ export const registrarFichajeManual = async (req, res) => {
         fecha,
         estado,
         origen
+        creado_manual
       )
       VALUES (
         ${empleado_id},
@@ -486,8 +487,8 @@ export const registrarFichajeManual = async (req, res) => {
         ${tipo},
         ${fecha_hora}::timestamptz,
         'confirmado',
-        'manual_admin'
-      )
+        'app',
+        true      )
       RETURNING *
     `;
 
