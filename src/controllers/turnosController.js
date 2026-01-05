@@ -10,6 +10,7 @@ import { obtenerEmpresaUsuario } from "../helpers/empresaHelper.js";
 import { obtenerTurnosEmpresa } from "../services/turnosService.js";
 
 export async function getTurnos(req, res) {
+  console.log("USER JWT:", req.user);
   try {
     const empresaId = req.user?.empresa_id;
     if (!empresaId) {
