@@ -114,101 +114,86 @@ export const login = async (req, res) => {
     }
 
     // comprobar si es empleado
+    // =========================
+    // EMPLEADO
+    // =========================
     const empleadoRows = await sql`
-      SELECT id FROM employees_180
-      WHERE user_id = ${user.id}
-    `;
+  SELECT id, empresa_id
+  FROM employees_180
+  WHERE user_id = ${user.id}
+`;
 
     const esEmpleado = empleadoRows.length > 0;
-    let empleadoId = esEmpleado ? empleadoRows[0].id : null;
+    let empleadoId = null;
 
     if (esEmpleado) {
+      empleadoId = empleadoRows[0].id;
+      empresaId = empleadoRows[0].empresa_id;
+
+      // 🔐 device_hash obligatorio para empleados
       if (!device_hash) {
         return res.status(400).json({
           error: "Falta device_hash (obligatorio para empleados)",
         });
       }
 
+      // 🚫 empleado sin empresa → bloqueo inmediato
+      if (!empresaId) {
+        return res.status(403).json({
+          error: "Empleado sin empresa asignada",
+        });
+      }
+
+      // =========================
+      // CONTROL DE DISPOSITIVO
+      // =========================
       const deviceRows = await sql`
-        SELECT * FROM employee_devices_180
-        WHERE empleado_id = ${empleadoId}
-      `;
-
-      if (deviceRows.length === 0) {
-        await sql`
-          INSERT INTO employee_devices_180
-            (user_id, empleado_id, device_hash, user_agent, activo, ip_habitual)
-          VALUES
-            (${user.id}, ${empleadoId}, ${device_hash}, ${
-          user_agent || null
-        }, true, ${ipActual})
-        `;
-      } else {
-        const device = deviceRows[0];
-
-        if (device.device_hash !== device_hash) {
-          console.log(
-            "⚠️ device_hash distinto pero mismo empleado, actualizando..."
-          );
-
-          await sql`
-    UPDATE employee_devices_180
-    SET device_hash = ${device_hash},
-        ip_habitual = ${ipActual},
-        user_agent = ${user_agent || null},
-        updated_at = now()
-    WHERE id = ${device.id}
-  `;
-        }
-
-        // Si el hash NO coincide, puede ser PWA / reinstall / borrar datos
-        // ==========================
-        // POLÍTICA DE DISPOSITIVO
-        // ==========================
-        if (device.device_hash !== device_hash) {
-          console.log("⚠️ Device hash diferente detectado");
-          console.log("BD:", device.device_hash);
-          console.log("Nuevo:", device_hash);
-          console.log("UA viejo:", device.user_agent);
-          console.log("UA nuevo:", user_agent);
-          console.log("IP vieja:", device.ip_habitual);
-          console.log("IP nueva:", ipActual);
-
-          // 🔐 NUEVA POLÍTICA:
-          // Si solo existe 1 dispositivo registrado → asumimos mismo móvil
-          const count = await sql`
-    SELECT COUNT(*)::int AS total
+    SELECT *
     FROM employee_devices_180
     WHERE empleado_id = ${empleadoId}
   `;
 
-          if (count[0].total === 1) {
-            console.log(
-              "🔄 Actualizando device_hash por cambio legítimo en iOS"
-            );
-
-            await sql`
-      UPDATE employee_devices_180
-      SET device_hash = ${device_hash},
-          user_agent = ${user_agent || device.user_agent},
-          ip_habitual = ${ipActual},
-          updated_at = now()
-      WHERE id = ${device.id}
+      if (deviceRows.length === 0) {
+        await sql`
+      INSERT INTO employee_devices_180
+        (user_id, empleado_id, device_hash, user_agent, activo, ip_habitual)
+      VALUES
+        (${user.id}, ${empleadoId}, ${device_hash},
+         ${user_agent || null}, true, ${ipActual})
     `;
+      } else {
+        const device = deviceRows[0];
+
+        if (device.device_hash !== device_hash) {
+          const count = await sql`
+        SELECT COUNT(*)::int AS total
+        FROM employee_devices_180
+        WHERE empleado_id = ${empleadoId}
+      `;
+
+          if (count[0].total === 1) {
+            await sql`
+          UPDATE employee_devices_180
+          SET device_hash = ${device_hash},
+              user_agent = ${user_agent || device.user_agent},
+              ip_habitual = ${ipActual},
+              updated_at = now()
+          WHERE id = ${device.id}
+        `;
           } else {
             return res.status(403).json({
               error:
-                "Este usuario ya tiene asignado un dispositivo. Solicita al administrador autorización para cambiarlo.",
+                "Este usuario ya tiene asignado un dispositivo. Solicita autorización para cambiarlo.",
             });
           }
         }
 
         if (!device.ip_habitual) {
           await sql`
-            UPDATE employee_devices_180
-            SET ip_habitual = ${ipActual}
-            WHERE id = ${device.id}
-          `;
+        UPDATE employee_devices_180
+        SET ip_habitual = ${ipActual}
+        WHERE id = ${device.id}
+      `;
         }
       }
     }
