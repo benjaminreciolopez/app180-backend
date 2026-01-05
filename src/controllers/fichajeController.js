@@ -442,119 +442,57 @@ export const getTodayFichajes = async (req, res) => {
 };
 export const registrarFichajeManual = async (req, res) => {
   try {
-    const { empleado_id, fecha, hora_entrada, hora_salida } = req.body;
+    const { empleado_id, tipo, fecha_hora } = req.body;
 
-    if (!empleado_id || !fecha || !hora_entrada || !hora_salida) {
+    if (!empleado_id || !tipo || !fecha_hora) {
       return res.status(400).json({
-        error: "Empleado, fecha, hora_entrada y hora_salida son obligatorios",
+        error: "Empleado, tipo y fecha_hora son obligatorios",
       });
     }
 
-    // 1️⃣ Obtener empresa del empleado
-    const empleado = await sql`
-      SELECT id, empresa_id
-      FROM employees_180
-      WHERE id = ${empleado_id}
-    `;
+    const tiposValidos = [
+      "entrada",
+      "salida",
+      "descanso_inicio",
+      "descanso_fin",
+    ];
+    if (!tiposValidos.includes(tipo)) {
+      return res.status(400).json({ error: "Tipo no válido" });
+    }
 
+    const empleado = await sql`
+      SELECT empresa_id FROM employees_180 WHERE id = ${empleado_id}
+    `;
     if (empleado.length === 0) {
       return res.status(404).json({ error: "Empleado no encontrado" });
     }
 
-    const empresaId = empleado[0].empresa_id;
-
-    // 2️⃣ Crear jornada manual
-    const jornada = await sql`
-      INSERT INTO jornadas_180 (
-        empresa_id,
+    const nuevo = await sql`
+      INSERT INTO fichajes_180 (
         empleado_id,
-        inicio,
-        origen
+        empresa_id,
+        tipo,
+        fecha,
+        estado,
+        origen,
+        creado_manual
       )
       VALUES (
-        ${empresaId},
         ${empleado_id},
-        ${hora_entrada},
-        'manual_admin'
+        ${empleado[0].empresa_id},
+        ${tipo},
+        ${fecha_hora},
+        'confirmado',
+        'manual_admin',
+        true
       )
       RETURNING *
     `;
 
-    const jornadaId = jornada[0].id;
-
-    // 3️⃣ Insertar fichaje ENTRADA
-    await sql`
-      INSERT INTO fichajes_180 (
-        empresa_id,
-        empleado_id,
-        jornada_id,
-        tipo,
-        fecha,
-        estado,
-        origen,
-        creado_manual
-      )
-      VALUES (
-        ${empresaId},
-        ${empleado_id},
-        ${jornadaId},
-        'entrada',
-        ${hora_entrada},
-        'confirmado',
-        'manual_admin',
-        true
-      )
-    `;
-
-    // 4️⃣ Insertar fichaje SALIDA
-    await sql`
-      INSERT INTO fichajes_180 (
-        empresa_id,
-        empleado_id,
-        jornada_id,
-        tipo,
-        fecha,
-        estado,
-        origen,
-        creado_manual
-      )
-      VALUES (
-        ${empresaId},
-        ${empleado_id},
-        ${jornadaId},
-        'salida',
-        ${hora_salida},
-        'confirmado',
-        'manual_admin',
-        true
-      )
-    `;
-
-    // 5️⃣ Cerrar jornada
-    const minutos = calcularMinutos(
-      new Date(hora_entrada),
-      new Date(hora_salida)
-    );
-
-    await sql`
-      UPDATE jornadas_180
-      SET
-        fin = ${hora_salida},
-        minutos_trabajados = ${minutos},
-        estado = 'cerrada',
-        origen_cierre = 'manual_admin'
-      WHERE id = ${jornadaId}
-    `;
-
-    return res.json({
-      success: true,
-      jornada: jornada[0],
-    });
+    return res.json(nuevo[0]);
   } catch (err) {
-    console.error("❌ Error creando fichaje manual", err);
-    return res.status(500).json({
-      error: "Error registrando fichaje manual",
-    });
+    console.error("❌ Error fichaje manual", err);
+    res.status(500).json({ error: "Error registrando fichaje manual" });
   }
 };
 
