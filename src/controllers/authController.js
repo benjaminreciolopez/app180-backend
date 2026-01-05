@@ -97,6 +97,21 @@ export const login = async (req, res) => {
     if (!match) {
       return res.status(400).json({ error: "Contraseña incorrecta" });
     }
+    let empresaId = null;
+
+    if (user.role === "admin") {
+      const empresaRows = await sql`
+    SELECT id
+    FROM empresa_180
+    WHERE user_id = ${user.id}
+  `;
+
+      if (empresaRows.length === 0) {
+        return res.status(500).json({ error: "Empresa no encontrada" });
+      }
+
+      empresaId = empresaRows[0].id;
+    }
 
     // comprobar si es empleado
     const empleadoRows = await sql`
@@ -204,6 +219,7 @@ export const login = async (req, res) => {
         email: user.email,
         role: user.role,
         nombre: user.nombre,
+        empresa_id: empresaId,
         empleado_id: empleadoId,
         device_hash: device_hash || null,
         password_forced: user.password_forced === true, // 👈 CLAVE
@@ -220,6 +236,7 @@ export const login = async (req, res) => {
         email: user.email,
         nombre: user.nombre,
         role: user.role,
+        empresa_id: empresaId,
         empleado_id: empleadoId,
         password_forced: user.password_forced === true,
       },
