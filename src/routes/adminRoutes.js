@@ -5,7 +5,6 @@ import { getAdminDashboard } from "../controllers/adminDashboardController.js";
 
 const router = express.Router();
 
-router.use(authRequired);
 router.use(roleRequired("admin"));
 
 // 👉 ESTE es el endpoint real que debe existir
