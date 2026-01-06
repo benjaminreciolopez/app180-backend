@@ -5,7 +5,9 @@ import {
   getCalendarioEmpresa,
 } from "../controllers/calendarioController.js";
 
-export const calendarioRoutes = express.Router();
+const router = express.Router();
 
-calendarioRoutes.get("/usuario", authRequired, getCalendarioUsuario);
-calendarioRoutes.get("/empresa", authRequired, getCalendarioEmpresa);
+router.get("/usuario", authRequired, getCalendarioUsuario);
+router.get("/empresa", authRequired, getCalendarioEmpresa);
+
+export default router;
