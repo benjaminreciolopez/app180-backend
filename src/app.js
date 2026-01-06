@@ -11,8 +11,8 @@ import turnosRoutes from "./routes/turnosRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import empleadoRoutes from "./routes/empleadoRoutes.js";
 
-import empleadoAusenciasRoutes from "./routes/empleadoAusencias.routes.js";
-import adminAusenciasRoutes from "./routes/adminAusencias.routes.js";
+import empleadoAusenciasRoutes from "./routes/empleadoAusenciasRoutes.js";
+import adminAusenciasRoutes from "./routes/adminAusenciasRoutes.js";
 
 import { authRequired } from "./middlewares/authRequired.js";
 import { ejecutarAutocierre } from "./jobs/autocierre.js";
