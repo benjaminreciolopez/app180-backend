@@ -10,6 +10,6 @@ const router = express.Router();
 
 router.get("/usuario", authRequired, getCalendarioUsuario);
 router.get("/empresa", authRequired, getCalendarioEmpresa);
-calendarioRoutes.get("/hoy", authRequired, getEstadoHoyUsuario);
+router.get("/hoy", authRequired, getEstadoHoyUsuario);
 
 export default router;
