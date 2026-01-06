@@ -226,3 +226,57 @@ export const getCalendarioEmpresa = async (req, res) => {
       .json({ error: "Error al obtener calendario de empresa" });
   }
 };
+
+export const getEstadoHoyUsuario = async (req, res) => {
+  try {
+    const { empleado_id, empresa_id } = req.user;
+
+    if (!empleado_id || !empresa_id) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    // 1️⃣ ¿Ausencia aprobada?
+    const ausencia = await sql`
+      SELECT tipo
+      FROM ausencias_180
+      WHERE empleado_id = ${empleado_id}
+        AND estado = 'aprobado'
+        AND fecha_inicio <= ${hoy}
+        AND fecha_fin >= ${hoy}
+      LIMIT 1
+    `;
+
+    if (ausencia.length > 0) {
+      return res.json({
+        laborable: false,
+        motivo: ausencia[0].tipo,
+        label: ausencia[0].tipo === "vacaciones" ? "Vacaciones" : "Baja médica",
+      });
+    }
+
+    // 2️⃣ ¿Festivo empresa?
+    const festivo = await sql`
+      SELECT es_laborable
+      FROM calendario_empresa_180
+      WHERE empresa_id = ${empresa_id}
+        AND fecha = ${hoy}
+      LIMIT 1
+    `;
+
+    if (festivo.length > 0 && festivo[0].es_laborable === false) {
+      return res.json({
+        laborable: false,
+        motivo: "festivo",
+        label: "Festivo",
+      });
+    }
+
+    // 3️⃣ Es laborable
+    return res.json({ laborable: true });
+  } catch (err) {
+    console.error("❌ getEstadoHoyUsuario:", err);
+    res.status(500).json({ error: "Error comprobando día laboral" });
+  }
+};
