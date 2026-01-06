@@ -89,23 +89,39 @@ export async function crearWorkLog(req, res) {
     if (minutosN != null && (minutosN < 1 || minutosN > 24 * 60)) {
       return res.status(400).json({ error: "Minutos fuera de rango" });
     }
+    if (fecha && isNaN(new Date(fecha).getTime())) {
+      return res.status(400).json({ error: "Fecha no válida" });
+    }
 
     const fechaFinal = fecha ? new Date(fecha) : new Date();
 
     const rows = await sql`
-      INSERT INTO work_logs_180
-        (employee_id, client_id, work_item_id, descripcion, precio, fecha, minutos, created_at)
-      VALUES
-        (${empleadoId},
-         ${client_id || null},
-         ${work_item_id || null},
-         ${descripcion.trim()},
-         ${precio || null},
-         ${fechaFinal.toISOString()},
-         ${minutosN},
-         now())
-      RETURNING *
-    `;
+  INSERT INTO work_logs_180
+    (
+      empresa_id,
+      employee_id,
+      client_id,
+      work_item_id,
+      descripcion,
+      precio,
+      fecha,
+      minutos,
+      created_at
+    )
+  VALUES
+    (
+      ${empresaId},
+      ${empleadoId},
+      ${client_id || null},
+      ${work_item_id || null},
+      ${descripcion.trim()},
+      ${precio || null},
+      ${fechaFinal.toISOString()},
+      ${minutosN},
+      now()
+    )
+  RETURNING *
+`;
 
     return res.json(rows[0]);
   } catch (err) {
