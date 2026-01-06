@@ -12,7 +12,6 @@ import turnosRoutes from "./routes/turnosRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import { authRequired } from "./middlewares/authRequired.js";
 import empleadoRoutes from "./routes/empleadoRoutes.js";
-import reportRoutes from "./routes/reportRoutes.js";
 
 const app = express();
 
@@ -51,7 +50,6 @@ app.use("/calendario", authRequired, calendarioRoutes);
 app.use("/turnos", turnosRoutes);
 
 app.use("/empleado", empleadoRoutes);
-app.use("/reports", reportRoutes);
 app.use("/admin", adminRoutes);
 
 app.listen(config.port, () =>
