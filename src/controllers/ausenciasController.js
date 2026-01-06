@@ -1,35 +1,5 @@
 import { sql } from "../db.js";
 
-export const solicitarVacaciones = async (req, res) => {
-  try {
-    const { fecha_inicio, fecha_fin, motivo } = req.body;
-
-    const empleado = await sql`
-      SELECT id, empresa_id FROM employees_180
-      WHERE user_id = ${req.user.id}
-    `;
-
-    if (empleado.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "Solo empleados pueden solicitar vacaciones" });
-    }
-
-    const emp = empleado[0];
-
-    const ausencia = await sql`
-      INSERT INTO ausencias_180
-      (empleado_id, empresa_id, tipo, fecha_inicio, fecha_fin, motivo, estado)
-      VALUES (${emp.id}, ${emp.empresa_id}, 'vacaciones', ${fecha_inicio}, ${fecha_fin}, ${motivo}, 'pendiente')
-      RETURNING *
-    `;
-
-    return res.json({ success: true, ausencia: ausencia[0] });
-  } catch (err) {
-    console.error("❌ Error en solicitarVacaciones:", err);
-    res.status(500).json({ error: "Error al solicitar vacaciones" });
-  }
-};
 export const aprobarVacaciones = async (req, res) => {
   try {
     const { id } = req.params;
@@ -120,5 +90,42 @@ export const listarAusenciasEmpresa = async (req, res) => {
   } catch (err) {
     console.error("❌ Error en listarAusenciasEmpresa:", err);
     res.status(500).json({ error: "Error al obtener ausencias" });
+  }
+};
+
+export const solicitarAusencia = async (req, res) => {
+  try {
+    const { empleado_id, empresa_id } = req.user;
+    const { tipo, fecha_inicio, fecha_fin, comentario } = req.body;
+
+    if (!["vacaciones", "baja_medica"].includes(tipo)) {
+      return res.status(400).json({ error: "Tipo de ausencia no válido" });
+    }
+
+    const rows = await sql`
+      INSERT INTO ausencias_180 (
+        empleado_id,
+        empresa_id,
+        tipo,
+        fecha_inicio,
+        fecha_fin,
+        comentario_empleado,
+        estado
+      ) VALUES (
+        ${empleado_id},
+        ${empresa_id},
+        ${tipo},
+        ${fecha_inicio},
+        ${fecha_fin},
+        ${comentario || null},
+        'pendiente'
+      )
+      RETURNING *
+    `;
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("❌ solicitar ausencia:", err);
+    res.status(500).json({ error: "Error solicitando ausencia" });
   }
 };

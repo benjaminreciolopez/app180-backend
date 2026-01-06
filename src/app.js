@@ -1,22 +1,32 @@
 import express from "express";
 import cors from "cors";
+import cron from "node-cron";
 import { config } from "./config.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
 import fichajeRoutes from "./routes/fichajeRoutes.js";
-import cron from "node-cron";
-import { ejecutarAutocierre } from "./jobs/autocierre.js";
-import { calendarioRoutes } from "./routes/calendarioRoutes.js";
+import calendarioRoutes from "./routes/calendarioRoutes.js";
 import turnosRoutes from "./routes/turnosRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
-import { authRequired } from "./middlewares/authRequired.js";
 import empleadoRoutes from "./routes/empleadoRoutes.js";
+
+import empleadoAusenciasRoutes from "./routes/empleadoAusencias.routes.js";
+import adminAusenciasRoutes from "./routes/adminAusencias.routes.js";
+
+import { authRequired } from "./middlewares/authRequired.js";
+import { ejecutarAutocierre } from "./jobs/autocierre.js";
 
 const app = express();
 
+// =========================
+// CRON
+// =========================
 cron.schedule("59 23 * * *", () => ejecutarAutocierre());
 
+// =========================
+// MIDDLEWARES
+// =========================
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -39,19 +49,30 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   })
 );
+
 app.use(express.json());
 
+// =========================
+// ROUTES
+// =========================
 app.get("/", (req, res) => res.send("API APP180 funcionando"));
 
 app.use("/auth", authRoutes);
+
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);
 app.use("/calendario", authRequired, calendarioRoutes);
 app.use("/turnos", turnosRoutes);
 
-app.use("/empleado", empleadoRoutes);
-app.use("/admin", adminRoutes);
+app.use("/empleado", authRequired, empleadoRoutes);
+app.use("/empleado", authRequired, empleadoAusenciasRoutes);
 
+app.use("/admin", authRequired, adminRoutes);
+app.use("/admin", authRequired, adminAusenciasRoutes);
+
+// =========================
+// START
+// =========================
 app.listen(config.port, () =>
   console.log(`Servidor iniciado en puerto ${config.port}`)
 );
