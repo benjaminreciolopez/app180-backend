@@ -98,36 +98,3 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
     res.status(500).json({ error: "Error calendario empleado" });
   }
 };
-
-export const solicitarAusencia = async (req, res) => {
-  try {
-    const { empleado_id, empresa_id } = req.user;
-    const { tipo, fecha_inicio, fecha_fin, comentario } = req.body;
-
-    const rows = await sql`
-      INSERT INTO ausencias_180 (
-        empleado_id,
-        empresa_id,
-        tipo,
-        fecha_inicio,
-        fecha_fin,
-        comentario_empleado,
-        estado
-      ) VALUES (
-        ${empleado_id},
-        ${empresa_id},
-        ${tipo},
-        ${fecha_inicio},
-        ${fecha_fin},
-        ${comentario || null},
-        'pendiente'
-      )
-      RETURNING *
-    `;
-
-    res.json(rows[0]);
-  } catch (err) {
-    console.error("❌ solicitar ausencia:", err);
-    res.status(500).json({ error: "Error solicitando ausencia" });
-  }
-};
