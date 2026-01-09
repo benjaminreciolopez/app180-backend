@@ -1,5 +1,11 @@
 import { sql } from "../db.js";
 
+const addOneDay = (dateStr) => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split("T")[0];
+};
+
 //
 // Utilidad para obtener rango por defecto (mes actual)
 //
@@ -70,39 +76,27 @@ export const getCalendarioUsuario = async (req, res) => {
 
     const eventosAusencias = ausencias.map((a) => ({
       id: `aus-${a.id}`,
-      tipo: "ausencia",
+      tipo: a.tipo, // 👈 esto es lo que usará el color
       subtipo: a.tipo,
-      title:
-        a.tipo === "baja_medica"
-          ? `${empleadoNombre} - Baja médica`
-          : `${empleadoNombre} - Vacaciones`,
+      title: a.tipo === "baja_medica" ? `Baja médica` : `Vacaciones`,
       start: a.fecha_inicio,
-      end: a.fecha_fin,
+      end: addOneDay(a.fecha_fin),
+      allDay: true,
       estado: a.estado,
-      empleado_id: empleadoId,
-      empleado_nombre: empleadoNombre,
     }));
 
     const eventosFichajes = fichajes.map((f) => ({
       id: `fic-${f.id}`,
       tipo: "fichaje",
-      subtipo: f.tipo, // entrada, salida, etc.
+      subtipo: f.tipo,
       title: f.cliente_nombre ? `${f.tipo} - ${f.cliente_nombre}` : f.tipo,
       start: f.fecha,
-      end: null,
-      empleado_id: empleadoId,
-      empleado_nombre: empleadoNombre,
-      cliente_id: f.cliente_id,
-      cliente_nombre: f.cliente_nombre,
+      allDay: false,
     }));
 
     const eventos = [...eventosAusencias, ...eventosFichajes];
 
-    return res.json({
-      desde,
-      hasta,
-      eventos,
-    });
+    return res.json(eventos);
   } catch (err) {
     console.error("❌ Error en getCalendarioUsuario:", err);
     return res
@@ -140,7 +134,7 @@ export const getCalendarioEmpresa = async (req, res) => {
     `;
 
     if (empleados.length === 0) {
-      return res.json({ desde, hasta, eventos: [] });
+      return res.json([]);
     }
 
     const empleadoIds = empleados.map((e) => e.id);
@@ -184,17 +178,17 @@ export const getCalendarioEmpresa = async (req, res) => {
 
     const eventosAusencias = ausencias.map((a) => ({
       id: `aus-${a.id}`,
-      tipo: "ausencia",
+      tipo: a.tipo,
       subtipo: a.tipo,
       title:
         a.tipo === "baja_medica"
           ? `${a.empleado_nombre} - Baja médica`
           : `${a.empleado_nombre} - Vacaciones`,
       start: a.fecha_inicio,
-      end: a.fecha_fin,
+      end: addOneDay(a.fecha_fin),
+      allDay: true,
       estado: a.estado,
       empleado_id: a.empleado_id,
-      empleado_nombre: a.empleado_nombre,
     }));
 
     const eventosFichajes = fichajes.map((f) => ({
@@ -205,20 +199,10 @@ export const getCalendarioEmpresa = async (req, res) => {
         ? `${f.empleado_nombre} - ${f.tipo} - ${f.cliente_nombre}`
         : `${f.empleado_nombre} - ${f.tipo}`,
       start: f.fecha,
-      end: null,
-      empleado_id: f.empleado_id,
-      empleado_nombre: f.empleado_nombre,
-      cliente_id: f.cliente_id,
-      cliente_nombre: f.cliente_nombre,
+      allDay: false,
     }));
 
-    const eventos = [...eventosAusencias, ...eventosFichajes];
-
-    return res.json({
-      desde,
-      hasta,
-      eventos,
-    });
+    return res.json([...eventosAusencias, ...eventosFichajes]);
   } catch (err) {
     console.error("❌ Error en getCalendarioEmpresa:", err);
     return res
