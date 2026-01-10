@@ -9,6 +9,7 @@ import {
 } from "../controllers/ausenciasController.js";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { listarEventosCalendarioAdmin } from "../controllers/ausenciasController.js";
 
 const router = Router();
 
@@ -17,6 +18,12 @@ router.get(
   authRequired,
   roleRequired("admin"),
   listarAusenciasEmpresa
+);
+router.get(
+  "/calendario/eventos",
+  authRequired,
+  roleRequired("admin"),
+  listarEventosCalendarioAdmin
 );
 router.post(
   "/ausencias/baja",

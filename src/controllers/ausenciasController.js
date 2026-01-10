@@ -373,3 +373,42 @@ export const crearAusenciaAdmin = async (req, res) => {
     return res.status(500).json({ error: "Error creando ausencia" });
   }
 };
+export const listarEventosCalendarioAdmin = async (req, res) => {
+  try {
+    const { desde, hasta, empleado_id, estado } = req.query;
+
+    const empresa = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+
+    if (!empresa.length) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const empresaId = empresa[0].id;
+
+    const rows = await sql`
+      SELECT 
+        a.id,
+        a.empleado_id,
+        e.nombre AS empleado_nombre,
+        a.tipo,
+        a.estado,
+        a.fecha_inicio AS start,
+        a.fecha_fin AS end
+      FROM ausencias_180 a
+      JOIN employees_180 e ON e.id = a.empleado_id
+      WHERE a.empresa_id = ${empresaId}
+        AND (${desde}::date IS NULL OR a.fecha_fin >= ${desde})
+        AND (${hasta}::date IS NULL OR a.fecha_inicio <= ${hasta})
+        AND (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
+        AND (${estado}::text IS NULL OR a.estado = ${estado})
+      ORDER BY a.fecha_inicio ASC
+    `;
+
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ Error listarEventosCalendarioAdmin:", err);
+    res.status(500).json({ error: "Error cargando calendario" });
+  }
+};
