@@ -12,6 +12,12 @@ router.use(roleRequired("admin"));
 
 // 📅 calendario empresa / empleado
 router.get("/calendario", getCalendarioAdmin);
+router.get(
+  "/calendario/eventos",
+  authRequired,
+  roleRequired("admin"),
+  getEventosCalendarioAdmin
+);
 
 // ✅ aprobar / rechazar ausencias
 router.patch("/ausencias/:id", resolverAusencia);

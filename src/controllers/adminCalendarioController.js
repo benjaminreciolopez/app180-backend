@@ -75,3 +75,50 @@ export const solicitarAusencia = async (req, res) => {
     res.status(500).json({ error: "Error solicitando ausencia" });
   }
 };
+
+export const getEventosCalendarioAdmin = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const { desde, hasta, empleado_id } = req.query;
+
+    if (!desde || !hasta) {
+      return res.status(400).json({ error: "Rango de fechas requerido" });
+    }
+
+    const empresa = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+
+    if (!empresa.length) {
+      return res.status(400).json({ error: "Empresa no encontrada" });
+    }
+
+    const empresaId = empresa[0].id;
+
+    const rows = await sql`
+      SELECT
+        a.id,
+        a.empleado_id,
+        e.nombre AS empleado_nombre,
+        a.tipo,
+        a.estado,
+        a.fecha_inicio AS start,
+        a.fecha_fin AS end
+      FROM ausencias_180 a
+      JOIN employees_180 e ON e.id = a.empleado_id
+      WHERE a.empresa_id = ${empresaId}
+        AND a.fecha_fin >= ${desde}
+        AND a.fecha_inicio <= ${hasta}
+        AND (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
+      ORDER BY a.fecha_inicio ASC
+    `;
+
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ calendario admin eventos:", err);
+    res.status(500).json({ error: "Error calendario admin" });
+  }
+};
