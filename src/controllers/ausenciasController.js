@@ -357,7 +357,7 @@ export const crearAusenciaAdmin = async (req, res) => {
         ${tipo},
         ${fecha_inicio},
         ${fecha_fin},
-        ${comentarioAdminSafe}
+        ${comentarioAdminSafe},
         'aprobado'
       )
       RETURNING *
