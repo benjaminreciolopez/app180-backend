@@ -89,6 +89,9 @@ export const getEventosCalendarioAdmin = async (req, res) => {
       return res.status(400).json({ error: "Rango de fechas requerido" });
     }
 
+    const empleadoIdSafe = empleado_id === undefined ? null : empleado_id;
+    const estadoSafe = estado === undefined ? null : estado;
+
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
@@ -113,8 +116,8 @@ export const getEventosCalendarioAdmin = async (req, res) => {
       WHERE a.empresa_id = ${empresaId}
         AND a.fecha_fin >= ${desde}
         AND a.fecha_inicio <= ${hasta}
-        AND (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
-        AND (${estado}::text IS NULL OR a.estado = ${estado})
+        AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe})
+        AND (${estadoSafe}::text IS NULL OR a.estado = ${estadoSafe})
       ORDER BY a.fecha_inicio ASC
     `;
 

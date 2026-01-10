@@ -2,7 +2,10 @@ import { Router } from "express";
 import { authRequired } from "../middleware/authMiddleware.js";
 import { roleRequired } from "../middleware/roleRequired.js";
 
-import { getCalendarioAdmin } from "../controllers/adminCalendarioController.js";
+import {
+  getCalendarioAdmin,
+  getEventosCalendarioAdmin,
+} from "../controllers/adminCalendarioController.js";
 import { resolverAusencia } from "../controllers/ausenciasController.js";
 
 const router = Router();
