@@ -68,8 +68,11 @@ export const crearBajaMedica = async (req, res) => {
     res.status(500).json({ error: "Error al registrar baja médica" });
   }
 };
+// ausenciasController.js
 export const listarAusenciasEmpresa = async (req, res) => {
   try {
+    const { estado } = req.query; // <-- nuevo (opcional)
+
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
@@ -78,12 +81,16 @@ export const listarAusenciasEmpresa = async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
+    const empresaId = empresa[0].id;
+
     const rows = await sql`
       SELECT a.*, e.nombre AS empleado_nombre
       FROM ausencias_180 a
       JOIN employees_180 e ON e.id = a.empleado_id
-      WHERE a.empresa_id = ${empresa[0].id}
-      ORDER BY a.fecha_inicio DESC
+      WHERE a.empresa_id = ${empresaId}
+        AND (${estado}::text IS NULL OR a.estado = ${estado})
+      ORDER BY a.creado_en DESC NULLS LAST, a.fecha_inicio DESC
+      LIMIT 300
     `;
 
     return res.json(rows);
