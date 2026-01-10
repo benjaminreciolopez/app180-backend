@@ -22,6 +22,7 @@ router.post(
   roleRequired("admin"),
   crearBajaMedica
 );
+router.post("/ausencias", crearAusenciaAdmin);
 
 router.patch(
   "/ausencias/:id/aprobar",
