@@ -155,3 +155,40 @@ export const misAusencias = async (req, res) => {
     res.status(500).json({ error: "Error obteniendo ausencias" });
   }
 };
+export const actualizarEstadoAusencia = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body;
+
+    if (!["pendiente", "aprobado", "rechazado"].includes(estado)) {
+      return res.status(400).json({ error: "Estado no válido" });
+    }
+
+    const empresa = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+
+    if (!empresa.length) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const empresaId = empresa[0].id;
+
+    const rows = await sql`
+      UPDATE ausencias_180
+      SET estado = ${estado}
+      WHERE id = ${id}
+        AND empresa_id = ${empresaId}
+      RETURNING *
+    `;
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "Ausencia no encontrada" });
+    }
+
+    res.json({ success: true, ausencia: rows[0] });
+  } catch (err) {
+    console.error("❌ actualizarEstadoAusencia:", err);
+    res.status(500).json({ error: "Error actualizando estado" });
+  }
+};

@@ -16,6 +16,13 @@ router.get(
   roleRequired("admin"),
   listarAusenciasEmpresa
 );
+router.post(
+  "/ausencias/baja",
+  authRequired,
+  roleRequired("admin"),
+  crearBajaMedica
+);
+
 router.patch(
   "/ausencias/:id/aprobar",
   authRequired,
@@ -28,11 +35,6 @@ router.patch(
   roleRequired("admin"),
   rechazarVacaciones
 );
-router.post(
-  "/ausencias/baja",
-  authRequired,
-  roleRequired("admin"),
-  crearBajaMedica
-);
+router.patch("/ausencias/:id/estado", actualizarEstadoAusencia);
 
 export default router;
