@@ -76,13 +76,14 @@ export const solicitarAusencia = async (req, res) => {
   }
 };
 
+// adminCalendarioController.js
 export const getEventosCalendarioAdmin = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
       return res.status(403).json({ error: "No autorizado" });
     }
 
-    const { desde, hasta, empleado_id } = req.query;
+    const { desde, hasta, empleado_id, estado } = req.query;
 
     if (!desde || !hasta) {
       return res.status(400).json({ error: "Rango de fechas requerido" });
@@ -113,6 +114,7 @@ export const getEventosCalendarioAdmin = async (req, res) => {
         AND a.fecha_fin >= ${desde}
         AND a.fecha_inicio <= ${hasta}
         AND (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
+        AND (${estado}::text IS NULL OR a.estado = ${estado})
       ORDER BY a.fecha_inicio ASC
     `;
 
