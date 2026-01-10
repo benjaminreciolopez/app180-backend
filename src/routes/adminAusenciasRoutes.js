@@ -4,6 +4,8 @@ import {
   rechazarVacaciones,
   crearBajaMedica,
   listarAusenciasEmpresa,
+  crearAusenciaAdmin,
+  actualizarEstadoAusencia,
 } from "../controllers/ausenciasController.js";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
