@@ -129,3 +129,22 @@ export const solicitarAusencia = async (req, res) => {
     res.status(500).json({ error: "Error solicitando ausencia" });
   }
 };
+
+export const misAusencias = async (req, res) => {
+  try {
+    const { empleado_id } = req.user;
+    if (!empleado_id) return res.status(403).json({ error: "No autorizado" });
+
+    const rows = await sql`
+      SELECT id, tipo, fecha_inicio, fecha_fin, estado, comentario_empleado
+      FROM ausencias_180
+      WHERE empleado_id = ${empleado_id}
+      ORDER BY creado_en DESC
+      LIMIT 200
+    `;
+    res.json(rows);
+  } catch (e) {
+    console.error("❌ misAusencias", e);
+    res.status(500).json({ error: "Error obteniendo ausencias" });
+  }
+};
