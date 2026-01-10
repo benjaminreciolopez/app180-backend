@@ -38,8 +38,12 @@ export const getCalendarioAdmin = async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error("❌ calendario admin:", err);
-    res.status(500).json({ error: "Error calendario admin" });
+    console.error("❌ calendario admin eventos:", err);
+    return res.status(500).json({
+      error: "Error calendario admin",
+      detail: err.message,
+      stack: err.stack,
+    });
   }
 };
 
@@ -89,8 +93,10 @@ export const getEventosCalendarioAdmin = async (req, res) => {
       return res.status(400).json({ error: "Rango de fechas requerido" });
     }
 
-    const empleadoIdSafe = empleado_id === undefined ? null : empleado_id;
-    const estadoSafe = estado === undefined ? null : estado;
+    const empleadoIdSafe =
+      empleado_id && empleado_id !== "" ? empleado_id : null;
+
+    const estadoSafe = estado && estado !== "" ? estado : null;
 
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
@@ -116,14 +122,18 @@ export const getEventosCalendarioAdmin = async (req, res) => {
       WHERE a.empresa_id = ${empresaId}
         AND a.fecha_fin >= ${desde}
         AND a.fecha_inicio <= ${hasta}
-        AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe})
-        AND (${estadoSafe}::text IS NULL OR a.estado = ${estadoSafe})
+        AND (${empleadoIdSafe} IS NULL OR a.empleado_id = ${empleadoIdSafe})
+        AND (${estadoSafe} IS NULL OR a.estado = ${estadoSafe})
       ORDER BY a.fecha_inicio ASC
     `;
 
     res.json(rows);
   } catch (err) {
     console.error("❌ calendario admin eventos:", err);
-    res.status(500).json({ error: "Error calendario admin" });
+    return res.status(500).json({
+      error: "Error calendario admin",
+      detail: err.message,
+      stack: err.stack,
+    });
   }
 };
