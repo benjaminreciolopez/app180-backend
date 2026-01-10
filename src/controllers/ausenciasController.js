@@ -104,6 +104,7 @@ export const crearBajaMedica = async (req, res) => {
 export const listarAusenciasEmpresa = async (req, res) => {
   try {
     const { estado } = req.query; // <-- nuevo (opcional)
+    const estadoSafe = estado === undefined ? null : estado;
 
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
@@ -120,7 +121,7 @@ export const listarAusenciasEmpresa = async (req, res) => {
       FROM ausencias_180 a
       JOIN employees_180 e ON e.id = a.empleado_id
       WHERE a.empresa_id = ${empresaId}
-        AND (${estado}::text IS NULL OR a.estado = ${estado})
+        AND (${estadoSafe}::text IS NULL OR a.estado = ${estadoSafe})
       ORDER BY a.creado_en DESC NULLS LAST, a.fecha_inicio DESC
       LIMIT 300
     `;
@@ -208,6 +209,8 @@ export const actualizarEstadoAusencia = async (req, res) => {
   try {
     const { id } = req.params;
     const { estado, comentario_admin } = req.body;
+    const comentarioAdminSafe =
+      comentario_admin === undefined ? null : comentario_admin;
 
     if (!["pendiente", "aprobado", "rechazado"].includes(estado)) {
       return res.status(400).json({ error: "Estado no válido" });
@@ -257,7 +260,7 @@ export const actualizarEstadoAusencia = async (req, res) => {
       UPDATE ausencias_180
       SET
         estado = ${estado},
-        comentario_admin = COALESCE(${comentario_admin}::text, comentario_admin)
+        comentario_admin = COALESCE(${comentarioAdminSafe}::text, comentario_admin)
       WHERE id = ${id}
         AND empresa_id = ${empresaId}
       RETURNING *
@@ -329,6 +332,8 @@ export const crearAusenciaAdmin = async (req, res) => {
       desde: fecha_inicio,
       hasta: fecha_fin,
     });
+    const comentarioAdminSafe =
+      comentario_admin === undefined ? null : comentario_admin;
 
     if (solape) {
       return res.status(400).json({
@@ -352,7 +357,7 @@ export const crearAusenciaAdmin = async (req, res) => {
         ${tipo},
         ${fecha_inicio},
         ${fecha_fin},
-        ${comentario_admin || null},
+        ${comentarioAdminSafe}
         'aprobado'
       )
       RETURNING *
