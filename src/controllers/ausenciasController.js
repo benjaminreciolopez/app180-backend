@@ -1,5 +1,37 @@
 import { sql } from "../db.js";
 
+async function haySolapeAprobado({
+  empleadoId,
+  empresaId,
+  desde,
+  hasta,
+  excludeId,
+}) {
+  const rows = await sql`
+    SELECT id, tipo, fecha_inicio, fecha_fin, estado
+    FROM ausencias_180
+    WHERE empresa_id = ${empresaId}
+      AND empleado_id = ${empleadoId}
+      AND estado = 'aprobado'
+      AND (${excludeId}::uuid IS NULL OR id <> ${excludeId})
+      AND NOT (
+        fecha_fin < ${desde} OR fecha_inicio > ${hasta}
+      )
+    LIMIT 1
+  `;
+  return rows[0] || null;
+}
+async function hayFestivosEnRango({ empresaId, desde, hasta }) {
+  const rows = await sql`
+    SELECT COUNT(*)::int AS n
+    FROM v_dia_laborable_empresa_180
+    WHERE empresa_id = ${empresaId}
+      AND fecha BETWEEN ${desde} AND ${hasta}
+      AND es_laborable = false
+  `;
+  return (rows[0]?.n || 0) > 0;
+}
+
 export const aprobarVacaciones = async (req, res) => {
   try {
     const { id } = req.params;
@@ -108,6 +140,18 @@ export const solicitarAusencia = async (req, res) => {
     if (!["vacaciones", "baja_medica"].includes(tipo)) {
       return res.status(400).json({ error: "Tipo de ausencia no válido" });
     }
+    const solape = await haySolapeAprobado({
+      empleadoId: empleado_id,
+      empresaId: empresa_id,
+      desde: fecha_inicio,
+      hasta: fecha_fin,
+      excludeId: null,
+    });
+    const festivos = await hayFestivosEnRango({
+      empresaId: empresa_id,
+      desde: fecha_inicio,
+      hasta: fecha_fin,
+    });
 
     const rows = await sql`
       INSERT INTO ausencias_180 (
@@ -130,7 +174,12 @@ export const solicitarAusencia = async (req, res) => {
       RETURNING *
     `;
 
-    res.json(rows[0]);
+    res.json({
+      ...rows[0],
+      warning: !!solape,
+      warning_conflict: solape || null,
+      warning_festivos: !!festivos,
+    });
   } catch (err) {
     console.error("❌ solicitar ausencia:", err);
     res.status(500).json({ error: "Error solicitando ausencia" });
@@ -164,13 +213,45 @@ export const actualizarEstadoAusencia = async (req, res) => {
       return res.status(400).json({ error: "Estado no válido" });
     }
 
+    // 1) Obtener empresa
     const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+  SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+`;
     if (!empresa.length)
       return res.status(403).json({ error: "No autorizado" });
-
     const empresaId = empresa[0].id;
+
+    // 2) Leer ausencia actual
+    const current = await sql`
+  SELECT id, empleado_id, fecha_inicio, fecha_fin, estado, tipo
+  FROM ausencias_180
+  WHERE id = ${id}
+    AND empresa_id = ${empresaId}
+  LIMIT 1
+`;
+    if (!current.length) {
+      return res.status(404).json({ error: "Ausencia no encontrada" });
+    }
+
+    const a = current[0];
+
+    // 3) Si vas a APROBAR → bloquear si solapa con otra aprobada
+    if (estado === "aprobado") {
+      const solape = await haySolapeAprobado({
+        empleadoId: a.empleado_id,
+        empresaId,
+        desde: a.fecha_inicio,
+        hasta: a.fecha_fin,
+        excludeId: a.id,
+      });
+
+      if (solape) {
+        return res.status(400).json({
+          error: "No se puede aprobar: solapa con otra ausencia aprobada",
+          conflict: solape,
+        });
+      }
+    }
 
     const rows = await sql`
       UPDATE ausencias_180
@@ -236,6 +317,25 @@ export const crearAusenciaAdmin = async (req, res) => {
         .status(400)
         .json({ error: "Empleado no pertenece a tu empresa" });
     }
+    const solape = await haySolapeAprobado({
+      empleadoId: empleado_id,
+      empresaId,
+      desde: fecha_inicio,
+      hasta: fecha_fin,
+      excludeId: null,
+    });
+    const festivos = await hayFestivosEnRango({
+      empresaId,
+      desde: fecha_inicio,
+      hasta: fecha_fin,
+    });
+
+    if (solape) {
+      return res.status(400).json({
+        error: "Solape con otra ausencia aprobada",
+        conflict: solape,
+      });
+    }
 
     const rows = await sql`
       INSERT INTO ausencias_180 (
@@ -258,7 +358,11 @@ export const crearAusenciaAdmin = async (req, res) => {
       RETURNING *
     `;
 
-    return res.json({ success: true, ausencia: rows[0] });
+    return res.json({
+      success: true,
+      ausencia: rows[0],
+      warning_festivos: !!festivos,
+    });
   } catch (err) {
     console.error("❌ crearAusenciaAdmin:", err);
     return res.status(500).json({ error: "Error creando ausencia" });
