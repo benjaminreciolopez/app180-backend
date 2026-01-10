@@ -377,6 +377,11 @@ export const listarEventosCalendarioAdmin = async (req, res) => {
   try {
     const { desde, hasta, empleado_id, estado } = req.query;
 
+    const desdeSafe = desde ?? null;
+    const hastaSafe = hasta ?? null;
+    const empleadoIdSafe = empleado_id ?? null;
+    const estadoSafe = estado ?? null;
+
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
@@ -399,10 +404,10 @@ export const listarEventosCalendarioAdmin = async (req, res) => {
       FROM ausencias_180 a
       JOIN employees_180 e ON e.id = a.empleado_id
       WHERE a.empresa_id = ${empresaId}
-        AND (${desde}::date IS NULL OR a.fecha_fin >= ${desde})
-        AND (${hasta}::date IS NULL OR a.fecha_inicio <= ${hasta})
-        AND (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
-        AND (${estado}::text IS NULL OR a.estado = ${estado})
+        AND (${desdeSafe}::date IS NULL OR a.fecha_fin >= ${desdeSafe})
+        AND (${hastaSafe}::date IS NULL OR a.fecha_inicio <= ${hastaSafe})
+        AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe})
+        AND (${estadoSafe}::text IS NULL OR a.estado = ${estadoSafe})
       ORDER BY a.fecha_inicio ASC
     `;
 
