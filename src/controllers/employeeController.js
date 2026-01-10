@@ -88,6 +88,20 @@ export const createEmployee = async (req, res) => {
 // ==========================
 export const getEmployeesAdmin = async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const empresa = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+
+    if (!empresa.length) {
+      return res.status(403).json({ error: "Empresa no encontrada" });
+    }
+
+    const empresaId = empresa[0].id;
+
     const empleados = await sql`
       SELECT
         e.id,
@@ -107,6 +121,7 @@ export const getEmployeesAdmin = async (req, res) => {
         ORDER BY created_at DESC
         LIMIT 1
       ) d ON true
+      WHERE e.empresa_id = ${empresaId}
       ORDER BY e.nombre
     `;
 
