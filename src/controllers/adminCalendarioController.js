@@ -133,7 +133,6 @@ export const getEventosCalendarioAdmin = async (req, res) => {
     return res.status(500).json({
       error: "Error calendario admin",
       detail: err.message,
-      stack: err.stack,
     });
   }
 };
