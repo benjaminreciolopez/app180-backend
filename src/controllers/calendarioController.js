@@ -31,33 +31,29 @@ export const getCalendarioUsuario = async (req, res) => {
   try {
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
 
-    // ¿Es empleado?
-    const empleadoRows = await sql`
-      SELECT id, nombre
-      FROM employees_180
-      WHERE user_id = ${req.user.id}
-    `;
+    // 👇 USAR EL empleado_id DEL JWT (no buscar por user_id)
+    const empleadoId = req.user.empleado_id;
+    const empleadoNombre = req.user.nombre;
 
-    const esEmpleado = empleadoRows.length > 0;
-    const empleadoId = esEmpleado ? empleadoRows[0].id : null;
-    const empleadoNombre = esEmpleado
-      ? empleadoRows[0].nombre
-      : req.user.nombre;
-
-    // AUSENCIAS (solo si es empleado)
-    let ausencias = [];
-    if (esEmpleado) {
-      ausencias = await sql`
-        SELECT id, tipo, fecha_inicio, fecha_fin, estado
-        FROM ausencias_180
-        WHERE empleado_id = ${empleadoId}
-        AND fecha_inicio <= ${hasta}
-        AND fecha_fin >= ${desde}
-        ORDER BY fecha_inicio ASC
-      `;
+    if (!empleadoId) {
+      return res.status(403).json({ error: "No autorizado" });
     }
 
-    // FICHAJES (empleado o autónomo por user_id)
+    // =========================
+    // AUSENCIAS DEL EMPLEADO
+    // =========================
+    const ausencias = await sql`
+      SELECT id, tipo, fecha_inicio, fecha_fin, estado
+      FROM ausencias_180
+      WHERE empleado_id = ${empleadoId}
+        AND fecha_inicio <= ${hasta}
+        AND fecha_fin >= ${desde}
+      ORDER BY fecha_inicio ASC
+    `;
+
+    // =========================
+    // FICHAJES (por user_id)
+    // =========================
     const fichajes = await sql`
       SELECT 
         f.id,
@@ -68,15 +64,16 @@ export const getCalendarioUsuario = async (req, res) => {
       FROM fichajes_180 f
       LEFT JOIN clients_180 c ON c.id = f.cliente_id
       WHERE f.user_id = ${req.user.id}
-      AND f.fecha::date BETWEEN ${desde} AND ${hasta}
+        AND f.fecha::date BETWEEN ${desde} AND ${hasta}
       ORDER BY f.fecha ASC
     `;
 
-    // Mapear a eventos de calendario
-
+    // =========================
+    // MAPEO A EVENTOS
+    // =========================
     const eventosAusencias = ausencias.map((a) => ({
       id: `aus-${a.id}`,
-      tipo: a.tipo, // 👈 esto es lo que usará el color
+      tipo: a.tipo,
       subtipo: a.tipo,
       title: a.tipo === "baja_medica" ? `Baja médica` : `Vacaciones`,
       start: a.fecha_inicio,
@@ -104,7 +101,6 @@ export const getCalendarioUsuario = async (req, res) => {
       .json({ error: "Error al obtener calendario del usuario" });
   }
 };
-
 //
 // CALENDARIO DE EMPRESA (solo admin)
 //
