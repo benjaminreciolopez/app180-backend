@@ -126,6 +126,7 @@ export const listarAusenciasEmpresa = async (req, res) => {
       LIMIT 300
     `;
 
+    res.set("Cache-Control", "no-store");
     return res.json(rows);
   } catch (err) {
     console.error("❌ Error en listarAusenciasEmpresa:", err);
@@ -199,6 +200,7 @@ export const misAusencias = async (req, res) => {
       ORDER BY creado_en DESC
       LIMIT 200
     `;
+    res.set("Cache-Control", "no-store");
     res.json(rows);
   } catch (e) {
     console.error("❌ misAusencias", e);
@@ -411,6 +413,7 @@ export const listarEventosCalendarioAdmin = async (req, res) => {
       ORDER BY a.fecha_inicio ASC
     `;
 
+    res.set("Cache-Control", "no-store");
     res.json(rows);
   } catch (err) {
     console.error("❌ Error listarEventosCalendarioAdmin:", err);
