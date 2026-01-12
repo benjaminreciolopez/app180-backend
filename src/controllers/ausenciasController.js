@@ -189,6 +189,7 @@ export const solicitarAusencia = async (req, res) => {
 };
 
 export const misAusencias = async (req, res) => {
+  console.log("📡 misAusencias llamada por", req.user?.email);
   try {
     const { empleado_id } = req.user;
     if (!empleado_id) return res.status(403).json({ error: "No autorizado" });
@@ -200,6 +201,7 @@ export const misAusencias = async (req, res) => {
       ORDER BY creado_en DESC
       LIMIT 200
     `;
+    console.log("📊 Rows:", rows.length);
     res.set("Cache-Control", "no-store");
     res.json(rows);
   } catch (e) {
