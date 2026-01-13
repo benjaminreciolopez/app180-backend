@@ -79,25 +79,39 @@ export const crearBajaMedica = async (req, res) => {
     const { empleado_id, fecha_inicio, fecha_fin, motivo } = req.body;
 
     if (!empleado_id || !fecha_inicio || !fecha_fin) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
-    }
-
-    if (fecha_inicio > fecha_fin) {
       return res.status(400).json({
-        error: "La fecha de inicio no puede ser posterior a la fecha de fin",
+        error: "empleado_id, fecha_inicio y fecha_fin son obligatorios",
       });
     }
+    if (fecha_inicio > fecha_fin) {
+      return res
+        .status(400)
+        .json({ error: "La fecha de inicio no puede ser mayor que la de fin" });
+    }
 
+    // Empresa del admin
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
-
-    if (empresa.length === 0) {
+    if (!empresa.length) {
       return res.status(403).json({ error: "No autorizado" });
     }
-
     const empresaId = empresa[0].id;
 
+    // Validar que el empleado pertenece a la empresa
+    const emp = await sql`
+      SELECT id FROM employees_180
+      WHERE id = ${empleado_id}
+        AND empresa_id = ${empresaId}
+      LIMIT 1
+    `;
+    if (!emp.length) {
+      return res
+        .status(400)
+        .json({ error: "Empleado no pertenece a tu empresa" });
+    }
+
+    // Bloquear solape con ausencias aprobadas (vacaciones o bajas)
     const solape = await haySolapeAprobado({
       empleadoId: empleado_id,
       empresaId,
@@ -105,10 +119,9 @@ export const crearBajaMedica = async (req, res) => {
       hasta: fecha_fin,
       excludeId: null,
     });
-
     if (solape) {
       return res.status(400).json({
-        error: "Solapa con otra ausencia aprobada",
+        error: "Solape con otra ausencia aprobada",
         conflict: solape,
       });
     }
@@ -128,12 +141,14 @@ export const crearBajaMedica = async (req, res) => {
       RETURNING *
     `;
 
-    res.json({ success: true, ausencia: aus[0] });
+    res.set("Cache-Control", "no-store");
+    return res.json({ success: true, ausencia: aus[0] });
   } catch (err) {
     console.error("❌ Error en crearBajaMedica:", err);
-    res.status(500).json({ error: "Error al registrar baja médica" });
+    return res.status(500).json({ error: "Error al registrar baja médica" });
   }
 };
+
 // ausenciasController.js
 export const listarAusenciasEmpresa = async (req, res) => {
   try {
