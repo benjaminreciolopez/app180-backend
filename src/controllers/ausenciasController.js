@@ -78,7 +78,16 @@ export const crearBajaMedica = async (req, res) => {
   try {
     const { empleado_id, fecha_inicio, fecha_fin, motivo } = req.body;
 
-    // Verificar que el admin es dueño de la empresa
+    if (!empleado_id || !fecha_inicio || !fecha_fin) {
+      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    }
+
+    if (fecha_inicio > fecha_fin) {
+      return res.status(400).json({
+        error: "La fecha de inicio no puede ser posterior a la fecha de fin",
+      });
+    }
+
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
@@ -87,10 +96,35 @@ export const crearBajaMedica = async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
+    const empresaId = empresa[0].id;
+
+    const solape = await haySolapeAprobado({
+      empleadoId: empleado_id,
+      empresaId,
+      desde: fecha_inicio,
+      hasta: fecha_fin,
+      excludeId: null,
+    });
+
+    if (solape) {
+      return res.status(400).json({
+        error: "Solapa con otra ausencia aprobada",
+        conflict: solape,
+      });
+    }
+
     const aus = await sql`
       INSERT INTO ausencias_180 
       (empleado_id, empresa_id, tipo, fecha_inicio, fecha_fin, motivo, estado)
-      VALUES (${empleado_id}, ${empresa[0].id}, 'baja_medica', ${fecha_inicio}, ${fecha_fin}, ${motivo}, 'aprobado')
+      VALUES (
+        ${empleado_id},
+        ${empresaId},
+        'baja_medica',
+        ${fecha_inicio},
+        ${fecha_fin},
+        ${motivo || null},
+        'aprobado'
+      )
       RETURNING *
     `;
 
@@ -138,6 +172,12 @@ export const solicitarAusencia = async (req, res) => {
   try {
     const { empleado_id, empresa_id } = req.user;
     const { tipo, fecha_inicio, fecha_fin, comentario } = req.body;
+
+    if (fecha_inicio > fecha_fin) {
+      return res.status(400).json({
+        error: "La fecha de inicio no puede ser posterior a la fecha de fin",
+      });
+    }
 
     if (!["vacaciones", "baja_medica"].includes(tipo)) {
       return res.status(400).json({ error: "Tipo de ausencia no válido" });
