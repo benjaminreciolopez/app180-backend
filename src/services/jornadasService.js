@@ -1,6 +1,15 @@
+// backend/src/services/jornadasService.js
 import { sql } from "../db.js";
 
-// Obtener jornada abierta del empleado
+function toYMD(date) {
+  const d = new Date(date);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Obtener jornada abierta del empleado (NO filtrar por fecha, por nocturnos)
 export async function obtenerJornadaAbierta(empleadoId) {
   const rows = await sql`
     SELECT *
@@ -13,27 +22,43 @@ export async function obtenerJornadaAbierta(empleadoId) {
   return rows[0] || null;
 }
 
-// Crear jornada
-export async function crearJornada({ empresaId, empleadoId, inicio }) {
+// Crear jornada (fecha = día de INICIO)
+export async function crearJornada({
+  empresaId,
+  empleadoId,
+  inicio,
+  incidencia = null,
+  origen_creacion = "app",
+}) {
+  const fecha = toYMD(inicio);
+
   const rows = await sql`
     INSERT INTO jornadas_180 (
       empresa_id,
       empleado_id,
+      fecha,
       inicio,
-      estado
+      hora_entrada,
+      estado,
+      incidencia,
+      origen_creacion
     )
     VALUES (
       ${empresaId},
       ${empleadoId},
+      ${fecha},
       ${inicio},
-      'abierta'
+      ${inicio},
+      'abierta',
+      ${incidencia},
+      ${origen_creacion}
     )
     RETURNING *
   `;
   return rows[0];
 }
 
-// Cerrar jornada
+// Cerrar jornada (SQL correcto + rellena fin y hora_salida)
 export async function cerrarJornada({
   jornadaId,
   fin,
@@ -41,18 +66,23 @@ export async function cerrarJornada({
   minutos_descanso = 0,
   minutos_extra = 0,
   origen_cierre = "app",
+  incidencia = null,
 }) {
   const rows = await sql`
     UPDATE jornadas_180
-    SET fin = ${fin},
-        minutos_trabajados = ${minutos_trabajados},
-        minutos_descanso = ${minutos_descanso},
-        minutos_extra = ${minutos_extra},
-        estado = 'cerrada',
-        origen_cierre = ${origen_cierre}
+    SET
+      fin = ${fin},
+      hora_salida = ${fin},
+      minutos_trabajados = ${minutos_trabajados},
+      minutos_descanso = ${minutos_descanso},
+      minutos_extra = ${minutos_extra},
+      estado = 'cerrada',
+      origen_cierre = ${origen_cierre},
+      incidencia = COALESCE(${incidencia}, incidencia),
+      updated_at = NOW()
     WHERE id = ${jornadaId}
-    WHERE id = $1 AND estado = 'abierta'
+      AND estado = 'abierta'
     RETURNING *
   `;
-  return rows[0];
+  return rows[0] || null;
 }

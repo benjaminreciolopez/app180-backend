@@ -1,3 +1,5 @@
+// backend\src\controllers\fichajeController.js
+
 import { sql } from "../db.js";
 import { ejecutarAutocierre } from "../jobs/autocierre.js";
 import { detectarFichajeSospechoso } from "../services/fichajeSospechoso.js";
@@ -113,11 +115,13 @@ export const createFichaje = async (req, res) => {
     });
 
     if (!validacionTurno.ok) {
-      return res.status(validacionTurno.status || 400).json({
-        error: validacionTurno.error,
-        code: validacionTurno.code,
-      });
+      return res
+        .status(validacionTurno.status || 400)
+        .json({ error: validacionTurno.error });
     }
+
+    // NO bloquear por turno: solo recoger incidencias
+    const incidenciasTurno = validacionTurno.incidencias || [];
 
     // =========================
     // SECUENCIA
@@ -151,12 +155,10 @@ export const createFichaje = async (req, res) => {
           empresaId,
           empleadoId,
           inicio: fechaHora,
+          incidencia: incidenciasTurno.length
+            ? incidenciasTurno.join(" | ")
+            : null,
         });
-      }
-      jornadaId = jornada.id;
-    } else {
-      if (!jornada) {
-        return res.status(400).json({ error: "No hay jornada abierta" });
       }
       jornadaId = jornada.id;
     }
@@ -211,10 +213,11 @@ export const createFichaje = async (req, res) => {
       RETURNING *
     `;
     await syncDailyReport({
-      empresaId: empleado.empresa_id,
-      empleadoId: empleado_id,
-      fecha: fechaHora, // vale Date
+      empresaId,
+      empleadoId,
+      fecha: fechaHora,
     });
+
     return res.json({ success: true, fichaje: nuevo[0] });
   } catch (err) {
     console.error("❌ Error en createFichaje:", err);

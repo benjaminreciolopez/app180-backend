@@ -1,20 +1,14 @@
+// backend/src/services/fichajesValidacionService.js
 import { obtenerTurnoEmpleado } from "../helpers/fichajesTurnosHelper.js";
 
-/**
- * Validación MVP de fichaje según turno.
- * - Requiere turno asignado
- * - Control nocturno básico
- */
 export async function validarFichajeSegunTurno({
   empleadoId,
   empresaId,
   fechaHora = new Date(),
 }) {
-  const data = await obtenerTurnoEmpleado({
-    empleadoId,
-    empresaId,
-  });
+  const data = await obtenerTurnoEmpleado({ empleadoId, empresaId });
 
+  // Error técnico (empleado no existe / no pertenece)
   if (!data) {
     return {
       ok: false,
@@ -23,27 +17,34 @@ export async function validarFichajeSegunTurno({
     };
   }
 
+  const incidencias = [];
+  const warnings = [];
+
+  // Sin turno: se permite fichar, se marca incidencia
   if (!data.turno_id) {
+    incidencias.push("Empleado sin turno asignado");
     return {
-      ok: false,
-      status: 400,
-      error: "Empleado sin turno asignado",
-      code: "NO_TURNO",
+      ok: true,
+      data,
+      incidencias,
+      warnings,
+      meta: { tiene_turno: false, es_nocturno: false },
     };
   }
 
-  // 🌙 Regla nocturna MVP: 22:00–06:00
+  // Nocturnidad (MVP 22:00–06:00): no se bloquea, solo incidencia
   const hour = fechaHora.getHours();
   const esNocturno = hour >= 22 || hour < 6;
 
   if (esNocturno && data.nocturno_permitido !== true) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Fichaje nocturno no permitido para este turno",
-      code: "NO_NOCTURNO",
-    };
+    incidencias.push("Fichaje nocturno fuera de lo permitido por el turno");
   }
 
-  return { ok: true };
+  return {
+    ok: true,
+    data,
+    incidencias,
+    warnings,
+    meta: { tiene_turno: true, es_nocturno: esNocturno },
+  };
 }
