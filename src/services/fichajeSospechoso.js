@@ -2,7 +2,6 @@ import { sql } from "../db.js";
 import { distanciaMetros } from "../utils/distancia.js";
 import { getIpInfo } from "../utils/ipLocation.js";
 
-// Analiza si un fichaje es sospechoso según varias reglas
 export const detectarFichajeSospechoso = async ({
   userId,
   empleadoId,
@@ -15,9 +14,14 @@ export const detectarFichajeSospechoso = async ({
 }) => {
   const razones = [];
 
-  //
-  // REGLA 1 — Fichajes demasiado seguidos (< 3 minutos)
-  //
+  // Variables para el resultado final
+  let dev = null;
+  let infoActual = null;
+  let distKm = null;
+
+  // ------------------------------
+  // REGLA 1 — Fichajes demasiado seguidos
+  // ------------------------------
   if (empleadoId) {
     const lastRows = await sql`
       SELECT fecha, tipo
@@ -36,9 +40,9 @@ export const detectarFichajeSospechoso = async ({
     }
   }
 
-  //
+  // ------------------------------
   // REGLA 2 — GPS inválido
-  //
+  // ------------------------------
   const gpsInvalido =
     lat === null ||
     lng === null ||
@@ -53,9 +57,9 @@ export const detectarFichajeSospechoso = async ({
     razones.push("Geolocalización inválida o ausente");
   }
 
-  //
-  // REGLA 3 — Geocerca de cliente (si tiene lat/lng/radio configurados)
-  //
+  // ------------------------------
+  // REGLA 3 — Geocerca de cliente
+  // ------------------------------
   if (clienteId && !gpsInvalido && tipo !== "salida") {
     const clienteRows = await sql`
       SELECT lat, lng, radio_m
@@ -86,11 +90,10 @@ export const detectarFichajeSospechoso = async ({
     }
   }
 
-  //
-  // REGLA 4 — IP habitual vs IP actual (ubicación geográfica)
-  //
+  // ------------------------------
+  // REGLA 4 — IP habitual vs actual
+  // ------------------------------
   if (empleadoId && reqIp) {
-    // 4.1 obtener info del dispositivo del empleado
     const deviceRows = await sql`
       SELECT id, ip_habitual, ip_lat, ip_lng, ip_country, ip_city
       FROM employee_devices_180
@@ -99,9 +102,8 @@ export const detectarFichajeSospechoso = async ({
     `;
 
     if (deviceRows.length > 0) {
-      const dev = deviceRows[0];
+      dev = deviceRows[0];
 
-      // 4.2 Si no tenemos aún info geográfica habitual → la guardamos ahora
       if (!dev.ip_lat || !dev.ip_lng || !dev.ip_country) {
         const info = await getIpInfo(reqIp);
         if (info) {
@@ -116,11 +118,10 @@ export const detectarFichajeSospechoso = async ({
           `;
         }
       } else {
-        // 4.3 Ya tenemos IP habitual → comparar con la IP actual
-        const infoActual = await getIpInfo(reqIp);
+        infoActual = await getIpInfo(reqIp);
 
         if (infoActual && infoActual.lat != null && infoActual.lng != null) {
-          const distKm =
+          distKm =
             distanciaMetros(
               Number(dev.ip_lat),
               Number(dev.ip_lng),
@@ -128,7 +129,6 @@ export const detectarFichajeSospechoso = async ({
               Number(infoActual.lng)
             ) / 1000;
 
-          // Umbral de 50km (ajustable)
           if (distKm > 50) {
             razones.push(
               `IP geográficamente alejada de la habitual (~${distKm.toFixed(
@@ -137,7 +137,6 @@ export const detectarFichajeSospechoso = async ({
             );
           }
 
-          // País distinto
           if (
             dev.ip_country &&
             infoActual.country &&
@@ -152,7 +151,9 @@ export const detectarFichajeSospechoso = async ({
     }
   }
 
-  // Resultado
+  // ------------------------------
+  // RESULTADO FINAL
+  // ------------------------------
   if (razones.length === 0) {
     return { sospechoso: false, ipInfo: null, distanciaKm: null };
   }
