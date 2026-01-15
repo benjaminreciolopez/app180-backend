@@ -1,9 +1,7 @@
-// backend/src/services/fichajeSospechoso.js
 import { sql } from "../db.js";
 import { distanciaMetros } from "../utils/distancia.js";
 import { getIpInfo } from "../utils/ipLocation.js";
 
-// Analiza si un fichaje es sospechoso según varias reglas
 export const detectarFichajeSospechoso = async ({
   userId,
   empleadoId,
@@ -20,7 +18,9 @@ export const detectarFichajeSospechoso = async ({
   let infoActual = null;
   let distKm = null;
 
-  // REGLA 1 — Fichajes demasiado seguidos (< 3 minutos)
+  // ------------------------------
+  // REGLA 1 — Fichajes demasiado seguidos
+  // ------------------------------
   if (empleadoId) {
     const lastRows = await sql`
       SELECT fecha, tipo
@@ -33,11 +33,15 @@ export const detectarFichajeSospechoso = async ({
     if (lastRows.length > 0) {
       const diffMs = Math.abs(new Date() - new Date(lastRows[0].fecha));
       const diffMin = diffMs / 60000;
-      if (diffMin < 3) razones.push("Fichajes demasiado seguidos (<3 minutos)");
+      if (diffMin < 3) {
+        razones.push("Fichajes demasiado seguidos (<3 minutos)");
+      }
     }
   }
 
+  // ------------------------------
   // REGLA 2 — GPS inválido
+  // ------------------------------
   const gpsInvalido =
     lat === null ||
     lng === null ||
@@ -48,9 +52,13 @@ export const detectarFichajeSospechoso = async ({
     Number(lng) < -180 ||
     Number(lng) > 180;
 
-  if (gpsInvalido) razones.push("Geolocalización inválida o ausente");
+  if (gpsInvalido) {
+    razones.push("Geolocalización inválida o ausente");
+  }
 
-  // REGLA 3 — Geocerca cliente
+  // ------------------------------
+  // REGLA 3 — Geocerca de cliente
+  // ------------------------------
   if (clienteId && !gpsInvalido && tipo !== "salida") {
     const clienteRows = await sql`
       SELECT lat, lng, radio_m
@@ -81,45 +89,73 @@ export const detectarFichajeSospechoso = async ({
     }
   }
 
-  // REGLA 4 — IP habitual vs IP actual (ubicación)
+  // ------------------------------
+  // REGLA 4 — IP habitual vs actual
+  // ------------------------------
   if (empleadoId && reqIp) {
     const deviceRows = await sql`
-      SELECT id, ip_habitual, ip_lat, ip_lng, ip_country, ip_city
+      SELECT 
+        id, 
+        ip_habitual, 
+        ip_lat, 
+        ip_lng, 
+        ip_country, 
+        ip_city,
+        ip_region,
+        ip_timezone,
+        ip_provider
       FROM employee_devices_180
       WHERE empleado_id = ${empleadoId}
-      ORDER BY created_at ASC
       LIMIT 1
     `;
 
     if (deviceRows.length > 0) {
       dev = deviceRows[0];
 
-      // si no hay habitual guardada, se guarda ahora (sin marcar sospechoso por esto)
-      if (!dev.ip_lat || !dev.ip_lng || !dev.ip_country) {
+      const noHabitual =
+        (!dev.ip_country && !dev.ip_city && (!dev.ip_lat || !dev.ip_lng)) ||
+        !dev.ip_habitual;
+
+      // Guardar IP habitual si no existe
+      if (noHabitual) {
         const info = await getIpInfo(reqIp);
         if (info) {
           await sql`
             UPDATE employee_devices_180
-            SET ip_habitual = ${reqIp},
-                ip_lat = ${info.lat},
-                ip_lng = ${info.lng},
-                ip_country = ${info.country},
-                ip_city = ${info.city}
+            SET 
+              ip_habitual = ${info.ip},
+              ip_lat = ${info.lat},
+              ip_lng = ${info.lng},
+              ip_country = ${info.country},
+              ip_city = ${info.city},
+              ip_region = ${info.region},
+              ip_timezone = ${info.timezone},
+              ip_provider = ${info.provider}
             WHERE id = ${dev.id}
           `;
+
           dev = {
             ...dev,
-            ip_habitual: reqIp,
+            ip_habitual: info.ip,
             ip_lat: info.lat,
             ip_lng: info.lng,
             ip_country: info.country,
             ip_city: info.city,
+            ip_region: info.region,
+            ip_timezone: info.timezone,
+            ip_provider: info.provider,
           };
         }
       } else {
         infoActual = await getIpInfo(reqIp);
 
-        if (infoActual && infoActual.lat != null && infoActual.lng != null) {
+        if (
+          infoActual &&
+          infoActual.lat != null &&
+          infoActual.lng != null &&
+          dev.ip_lat != null &&
+          dev.ip_lng != null
+        ) {
           distKm =
             distanciaMetros(
               Number(dev.ip_lat),
@@ -135,23 +171,26 @@ export const detectarFichajeSospechoso = async ({
               )} km)`
             );
           }
+        }
 
-          if (
-            dev.ip_country &&
-            infoActual.country &&
-            dev.ip_country !== infoActual.country
-          ) {
-            razones.push(
-              `País distinto al habitual (${infoActual.country} vs ${dev.ip_country})`
-            );
-          }
+        if (
+          dev.ip_country &&
+          infoActual?.country &&
+          dev.ip_country !== infoActual.country
+        ) {
+          razones.push(
+            `País distinto al habitual (${infoActual.country} vs ${dev.ip_country})`
+          );
         }
       }
     }
   }
 
+  // ------------------------------
+  // RESULTADO FINAL
+  // ------------------------------
   if (razones.length === 0) {
-    return { sospechoso: false, razones: [], ipInfo: null, distanciaKm: null };
+    return { sospechoso: false, ipInfo: null, distanciaKm: null };
   }
 
   return {
@@ -160,23 +199,18 @@ export const detectarFichajeSospechoso = async ({
     ipInfo: {
       habitual: dev
         ? {
-            ip: dev.ip_habitual || null,
-            lat: dev.ip_lat ?? null,
-            lng: dev.ip_lng ?? null,
-            country: dev.ip_country || null,
-            city: dev.ip_city || null,
+            ip: dev.ip_habitual,
+            lat: dev.ip_lat,
+            lng: dev.ip_lng,
+            country: dev.ip_country,
+            city: dev.ip_city,
+            region: dev.ip_region,
+            timezone: dev.ip_timezone,
+            provider: dev.ip_provider,
           }
         : null,
-      actual: infoActual
-        ? {
-            ip: reqIp || null,
-            lat: infoActual.lat ?? null,
-            lng: infoActual.lng ?? null,
-            country: infoActual.country || null,
-            city: infoActual.city || null,
-          }
-        : null,
+      actual: infoActual || null,
     },
-    distanciaKm: distKm,
+    distanciaKm: distKm || null,
   };
 };
