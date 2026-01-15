@@ -45,7 +45,7 @@ export const ejecutarAutocierre = async () => {
           fin = ${fin},
           hora_salida = ${fin},
           minutos_trabajados = ${minutos},
-          estado = 'cerrada',
+          estado = 'incompleta',
           origen_cierre = 'autocierre',
           incidencia = COALESCE(incidencia, '') || CASE 
             WHEN incidencia IS NULL OR incidencia = '' THEN 'Cierre automático por exceso de duración'
