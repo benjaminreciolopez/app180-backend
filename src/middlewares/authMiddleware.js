@@ -1,3 +1,5 @@
+// backend\src\middlewares\authMiddleware.js
+
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
