@@ -287,21 +287,50 @@ export const getFichajesSospechosos = async (req, res) => {
 export const validarFichaje = async (req, res) => {
   try {
     const { id } = req.params;
-    const { accion } = req.body;
+    const { accion, motivo } = req.body;
 
     if (!["confirmar", "rechazar"].includes(accion)) {
       return res.status(400).json({ error: "Acción inválida" });
     }
 
+    // Empresa del admin
     const adminEmpresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
-    if (adminEmpresa.length === 0)
+    if (adminEmpresa.length === 0) {
       return res.status(403).json({ error: "No autorizado" });
+    }
+    const empresaId = adminEmpresa[0].id;
+
+    // Verifica que el fichaje pertenece a la empresa (join por empleado)
+    const fichajeRows = await sql`
+      SELECT f.id, f.estado, f.sospechoso, f.nota, e.empresa_id
+      FROM fichajes_180 f
+      JOIN employees_180 e ON e.id = f.empleado_id
+      WHERE f.id = ${id}
+        AND e.empresa_id = ${empresaId}
+      LIMIT 1
+    `;
+
+    if (fichajeRows.length === 0) {
+      return res.status(404).json({ error: "Fichaje no encontrado" });
+    }
+
+    const nuevoEstado = accion === "confirmar" ? "confirmado" : "rechazado";
+
+    // Nota admin: acumulativa
+    const notaAdmin = motivo ? `Admin: ${motivo}` : null;
 
     const update = await sql`
       UPDATE fichajes_180
-      SET estado = ${accion === "confirmar" ? "confirmado" : "rechazado"}
+      SET
+        estado = ${nuevoEstado},
+        sospechoso = false,
+        nota = CASE
+          WHEN ${notaAdmin} IS NULL THEN nota
+          WHEN nota IS NULL OR nota = '' THEN ${notaAdmin}
+          ELSE nota || ' | ' || ${notaAdmin}
+        END
       WHERE id = ${id}
       RETURNING *
     `;
@@ -312,9 +341,7 @@ export const validarFichaje = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error en validarFichaje:", err);
-    return res.status(500).json({
-      error: "Error al actualizar fichaje",
-    });
+    return res.status(500).json({ error: "Error al actualizar fichaje" });
   }
 };
 
