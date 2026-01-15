@@ -9,9 +9,8 @@ import {
   crearJornada,
 } from "../services/jornadasService.js";
 import { syncDailyReport } from "../services/dailyReportService.js";
-import { calcularMinutos } from "../services/jornadasCalculo.js";
-import { calcularDescansoJornada } from "../services/jornadasCalculo.js";
-import { calcularExtras } from "../services/jornadasExtras.js";
+import { reverseGeocode } from "../utils/reverseGeocode.js";
+
 //
 // Obtener último fichaje del empleado/autónomo
 //
@@ -179,6 +178,45 @@ export const createFichaje = async (req, res) => {
 
     const estado = analisis.sospechoso ? "sospechoso" : "confirmado";
     const nota = analisis.sospechoso ? analisis.razones.join(" | ") : null;
+    // =========================
+    // DIRECCIÓN (OpenStreetMap)
+    // Prioridad: GPS -> IP actual
+    // =========================
+    let direccion = null;
+    let ciudad = null;
+    let pais = null;
+
+    // GPS válido
+    const gpsOk =
+      lat != null &&
+      lng != null &&
+      Number.isFinite(Number(lat)) &&
+      Number.isFinite(Number(lng)) &&
+      Number(lat) >= -90 &&
+      Number(lat) <= 90 &&
+      Number(lng) >= -180 &&
+      Number(lng) <= 180;
+
+    const latUse = gpsOk
+      ? Number(lat)
+      : analisis?.ipInfo?.actual?.lat != null
+      ? Number(analisis.ipInfo.actual.lat)
+      : null;
+
+    const lngUse = gpsOk
+      ? Number(lng)
+      : analisis?.ipInfo?.actual?.lng != null
+      ? Number(analisis.ipInfo.actual.lng)
+      : null;
+
+    if (latUse != null && lngUse != null) {
+      const geo = await reverseGeocode({ lat: latUse, lng: lngUse });
+      if (geo) {
+        direccion = geo.direccion;
+        ciudad = geo.ciudad;
+        pais = geo.pais;
+      }
+    }
 
     // =========================
     // INSERT
@@ -195,7 +233,10 @@ export const createFichaje = async (req, res) => {
         estado,
         origen,
         nota,
-        sospechoso
+        sospechoso,
+        direccion,
+        ciudad,
+        pais
       )
       VALUES (
         ${req.user.id},
@@ -208,7 +249,10 @@ export const createFichaje = async (req, res) => {
         ${estado},
         'app',
         ${nota},
-        ${analisis.sospechoso}
+        ${analisis.sospechoso},
+        ${direccion},
+        ${ciudad},
+        ${pais}
       )
       RETURNING *
     `;
@@ -293,16 +337,16 @@ export const validarFichaje = async (req, res) => {
       return res.status(400).json({ error: "Acción inválida" });
     }
 
-    // Empresa del admin
     const adminEmpresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
+
     if (adminEmpresa.length === 0) {
       return res.status(403).json({ error: "No autorizado" });
     }
+
     const empresaId = adminEmpresa[0].id;
 
-    // Verifica que el fichaje pertenece a la empresa (join por empleado)
     const fichajeRows = await sql`
       SELECT f.id, f.estado, f.sospechoso, f.nota, e.empresa_id
       FROM fichajes_180 f
@@ -317,8 +361,6 @@ export const validarFichaje = async (req, res) => {
     }
 
     const nuevoEstado = accion === "confirmar" ? "confirmado" : "rechazado";
-
-    // Nota admin: acumulativa
     const notaAdmin = motivo ? `Admin: ${motivo}` : null;
 
     const update = await sql`
@@ -327,9 +369,8 @@ export const validarFichaje = async (req, res) => {
         estado = ${nuevoEstado},
         sospechoso = false,
         nota = CASE
-          WHEN ${notaAdmin} IS NULL THEN nota
-          WHEN nota IS NULL OR nota = '' THEN ${notaAdmin}
-          ELSE nota || ' | ' || ${notaAdmin}
+          WHEN ${notaAdmin}::text IS NULL THEN nota
+          ELSE concat_ws(' | ', NULLIF(nota, ''), ${notaAdmin}::text)
         END
       WHERE id = ${id}
       RETURNING *
