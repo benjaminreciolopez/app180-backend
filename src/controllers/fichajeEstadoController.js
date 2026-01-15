@@ -6,19 +6,29 @@ import { sql } from "../db.js";
 // Obtener último fichaje real del usuario
 //
 const getLastRealFichaje = async (userId, empleadoId) => {
-  const rows = await sql`
-    SELECT f.*, c.nombre AS cliente_nombre
-    FROM fichajes_180 f
-    LEFT JOIN clients_180 c ON c.id = f.cliente_id
-    WHERE f.user_id = ${userId}
-    AND (
-      f.empleado_id = ${empleadoId}
-      OR (${empleadoId} IS NULL AND f.empleado_id IS NULL)
-    )
-    ORDER BY f.fecha DESC
-    LIMIT 1
-  `;
-  return rows.length ? rows[0] : null;
+  if (empleadoId) {
+    const rows = await sql`
+      SELECT f.*, c.nombre AS cliente_nombre
+      FROM fichajes_180 f
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
+      WHERE f.user_id = ${userId}
+        AND f.empleado_id = ${empleadoId}
+      ORDER BY f.fecha DESC
+      LIMIT 1
+    `;
+    return rows[0] || null;
+  } else {
+    const rows = await sql`
+      SELECT f.*, c.nombre AS cliente_nombre
+      FROM fichajes_180 f
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
+      WHERE f.user_id = ${userId}
+        AND f.empleado_id IS NULL
+      ORDER BY f.fecha DESC
+      LIMIT 1
+    `;
+    return rows[0] || null;
+  }
 };
 
 //
@@ -37,7 +47,6 @@ export const getEstadoFichaje = async (req, res) => {
       esEmpleado = true;
 
       if (!empleadoId) {
-        // fallback: buscar por user_id
         const empleado = await sql`
           SELECT id, activo, empresa_id 
           FROM employees_180
