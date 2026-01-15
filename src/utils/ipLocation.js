@@ -1,27 +1,42 @@
-// Usa una API pública de geolocalización por IP (ej: ip-api.com)
-export const getIpInfo = async (ip) => {
+// backend/src/utils/ipLocation.js
+
+// Nota: muchos proveedores bloquean datacenter IPs.
+// Esto es "best effort". No fallamos el fichaje por IP.
+
+export async function getIpInfo(ip) {
   try {
-    if (!ip) return null;
+    // Limpieza por si llega "::ffff:1.2.3.4"
+    const cleanIp = String(ip || "")
+      .replace("::ffff:", "")
+      .trim();
 
-    // Quitar ::ffff: de IPv4 mapeadas
-    const cleanIp = ip.startsWith("::ffff:") ? ip.replace("::ffff:", "") : ip;
+    if (!cleanIp) return null;
 
-    const url = `http://ip-api.com/json/${cleanIp}?fields=status,country,city,lat,lon,message`;
+    // ipapi.co (simple). Si falla, devolvemos null.
+    const url = `https://ipapi.co/${encodeURIComponent(cleanIp)}/json/`;
 
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "app180/1.0" },
+    });
 
-    const data = await resp.json();
-    if (data.status !== "success") return null;
+    if (!res.ok) return null;
+
+    const j = await res.json();
+
+    // ipapi puede devolver "error": true
+    if (j?.error) return null;
 
     return {
-      country: data.country || null,
-      city: data.city || null,
-      lat: data.lat ?? null,
-      lng: data.lon ?? null,
+      ip: cleanIp,
+      city: j?.city ?? null,
+      region: j?.region ?? null,
+      country: j?.country_name ?? j?.country ?? null,
+      timezone: j?.timezone ?? null,
+      provider: j?.org ?? j?.asn ?? null,
+      lat: j?.latitude ?? j?.lat ?? null,
+      lng: j?.longitude ?? j?.lon ?? null,
     };
-  } catch (e) {
-    console.error("❌ Error en getIpInfo:", e);
+  } catch {
     return null;
   }
-};
+}

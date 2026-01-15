@@ -150,6 +150,92 @@ export const detectarFichajeSospechoso = async ({
       }
     }
   }
+  // 4.1 obtener info del dispositivo del empleado
+  const deviceRows = await sql`
+  SELECT id, ip_habitual, ip_lat, ip_lng, ip_country, ip_city, ip_region, ip_timezone, ip_provider
+  FROM employee_devices_180
+  WHERE empleado_id = ${empleadoId}
+  LIMIT 1
+`;
+
+  if (deviceRows.length > 0) {
+    dev = deviceRows[0];
+
+    // Si no tenemos aún "habitual" (mínimo: country/city o lat/lng), guardamos ahora
+    const noHabitual =
+      (!dev.ip_country && !dev.ip_city && (!dev.ip_lat || !dev.ip_lng)) ||
+      !dev.ip_habitual;
+
+    if (noHabitual) {
+      const info = await getIpInfo(reqIp);
+      if (info) {
+        await sql`
+        UPDATE employee_devices_180
+        SET ip_habitual = ${info.ip},
+            ip_lat = ${info.lat},
+            ip_lng = ${info.lng},
+            ip_country = ${info.country},
+            ip_city = ${info.city},
+            ip_region = ${info.region},
+            ip_timezone = ${info.timezone},
+            ip_provider = ${info.provider}
+        WHERE id = ${dev.id}
+      `;
+
+        // refresca dev en memoria para el return
+        dev = {
+          ...dev,
+          ip_habitual: info.ip,
+          ip_lat: info.lat,
+          ip_lng: info.lng,
+          ip_country: info.country,
+          ip_city: info.city,
+          ip_region: info.region,
+          ip_timezone: info.timezone,
+          ip_provider: info.provider,
+        };
+      }
+    } else {
+      // comparar con la IP actual
+      infoActual = await getIpInfo(reqIp);
+
+      if (
+        infoActual &&
+        infoActual.lat != null &&
+        infoActual.lng != null &&
+        dev.ip_lat != null &&
+        dev.ip_lng != null
+      ) {
+        distKm =
+          distanciaMetros(
+            Number(dev.ip_lat),
+            Number(dev.ip_lng),
+            Number(infoActual.lat),
+            Number(infoActual.lng)
+          ) / 1000;
+
+        // Umbral 50km
+        if (distKm > 50) {
+          razones.push(
+            `IP geográficamente alejada de la habitual (~${distKm.toFixed(
+              1
+            )} km)`
+          );
+        }
+      }
+
+      // País distinto (aunque no haya coords)
+      if (
+        dev.ip_country &&
+        infoActual?.country &&
+        dev.ip_country !== infoActual.country
+      ) {
+        razones.push(
+          `País distinto al habitual (${infoActual.country} vs ${dev.ip_country})`
+        );
+      }
+    }
+  }
 
   // ------------------------------
   // RESULTADO FINAL
