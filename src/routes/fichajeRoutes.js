@@ -1,3 +1,5 @@
+// backend/src/routes/fichajeRoutes.js
+
 import express from "express";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";

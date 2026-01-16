@@ -1,3 +1,5 @@
+// backend/src/app.js
+
 import express from "express";
 import cors from "cors";
 import cron from "node-cron";
@@ -19,7 +21,8 @@ import { ejecutarAutocierre } from "./jobs/autocierre.js";
 
 import empleadoAdjuntosRoutes from "./routes/empleadoAdjuntosRoutes.js";
 import adminAdjuntosRoutes from "./routes/adminAdjuntosRoutes.js";
-
+import adminJornadasRoutes from "./routes/adminJornadasRoutes.js";
+import adminplantillasRoutes from "./routes/adminPlantillasRoutes.js";
 const app = express();
 
 // =========================
@@ -74,6 +77,9 @@ app.use("/admin", authRequired, adminRoutes);
 app.use("/admin", authRequired, adminAusenciasRoutes);
 app.use("/empleado", authRequired, empleadoAdjuntosRoutes);
 app.use("/admin", authRequired, adminAdjuntosRoutes);
+app.use("/admin", adminJornadasRoutes);
+app.use("/admin", adminplantillasRoutes);
+
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
     return res.status(400).json({ error: "Solo PDF, JPG o PNG" });

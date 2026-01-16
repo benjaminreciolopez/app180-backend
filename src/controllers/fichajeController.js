@@ -10,6 +10,7 @@ import {
 } from "../services/jornadasService.js";
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
+import { recalcularJornada } from "../services/jornadaEngine.js";
 
 //
 // Obtener último fichaje del empleado/autónomo
@@ -148,6 +149,15 @@ export const createFichaje = async (req, res) => {
     let jornada = await obtenerJornadaAbierta(empleadoId);
     let jornadaId = null;
 
+    // Si NO es entrada, debe existir jornada abierta
+    if (tipo !== "entrada") {
+      if (!jornada) {
+        return res.status(400).json({ error: "No hay jornada abierta" });
+      }
+      jornadaId = jornada.id;
+    }
+
+    // Si es entrada, crea jornada si no existe
     if (tipo === "entrada") {
       if (!jornada) {
         jornada = await crearJornada({
@@ -270,6 +280,11 @@ export const createFichaje = async (req, res) => {
       )
       RETURNING *
     `;
+
+    if (jornadaId) {
+      await recalcularJornada(jornadaId);
+    }
+
     await syncDailyReport({
       empresaId,
       empleadoId,
@@ -527,6 +542,8 @@ export const registrarFichajeManual = async (req, res) => {
       )
       RETURNING *
     `;
+    await recalcularJornada(jornada.id);
+
     await syncDailyReport({
       empresaId: empleado.empresa_id,
       empleadoId: empleado_id,

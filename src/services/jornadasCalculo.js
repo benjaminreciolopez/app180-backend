@@ -1,3 +1,5 @@
+// backend/src/services/jornadasCalculo.js
+
 import { sql } from "../db.js";
 
 // ⏱️ minutos entre dos fechas
