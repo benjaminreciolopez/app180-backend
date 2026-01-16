@@ -176,8 +176,14 @@ export const createFichaje = async (req, res) => {
       reqIp: req.ip,
     });
 
-    const estado = analisis.sospechoso ? "sospechoso" : "confirmado";
-    const nota = analisis.sospechoso ? analisis.razones.join(" | ") : null;
+    const estado = "confirmado";
+
+    const sospechaMotivo = analisis.sospechoso
+      ? analisis.razones.join(" | ")
+      : null;
+
+    const ipInfo = analisis?.ipInfo ?? null;
+    const distanciaKm = analisis?.distanciaKm ?? null;
     // =========================
     // DIRECCIÓN (OpenStreetMap)
     // Prioridad: GPS -> IP actual
@@ -221,6 +227,8 @@ export const createFichaje = async (req, res) => {
     // =========================
     // INSERT
     // =========================
+    const nota = null; // o lo que quieras
+
     const nuevo = await sql`
       INSERT INTO fichajes_180 (
         user_id,
@@ -234,6 +242,9 @@ export const createFichaje = async (req, res) => {
         origen,
         nota,
         sospechoso,
+        sospecha_motivo,
+        ip_info,
+        distancia_km,
         direccion,
         ciudad,
         pais
@@ -249,7 +260,10 @@ export const createFichaje = async (req, res) => {
         ${estado},
         'app',
         ${nota},
-        ${analisis.sospechoso},
+        ${analisis.sospechoso},      -- 👈 ESTO FALTABA
+        ${sospechaMotivo},
+        ${ipInfo},
+        ${distanciaKm},
         ${direccion},
         ${ciudad},
         ${pais}
@@ -278,7 +292,6 @@ export const getFichajesSospechosos = async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    // Obtener empresa del admin
     const empresa = await sql`
       SELECT id
       FROM empresa_180
@@ -291,37 +304,31 @@ export const getFichajesSospechosos = async (req, res) => {
 
     const empresaId = empresa[0].id;
 
-    // Obtener IDs de empleados de la empresa
-    const empleados = await sql`
-      SELECT id FROM employees_180
-      WHERE empresa_id = ${empresaId}
-    `;
-
-    if (empleados.length === 0) return res.json([]); // No hay fichajes
-
-    const empleadoIds = empleados.map((e) => e.id);
-
-    const resultados = await sql`
+    const rows = await sql`
       SELECT 
-        f.*,
-        u.nombre AS nombre_usuario,
-        c.nombre AS nombre_cliente,
+        f.id,
+        f.fecha,
+        f.tipo,
+        f.nota,
+        f.sospechoso,
+        f.sospecha_motivo,
+        f.direccion,
+        f.ciudad,
+        f.pais,
+        f.ip_info,
+        f.distancia_km,
         e.nombre AS nombre_empleado
       FROM fichajes_180 f
-      LEFT JOIN users_180 u ON u.id = f.user_id
-      LEFT JOIN clients_180 c ON c.id = f.cliente_id
-      LEFT JOIN employees_180 e ON e.id = f.empleado_id
-      WHERE f.empleado_id = ANY(${empleadoIds})
-      AND f.sospechoso = true
+      JOIN employees_180 e ON e.id = f.empleado_id
+      WHERE f.empresa_id = ${empresaId}
+        AND f.sospechoso = true
       ORDER BY f.fecha DESC
     `;
 
-    return res.json(resultados);
+    res.json(rows);
   } catch (err) {
-    console.error("❌ Error en getFichajesSospechosos:", err);
-    return res.status(500).json({
-      error: "Error al obtener fichajes sospechosos",
-    });
+    console.error("❌ Error getFichajesSospechosos:", err);
+    res.status(500).json({ error: "Error obteniendo fichajes sospechosos" });
   }
 };
 
@@ -368,6 +375,7 @@ export const validarFichaje = async (req, res) => {
       SET
         estado = ${nuevoEstado},
         sospechoso = false,
+        sospecha_motivo = null,
         nota = CASE
           WHEN ${notaAdmin}::text IS NULL THEN nota
           ELSE concat_ws(' | ', NULLIF(nota, ''), ${notaAdmin}::text)
@@ -537,7 +545,6 @@ export const getFichajeDetalle = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // empresa del admin
     const empresa = await sql`
       SELECT id FROM empresa_180
       WHERE user_id = ${req.user.id}
@@ -551,20 +558,13 @@ export const getFichajeDetalle = async (req, res) => {
 
     const fichaje = await sql`
       SELECT 
-        f.id,
-        f.jornada_id,
-        f.fecha,
-        f.tipo,
-        f.estado,
-        f.sospechoso,
-        f.nota,
-        f.origen,
-        f.creado_manual,
-        e.nombre AS nombre_empleado
+        f.*,
+        e.nombre AS empleado_nombre
       FROM fichajes_180 f
       JOIN employees_180 e ON e.id = f.empleado_id
       WHERE f.id = ${id}
-      AND e.empresa_id = ${empresaId}
+        AND f.empresa_id = ${empresaId}
+      LIMIT 1
     `;
 
     if (fichaje.length === 0) {
@@ -573,7 +573,7 @@ export const getFichajeDetalle = async (req, res) => {
 
     res.json(fichaje[0]);
   } catch (err) {
-    console.error("❌ Error en getFichajeDetalle:", err);
+    console.error("❌ Error getFichajeDetalle:", err);
     res.status(500).json({ error: "Error cargando detalle" });
   }
 };
@@ -584,9 +584,6 @@ export const getFichajes = async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    // =========================
-    // EMPRESA DEL ADMIN
-    // =========================
     const empresaRows = await sql`
       SELECT id
       FROM empresa_180
@@ -599,9 +596,6 @@ export const getFichajes = async (req, res) => {
 
     const empresaId = empresaRows[0].id;
 
-    // =========================
-    // FICHAJES
-    // =========================
     const fichajes = await sql`
       SELECT
         f.id,
@@ -610,18 +604,19 @@ export const getFichajes = async (req, res) => {
         f.tipo,
         f.sospechoso,
         f.nota,
+        f.direccion,
+        f.ciudad,
+        f.pais,
         e.nombre AS nombre_empleado
       FROM fichajes_180 f
       JOIN employees_180 e ON e.id = f.empleado_id
-      WHERE e.empresa_id = ${empresaId}
+      WHERE f.empresa_id = ${empresaId}
       ORDER BY f.fecha DESC
     `;
 
-    return res.json(fichajes);
+    res.json(fichajes);
   } catch (err) {
     console.error("❌ Error en getFichajes:", err);
-    return res.status(500).json({
-      error: "Error obteniendo fichajes",
-    });
+    res.status(500).json({ error: "Error obteniendo fichajes" });
   }
 };
