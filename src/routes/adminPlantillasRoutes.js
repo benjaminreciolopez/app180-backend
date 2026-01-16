@@ -1,3 +1,5 @@
+// backend/src/routes/adminPlantillasRoutes.js
+
 import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
@@ -14,6 +16,8 @@ import {
   asignarPlantillaEmpleado,
   listarAsignacionesEmpleado,
   getPlanDiaEmpleado,
+  getBloquesDia,
+  getBloquesExcepcion,
 } from "../controllers/plantillasJornadaController.js";
 
 const router = Router();
@@ -43,5 +47,12 @@ router.get("/plantillas/asignaciones/:empleado_id", listarAsignacionesEmpleado);
 
 // resolver plan de un día (para debug y para UI)
 router.get("/plan-dia/:empleado_id", getPlanDiaEmpleado); // ?fecha=YYYY-MM-DD
+
+// leer bloques
+router.get("/plantillas/dias/:plantilla_dia_id/bloques", getBloquesDia);
+router.get(
+  "/plantillas/excepciones/:excepcion_id/bloques",
+  getBloquesExcepcion
+);
 
 export default router;

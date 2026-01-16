@@ -236,3 +236,30 @@ export const getPlanDiaEmpleado = async (req, res) => {
   });
   res.json(plan);
 };
+
+export const getBloquesDia = async (req, res) => {
+  const { plantilla_dia_id } = req.params;
+
+  const rows = await sql`
+    SELECT id, tipo, hora_inicio, hora_fin, obligatorio
+    FROM plantilla_bloques_180
+    WHERE plantilla_dia_id = ${plantilla_dia_id}
+    ORDER BY hora_inicio ASC
+  `;
+
+  res.json(rows);
+};
+
+export const getBloquesExcepcion = async (req, res) => {
+  const { excepcion_id } = req.params;
+
+  const rows = await sql`
+    SELECT id, tipo, hora_inicio, hora_fin, obligatorio
+    FROM plantilla_excepcion_bloques_180
+    WHERE excepcion_id = ${excepcion_id}
+    ORDER BY hora_inicio ASC
+  `;
+
+  res.json(rows);
+};
+// backend/src/controllers/fichajeEstadoController.js
