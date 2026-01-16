@@ -1,3 +1,5 @@
+// backend\src\utils\distancia.js
+
 export const distanciaMetros = (lat1, lng1, lat2, lng2) => {
   const toRad = (x) => (x * Math.PI) / 180;
 
