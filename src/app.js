@@ -25,6 +25,10 @@ import adminJornadasRoutes from "./routes/adminJornadasRoutes.js";
 import adminplantillasRoutes from "./routes/adminPlantillasRoutes.js";
 import empleadoPlanDiaRoutes from "./routes/empleadoPlanDiaRoutes.js";
 import workLogsRoutes from "./routes/workLogsRoutes.js";
+import adminCalendarioRoutes from "./routes/adminCalendarioRoutes.js";
+import empleadoCalendarioRoutes from "./routes/empleadoCalendarioRoutes.js";
+import empleadoJornadasRoutes from "./routes/empleadoJornadasRoutes.js";
+
 const app = express();
 
 // =========================
