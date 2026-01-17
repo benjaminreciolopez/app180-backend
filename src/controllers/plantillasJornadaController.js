@@ -1,265 +1,604 @@
 // backend/src/controllers/plantillasJornadaController.js
+// Refactor completo: validaciones, seguridad multi-empresa, transacciones, y manejo robusto de errores.
 
 import { sql } from "../db.js";
 import { resolverPlanDia } from "../services/planificacionResolver.js";
 
-async function getEmpresaIdAdmin(userId) {
+/**
+ * Helpers
+ */
+async function getEmpresaIdAdminOrThrow(userId) {
   const r =
     await sql`select id from empresa_180 where user_id=${userId} limit 1`;
-  return r[0]?.id ?? null;
+  const empresaId = r[0]?.id ?? null;
+  if (!empresaId) {
+    const err = new Error("Empresa no asociada al usuario");
+    err.status = 403;
+    throw err;
+  }
+  return empresaId;
 }
 
-export const listarPlantillas = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const rows = await sql`
-    select * from plantillas_jornada_180
-    where empresa_id=${empresaId}
-    order by created_at desc
+function toIntOrThrow(v, name) {
+  const n = Number(v);
+  if (!Number.isInteger(n)) {
+    const err = new Error(`${name} inválido`);
+    err.status = 400;
+    throw err;
+  }
+  return n;
+}
+
+function requireBody(res, obj, field) {
+  if (
+    obj?.[field] === undefined ||
+    obj?.[field] === null ||
+    obj?.[field] === ""
+  ) {
+    res.status(400).json({ error: `${field} obligatorio` });
+    return false;
+  }
+  return true;
+}
+
+function boolOrNull(v) {
+  if (v === undefined || v === null) return null;
+  if (typeof v === "boolean") return v;
+  // tolerancia a frontend enviando strings "true"/"false"
+  if (typeof v === "string") {
+    if (v.toLowerCase() === "true") return true;
+    if (v.toLowerCase() === "false") return false;
+  }
+  // si llega cualquier otra cosa, lo tratamos como inválido
+  return Symbol.for("invalid_boolean");
+}
+
+async function assertPlantillaEmpresa(tx, plantillaId, empresaId) {
+  const p = await tx`
+    select 1
+    from plantillas_jornada_180
+    where id=${plantillaId} and empresa_id=${empresaId}
+    limit 1
   `;
-  res.json(rows);
+  if (!p.length) {
+    const err = new Error("Plantilla no encontrada");
+    err.status = 404;
+    throw err;
+  }
+}
+
+async function getPlantillaDiaAndAssertEmpresa(tx, plantillaDiaId, empresaId) {
+  const rows = await tx`
+    select d.*
+    from plantilla_dias_180 d
+    join plantillas_jornada_180 p on p.id = d.plantilla_id
+    where d.id=${plantillaDiaId} and p.empresa_id=${empresaId}
+    limit 1
+  `;
+  if (!rows.length) {
+    const err = new Error("Día de plantilla no encontrado");
+    err.status = 404;
+    throw err;
+  }
+  return rows[0];
+}
+
+async function getExcepcionAndAssertEmpresa(tx, excepcionId, empresaId) {
+  const rows = await tx`
+    select ex.*
+    from plantilla_excepciones_180 ex
+    join plantillas_jornada_180 p on p.id = ex.plantilla_id
+    where ex.id=${excepcionId} and p.empresa_id=${empresaId}
+    limit 1
+  `;
+  if (!rows.length) {
+    const err = new Error("Excepción no encontrada");
+    err.status = 404;
+    throw err;
+  }
+  return rows[0];
+}
+
+function handleErr(res, err, context = "") {
+  const status = err?.status && Number.isInteger(err.status) ? err.status : 500;
+
+  // Log enriquecido
+  console.error(`[plantillasJornadaController] ${context}`, {
+    message: err?.message,
+    status,
+    code: err?.code,
+    detail: err?.detail,
+    hint: err?.hint,
+    stack: err?.stack,
+  });
+
+  // Para Postgres (driver postgres), algunos errores vienen con code (por ejemplo 23505 unique_violation)
+  if (status === 500 && err?.code === "23505") {
+    return res.status(409).json({ error: "Conflicto: registro duplicado" });
+  }
+
+  return res.status(status).json({ error: err?.message || "Error interno" });
+}
+
+/**
+ * =========================
+ * Plantillas
+ * =========================
+ */
+export const listarPlantillas = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+
+    const rows = await sql`
+      select *
+      from plantillas_jornada_180
+      where empresa_id=${empresaId}
+      order by created_at desc
+    `;
+
+    res.json(rows);
+  } catch (err) {
+    handleErr(res, err, "listarPlantillas");
+  }
 };
 
 export const crearPlantilla = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { nombre, descripcion, tipo } = req.body;
-  if (!nombre) return res.status(400).json({ error: "nombre obligatorio" });
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { nombre, descripcion, tipo } = req.body || {};
 
-  const r = await sql`
-    insert into plantillas_jornada_180 (empresa_id, nombre, descripcion, tipo)
-    values (${empresaId}, ${nombre}, ${descripcion ?? null}, ${
-    tipo ?? "semanal"
-  })
-    returning *
-  `;
-  res.json(r[0]);
+    if (!nombre) return res.status(400).json({ error: "nombre obligatorio" });
+
+    const t = tipo ?? "semanal";
+
+    const r = await sql`
+      insert into plantillas_jornada_180 (empresa_id, nombre, descripcion, tipo)
+      values (${empresaId}, ${nombre}, ${descripcion ?? null}, ${t})
+      returning *
+    `;
+
+    res.json(r[0]);
+  } catch (err) {
+    handleErr(res, err, "crearPlantilla");
+  }
 };
 
 export const getPlantillaDetalle = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { id } = req.params;
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
 
-  const p = await sql`
-    select * from plantillas_jornada_180
-    where id=${id} and empresa_id=${empresaId}
-    limit 1
-  `;
-  if (!p.length) return res.status(404).json({ error: "No encontrada" });
+    const p = await sql`
+      select *
+      from plantillas_jornada_180
+      where id=${id} and empresa_id=${empresaId}
+      limit 1
+    `;
 
-  const dias = await sql`
-    select * from plantilla_dias_180
-    where plantilla_id=${id}
-    order by dia_semana asc
-  `;
+    if (!p.length) return res.status(404).json({ error: "No encontrada" });
 
-  const excepciones = await sql`
-    select * from plantilla_excepciones_180
-    where plantilla_id=${id}
-    order by fecha desc
-  `;
+    const dias = await sql`
+      select *
+      from plantilla_dias_180
+      where plantilla_id=${id}
+      order by dia_semana asc
+    `;
 
-  res.json({ plantilla: p[0], dias, excepciones });
+    const excepciones = await sql`
+      select *
+      from plantilla_excepciones_180
+      where plantilla_id=${id}
+      order by fecha desc
+    `;
+
+    res.json({ plantilla: p[0], dias, excepciones });
+  } catch (err) {
+    handleErr(res, err, "getPlantillaDetalle");
+  }
 };
 
 export const actualizarPlantilla = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { id } = req.params;
-  const { nombre, descripcion, tipo, activo } = req.body;
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
+    const { nombre, descripcion, tipo, activo } = req.body || {};
 
-  const r = await sql`
-    update plantillas_jornada_180
-    set
-      nombre = coalesce(${nombre}, nombre),
-      descripcion = coalesce(${descripcion}, descripcion),
-      tipo = coalesce(${tipo}, tipo),
-      activo = coalesce(${activo}, activo)
-    where id=${id} and empresa_id=${empresaId}
-    returning *
-  `;
-  if (!r.length) return res.status(404).json({ error: "No encontrada" });
-  res.json(r[0]);
+    const activoParsed = boolOrNull(activo);
+    if (activoParsed === Symbol.for("invalid_boolean")) {
+      return res.status(400).json({ error: "activo debe ser boolean" });
+    }
+
+    const r = await sql`
+      update plantillas_jornada_180
+      set
+        nombre = coalesce(${nombre ?? null}, nombre),
+        descripcion = coalesce(${descripcion ?? null}, descripcion),
+        tipo = coalesce(${tipo ?? null}, tipo),
+        activo = coalesce(${activoParsed}, activo)
+      where id=${id} and empresa_id=${empresaId}
+      returning *
+    `;
+
+    if (!r.length) return res.status(404).json({ error: "No encontrada" });
+
+    res.json(r[0]);
+  } catch (err) {
+    handleErr(res, err, "actualizarPlantilla");
+  }
 };
 
 export const borrarPlantilla = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { id } = req.params;
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
 
-  await sql`delete from plantillas_jornada_180 where id=${id} and empresa_id=${empresaId}`;
-  res.json({ ok: true });
+    // Si prefieres borrado lógico, cambia por update activo=false
+    const r = await sql`
+      delete from plantillas_jornada_180
+      where id=${id} and empresa_id=${empresaId}
+      returning id
+    `;
+    if (!r.length) return res.status(404).json({ error: "No encontrada" });
+
+    res.json({ ok: true });
+  } catch (err) {
+    handleErr(res, err, "borrarPlantilla");
+  }
 };
 
+/**
+ * =========================
+ * Días (semanales)
+ * =========================
+ */
 export const upsertDiaSemana = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { id, dia_semana } = req.params;
-  const { hora_inicio, hora_fin, activo } = req.body;
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id, dia_semana } = req.params;
+    const { hora_inicio, hora_fin, activo } = req.body || {};
 
-  // asegura que la plantilla es de la empresa
-  const p =
-    await sql`select 1 from plantillas_jornada_180 where id=${id} and empresa_id=${empresaId} limit 1`;
-  if (!p.length)
-    return res.status(404).json({ error: "Plantilla no encontrada" });
+    if (!hora_inicio || !hora_fin) {
+      return res
+        .status(400)
+        .json({ error: "hora_inicio y hora_fin obligatorias" });
+    }
 
-  const r = await sql`
-    insert into plantilla_dias_180 (plantilla_id, dia_semana, hora_inicio, hora_fin, activo)
-    values (${id}, ${Number(
-    dia_semana
-  )}, ${hora_inicio}, ${hora_fin}, coalesce(${activo}, true))
-    on conflict (plantilla_id, dia_semana) do update set
-      hora_inicio=excluded.hora_inicio,
-      hora_fin=excluded.hora_fin,
-      activo=excluded.activo
-    returning *
-  `;
-  res.json(r[0]);
-};
+    const diaSemana = toIntOrThrow(dia_semana, "dia_semana");
+    if (diaSemana < 0 || diaSemana > 6) {
+      return res
+        .status(400)
+        .json({ error: "dia_semana debe estar entre 0 y 6" });
+    }
 
-export const upsertBloquesDia = async (req, res) => {
-  const { plantilla_dia_id } = req.params;
-  const { bloques } = req.body; // [{tipo, hora_inicio, hora_fin, obligatorio}]
-  if (!Array.isArray(bloques))
-    return res.status(400).json({ error: "bloques debe ser array" });
+    const activoParsed = boolOrNull(activo);
+    if (activoParsed === Symbol.for("invalid_boolean")) {
+      return res.status(400).json({ error: "activo debe ser boolean" });
+    }
 
-  // estrategia simple: borrar y reinsertar
-  await sql`delete from plantilla_bloques_180 where plantilla_dia_id=${plantilla_dia_id}`;
-  for (const b of bloques) {
-    await sql`
-      insert into plantilla_bloques_180 (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio)
-      values (${plantilla_dia_id}, ${b.tipo}, ${b.hora_inicio}, ${b.hora_fin}, coalesce(${b.obligatorio}, true))
-    `;
+    const result = await sql.begin(async (tx) => {
+      await assertPlantillaEmpresa(tx, id, empresaId);
+
+      const r = await tx`
+        insert into plantilla_dias_180 (plantilla_id, dia_semana, hora_inicio, hora_fin, activo)
+        values (
+          ${id},
+          ${diaSemana},
+          ${hora_inicio},
+          ${hora_fin},
+          coalesce(${activoParsed}, true)
+        )
+        on conflict (plantilla_id, dia_semana) do update set
+          hora_inicio=excluded.hora_inicio,
+          hora_fin=excluded.hora_fin,
+          activo=excluded.activo
+        returning *
+      `;
+      return r[0];
+    });
+
+    res.json(result);
+  } catch (err) {
+    handleErr(res, err, "upsertDiaSemana");
   }
-  const out = await sql`
-    select * from plantilla_bloques_180
-    where plantilla_dia_id=${plantilla_dia_id}
-    order by hora_inicio asc
-  `;
-  res.json(out);
-};
-
-export const upsertExcepcionFecha = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { id, fecha } = req.params; // plantilla id, fecha YYYY-MM-DD
-  const { hora_inicio, hora_fin, activo, nota } = req.body;
-
-  const p =
-    await sql`select 1 from plantillas_jornada_180 where id=${id} and empresa_id=${empresaId} limit 1`;
-  if (!p.length)
-    return res.status(404).json({ error: "Plantilla no encontrada" });
-
-  const r = await sql`
-    insert into plantilla_excepciones_180 (plantilla_id, fecha, hora_inicio, hora_fin, activo, nota)
-    values (${id}, ${fecha}::date, ${hora_inicio ?? null}, ${
-    hora_fin ?? null
-  }, coalesce(${activo}, true), ${nota ?? null})
-    on conflict (plantilla_id, fecha) do update set
-      hora_inicio=excluded.hora_inicio,
-      hora_fin=excluded.hora_fin,
-      activo=excluded.activo,
-      nota=excluded.nota
-    returning *
-  `;
-  res.json(r[0]);
-};
-
-export const upsertBloquesExcepcion = async (req, res) => {
-  const { excepcion_id } = req.params;
-  const { bloques } = req.body;
-  if (!Array.isArray(bloques))
-    return res.status(400).json({ error: "bloques debe ser array" });
-
-  await sql`delete from plantilla_excepcion_bloques_180 where excepcion_id=${excepcion_id}`;
-  for (const b of bloques) {
-    await sql`
-      insert into plantilla_excepcion_bloques_180 (excepcion_id, tipo, hora_inicio, hora_fin, obligatorio)
-      values (${excepcion_id}, ${b.tipo}, ${b.hora_inicio}, ${b.hora_fin}, coalesce(${b.obligatorio}, true))
-    `;
-  }
-  const out = await sql`
-    select * from plantilla_excepcion_bloques_180
-    where excepcion_id=${excepcion_id}
-    order by hora_inicio asc
-  `;
-  res.json(out);
-};
-
-export const asignarPlantillaEmpleado = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { empleado_id, plantilla_id, fecha_inicio, fecha_fin } = req.body;
-
-  // valida empresa del empleado y plantilla
-  const e =
-    await sql`select 1 from employees_180 where id=${empleado_id} and empresa_id=${empresaId} limit 1`;
-  const p =
-    await sql`select 1 from plantillas_jornada_180 where id=${plantilla_id} and empresa_id=${empresaId} limit 1`;
-  if (!e.length) return res.status(404).json({ error: "Empleado no válido" });
-  if (!p.length) return res.status(404).json({ error: "Plantilla no válida" });
-
-  const r = await sql`
-    insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
-    values (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${
-    fecha_fin ?? null
-  }::date)
-    returning *
-  `;
-  res.json(r[0]);
-};
-
-export const listarAsignacionesEmpleado = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { empleado_id } = req.params;
-
-  const rows = await sql`
-    select ep.*, p.nombre as plantilla_nombre
-    from empleado_plantillas_180 ep
-    join plantillas_jornada_180 p on p.id = ep.plantilla_id
-    join employees_180 e on e.id = ep.empleado_id
-    where ep.empleado_id=${empleado_id}
-      and e.empresa_id=${empresaId}
-    order by ep.fecha_inicio desc
-  `;
-  res.json(rows);
-};
-
-export const getPlanDiaEmpleado = async (req, res) => {
-  const empresaId = await getEmpresaIdAdmin(req.user.id);
-  const { empleado_id } = req.params;
-  const fecha =
-    String(req.query.fecha || "").trim() ||
-    new Date().toISOString().slice(0, 10);
-
-  const e =
-    await sql`select 1 from employees_180 where id=${empleado_id} and empresa_id=${empresaId} limit 1`;
-  if (!e.length) return res.status(404).json({ error: "Empleado no válido" });
-
-  const plan = await resolverPlanDia({
-    empresaId,
-    empleadoId: empleado_id,
-    fecha,
-  });
-  res.json(plan);
 };
 
 export const getBloquesDia = async (req, res) => {
-  const { plantilla_dia_id } = req.params;
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { plantilla_dia_id } = req.params;
 
-  const rows = await sql`
-    SELECT id, tipo, hora_inicio, hora_fin, obligatorio
-    FROM plantilla_bloques_180
-    WHERE plantilla_dia_id = ${plantilla_dia_id}
-    ORDER BY hora_inicio ASC
-  `;
+    const rows = await sql.begin(async (tx) => {
+      await getPlantillaDiaAndAssertEmpresa(tx, plantilla_dia_id, empresaId);
 
-  res.json(rows);
+      return tx`
+        select id, tipo, hora_inicio, hora_fin, obligatorio
+        from plantilla_bloques_180
+        where plantilla_dia_id=${plantilla_dia_id}
+        order by hora_inicio asc
+      `;
+    });
+
+    res.json(rows);
+  } catch (err) {
+    handleErr(res, err, "getBloquesDia");
+  }
+};
+
+export const upsertBloquesDia = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { plantilla_dia_id } = req.params;
+    const { bloques } = req.body || {}; // [{tipo, hora_inicio, hora_fin, obligatorio}]
+
+    if (!Array.isArray(bloques)) {
+      return res.status(400).json({ error: "bloques debe ser array" });
+    }
+
+    const out = await sql.begin(async (tx) => {
+      await getPlantillaDiaAndAssertEmpresa(tx, plantilla_dia_id, empresaId);
+
+      await tx`delete from plantilla_bloques_180 where plantilla_dia_id=${plantilla_dia_id}`;
+
+      for (const b of bloques) {
+        if (!b?.tipo || !b?.hora_inicio || !b?.hora_fin) {
+          const err = new Error(
+            "Cada bloque requiere tipo, hora_inicio y hora_fin"
+          );
+          err.status = 400;
+          throw err;
+        }
+        const obligatorioParsed = boolOrNull(b.obligatorio);
+        if (obligatorioParsed === Symbol.for("invalid_boolean")) {
+          const err = new Error("obligatorio debe ser boolean");
+          err.status = 400;
+          throw err;
+        }
+
+        await tx`
+          insert into plantilla_bloques_180 (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio)
+          values (
+            ${plantilla_dia_id},
+            ${b.tipo},
+            ${b.hora_inicio},
+            ${b.hora_fin},
+            coalesce(${obligatorioParsed}, true)
+          )
+        `;
+      }
+
+      return tx`
+        select *
+        from plantilla_bloques_180
+        where plantilla_dia_id=${plantilla_dia_id}
+        order by hora_inicio asc
+      `;
+    });
+
+    res.json(out);
+  } catch (err) {
+    handleErr(res, err, "upsertBloquesDia");
+  }
+};
+
+/**
+ * =========================
+ * Excepciones por fecha
+ * =========================
+ */
+export const upsertExcepcionFecha = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id, fecha } = req.params; // plantilla id, fecha YYYY-MM-DD
+    const { hora_inicio, hora_fin, activo, nota } = req.body || {};
+
+    const activoParsed = boolOrNull(activo);
+    if (activoParsed === Symbol.for("invalid_boolean")) {
+      return res.status(400).json({ error: "activo debe ser boolean" });
+    }
+
+    const out = await sql.begin(async (tx) => {
+      await assertPlantillaEmpresa(tx, id, empresaId);
+
+      const r = await tx`
+        insert into plantilla_excepciones_180 (plantilla_id, fecha, hora_inicio, hora_fin, activo, nota)
+        values (
+          ${id},
+          ${fecha}::date,
+          ${hora_inicio ?? null},
+          ${hora_fin ?? null},
+          coalesce(${activoParsed}, true),
+          ${nota ?? null}
+        )
+        on conflict (plantilla_id, fecha) do update set
+          hora_inicio=excluded.hora_inicio,
+          hora_fin=excluded.hora_fin,
+          activo=excluded.activo,
+          nota=excluded.nota
+        returning *
+      `;
+      return r[0];
+    });
+
+    res.json(out);
+  } catch (err) {
+    handleErr(res, err, "upsertExcepcionFecha");
+  }
 };
 
 export const getBloquesExcepcion = async (req, res) => {
-  const { excepcion_id } = req.params;
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { excepcion_id } = req.params;
 
-  const rows = await sql`
-    SELECT id, tipo, hora_inicio, hora_fin, obligatorio
-    FROM plantilla_excepcion_bloques_180
-    WHERE excepcion_id = ${excepcion_id}
-    ORDER BY hora_inicio ASC
-  `;
+    const rows = await sql.begin(async (tx) => {
+      await getExcepcionAndAssertEmpresa(tx, excepcion_id, empresaId);
 
-  res.json(rows);
+      return tx`
+        select id, tipo, hora_inicio, hora_fin, obligatorio
+        from plantilla_excepcion_bloques_180
+        where excepcion_id=${excepcion_id}
+        order by hora_inicio asc
+      `;
+    });
+
+    res.json(rows);
+  } catch (err) {
+    handleErr(res, err, "getBloquesExcepcion");
+  }
 };
-// backend/src/controllers/fichajeEstadoController.js
+
+export const upsertBloquesExcepcion = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { excepcion_id } = req.params;
+    const { bloques } = req.body || {};
+
+    if (!Array.isArray(bloques)) {
+      return res.status(400).json({ error: "bloques debe ser array" });
+    }
+
+    const out = await sql.begin(async (tx) => {
+      await getExcepcionAndAssertEmpresa(tx, excepcion_id, empresaId);
+
+      await tx`delete from plantilla_excepcion_bloques_180 where excepcion_id=${excepcion_id}`;
+
+      for (const b of bloques) {
+        if (!b?.tipo || !b?.hora_inicio || !b?.hora_fin) {
+          const err = new Error(
+            "Cada bloque requiere tipo, hora_inicio y hora_fin"
+          );
+          err.status = 400;
+          throw err;
+        }
+        const obligatorioParsed = boolOrNull(b.obligatorio);
+        if (obligatorioParsed === Symbol.for("invalid_boolean")) {
+          const err = new Error("obligatorio debe ser boolean");
+          err.status = 400;
+          throw err;
+        }
+
+        await tx`
+          insert into plantilla_excepcion_bloques_180 (excepcion_id, tipo, hora_inicio, hora_fin, obligatorio)
+          values (
+            ${excepcion_id},
+            ${b.tipo},
+            ${b.hora_inicio},
+            ${b.hora_fin},
+            coalesce(${obligatorioParsed}, true)
+          )
+        `;
+      }
+
+      return tx`
+        select *
+        from plantilla_excepcion_bloques_180
+        where excepcion_id=${excepcion_id}
+        order by hora_inicio asc
+      `;
+    });
+
+    res.json(out);
+  } catch (err) {
+    handleErr(res, err, "upsertBloquesExcepcion");
+  }
+};
+
+/**
+ * =========================
+ * Asignaciones
+ * =========================
+ */
+export const asignarPlantillaEmpleado = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { empleado_id, plantilla_id, fecha_inicio, fecha_fin } =
+      req.body || {};
+
+    if (!empleado_id || !plantilla_id || !fecha_inicio) {
+      return res
+        .status(400)
+        .json({
+          error: "empleado_id, plantilla_id y fecha_inicio son obligatorios",
+        });
+    }
+
+    const out = await sql.begin(async (tx) => {
+      const e =
+        await tx`select 1 from employees_180 where id=${empleado_id} and empresa_id=${empresaId} limit 1`;
+      if (!e.length) {
+        const err = new Error("Empleado no válido");
+        err.status = 404;
+        throw err;
+      }
+
+      await assertPlantillaEmpresa(tx, plantilla_id, empresaId);
+
+      const r = await tx`
+        insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
+        values (
+          ${empleado_id},
+          ${plantilla_id},
+          ${fecha_inicio}::date,
+          ${fecha_fin ?? null}::date
+        )
+        returning *
+      `;
+      return r[0];
+    });
+
+    res.json(out);
+  } catch (err) {
+    handleErr(res, err, "asignarPlantillaEmpleado");
+  }
+};
+
+export const listarAsignacionesEmpleado = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { empleado_id } = req.params;
+
+    const rows = await sql`
+      select ep.*, p.nombre as plantilla_nombre
+      from empleado_plantillas_180 ep
+      join plantillas_jornada_180 p on p.id = ep.plantilla_id
+      join employees_180 e on e.id = ep.empleado_id
+      where ep.empleado_id=${empleado_id}
+        and e.empresa_id=${empresaId}
+      order by ep.fecha_inicio desc
+    `;
+
+    res.json(rows);
+  } catch (err) {
+    handleErr(res, err, "listarAsignacionesEmpleado");
+  }
+};
+
+/**
+ * =========================
+ * Planificación (resolver)
+ * =========================
+ */
+export const getPlanDiaEmpleado = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { empleado_id } = req.params;
+
+    const fecha =
+      String(req.query.fecha || "").trim() ||
+      new Date().toISOString().slice(0, 10);
+
+    const e =
+      await sql`select 1 from employees_180 where id=${empleado_id} and empresa_id=${empresaId} limit 1`;
+    if (!e.length) return res.status(404).json({ error: "Empleado no válido" });
+
+    const plan = await resolverPlanDia({
+      empresaId,
+      empleadoId: empleado_id,
+      fecha,
+    });
+
+    res.json(plan);
+  } catch (err) {
+    handleErr(res, err, "getPlanDiaEmpleado");
+  }
+};
