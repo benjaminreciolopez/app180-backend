@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { actualizarEstadoAusencia } from "../controllers/ausenciasController.js";
 
 import {
   getCalendarioAdmin,
   getEventosCalendarioAdmin,
 } from "../controllers/adminCalendarioController.js";
-import { resolverAusencia } from "../controllers/ausenciasController.js";
 import { importarFestivosNager } from "../controllers/adminCalendarioController.js";
 import { getCalendarioIntegradoAdmin } from "../controllers/adminCalendarioIntegradoController.js";
 
@@ -19,8 +19,7 @@ router.use(roleRequired("admin"));
 router.get("/calendario", getCalendarioAdmin);
 router.get("/calendario/eventos", getEventosCalendarioAdmin);
 
-// ✅ aprobar / rechazar ausencias
-router.patch("/ausencias/:id", resolverAusencia);
+router.patch("/ausencias/:id/estado", actualizarEstadoAusencia);
 
 // 📥 importar festivos Nager.Date
 router.post("/calendario/importar-festivos/:year", importarFestivosNager);
