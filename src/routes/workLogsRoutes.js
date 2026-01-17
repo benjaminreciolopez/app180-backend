@@ -1,7 +1,7 @@
 // src/routes/workLogsRoutes.js
 import { Router } from "express";
-import { authRequired } from "../middleware/authMiddleware.js";
-import { roleRequired } from "../middleware/roleRequired.js";
+import { authRequired } from "../middlewares/authRequired.js";
+import { roleRequired } from "../middlewares/roleRequired.js";
 import {
   crearWorkLog,
   misWorkLogs,
@@ -17,11 +17,11 @@ router.get("/mis", authRequired, misWorkLogs);
 
 // admin
 router.get("/admin", authRequired, roleRequired("admin"), adminWorkLogs);
-
 router.get(
   "/admin/resumen",
   authRequired,
   roleRequired("admin"),
   adminWorkLogsResumen
 );
+
 export default router;
