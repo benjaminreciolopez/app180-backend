@@ -8,13 +8,12 @@ import {
 
 const router = Router();
 
-// 🔐 todas requieren login
 router.use(authRequired);
 
-// 📅 hoy (bloquea fichaje si procede)
+// hoy
 router.get("/calendario/hoy", getCalendarioHoyEmpleado);
 
-// 📅 rango (vista mensual)
-router.get("/calendario", getCalendarioEmpleadoRango);
+// rango (drawer calendario)
+router.get("/calendario/usuario", getCalendarioEmpleadoRango);
 
 export default router;

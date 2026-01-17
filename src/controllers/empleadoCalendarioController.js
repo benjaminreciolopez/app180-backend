@@ -92,7 +92,37 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
       ORDER BY d.fecha
     `;
 
-    res.json(dias);
+    const eventos = dias.map((d) => {
+      let tipo = "laborable";
+      let title = "Laborable";
+
+      if (!d.es_laborable) {
+        tipo = "festivo";
+        title = "Festivo";
+      }
+
+      if (d.ausencia_tipo) {
+        tipo = d.ausencia_tipo;
+        title =
+          d.ausencia_tipo === "vacaciones"
+            ? "Vacaciones"
+            : d.ausencia_tipo === "baja_medica"
+              ? "Baja médica"
+              : d.ausencia_tipo;
+      }
+
+      return {
+        id: `${tipo}-${d.fecha}`,
+        tipo,
+        title,
+        start: d.fecha,
+        end: d.fecha,
+        allDay: true,
+        estado: d.estado || null,
+      };
+    });
+
+    res.json(eventos);
   } catch (err) {
     console.error("❌ calendario empleado rango:", err);
     res.status(500).json({ error: "Error calendario empleado" });
