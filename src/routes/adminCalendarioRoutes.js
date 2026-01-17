@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { authRequired } from "../middleware/authMiddleware.js";
-import { roleRequired } from "../middleware/roleRequired.js";
+import { authRequired } from "../middlewares/authMiddleware.js";
+import { roleRequired } from "../middlewares/roleRequired.js";
 
 import {
   getCalendarioAdmin,

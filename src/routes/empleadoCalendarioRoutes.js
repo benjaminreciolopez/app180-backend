@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authRequired } from "../middleware/authMiddleware.js";
+import { authRequired } from "../middlewares/authMiddleware.js";
 
 import {
   getCalendarioHoyEmpleado,
