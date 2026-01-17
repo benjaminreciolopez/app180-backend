@@ -1,4 +1,3 @@
-// src/controllers/calendarioController.js
 import { sql } from "../db.js";
 import { ensureFestivosForYear } from "../services/festivosNagerService.js";
 
@@ -6,11 +5,17 @@ const toYMD = (v) => String(v).slice(0, 10);
 
 function getRangoFechas(desde, hasta) {
   if (desde && hasta) return { desde, hasta };
+
   const hoy = new Date();
   const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+
   const toStr = (d) => d.toISOString().split("T")[0];
-  return { desde: desde || toStr(inicioMes), hasta: hasta || toStr(finMes) };
+
+  return {
+    desde: desde || toStr(inicioMes),
+    hasta: hasta || toStr(finMes),
+  };
 }
 
 function buildDayMap(desde, hasta) {
@@ -22,10 +27,9 @@ function buildDayMap(desde, hasta) {
       fecha: cur,
       es_laborable: true,
 
-      // fuentes
       empresa: null, // { tipo, label, es_laborable }
       festivo_es: null, // { nombre, ambito, comunidad }
-      ausencia: null, // { tipo, estado }
+      ausencia: null, // { id, tipo, estado }
 
       minutos_trabajados: null,
       jornada_estado: null,
@@ -53,7 +57,7 @@ function mkEvent({ id, tipo, title, start, estado }) {
 // PRIORIDAD VISUAL:
 // 1) ausencia
 // 2) calendario_empresa_180
-// 3) festivo_es_180 (Nager)
+// 3) festivo_es_180
 // 4) trabajado (jornada)
 function dayToEvent(d) {
   const fecha = d.fecha;
@@ -65,7 +69,7 @@ function dayToEvent(d) {
     const st = d.ausencia.estado ? ` (${d.ausencia.estado})` : "";
 
     return mkEvent({
-      id: `aus-${d.ausencia.tipo}-${fecha}`,
+      id: `aus-${d.ausencia.id}`,
       tipo: d.ausencia.tipo,
       title: `${pretty}${st}`,
       start: fecha,
@@ -91,7 +95,7 @@ function dayToEvent(d) {
     return mkEvent({
       id: `fes-${fecha}`,
       tipo: "festivo",
-      title: "Festivo",
+      title: d.festivo_es.nombre || "Festivo",
       start: fecha,
     });
   }
@@ -118,11 +122,13 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
     const empleadoId = req.user.empleado_id;
     const empresaId = req.user.empresa_id;
 
-    if (!empleadoId || !empresaId)
+    if (!empleadoId || !empresaId) {
       return res.status(403).json({ error: "No autorizado" });
+    }
 
     const y1 = Number(desde.slice(0, 4));
     const y2 = Number(hasta.slice(0, 4));
+
     await ensureFestivosForYear(y1);
     if (y2 !== y1) await ensureFestivosForYear(y2);
 
@@ -146,6 +152,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
         label: r.label,
         es_laborable: r.es_laborable === true,
       };
+
       dayMap[dia].es_laborable = r.es_laborable === true;
     }
 
@@ -166,12 +173,13 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
         ambito: f.ambito,
         comunidad: f.comunidad,
       };
+
       dayMap[dia].es_laborable = false;
     }
 
     // 3) Ausencias
     const ausencias = await sql`
-      SELECT tipo, fecha_inicio, fecha_fin, estado
+      SELECT id, tipo, fecha_inicio, fecha_fin, estado
       FROM ausencias_180
       WHERE empleado_id = ${empleadoId}
         AND fecha_inicio <= ${hasta}
@@ -186,7 +194,11 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
       while (cur <= end) {
         const ymd = cur.toISOString().split("T")[0];
         if (dayMap[ymd]) {
-          dayMap[ymd].ausencia = { tipo: a.tipo, estado: a.estado };
+          dayMap[ymd].ausencia = {
+            id: a.id,
+            tipo: a.tipo,
+            estado: a.estado,
+          };
           dayMap[ymd].es_laborable = false;
           dayMap[ymd].minutos_trabajados = null;
         }
@@ -244,8 +256,9 @@ export const getDiaUsuarioDetalle = async (req, res) => {
     const empleadoId = req.user.empleado_id;
     const empresaId = req.user.empresa_id;
 
-    if (!ymd || !empleadoId || !empresaId)
+    if (!ymd || !empleadoId || !empresaId) {
       return res.status(400).json({ error: "Fecha inválida" });
+    }
 
     const year = Number(ymd.slice(0, 4));
     await ensureFestivosForYear(year);
@@ -279,6 +292,7 @@ export const getDiaUsuarioDetalle = async (req, res) => {
 
     if (aus.length) {
       const a = aus[0];
+
       eventos.push({
         id: `aus-${a.id}`,
         tipo: a.tipo,
@@ -319,6 +333,7 @@ export const getDiaUsuarioDetalle = async (req, res) => {
 
     if (fes.length) {
       const f = fes[0];
+
       eventos.push({
         id: `fes-${ymd}`,
         tipo: "festivo",
