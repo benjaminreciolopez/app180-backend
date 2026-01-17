@@ -4,6 +4,7 @@ import { sql } from "../db.js";
 
 export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   // fecha: 'YYYY-MM-DD'
+
   // 1) plantilla activa del empleado para esa fecha
   const asig = await sql`
     SELECT ep.plantilla_id
@@ -11,14 +12,21 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     JOIN plantillas_jornada_180 p ON p.id = ep.plantilla_id
     WHERE ep.empleado_id = ${empleadoId}
       AND p.empresa_id = ${empresaId}
-      AND ep.activo = true
       AND p.activo = true
       AND ep.fecha_inicio <= ${fecha}::date
       AND (ep.fecha_fin is null OR ep.fecha_fin >= ${fecha}::date)
     ORDER BY ep.fecha_inicio DESC
     LIMIT 1
   `;
-  if (!asig.length) return { plantilla_id: null, fecha, bloques: [] };
+
+  if (!asig.length) {
+    return {
+      plantilla_id: null,
+      fecha,
+      modo: "sin_plantilla",
+      bloques: [],
+    };
+  }
 
   const plantillaId = asig[0].plantilla_id;
 
@@ -34,6 +42,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
   if (ex.length) {
     const exId = ex[0].id;
+
     const bloquesEx = await sql`
       SELECT tipo, hora_inicio, hora_fin, obligatorio
       FROM plantilla_excepcion_bloques_180
@@ -63,8 +72,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   // dia_semana: 1=lunes ... 7=domingo
   const diaSemana = (() => {
     const d = new Date(`${fecha}T00:00:00`);
-    const js = d.getDay(); // 0 domingo..6 sabado
-    return js === 0 ? 7 : js; // 7 domingo
+    const js = d.getDay(); // 0 domingo..6 sábado
+    return js === 0 ? 7 : js;
   })();
 
   const dia = await sql`
@@ -77,7 +86,13 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   `;
 
   if (!dia.length) {
-    return { plantilla_id: plantillaId, fecha, modo: "semanal", bloques: [] };
+    return {
+      plantilla_id: plantillaId,
+      fecha,
+      modo: "semanal",
+      rango: null,
+      bloques: [],
+    };
   }
 
   const bloques = await sql`
@@ -91,7 +106,10 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     plantilla_id: plantillaId,
     fecha,
     modo: "semanal",
-    rango: { inicio: dia[0].hora_inicio, fin: dia[0].hora_fin },
+    rango: {
+      inicio: dia[0].hora_inicio,
+      fin: dia[0].hora_fin,
+    },
     bloques: bloques.map((b) => ({
       tipo: b.tipo,
       inicio: b.hora_inicio,
