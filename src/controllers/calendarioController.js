@@ -1,6 +1,9 @@
 // src/controllers/calendarioController.js
 import { sql } from "../db.js";
 
+// -------------------------
+// Utils fecha YYYY-MM-DD
+// -------------------------
 const toYMD = (v) => String(v).slice(0, 10);
 
 const addDays = (dateStr, days) => {
@@ -20,18 +23,25 @@ const buildDayMap = (desde, hasta) => {
       ausencia_tipo: null,
       estado: null,
       minutos_trabajados: null,
+      avisos_count: null,
+      tiene_incidencias: null,
     };
     cur = addDays(cur, 1);
   }
+
   return map;
 };
 
+// -------------------------
+// Rango fechas (mes actual)
+// -------------------------
 const getRangoFechas = (desde, hasta) => {
   if (desde && hasta) return { desde, hasta };
 
   const hoy = new Date();
   const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+
   const toStr = (d) => d.toISOString().split("T")[0];
 
   return {
@@ -40,52 +50,9 @@ const getRangoFechas = (desde, hasta) => {
   };
 };
 
-/**
- * Minutos trabajados del día:
- * - trabajo: suma
- * - pausa: suma (cuenta como trabajado)
- * - comida: resta (solo esto descuenta)
- *
- * Entradas esperadas desde BBDD: tipo in ('trabajo','pausa','comida'),
- * y hora_inicio/hora_fin como time.
- */
-const computeMinutosDia = (bloques) => {
-  let total = 0;
-
-  for (const b of bloques) {
-    const tipo = String(b.tipo || "").toLowerCase();
-    const inicio = String(b.hora_inicio).slice(0, 5); // HH:MM
-    const fin = String(b.hora_fin).slice(0, 5);
-
-    // diferencia en minutos
-    const [ih, im] = inicio.split(":").map(Number);
-    const [fh, fm] = fin.split(":").map(Number);
-
-    if (
-      Number.isNaN(ih) ||
-      Number.isNaN(im) ||
-      Number.isNaN(fh) ||
-      Number.isNaN(fm)
-    ) {
-      continue;
-    }
-
-    const mins = Math.max(0, fh * 60 + fm - (ih * 60 + im));
-
-    if (tipo === "comida") total -= mins;
-    else if (tipo === "trabajo" || tipo === "pausa") total += mins;
-    else {
-      // si hubiera tipos antiguos o basura, no rompas el calendario
-      total += 0;
-    }
-  }
-
-  return Math.max(0, total);
-};
-
-//
-// CALENDARIO DEL USUARIO (empleado o autónomo) -> FORMATO DIARIO
-//
+// =====================================================
+// CALENDARIO USUARIO (daily) -> /calendario/usuario
+// =====================================================
 export const getCalendarioUsuario = async (req, res) => {
   try {
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
@@ -98,15 +65,34 @@ export const getCalendarioUsuario = async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
-    // =========================
-    // 1) AUSENCIAS DEL EMPLEADO (marcan no laborable)
-    // =========================
+    // -------------------------
+    // 1) Festivos / calendario empresa
+    // (si no existe fila, asumimos laborable=true)
+    // -------------------------
+    const calEmpresa = await sql`
+      SELECT fecha::date AS dia, es_laborable
+      FROM calendario_empresa_180
+      WHERE empresa_id = ${empresaId}
+        AND fecha::date BETWEEN ${desde} AND ${hasta}
+    `;
+
+    for (const r of calEmpresa) {
+      const dia = toYMD(r.dia);
+      if (dayMap[dia]) {
+        dayMap[dia].es_laborable = r.es_laborable !== false;
+      }
+    }
+
+    // -------------------------
+    // 2) Ausencias del empleado (pisa laborable a false)
+    // -------------------------
     const ausencias = await sql`
       SELECT tipo, fecha_inicio, fecha_fin, estado
       FROM ausencias_180
       WHERE empleado_id = ${empleadoId}
         AND fecha_inicio <= ${hasta}
         AND fecha_fin >= ${desde}
+      ORDER BY fecha_inicio ASC
     `;
 
     for (const a of ausencias) {
@@ -118,69 +104,46 @@ export const getCalendarioUsuario = async (req, res) => {
           dayMap[cur].ausencia_tipo = a.tipo;
           dayMap[cur].estado = a.estado;
           dayMap[cur].es_laborable = false;
+          // Si hay ausencia, no mostramos minutos trabajados (tu frontend lo usa así)
+          dayMap[cur].minutos_trabajados = null;
         }
         cur = addDays(cur, 1);
       }
     }
 
-    // =========================
-    // 2) FESTIVOS DE EMPRESA (si existen en calendario_empresa_180)
-    //    OJO: si hay ausencia, la ausencia manda.
-    // =========================
-    const festivos = await sql`
-      SELECT fecha::date AS dia, es_laborable
-      FROM calendario_empresa_180
-      WHERE empresa_id = ${empresaId}
-        AND fecha::date BETWEEN ${desde} AND ${hasta}
-    `;
-
-    for (const f of festivos) {
-      const dia = toYMD(f.dia);
-      if (dayMap[dia] && !dayMap[dia].ausencia_tipo) {
-        dayMap[dia].es_laborable = Boolean(f.es_laborable);
-      }
-    }
-
-    // =========================
-    // 3) MINUTOS TRABAJADOS (desde jornadas + bloques)
-    //    - Solo descuenta "comida"
-    //    - "pausa" cuenta como trabajado
-    //    - Si no hay jornada ese día => null
-    // =========================
+    // -------------------------
+    // 3) Jornadas diarias (minutos reales)
+    // Regla: se resta SOLO comida; pausa NO cuenta como trabajado.
+    // Usamos: minutos_trabajados - minutos_descanso
+    // -------------------------
     const jornadas = await sql`
-      SELECT id, fecha::date AS dia
+      SELECT
+        fecha::date AS dia,
+        COALESCE(minutos_trabajados, 0) AS minutos_trabajados,
+        COALESCE(minutos_descanso, 0) AS minutos_comida,
+        estado
       FROM jornadas_180
       WHERE empleado_id = ${empleadoId}
+        AND empresa_id = ${empresaId}
         AND fecha::date BETWEEN ${desde} AND ${hasta}
     `;
 
-    if (jornadas.length > 0) {
-      const jornadaIds = jornadas.map((j) => j.id);
+    for (const j of jornadas) {
+      const dia = toYMD(j.dia);
+      if (!dayMap[dia]) continue;
 
-      const bloques = await sql`
-        SELECT jornada_id, tipo, hora_inicio, hora_fin
-        FROM jornada_bloques_180
-        WHERE jornada_id = ANY(${jornadaIds})
-      `;
+      // Si hay ausencia, no pisamos
+      if (dayMap[dia].ausencia_tipo) continue;
 
-      const bloquesPorJornada = new Map();
-      for (const b of bloques) {
-        const k = b.jornada_id;
-        if (!bloquesPorJornada.has(k)) bloquesPorJornada.set(k, []);
-        bloquesPorJornada.get(k).push(b);
-      }
+      const trabajado = Number(j.minutos_trabajados || 0);
+      const comida = Number(j.minutos_comida || 0);
 
-      for (const j of jornadas) {
-        const dia = toYMD(j.dia);
-        if (!dayMap[dia]) continue;
-        if (dayMap[dia].ausencia_tipo) continue; // ausencia manda
+      // pausa NO cuenta: ya viene descontada en minutos_trabajados
+      // comida sí se descuenta aquí:
+      const neto = Math.max(0, trabajado - comida);
 
-        const lista = bloquesPorJornada.get(j.id) || [];
-        const mins = computeMinutosDia(lista);
-
-        // si hay jornada pero 0 minutos, dejamos 0 (para que el frontend pueda mostrarlo)
-        dayMap[dia].minutos_trabajados = mins;
-      }
+      dayMap[dia].minutos_trabajados = neto;
+      dayMap[dia].estado = j.estado || dayMap[dia].estado;
     }
 
     return res.json(Object.values(dayMap));
@@ -192,11 +155,10 @@ export const getCalendarioUsuario = async (req, res) => {
   }
 };
 
-//
-// CALENDARIO DE EMPRESA (solo admin) -> FORMATO DIARIO POR EMPLEADO
-//
-// Respuesta: [{ empleado_id, empleado_nombre, dias: BackendDia[] }, ...]
-//
+// =====================================================
+// CALENDARIO EMPRESA (daily) -> /calendario/empresa
+// Devuelve por empleado: { empleado_id, empleado_nombre, dias: BackendDia[] }
+// =====================================================
 export const getCalendarioEmpresa = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -221,21 +183,20 @@ export const getCalendarioEmpresa = async (req, res) => {
       WHERE e.empresa_id = ${empresaId}
       ORDER BY e.nombre ASC
     `;
-
     if (empleados.length === 0) return res.json([]);
 
     const empleadoIds = empleados.map((e) => e.id);
 
-    // Festivos empresa (se aplican a todos, salvo ausencia)
-    const festivos = await sql`
+    // Calendario empresa (festivos)
+    const calEmpresa = await sql`
       SELECT fecha::date AS dia, es_laborable
       FROM calendario_empresa_180
       WHERE empresa_id = ${empresaId}
         AND fecha::date BETWEEN ${desde} AND ${hasta}
     `;
-    const festivoMap = new Map();
-    for (const f of festivos)
-      festivoMap.set(toYMD(f.dia), Boolean(f.es_laborable));
+    const festivosMap = new Map(
+      calEmpresa.map((r) => [toYMD(r.dia), r.es_laborable !== false])
+    );
 
     // Ausencias empresa
     const ausencias = await sql`
@@ -244,47 +205,24 @@ export const getCalendarioEmpresa = async (req, res) => {
       WHERE empresa_id = ${empresaId}
         AND fecha_inicio <= ${hasta}
         AND fecha_fin >= ${desde}
+      ORDER BY fecha_inicio ASC
     `;
 
-    // Jornadas empresa
+    // Jornadas empresa (diarias)
     const jornadas = await sql`
-      SELECT id, empleado_id, fecha::date AS dia
+      SELECT
+        empleado_id,
+        fecha::date AS dia,
+        COALESCE(minutos_trabajados, 0) AS minutos_trabajados,
+        COALESCE(minutos_descanso, 0) AS minutos_comida,
+        estado
       FROM jornadas_180
-      WHERE empleado_id = ANY(${empleadoIds})
+      WHERE empresa_id = ${empresaId}
+        AND empleado_id = ANY(${empleadoIds})
         AND fecha::date BETWEEN ${desde} AND ${hasta}
     `;
 
-    const jornadaIds = jornadas.map((j) => j.id);
-    let bloques = [];
-    if (jornadaIds.length > 0) {
-      bloques = await sql`
-        SELECT jornada_id, tipo, hora_inicio, hora_fin
-        FROM jornada_bloques_180
-        WHERE jornada_id = ANY(${jornadaIds})
-      `;
-    }
-
-    const bloquesPorJornada = new Map();
-    for (const b of bloques) {
-      const k = b.jornada_id;
-      if (!bloquesPorJornada.has(k)) bloquesPorJornada.set(k, []);
-      bloquesPorJornada.get(k).push(b);
-    }
-
-    // Map jornadas por (empleado_id + dia)
-    const jornadaPorEmpleadoDia = new Map();
-    for (const j of jornadas) {
-      jornadaPorEmpleadoDia.set(`${j.empleado_id}::${toYMD(j.dia)}`, j.id);
-    }
-
-    // Map ausencias por empleado (por día, para escritura rápida)
-    const ausenciasPorEmpleado = new Map();
-    for (const a of ausencias) {
-      const emp = a.empleado_id;
-      if (!ausenciasPorEmpleado.has(emp)) ausenciasPorEmpleado.set(emp, []);
-      ausenciasPorEmpleado.get(emp).push(a);
-    }
-
+    // Index por empleado
     const out = [];
 
     for (const emp of empleados) {
@@ -292,14 +230,15 @@ export const getCalendarioEmpresa = async (req, res) => {
 
       // aplicar festivos empresa
       for (const dia of Object.keys(dayMap)) {
-        if (festivoMap.has(dia)) {
-          dayMap[dia].es_laborable = festivoMap.get(dia);
+        if (festivosMap.has(dia)) {
+          dayMap[dia].es_laborable = festivosMap.get(dia) === true;
         }
       }
 
-      // aplicar ausencias del empleado (pisan festivo)
-      const ausEmp = ausenciasPorEmpleado.get(emp.id) || [];
-      for (const a of ausEmp) {
+      // aplicar ausencias del empleado
+      for (const a of ausencias) {
+        if (a.empleado_id !== emp.id) continue;
+
         let cur = toYMD(a.fecha_inicio);
         const end = toYMD(a.fecha_fin);
 
@@ -308,20 +247,26 @@ export const getCalendarioEmpresa = async (req, res) => {
             dayMap[cur].ausencia_tipo = a.tipo;
             dayMap[cur].estado = a.estado;
             dayMap[cur].es_laborable = false;
+            dayMap[cur].minutos_trabajados = null;
           }
           cur = addDays(cur, 1);
         }
       }
 
-      // minutos trabajados por jornada (si existe)
-      for (const dia of Object.keys(dayMap)) {
+      // aplicar jornadas del empleado
+      for (const j of jornadas) {
+        if (j.empleado_id !== emp.id) continue;
+
+        const dia = toYMD(j.dia);
+        if (!dayMap[dia]) continue;
         if (dayMap[dia].ausencia_tipo) continue;
 
-        const jid = jornadaPorEmpleadoDia.get(`${emp.id}::${dia}`);
-        if (!jid) continue;
+        const trabajado = Number(j.minutos_trabajados || 0);
+        const comida = Number(j.minutos_comida || 0);
+        const neto = Math.max(0, trabajado - comida);
 
-        const lista = bloquesPorJornada.get(jid) || [];
-        dayMap[dia].minutos_trabajados = computeMinutosDia(lista);
+        dayMap[dia].minutos_trabajados = neto;
+        dayMap[dia].estado = j.estado || dayMap[dia].estado;
       }
 
       out.push({
@@ -340,6 +285,9 @@ export const getCalendarioEmpresa = async (req, res) => {
   }
 };
 
+// =====================================================
+// ESTADO HOY USUARIO (sin cambios relevantes)
+// =====================================================
 export const getEstadoHoyUsuario = async (req, res) => {
   try {
     const { empleado_id, empresa_id } = req.user;
@@ -350,7 +298,6 @@ export const getEstadoHoyUsuario = async (req, res) => {
 
     const hoy = new Date().toISOString().slice(0, 10);
 
-    // 1) Ausencia aprobada
     const ausencia = await sql`
       SELECT tipo
       FROM ausencias_180
@@ -369,7 +316,6 @@ export const getEstadoHoyUsuario = async (req, res) => {
       });
     }
 
-    // 2) Festivo empresa
     const festivo = await sql`
       SELECT es_laborable
       FROM calendario_empresa_180
