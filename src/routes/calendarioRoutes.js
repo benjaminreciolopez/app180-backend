@@ -9,6 +9,8 @@ import {
 const router = express.Router();
 
 router.get("/usuario", authRequired, getCalendarioUsuario);
+router.get("/usuario/eventos", authRequired, getCalendarioUsuarioEventos);
+router.get("/usuario/dia", authRequired, getDiaUsuarioDetalle);
 router.get("/empresa", authRequired, getCalendarioEmpresa);
 router.get("/hoy", authRequired, getEstadoHoyUsuario);
 

@@ -1,18 +1,19 @@
 // src/controllers/calendarioController.js
 import { sql } from "../db.js";
+import { ensureFestivosForYear } from "../services/festivosNagerService.js";
 
-// -------------------------
-// Utils fecha YYYY-MM-DD
-// -------------------------
 const toYMD = (v) => String(v).slice(0, 10);
 
-const addDays = (dateStr, days) => {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-};
+function getRangoFechas(desde, hasta) {
+  if (desde && hasta) return { desde, hasta };
+  const hoy = new Date();
+  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+  const toStr = (d) => d.toISOString().split("T")[0];
+  return { desde: desde || toStr(inicioMes), hasta: hasta || toStr(finMes) };
+}
 
-const buildDayMap = (desde, hasta) => {
+function buildDayMap(desde, hasta) {
   const map = {};
   let cur = desde;
 
@@ -20,72 +21,155 @@ const buildDayMap = (desde, hasta) => {
     map[cur] = {
       fecha: cur,
       es_laborable: true,
-      ausencia_tipo: null,
-      estado: null,
+
+      // fuentes
+      empresa: null, // { tipo, label, es_laborable }
+      festivo_es: null, // { nombre, ambito, comunidad }
+      ausencia: null, // { tipo, estado }
+
       minutos_trabajados: null,
-      avisos_count: null,
-      tiene_incidencias: null,
+      jornada_estado: null,
     };
-    cur = addDays(cur, 1);
+
+    const d = new Date(cur);
+    d.setDate(d.getDate() + 1);
+    cur = d.toISOString().split("T")[0];
   }
 
   return map;
-};
+}
 
-// -------------------------
-// Rango fechas (mes actual)
-// -------------------------
-const getRangoFechas = (desde, hasta) => {
-  if (desde && hasta) return { desde, hasta };
-
-  const hoy = new Date();
-  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
-
-  const toStr = (d) => d.toISOString().split("T")[0];
-
+function mkEvent({ id, tipo, title, start, estado }) {
   return {
-    desde: desde || toStr(inicioMes),
-    hasta: hasta || toStr(finMes),
+    id,
+    tipo,
+    title,
+    start,
+    allDay: true,
+    ...(estado ? { estado } : {}),
   };
-};
+}
+
+// PRIORIDAD VISUAL:
+// 1) ausencia
+// 2) calendario_empresa_180
+// 3) festivo_es_180 (Nager)
+// 4) trabajado (jornada)
+function dayToEvent(d) {
+  const fecha = d.fecha;
+
+  // 1) Ausencia
+  if (d.ausencia) {
+    const pretty =
+      d.ausencia.tipo === "baja_medica" ? "Baja médica" : "Vacaciones";
+    const st = d.ausencia.estado ? ` (${d.ausencia.estado})` : "";
+
+    return mkEvent({
+      id: `aus-${d.ausencia.tipo}-${fecha}`,
+      tipo: d.ausencia.tipo,
+      title: `${pretty}${st}`,
+      start: fecha,
+      estado: d.ausencia.estado,
+    });
+  }
+
+  // 2) Empresa
+  if (d.empresa) {
+    const label = d.empresa.label || d.empresa.tipo;
+    const tipo = d.empresa.es_laborable ? "laborable_extra" : "festivo";
+
+    return mkEvent({
+      id: `emp-${d.empresa.tipo}-${fecha}`,
+      tipo,
+      title: label,
+      start: fecha,
+    });
+  }
+
+  // 3) Festivo ES
+  if (d.festivo_es) {
+    return mkEvent({
+      id: `fes-${fecha}`,
+      tipo: "festivo",
+      title: "Festivo",
+      start: fecha,
+    });
+  }
+
+  // 4) Trabajo real
+  if (Number(d.minutos_trabajados || 0) > 0) {
+    return mkEvent({
+      id: `job-${fecha}`,
+      tipo: "trabajo",
+      title: `Trabajado · ${Math.round(d.minutos_trabajados)}m`,
+      start: fecha,
+    });
+  }
+
+  return null;
+}
 
 // =====================================================
-// CALENDARIO USUARIO (daily) -> /calendario/usuario
+// EVENTOS CALENDARIO (MES / SEMANA)
 // =====================================================
-export const getCalendarioUsuario = async (req, res) => {
+export const getCalendarioUsuarioEventos = async (req, res) => {
   try {
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
-    const dayMap = buildDayMap(desde, hasta);
-
     const empleadoId = req.user.empleado_id;
     const empresaId = req.user.empresa_id;
 
-    if (!empleadoId || !empresaId) {
+    if (!empleadoId || !empresaId)
       return res.status(403).json({ error: "No autorizado" });
-    }
 
-    // -------------------------
-    // 1) Festivos / calendario empresa
-    // (si no existe fila, asumimos laborable=true)
-    // -------------------------
+    const y1 = Number(desde.slice(0, 4));
+    const y2 = Number(hasta.slice(0, 4));
+    await ensureFestivosForYear(y1);
+    if (y2 !== y1) await ensureFestivosForYear(y2);
+
+    const dayMap = buildDayMap(desde, hasta);
+
+    // 1) Calendario empresa
     const calEmpresa = await sql`
-      SELECT fecha::date AS dia, es_laborable
+      SELECT fecha::date AS dia, tipo, COALESCE(label, nombre) AS label, es_laborable
       FROM calendario_empresa_180
       WHERE empresa_id = ${empresaId}
+        AND activo = true
         AND fecha::date BETWEEN ${desde} AND ${hasta}
     `;
 
     for (const r of calEmpresa) {
       const dia = toYMD(r.dia);
-      if (dayMap[dia]) {
-        dayMap[dia].es_laborable = r.es_laborable !== false;
-      }
+      if (!dayMap[dia]) continue;
+
+      dayMap[dia].empresa = {
+        tipo: r.tipo,
+        label: r.label,
+        es_laborable: r.es_laborable === true,
+      };
+      dayMap[dia].es_laborable = r.es_laborable === true;
     }
 
-    // -------------------------
-    // 2) Ausencias del empleado (pisa laborable a false)
-    // -------------------------
+    // 2) Festivos ES
+    const festivos = await sql`
+      SELECT fecha::date AS dia, nombre, ambito, comunidad
+      FROM festivos_es_180
+      WHERE fecha::date BETWEEN ${desde} AND ${hasta}
+    `;
+
+    for (const f of festivos) {
+      const dia = toYMD(f.dia);
+      if (!dayMap[dia]) continue;
+      if (dayMap[dia].empresa) continue;
+
+      dayMap[dia].festivo_es = {
+        nombre: f.nombre,
+        ambito: f.ambito,
+        comunidad: f.comunidad,
+      };
+      dayMap[dia].es_laborable = false;
+    }
+
+    // 3) Ausencias
     const ausencias = await sql`
       SELECT tipo, fecha_inicio, fecha_fin, estado
       FROM ausencias_180
@@ -94,7 +178,6 @@ export const getCalendarioUsuario = async (req, res) => {
         AND fecha_fin >= ${desde}
       ORDER BY fecha_inicio ASC
     `;
-    console.log("📆 AUSENCIAS ENCONTRADAS:", ausencias);
 
     for (const a of ausencias) {
       let cur = new Date(a.fecha_inicio);
@@ -102,24 +185,16 @@ export const getCalendarioUsuario = async (req, res) => {
 
       while (cur <= end) {
         const ymd = cur.toISOString().split("T")[0];
-        console.log("🟡 Pintando ausencia", a.tipo, cur);
-
         if (dayMap[ymd]) {
-          dayMap[ymd].ausencia_tipo = a.tipo;
-          dayMap[ymd].estado = a.estado;
+          dayMap[ymd].ausencia = { tipo: a.tipo, estado: a.estado };
           dayMap[ymd].es_laborable = false;
           dayMap[ymd].minutos_trabajados = null;
         }
-
         cur.setDate(cur.getDate() + 1);
       }
     }
 
-    // -------------------------
-    // 3) Jornadas diarias (minutos reales)
-    // Regla: se resta SOLO comida; pausa NO cuenta como trabajado.
-    // Usamos: minutos_trabajados - minutos_descanso
-    // -------------------------
+    // 4) Jornadas
     const jornadas = await sql`
       SELECT
         fecha::date AS dia,
@@ -135,162 +210,145 @@ export const getCalendarioUsuario = async (req, res) => {
     for (const j of jornadas) {
       const dia = toYMD(j.dia);
       if (!dayMap[dia]) continue;
-
-      // Si hay ausencia, no pisamos
-      if (dayMap[dia].ausencia_tipo) continue;
+      if (dayMap[dia].ausencia) continue;
 
       const trabajado = Number(j.minutos_trabajados || 0);
       const comida = Number(j.minutos_comida || 0);
-
-      // pausa NO cuenta: ya viene descontada en minutos_trabajados
-      // comida sí se descuenta aquí:
       const neto = Math.max(0, trabajado - comida);
 
       dayMap[dia].minutos_trabajados = neto;
-      dayMap[dia].estado = j.estado || dayMap[dia].estado;
+      dayMap[dia].jornada_estado = j.estado || null;
     }
 
-    return res.json(Object.values(dayMap));
+    const eventos = [];
+    for (const d of Object.values(dayMap)) {
+      const ev = dayToEvent(d);
+      if (ev) eventos.push(ev);
+    }
+
+    return res.json(eventos);
   } catch (err) {
-    console.error("❌ Error en getCalendarioUsuario:", err);
+    console.error("❌ getCalendarioUsuarioEventos:", err);
     return res
       .status(500)
-      .json({ error: "Error al obtener calendario del usuario" });
+      .json({ error: "Error al obtener eventos calendario" });
   }
 };
 
 // =====================================================
-// CALENDARIO EMPRESA (daily) -> /calendario/empresa
-// Devuelve por empleado: { empleado_id, empleado_nombre, dias: BackendDia[] }
+// DETALLE DE DÍA
 // =====================================================
-export const getCalendarioEmpresa = async (req, res) => {
+export const getDiaUsuarioDetalle = async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ error: "Acceso denegado" });
-    }
+    const ymd = String(req.query.fecha || "").slice(0, 10);
+    const empleadoId = req.user.empleado_id;
+    const empresaId = req.user.empresa_id;
 
-    const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
+    if (!ymd || !empleadoId || !empresaId)
+      return res.status(400).json({ error: "Fecha inválida" });
 
-    // Empresa del admin
-    const empresaRows = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (empresaRows.length === 0) {
-      return res.status(400).json({ error: "Empresa no encontrada" });
-    }
-    const empresaId = empresaRows[0].id;
+    const year = Number(ymd.slice(0, 4));
+    await ensureFestivosForYear(year);
 
-    // Empleados de la empresa
-    const empleados = await sql`
-      SELECT e.id, e.nombre
-      FROM employees_180 e
-      WHERE e.empresa_id = ${empresaId}
-      ORDER BY e.nombre ASC
-    `;
-    if (empleados.length === 0) return res.json([]);
-
-    const empleadoIds = empleados.map((e) => e.id);
-
-    // Calendario empresa (festivos)
-    const calEmpresa = await sql`
-      SELECT fecha::date AS dia, es_laborable
+    const emp = await sql`
+      SELECT tipo, COALESCE(label, nombre) AS label, es_laborable, descripcion
       FROM calendario_empresa_180
       WHERE empresa_id = ${empresaId}
-        AND fecha::date BETWEEN ${desde} AND ${hasta}
+        AND fecha = ${ymd}
+        AND activo = true
+      LIMIT 1
     `;
-    const festivosMap = new Map(
-      calEmpresa.map((r) => [toYMD(r.dia), r.es_laborable !== false])
-    );
 
-    // Ausencias empresa
-    const ausencias = await sql`
-      SELECT empleado_id, tipo, fecha_inicio, fecha_fin, estado
+    const aus = await sql`
+      SELECT id, tipo, estado
       FROM ausencias_180
-      WHERE empresa_id = ${empresaId}
-        AND fecha_inicio <= ${hasta}
-        AND fecha_fin >= ${desde}
-      ORDER BY fecha_inicio ASC
+      WHERE empleado_id = ${empleadoId}
+        AND fecha_inicio <= ${ymd}
+        AND fecha_fin >= ${ymd}
+      LIMIT 1
     `;
 
-    // Jornadas empresa (diarias)
-    const jornadas = await sql`
-      SELECT
-        empleado_id,
-        fecha::date AS dia,
-        COALESCE(minutos_trabajados, 0) AS minutos_trabajados,
-        COALESCE(minutos_descanso, 0) AS minutos_comida,
-        estado
-      FROM jornadas_180
-      WHERE empresa_id = ${empresaId}
-        AND empleado_id = ANY(${empleadoIds})
-        AND fecha::date BETWEEN ${desde} AND ${hasta}
+    const fes = await sql`
+      SELECT nombre
+      FROM festivos_es_180
+      WHERE fecha = ${ymd}
+      LIMIT 1
     `;
 
-    // Index por empleado
-    const out = [];
+    const eventos = [];
 
-    for (const emp of empleados) {
-      const dayMap = buildDayMap(desde, hasta);
+    if (aus.length) {
+      const a = aus[0];
+      eventos.push({
+        id: `aus-${a.id}`,
+        tipo: a.tipo,
+        title: a.tipo === "baja_medica" ? "Baja médica" : "Vacaciones",
+        start: ymd,
+        allDay: true,
+        estado: a.estado,
+      });
 
-      // aplicar festivos empresa
-      for (const dia of Object.keys(dayMap)) {
-        if (festivosMap.has(dia)) {
-          dayMap[dia].es_laborable = festivosMap.get(dia) === true;
-        }
-      }
-
-      // aplicar ausencias del empleado
-      for (const a of ausencias) {
-        if (a.empleado_id !== emp.id) continue;
-
-        let cur = toYMD(a.fecha_inicio);
-        const end = toYMD(a.fecha_fin);
-
-        while (cur <= end) {
-          if (dayMap[cur]) {
-            dayMap[cur].ausencia_tipo = a.tipo;
-            dayMap[cur].estado = a.estado;
-            dayMap[cur].es_laborable = false;
-            dayMap[cur].minutos_trabajados = null;
-          }
-          cur = addDays(cur, 1);
-        }
-      }
-
-      // aplicar jornadas del empleado
-      for (const j of jornadas) {
-        if (j.empleado_id !== emp.id) continue;
-
-        const dia = toYMD(j.dia);
-        if (!dayMap[dia]) continue;
-        if (dayMap[dia].ausencia_tipo) continue;
-
-        const trabajado = Number(j.minutos_trabajados || 0);
-        const comida = Number(j.minutos_comida || 0);
-        const neto = Math.max(0, trabajado - comida);
-
-        dayMap[dia].minutos_trabajados = neto;
-        dayMap[dia].estado = j.estado || dayMap[dia].estado;
-      }
-
-      out.push({
-        empleado_id: emp.id,
-        empleado_nombre: emp.nombre,
-        dias: Object.values(dayMap),
+      return res.json({
+        fecha: ymd,
+        laborable: false,
+        label: a.tipo === "baja_medica" ? "Baja médica" : "Vacaciones",
+        eventos,
       });
     }
 
-    return res.json(out);
+    if (emp.length) {
+      const e = emp[0];
+      const label = e.label || e.tipo;
+
+      eventos.push({
+        id: `emp-${ymd}`,
+        tipo: e.es_laborable ? "laborable_extra" : "festivo",
+        title: label,
+        start: ymd,
+        allDay: true,
+      });
+
+      return res.json({
+        fecha: ymd,
+        laborable: e.es_laborable === true,
+        label,
+        descripcion: e.descripcion || null,
+        eventos,
+      });
+    }
+
+    if (fes.length) {
+      const f = fes[0];
+      eventos.push({
+        id: `fes-${ymd}`,
+        tipo: "festivo",
+        title: f.nombre || "Festivo",
+        start: ymd,
+        allDay: true,
+      });
+
+      return res.json({
+        fecha: ymd,
+        laborable: false,
+        label: f.nombre || "Festivo",
+        eventos,
+      });
+    }
+
+    return res.json({
+      fecha: ymd,
+      laborable: true,
+      label: "Laborable",
+      eventos: [],
+    });
   } catch (err) {
-    console.error("❌ Error en getCalendarioEmpresa:", err);
-    return res
-      .status(500)
-      .json({ error: "Error al obtener calendario de empresa" });
+    console.error("❌ getDiaUsuarioDetalle:", err);
+    return res.status(500).json({ error: "Error al obtener detalle del día" });
   }
 };
 
 // =====================================================
-// ESTADO HOY USUARIO (sin cambios relevantes)
+// ESTADO HOY
 // =====================================================
 export const getEstadoHoyUsuario = async (req, res) => {
   try {
