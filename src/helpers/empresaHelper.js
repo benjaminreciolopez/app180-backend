@@ -1,4 +1,5 @@
 import { sql } from "../db.js";
+import { ensureFestivosForYear } from "../services/festivosNagerService.js";
 
 export async function obtenerEmpresaUsuario(userId) {
   // 1️⃣ Es dueño de empresa
@@ -10,6 +11,18 @@ export async function obtenerEmpresaUsuario(userId) {
   `;
 
   if (empresa.length > 0) {
+    // Importación no bloqueante
+    try {
+      const y = new Date().getFullYear();
+      await ensureFestivosForYear(y);
+      await ensureFestivosForYear(y + 1);
+    } catch (e) {
+      console.warn(
+        "[empresa] No se pudieron importar festivos (no bloqueante):",
+        e
+      );
+    }
+
     return empresa[0].id;
   }
 

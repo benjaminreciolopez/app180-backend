@@ -1,5 +1,6 @@
 // src/controllers/adminCalendarioController.js
 import { sql } from "../db.js";
+import { ensureFestivosForYear } from "../services/festivosNagerService.js";
 
 export const getCalendarioAdmin = async (req, res) => {
   try {
@@ -136,3 +137,19 @@ export const getEventosCalendarioAdmin = async (req, res) => {
     });
   }
 };
+export async function importarFestivosNager(req, res) {
+  try {
+    const year = Number(req.params.year);
+    const r = await ensureFestivosForYear(year);
+
+    return res.json({
+      ok: true,
+      year: r.year,
+      imported: r.imported,
+      count: r.count,
+    });
+  } catch (e) {
+    console.error("❌ importarFestivosNager:", e);
+    return res.status(500).json({ error: "Error importando festivos" });
+  }
+}
