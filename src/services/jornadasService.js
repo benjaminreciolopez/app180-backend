@@ -1,12 +1,9 @@
 // backend/src/services/jornadasService.js
 import { sql } from "../db.js";
+import { resolverPlanDia } from "./planificacionResolver.js";
 
-function toYMD(date) {
-  const d = new Date(date);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function ymdFromDate(d) {
+  return new Date(d).toISOString().slice(0, 10);
 }
 
 // Obtener jornada abierta del empleado (NO filtrar por fecha, por nocturnos)
@@ -27,37 +24,48 @@ export async function crearJornada({
   empresaId,
   empleadoId,
   inicio,
-  incidencia = null,
-  origen_creacion = "app",
+  incidencia,
 }) {
-  const fecha = toYMD(inicio);
+  const fecha = ymdFromDate(inicio);
+
+  const plan = await resolverPlanDia({ empresaId, empleadoId, fecha });
+
+  const resumen = {
+    fecha,
+    plan, // snapshot
+    real: null, // lo rellena jornadaEngine
+    desviaciones: [],
+    avisos: incidencia ? [incidencia] : [],
+  };
 
   const rows = await sql`
-    INSERT INTO jornadas_180 (
+    insert into jornadas_180 (
       empresa_id,
       empleado_id,
       fecha,
       inicio,
-      hora_entrada,
       estado,
       incidencia,
-      origen_creacion
+      origen_creacion,
+      plantilla_id,
+      resumen_json
     )
-    VALUES (
+    values (
       ${empresaId},
       ${empleadoId},
-      ${fecha},
-      ${inicio},
+      ${fecha}::date,
       ${inicio},
       'abierta',
-      ${incidencia},
-      ${origen_creacion}
+      ${incidencia || null},
+      'app',
+      ${plan.plantilla_id || null},
+      ${resumen}
     )
-    RETURNING *
+    returning *
   `;
+
   return rows[0];
 }
-
 // Cerrar jornada (SQL correcto + rellena fin y hora_salida)
 export async function cerrarJornada({
   jornadaId,

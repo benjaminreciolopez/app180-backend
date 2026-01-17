@@ -4,6 +4,7 @@ import { sql } from "../db.js";
 import { ejecutarAutocierre } from "../jobs/autocierre.js";
 import { detectarFichajeSospechoso } from "../services/fichajeSospechoso.js";
 import { validarFichajeSegunTurno } from "../services/fichajesValidacionService.js";
+import { validarFichajeSegunPlan } from "../services/validarFichajeSegunPlan.js";
 import {
   obtenerJornadaAbierta,
   crearJornada,
@@ -11,6 +12,7 @@ import {
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
+import { validarFichajeSegunPlan } from "../services/validarFichajeSegunPlan.js";
 
 //
 // Obtener último fichaje del empleado/autónomo
@@ -105,7 +107,7 @@ export const createFichaje = async (req, res) => {
     }
 
     // =========================
-    // VALIDACIÓN TURNO
+    // VALIDACIÓN TURNO + PLAN
     // =========================
     const validacionTurno = await validarFichajeSegunTurno({
       empleadoId,
@@ -120,8 +122,21 @@ export const createFichaje = async (req, res) => {
         .json({ error: validacionTurno.error });
     }
 
-    // NO bloquear por turno: solo recoger incidencias
+    const validacionPlan = await validarFichajeSegunPlan({
+      empresaId,
+      empleadoId,
+      fechaHora,
+      tipo,
+    });
+
+    // NO BLOQUEAR por plan: solo incidencias
     const incidenciasTurno = validacionTurno.incidencias || [];
+    const incidenciasPlan = validacionPlan.incidencias || [];
+
+    // Unifica incidencias (sin duplicados)
+    const incidencias = Array.from(
+      new Set([...incidenciasTurno, ...incidenciasPlan])
+    );
 
     // =========================
     // SECUENCIA
@@ -146,7 +161,12 @@ export const createFichaje = async (req, res) => {
     // =========================
     // JORNADA
     // =========================
-    let jornada = await obtenerJornadaAbierta(empleadoId);
+    const fecha = fechaHora.toISOString().slice(0, 10);
+    let jornada = await resolverJornadaPorFecha({
+      empresaId,
+      empleadoId,
+      fecha,
+    });
     let jornadaId = null;
 
     // Si NO es entrada, debe existir jornada abierta
@@ -164,9 +184,7 @@ export const createFichaje = async (req, res) => {
           empresaId,
           empleadoId,
           inicio: fechaHora,
-          incidencia: incidenciasTurno.length
-            ? incidenciasTurno.join(" | ")
-            : null,
+          incidencia: incidencias.length ? incidencias.join(" | ") : null,
         });
       }
       jornadaId = jornada.id;
@@ -216,14 +234,14 @@ export const createFichaje = async (req, res) => {
     const latUse = gpsOk
       ? Number(lat)
       : analisis?.ipInfo?.actual?.lat != null
-      ? Number(analisis.ipInfo.actual.lat)
-      : null;
+        ? Number(analisis.ipInfo.actual.lat)
+        : null;
 
     const lngUse = gpsOk
       ? Number(lng)
       : analisis?.ipInfo?.actual?.lng != null
-      ? Number(analisis.ipInfo.actual.lng)
-      : null;
+        ? Number(analisis.ipInfo.actual.lng)
+        : null;
 
     if (latUse != null && lngUse != null) {
       const geo = await reverseGeocode({ lat: latUse, lng: lngUse });

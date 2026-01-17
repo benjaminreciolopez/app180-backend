@@ -76,104 +76,143 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
     const { empleado_id, empresa_id } = req.user;
     const { desde, hasta } = req.query;
 
+    if (!desde || !hasta) {
+      return res.status(400).json({ error: "Rango requerido" });
+    }
+
+    // 1) Días base (festivos, no laborables, etc.)
     const dias = await sql`
-    SELECT
-            d.fecha,
-            d.es_laborable,
+      SELECT
+        d.fecha,
+        d.es_laborable,
+        vc.tipo AS cal_tipo,
+        vc.nombre AS cal_nombre,
+        vc.fuente AS cal_fuente,
+        a.tipo AS ausencia_tipo,
+        a.estado AS ausencia_estado
+      FROM v_dia_laborable_empresa_180 d
+      LEFT JOIN v_calendario_empresa_180 vc
+        ON vc.empresa_id = d.empresa_id
+       AND vc.fecha = d.fecha
+      LEFT JOIN ausencias_180 a
+        ON a.empleado_id = ${empleado_id}
+       AND a.estado = 'aprobado'
+       AND d.fecha BETWEEN a.fecha_inicio AND a.fecha_fin
+      WHERE d.empresa_id = ${empresa_id}
+        AND d.fecha BETWEEN ${desde} AND ${hasta}
+      ORDER BY d.fecha
+    `;
 
-            -- evento calendario (domingo/festivo_nacional/empresa...)
-            vc.tipo AS cal_tipo,
-            vc.nombre AS cal_nombre,
-            vc.fuente AS cal_fuente,
+    // 2) Jornadas reales
+    const jornadas = await sql`
+      SELECT
+        j.id,
+        j.fecha,
+        j.inicio,
+        j.fin,
+        j.estado,
+        j.resumen_json
+      FROM jornadas_180 j
+      WHERE j.empresa_id = ${empresa_id}
+        AND j.empleado_id = ${empleado_id}
+        AND j.fecha BETWEEN ${desde} AND ${hasta}
+      ORDER BY j.fecha
+    `;
 
-            -- ausencia aprobada
-            a.tipo AS ausencia_tipo,
-            a.estado AS ausencia_estado
-          FROM v_dia_laborable_empresa_180 d
-          LEFT JOIN v_calendario_empresa_180 vc
-            ON vc.empresa_id = d.empresa_id
-          AND vc.fecha = d.fecha
-          LEFT JOIN ausencias_180 a
-            ON a.empleado_id = ${empleado_id}
-          AND a.estado = 'aprobado'
-          AND d.fecha BETWEEN a.fecha_inicio AND a.fecha_fin
-          WHERE d.empresa_id = ${empresa_id}
-            AND d.fecha BETWEEN ${desde} AND ${hasta}
-          ORDER BY d.fecha
-        `;
-    // PRIORIDAD:
-    /// 1) ausencia aprobada (vacaciones / baja_medica)
-    /// 2) calendario (vc.tipo) si existe
-    /// 3) fallback: laborable / no laborable
+    const eventos = [];
 
-    const eventos = dias
-      .map((d) => {
-        const fecha = String(d.fecha).slice(0, 10);
+    // --- DÍAS: ausencias / festivos / no laborable
+    for (const d of dias) {
+      const fecha = String(d.fecha).slice(0, 10);
 
-        // 1) Ausencia
-        if (d.ausencia_tipo) {
-          const tipo = d.ausencia_tipo;
-          const title =
-            tipo === "vacaciones"
-              ? "Vacaciones"
-              : tipo === "baja_medica"
-                ? "Baja médica"
-                : String(tipo);
+      if (d.ausencia_tipo) {
+        eventos.push({
+          id: `aus-${fecha}`,
+          tipo: d.ausencia_tipo,
+          title:
+            d.ausencia_tipo === "vacaciones" ? "Vacaciones" : "Baja médica",
+          start: fecha,
+          allDay: true,
+          estado: d.ausencia_estado,
+        });
+        continue;
+      }
 
-          return {
-            id: `${tipo}-${fecha}`,
-            tipo,
-            title,
-            start: fecha,
-            end: null,
-            allDay: true,
-            estado: d.ausencia_estado || "aprobado",
-            // detalle opcional:
-            // nombre_cal: d.cal_nombre || null,
-            // fuente_cal: d.cal_fuente || null,
-          };
-        }
+      if (d.cal_tipo) {
+        eventos.push({
+          id: `cal-${d.cal_tipo}-${fecha}`,
+          tipo: d.cal_tipo,
+          title: d.cal_nombre || d.cal_tipo.replaceAll("_", " "),
+          start: fecha,
+          allDay: true,
+        });
+        continue;
+      }
 
-        // 2) Calendario empresa/nacional (v_calendario_empresa_180)
-        if (d.cal_tipo) {
-          const tipo = String(d.cal_tipo);
-          const title = d.cal_nombre
-            ? String(d.cal_nombre)
-            : tipo.replaceAll("_", " ");
+      if (d.es_laborable === false) {
+        eventos.push({
+          id: `nolaborable-${fecha}`,
+          tipo: "no_laborable",
+          title: "No laborable",
+          start: fecha,
+          allDay: true,
+        });
+      }
+    }
 
-          return {
-            id: `${tipo}-${fecha}`,
-            tipo, // ej: festivo_nacional | festivo_local | cierre | laborable_extra
-            title,
-            start: fecha,
-            end: null,
-            allDay: true,
-            // fuente opcional para debug:
-            // fuente: d.cal_fuente || null,
-          };
-        }
+    // --- JORNADAS: reales + bloques
+    for (const j of jornadas) {
+      if (!j.inicio || !j.fin) continue;
 
-        // 3) Fallback
-        if (d.es_laborable === false) {
-          return {
-            id: `no_laborable-${fecha}`,
-            tipo: "no_laborable",
-            title: "No laborable",
-            start: fecha,
-            end: null,
-            allDay: true,
-          };
-        }
+      const resumen = j.resumen_json || {};
+      const bloquesReales = resumen.bloques_reales || [];
 
-        // No pintamos laborable por defecto (menos ruido).
-        // Si quieres pintarlo, devuelve un evento "laborable".
-        return null;
-      })
-      .filter(Boolean);
+      // Evento resumen de jornada
+      eventos.push({
+        id: `jor-${j.id}`,
+        tipo: "jornada",
+        title: "Jornada",
+        start: j.inicio,
+        end: j.fin,
+        allDay: false,
+        estado: j.estado,
+      });
+
+      // Bloques reales
+      for (let i = 0; i < bloquesReales.length; i++) {
+        const b = bloquesReales[i];
+        eventos.push({
+          id: `real-${j.id}-${i}`,
+          tipo: b.tipo,
+          title: b.tipo === "trabajo" ? "Trabajo" : "Descanso",
+          start: b.inicio,
+          end: b.fin,
+          allDay: false,
+        });
+      }
+
+      // Bloques esperados (plan)
+      const bloquesPlan = resumen.bloques_esperados || [];
+      const fecha = j.fecha;
+
+      for (let i = 0; i < bloquesPlan.length; i++) {
+        const b = bloquesPlan[i];
+        eventos.push({
+          id: `plan-${j.id}-${i}`,
+          tipo: "plan_" + b.tipo,
+          title: "Plan",
+          start: `${fecha}T${b.inicio}`,
+          end: `${fecha}T${b.fin}`,
+          allDay: false,
+          display: "background",
+        });
+      }
+    }
 
     res.json(eventos);
   } catch (err) {
-    console.error("❌ calendario empleado rango:", err);
+    console.error("❌ calendario empleado integrado:", err);
     res.status(500).json({ error: "Error calendario empleado" });
   }
 };
+// backend/src/services/jornadasService.js

@@ -131,6 +131,23 @@ function toMinutesFromHours(h) {
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 60);
 }
+function timeStrToMin(t) {
+  if (!t) return null;
+  const [hh, mm] = String(t).split(":");
+  if (hh == null || mm == null) return null;
+  return Number(hh) * 60 + Number(mm);
+}
+
+function isoToLocalMin(iso) {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function overlapMinutes(aStart, aEnd, bStart, bEnd) {
+  const s = Math.max(aStart, bStart);
+  const e = Math.min(aEnd, bEnd);
+  return Math.max(0, e - s);
+}
 
 async function getTurnoEmpleado({ empresaId, empleadoId }) {
   const rows = await sql`
@@ -175,6 +192,175 @@ function pushAviso(avisos, aviso) {
     mensaje: aviso.mensaje,
     meta: aviso.meta || null,
   });
+}
+
+function compararPlanVsReal({ plan, bloquesReales }) {
+  const desviaciones = [];
+  const metricas = {
+    minutos_trabajo_en_bloque: 0,
+    minutos_trabajo_fuera_bloque: 0,
+    minutos_descanso_en_bloque: 0,
+    minutos_descanso_fuera_bloque: 0,
+    retraso_min: 0,
+    salida_anticipada_min: 0,
+    minutos_planificados_trabajo: 0,
+    minutos_planificados_descanso: 0,
+  };
+
+  const esp = plan?.bloques || [];
+  const trabajosEsp = esp.filter((b) => b.tipo === "trabajo");
+  const descansosEsp = esp.filter((b) => String(b.tipo).includes("descanso"));
+
+  // Totales planificados
+  for (const b of trabajosEsp) {
+    const i = timeStrToMin(b.inicio);
+    const f = timeStrToMin(b.fin);
+    if (i != null && f != null && f > i)
+      metricas.minutos_planificados_trabajo += f - i;
+  }
+  for (const b of descansosEsp) {
+    const i = timeStrToMin(b.inicio);
+    const f = timeStrToMin(b.fin);
+    if (i != null && f != null && f > i)
+      metricas.minutos_planificados_descanso += f - i;
+  }
+
+  // Si no hay bloques esperados, no podemos medir “en/fuera”
+  if (!esp.length) {
+    if (plan?.plantilla_id) {
+      desviaciones.push({
+        tipo: "sin_bloques_plan",
+        nivel: "warning",
+        mensaje: "Plantilla asignada pero sin bloques para ese día",
+      });
+    }
+    return { desviaciones, metricas };
+  }
+
+  // Detectar retraso / salida anticipada respecto al primer/último bloque de trabajo
+  if (trabajosEsp.length) {
+    const first = trabajosEsp[0];
+    const last = trabajosEsp[trabajosEsp.length - 1];
+    const planIni = timeStrToMin(first.inicio);
+    const planFin = timeStrToMin(last.fin);
+
+    const primerTrabajoReal = bloquesReales.find((b) => b.tipo === "trabajo");
+    const ultimoTrabajoReal = [...bloquesReales]
+      .reverse()
+      .find((b) => b.tipo === "trabajo");
+
+    if (planIni != null && primerTrabajoReal) {
+      const realIni = isoToLocalMin(primerTrabajoReal.inicio);
+      if (realIni > planIni) {
+        metricas.retraso_min = realIni - planIni;
+        desviaciones.push({
+          tipo: "entrada_tarde",
+          nivel: "warning",
+          mensaje: "Entrada posterior al inicio planificado",
+          meta: {
+            plan_ini_min: planIni,
+            real_ini_min: realIni,
+            retraso_min: metricas.retraso_min,
+          },
+        });
+      }
+    }
+
+    if (planFin != null && ultimoTrabajoReal) {
+      const realFin = isoToLocalMin(ultimoTrabajoReal.fin);
+      if (realFin < planFin) {
+        metricas.salida_anticipada_min = planFin - realFin;
+        desviaciones.push({
+          tipo: "salida_anticipada",
+          nivel: "warning",
+          mensaje: "Salida anterior al fin planificado",
+          meta: {
+            plan_fin_min: planFin,
+            real_fin_min: realFin,
+            salida_anticipada_min: metricas.salida_anticipada_min,
+          },
+        });
+      }
+    }
+  }
+
+  // Medir minutos reales dentro/fuera de bloques esperados por tipo
+  for (const br of bloquesReales) {
+    const rI = isoToLocalMin(br.inicio);
+    const rF = isoToLocalMin(br.fin);
+    if (!(rF > rI)) continue;
+
+    // sum overlap con bloques esperados del mismo “grupo”
+    const espCandidates =
+      br.tipo === "trabajo"
+        ? trabajosEsp
+        : String(br.tipo).includes("descanso")
+          ? descansosEsp
+          : esp; // fallback
+
+    let inMin = 0;
+    for (const be of espCandidates) {
+      const eI = timeStrToMin(be.inicio);
+      const eF = timeStrToMin(be.fin);
+      if (eI == null || eF == null || !(eF > eI)) continue;
+      inMin += overlapMinutes(rI, rF, eI, eF);
+    }
+
+    const total = rF - rI;
+    const outMin = Math.max(0, total - inMin);
+
+    if (br.tipo === "trabajo") {
+      metricas.minutos_trabajo_en_bloque += inMin;
+      metricas.minutos_trabajo_fuera_bloque += outMin;
+      if (outMin >= 15) {
+        desviaciones.push({
+          tipo: "trabajo_fuera_bloque",
+          nivel: "warning",
+          mensaje: "Trabajo fuera de bloques planificados",
+          meta: { out_min: outMin },
+        });
+      }
+    } else if (br.tipo === "descanso") {
+      metricas.minutos_descanso_en_bloque += inMin;
+      metricas.minutos_descanso_fuera_bloque += outMin;
+      if (outMin >= 10) {
+        desviaciones.push({
+          tipo: "descanso_fuera_bloque",
+          nivel: "info",
+          mensaje: "Descanso fuera de bloques planificados",
+          meta: { out_min: outMin },
+        });
+      }
+    }
+  }
+
+  // Bloques obligatorios “no cubiertos” (simplificado MVP)
+  for (const b of trabajosEsp.filter((x) => x.obligatorio)) {
+    const eI = timeStrToMin(b.inicio);
+    const eF = timeStrToMin(b.fin);
+    if (eI == null || eF == null || !(eF > eI)) continue;
+
+    // ¿hay algún trabajo real que solape al menos 10 min?
+    let covered = false;
+    for (const br of bloquesReales.filter((x) => x.tipo === "trabajo")) {
+      const rI = isoToLocalMin(br.inicio);
+      const rF = isoToLocalMin(br.fin);
+      if (overlapMinutes(rI, rF, eI, eF) >= 10) {
+        covered = true;
+        break;
+      }
+    }
+    if (!covered) {
+      desviaciones.push({
+        tipo: "bloque_obligatorio_no_cubierto",
+        nivel: "danger",
+        mensaje: "Bloque obligatorio no cubierto por fichajes",
+        meta: { inicio: b.inicio, fin: b.fin },
+      });
+    }
+  }
+
+  return { desviaciones, metricas };
 }
 
 /**
@@ -368,6 +554,10 @@ export async function recalcularJornada(jornadaId) {
     minutos_trabajados: minutosTrabajados,
     horas_objetivo_dia: Math.round((objetivoMinParaExtras || 480) / 60),
   });
+  const { desviaciones, metricas } = compararPlanVsReal({
+    plan,
+    bloquesReales,
+  });
 
   // 9) Resumen JSON (clave para frontend)
   const resumen = {
@@ -384,7 +574,6 @@ export async function recalcularJornada(jornadaId) {
           nocturno_permitido: turno.nocturno_permitido,
         }
       : null,
-
     plantilla_id: plan?.plantilla_id ?? null,
     plan_modo: plan?.modo ?? null,
     rango_esperado: plan?.rango ?? null,
@@ -395,6 +584,8 @@ export async function recalcularJornada(jornadaId) {
     minutos_descanso: minutosDescanso,
     minutos_extra: minutosExtra,
 
+    desviaciones,
+    metricas,
     avisos,
   };
 

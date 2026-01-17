@@ -88,28 +88,24 @@ export const getEventosCalendarioAdmin = async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
-    const { desde, hasta, empleado_id, estado } = req.query;
-
+    const { desde, hasta, empleado_id } = req.query;
     if (!desde || !hasta) {
-      return res.status(400).json({ error: "Rango de fechas requerido" });
+      return res.status(400).json({ error: "Rango requerido" });
     }
-
-    const empleadoIdSafe =
-      empleado_id && empleado_id !== "" ? empleado_id : null;
-
-    const estadoSafe = estado && estado !== "" ? estado : null;
 
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
     `;
-
     if (!empresa.length) {
       return res.status(400).json({ error: "Empresa no encontrada" });
     }
-
     const empresaId = empresa[0].id;
 
-    const rows = await sql`
+    const empleadoIdSafe =
+      empleado_id && empleado_id !== "" ? empleado_id : null;
+
+    // 1) Ausencias
+    const ausencias = await sql`
       SELECT
         a.id,
         a.empleado_id,
@@ -124,17 +120,93 @@ export const getEventosCalendarioAdmin = async (req, res) => {
         AND a.fecha_fin >= ${desde}
         AND a.fecha_inicio <= ${hasta}
         AND (${empleadoIdSafe} IS NULL OR a.empleado_id = ${empleadoIdSafe})
-        AND (${estadoSafe} IS NULL OR a.estado = ${estadoSafe})
-      ORDER BY a.fecha_inicio ASC
+      ORDER BY a.fecha_inicio
     `;
 
-    res.json(rows);
+    // 2) Jornadas
+    const jornadas = await sql`
+      SELECT
+        j.id,
+        j.empleado_id,
+        e.nombre AS empleado_nombre,
+        j.fecha,
+        j.inicio,
+        j.fin,
+        j.estado,
+        j.resumen_json
+      FROM jornadas_180 j
+      JOIN employees_180 e ON e.id = j.empleado_id
+      WHERE j.empresa_id = ${empresaId}
+        AND j.fecha BETWEEN ${desde} AND ${hasta}
+        AND (${empleadoIdSafe} IS NULL OR j.empleado_id = ${empleadoIdSafe})
+      ORDER BY j.fecha
+    `;
+
+    const eventos = [];
+
+    // Ausencias
+    for (const a of ausencias) {
+      eventos.push({
+        id: `aus-${a.id}`,
+        tipo: a.tipo,
+        title: `${a.empleado_nombre}: ${a.tipo}`,
+        start: a.start,
+        end: a.end,
+        allDay: true,
+        estado: a.estado,
+      });
+    }
+
+    // Jornadas + bloques
+    for (const j of jornadas) {
+      if (!j.inicio || !j.fin) continue;
+
+      const resumen = j.resumen_json || {};
+      const bloquesReales = resumen.bloques_reales || [];
+      const bloquesPlan = resumen.bloques_esperados || [];
+
+      eventos.push({
+        id: `jor-${j.id}`,
+        tipo: "jornada",
+        title: `${j.empleado_nombre}`,
+        start: j.inicio,
+        end: j.fin,
+        allDay: false,
+        estado: j.estado,
+      });
+
+      for (let i = 0; i < bloquesReales.length; i++) {
+        const b = bloquesReales[i];
+        eventos.push({
+          id: `real-${j.id}-${i}`,
+          tipo: b.tipo,
+          title: `${j.empleado_nombre}: ${b.tipo}`,
+          start: b.inicio,
+          end: b.fin,
+          allDay: false,
+        });
+      }
+
+      const fecha = j.fecha;
+
+      for (let i = 0; i < bloquesPlan.length; i++) {
+        const b = bloquesPlan[i];
+        eventos.push({
+          id: `plan-${j.id}-${i}`,
+          tipo: "plan_" + b.tipo,
+          title: `Plan ${j.empleado_nombre}`,
+          start: `${fecha}T${b.inicio}`,
+          end: `${fecha}T${b.fin}`,
+          allDay: false,
+          display: "background",
+        });
+      }
+    }
+
+    res.json(eventos);
   } catch (err) {
-    console.error("❌ calendario admin eventos:", err);
-    return res.status(500).json({
-      error: "Error calendario admin",
-      detail: err.message,
-    });
+    console.error("❌ calendario admin integrado:", err);
+    res.status(500).json({ error: "Error calendario admin" });
   }
 };
 export async function importarFestivosNager(req, res) {
