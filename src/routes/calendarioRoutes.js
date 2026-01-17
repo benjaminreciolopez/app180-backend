@@ -1,9 +1,7 @@
 import express from "express";
-import { authRequired } from "../middlewares/authMiddleware.js";
 import {
   getCalendarioUsuarioEventos,
   getDiaUsuarioDetalle,
-  getCalendarioEmpresa,
   getEstadoHoyUsuario,
 } from "../controllers/calendarioController.js";
 
@@ -14,9 +12,6 @@ router.get("/usuario/eventos", getCalendarioUsuarioEventos);
 
 // 📆 Detalle de un día
 router.get("/usuario/dia", getDiaUsuarioDetalle);
-
-// 🏢 Vista empresa (admin)
-router.get("/empresa", getCalendarioEmpresa);
 
 // 📍 Estado de hoy
 router.get("/hoy", getEstadoHoyUsuario);
