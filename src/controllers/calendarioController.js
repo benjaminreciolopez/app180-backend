@@ -1,10 +1,5 @@
 import { sql } from "../db.js";
 
-const addOneDay = (dateStr) => {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().split("T")[0];
-};
 const addDays = (dateStr, days) => {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
@@ -48,24 +43,29 @@ const getRangoFechas = (desde, hasta) => {
 };
 
 //
-// CALENDARIO DEL USUARIO (empleado o autónomo)
+// CALENDARIO DEL USUARIO (NORMALIZADO A DÍAS)
 //
 export const getCalendarioUsuario = async (req, res) => {
   try {
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
     const dayMap = buildDayMap(desde, hasta);
 
-    // 👇 USAR EL empleado_id DEL JWT (no buscar por user_id)
     const empleadoId = req.user.empleado_id;
-    const empleadoNombre = req.user.nombre;
-
     if (!empleadoId) {
       return res.status(403).json({ error: "No autorizado" });
     }
 
     // =========================
-    // AUSENCIAS DEL EMPLEADO
+    // AUSENCIAS
     // =========================
+    const ausencias = await sql`
+      SELECT tipo, fecha_inicio, fecha_fin, estado
+      FROM ausencias_180
+      WHERE empleado_id = ${empleadoId}
+        AND fecha_inicio <= ${hasta}
+        AND fecha_fin >= ${desde}
+    `;
+
     for (const a of ausencias) {
       let cur = a.fecha_inicio.slice(0, 10);
       const end = a.fecha_fin.slice(0, 10);
@@ -81,7 +81,7 @@ export const getCalendarioUsuario = async (req, res) => {
     }
 
     // =========================
-    // FICHAJES (por user_id)
+    // MINUTOS TRABAJADOS (solo si no hay ausencia)
     // =========================
     const fichajes = await sql`
       SELECT
@@ -92,9 +92,10 @@ export const getCalendarioUsuario = async (req, res) => {
         AND fecha::date BETWEEN ${desde} AND ${hasta}
       GROUP BY dia
     `;
+
     for (const f of fichajes) {
       const dia = f.dia.toISOString().slice(0, 10);
-      if (dayMap[dia]) {
+      if (dayMap[dia] && !dayMap[dia].ausencia_tipo) {
         dayMap[dia].minutos_trabajados = Number(f.minutos);
       }
     }
@@ -107,112 +108,10 @@ export const getCalendarioUsuario = async (req, res) => {
       .json({ error: "Error al obtener calendario del usuario" });
   }
 };
+
 //
-// CALENDARIO DE EMPRESA (solo admin)
+// ESTADO HOY (para dashboard)
 //
-export const getCalendarioEmpresa = async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ error: "Acceso denegado" });
-    }
-
-    const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
-
-    // Empresa del admin
-    const empresaRows = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (empresaRows.length === 0) {
-      return res.status(400).json({ error: "Empresa no encontrada" });
-    }
-    const empresaId = empresaRows[0].id;
-
-    // Empleados de la empresa
-    const empleados = await sql`
-      SELECT e.id, e.nombre, u.id AS user_id
-      FROM employees_180 e
-      JOIN users_180 u ON u.id = e.user_id
-      WHERE e.empresa_id = ${empresaId}
-    `;
-
-    if (empleados.length === 0) {
-      return res.json([]);
-    }
-
-    const empleadoIds = empleados.map((e) => e.id);
-    const userIds = empleados.map((e) => e.user_id);
-
-    // AUSENCIAS de la empresa
-    const ausencias = await sql`
-      SELECT 
-        a.id,
-        a.tipo,
-        a.fecha_inicio,
-        a.fecha_fin,
-        a.estado,
-        a.empleado_id,
-        e.nombre AS empleado_nombre
-      FROM ausencias_180 a
-      JOIN employees_180 e ON e.id = a.empleado_id
-      WHERE a.empresa_id = ${empresaId}
-      AND a.fecha_inicio <= ${hasta}
-      AND a.fecha_fin >= ${desde}
-      ORDER BY a.fecha_inicio ASC
-    `;
-
-    // FICHAJES de los empleados de la empresa
-    const fichajes = await sql`
-      SELECT 
-        f.id,
-        f.tipo,
-        f.fecha,
-        f.cliente_id,
-        f.empleado_id,
-        u.nombre AS empleado_nombre,
-        c.nombre AS cliente_nombre
-      FROM fichajes_180 f
-      LEFT JOIN users_180 u ON u.id = f.user_id
-      LEFT JOIN clients_180 c ON c.id = f.cliente_id
-      WHERE f.empleado_id = ANY(${empleadoIds})
-      AND f.fecha::date BETWEEN ${desde} AND ${hasta}
-      ORDER BY f.fecha ASC
-    `;
-
-    const eventosAusencias = ausencias.map((a) => ({
-      id: `aus-${a.id}`,
-      tipo: a.tipo,
-      subtipo: a.tipo,
-      title:
-        a.tipo === "baja_medica"
-          ? `${a.empleado_nombre} - Baja médica`
-          : `${a.empleado_nombre} - Vacaciones`,
-      start: a.fecha_inicio,
-      end: addOneDay(a.fecha_fin),
-      allDay: true,
-      estado: a.estado,
-      empleado_id: a.empleado_id,
-    }));
-
-    const eventosFichajes = fichajes.map((f) => ({
-      id: `fic-${f.id}`,
-      tipo: "fichaje",
-      subtipo: f.tipo,
-      title: f.cliente_nombre
-        ? `${f.empleado_nombre} - ${f.tipo} - ${f.cliente_nombre}`
-        : `${f.empleado_nombre} - ${f.tipo}`,
-      start: f.fecha,
-      allDay: false,
-    }));
-
-    return res.json([...eventosAusencias, ...eventosFichajes]);
-  } catch (err) {
-    console.error("❌ Error en getCalendarioEmpresa:", err);
-    return res
-      .status(500)
-      .json({ error: "Error al obtener calendario de empresa" });
-  }
-};
-
 export const getEstadoHoyUsuario = async (req, res) => {
   try {
     const { empleado_id, empresa_id } = req.user;
@@ -223,7 +122,7 @@ export const getEstadoHoyUsuario = async (req, res) => {
 
     const hoy = new Date().toISOString().slice(0, 10);
 
-    // 1️⃣ ¿Ausencia aprobada?
+    // 1️⃣ Ausencia aprobada
     const ausencia = await sql`
       SELECT tipo
       FROM ausencias_180
@@ -242,7 +141,7 @@ export const getEstadoHoyUsuario = async (req, res) => {
       });
     }
 
-    // 2️⃣ ¿Festivo empresa?
+    // 2️⃣ Festivo empresa
     const festivo = await sql`
       SELECT es_laborable
       FROM calendario_empresa_180
@@ -259,7 +158,7 @@ export const getEstadoHoyUsuario = async (req, res) => {
       });
     }
 
-    // 3️⃣ Es laborable
+    // 3️⃣ Laborable
     return res.json({ laborable: true });
   } catch (err) {
     console.error("❌ getEstadoHoyUsuario:", err);
