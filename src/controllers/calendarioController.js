@@ -5,6 +5,29 @@ const addOneDay = (dateStr) => {
   d.setDate(d.getDate() + 1);
   return d.toISOString().split("T")[0];
 };
+const addDays = (dateStr, days) => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+};
+
+const buildDayMap = (desde, hasta) => {
+  const map = {};
+  let cur = desde;
+
+  while (cur <= hasta) {
+    map[cur] = {
+      fecha: cur,
+      es_laborable: true,
+      ausencia_tipo: null,
+      estado: null,
+      minutos_trabajados: null,
+    };
+    cur = addDays(cur, 1);
+  }
+
+  return map;
+};
 
 //
 // Utilidad para obtener rango por defecto (mes actual)
@@ -30,6 +53,7 @@ const getRangoFechas = (desde, hasta) => {
 export const getCalendarioUsuario = async (req, res) => {
   try {
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
+    const dayMap = buildDayMap(desde, hasta);
 
     // 👇 USAR EL empleado_id DEL JWT (no buscar por user_id)
     const empleadoId = req.user.empleado_id;
@@ -42,58 +66,40 @@ export const getCalendarioUsuario = async (req, res) => {
     // =========================
     // AUSENCIAS DEL EMPLEADO
     // =========================
-    const ausencias = await sql`
-      SELECT id, tipo, fecha_inicio, fecha_fin, estado
-      FROM ausencias_180
-      WHERE empleado_id = ${empleadoId}
-        AND fecha_inicio <= ${hasta}
-        AND fecha_fin >= ${desde}
-      ORDER BY fecha_inicio ASC
-    `;
+    for (const a of ausencias) {
+      let cur = a.fecha_inicio.slice(0, 10);
+      const end = a.fecha_fin.slice(0, 10);
+
+      while (cur <= end) {
+        if (dayMap[cur]) {
+          dayMap[cur].ausencia_tipo = a.tipo;
+          dayMap[cur].estado = a.estado;
+          dayMap[cur].es_laborable = false;
+        }
+        cur = addDays(cur, 1);
+      }
+    }
 
     // =========================
     // FICHAJES (por user_id)
     // =========================
     const fichajes = await sql`
-      SELECT 
-        f.id,
-        f.tipo,
-        f.fecha,
-        f.cliente_id,
-        c.nombre AS cliente_nombre
-      FROM fichajes_180 f
-      LEFT JOIN clients_180 c ON c.id = f.cliente_id
-      WHERE f.user_id = ${req.user.id}
-        AND f.fecha::date BETWEEN ${desde} AND ${hasta}
-      ORDER BY f.fecha ASC
+      SELECT
+        fecha::date AS dia,
+        SUM(minutos) AS minutos
+      FROM fichajes_180
+      WHERE user_id = ${req.user.id}
+        AND fecha::date BETWEEN ${desde} AND ${hasta}
+      GROUP BY dia
     `;
+    for (const f of fichajes) {
+      const dia = f.dia.toISOString().slice(0, 10);
+      if (dayMap[dia]) {
+        dayMap[dia].minutos_trabajados = Number(f.minutos);
+      }
+    }
 
-    // =========================
-    // MAPEO A EVENTOS
-    // =========================
-    const eventosAusencias = ausencias.map((a) => ({
-      id: `aus-${a.id}`,
-      tipo: a.tipo,
-      subtipo: a.tipo,
-      title: a.tipo === "baja_medica" ? `Baja médica` : `Vacaciones`,
-      start: a.fecha_inicio,
-      end: addOneDay(a.fecha_fin),
-      allDay: true,
-      estado: a.estado,
-    }));
-
-    const eventosFichajes = fichajes.map((f) => ({
-      id: `fic-${f.id}`,
-      tipo: "fichaje",
-      subtipo: f.tipo,
-      title: f.cliente_nombre ? `${f.tipo} - ${f.cliente_nombre}` : f.tipo,
-      start: f.fecha,
-      allDay: false,
-    }));
-
-    const eventos = [...eventosAusencias, ...eventosFichajes];
-
-    return res.json(eventos);
+    return res.json(Object.values(dayMap));
   } catch (err) {
     console.error("❌ Error en getCalendarioUsuario:", err);
     return res
