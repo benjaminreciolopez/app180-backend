@@ -355,7 +355,7 @@ export const upsertDiaSemana = async (req, res) => {
     if (diaSemana < 1 || diaSemana > 7) {
       return res
         .status(400)
-        .json({ error: "dia_semana debe estar entre 0 y 6" });
+        .json({ error: "dia_semana debe estar entre 1 y 7" });
     }
 
     const activoParsed = boolOrNull(activo);
@@ -428,6 +428,12 @@ export const upsertBloquesDia = async (req, res) => {
       // VALIDACION FUERTE
       const sorted = validateBloques(bloques, { requireContiguous: true });
       assertBloquesDentroDeRango(sorted, dia.hora_inicio, dia.hora_fin);
+
+      if (sorted.length === 0) {
+        const err = new Error("Debe existir al menos un bloque");
+        err.status = 400;
+        throw err;
+      }
 
       // atomicidad: delete + insert
       await tx`delete from plantilla_bloques_180 where plantilla_dia_id=${plantilla_dia_id}`;
@@ -548,6 +554,12 @@ export const upsertBloquesExcepcion = async (req, res) => {
       // VALIDACION FUERTE
       const sorted = validateBloques(bloques, { requireContiguous: true });
       assertBloquesDentroDeRango(sorted, ex.hora_inicio, ex.hora_fin);
+
+      if (sorted.length === 0) {
+        const err = new Error("Debe existir al menos un bloque");
+        err.status = 400;
+        throw err;
+      }
 
       await tx`delete from plantilla_excepcion_bloques_180 where excepcion_id=${excepcion_id}`;
 
