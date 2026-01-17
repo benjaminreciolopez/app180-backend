@@ -12,7 +12,6 @@ import {
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
-import { validarFichajeSegunPlan } from "../services/validarFichajeSegunPlan.js";
 
 //
 // Obtener último fichaje del empleado/autónomo
