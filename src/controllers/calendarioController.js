@@ -94,20 +94,24 @@ export const getCalendarioUsuario = async (req, res) => {
         AND fecha_fin >= ${desde}
       ORDER BY fecha_inicio ASC
     `;
+    console.log("📆 AUSENCIAS ENCONTRADAS:", ausencias);
 
     for (const a of ausencias) {
-      let cur = toYMD(a.fecha_inicio);
-      const end = toYMD(a.fecha_fin);
+      let cur = new Date(a.fecha_inicio);
+      const end = new Date(a.fecha_fin);
 
       while (cur <= end) {
-        if (dayMap[cur]) {
-          dayMap[cur].ausencia_tipo = a.tipo;
-          dayMap[cur].estado = a.estado;
-          dayMap[cur].es_laborable = false;
-          // Si hay ausencia, no mostramos minutos trabajados (tu frontend lo usa así)
-          dayMap[cur].minutos_trabajados = null;
+        const ymd = cur.toISOString().split("T")[0];
+        console.log("🟡 Pintando ausencia", a.tipo, cur);
+
+        if (dayMap[ymd]) {
+          dayMap[ymd].ausencia_tipo = a.tipo;
+          dayMap[ymd].estado = a.estado;
+          dayMap[ymd].es_laborable = false;
+          dayMap[ymd].minutos_trabajados = null;
         }
-        cur = addDays(cur, 1);
+
+        cur.setDate(cur.getDate() + 1);
       }
     }
 
