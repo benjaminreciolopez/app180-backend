@@ -50,7 +50,8 @@ export const getCalendarioUsuario = async (req, res) => {
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
     const dayMap = buildDayMap(desde, hasta);
 
-    const empleadoId = req.user.empleado_id;
+    const empleadoId = req.user?.empleado_id;
+
     if (!empleadoId) {
       return res.status(403).json({ error: "No autorizado" });
     }
@@ -67,8 +68,10 @@ export const getCalendarioUsuario = async (req, res) => {
     `;
 
     for (const a of ausencias) {
-      let cur = a.fecha_inicio.slice(0, 10);
-      const end = a.fecha_fin.slice(0, 10);
+      const start = new Date(a.fecha_inicio).toISOString().slice(0, 10);
+      const end = new Date(a.fecha_fin).toISOString().slice(0, 10);
+
+      let cur = start;
 
       while (cur <= end) {
         if (dayMap[cur]) {
@@ -81,7 +84,7 @@ export const getCalendarioUsuario = async (req, res) => {
     }
 
     // =========================
-    // MINUTOS TRABAJADOS (solo si no hay ausencia)
+    // FICHAJES
     // =========================
     const fichajes = await sql`
       SELECT
@@ -94,7 +97,8 @@ export const getCalendarioUsuario = async (req, res) => {
     `;
 
     for (const f of fichajes) {
-      const dia = f.dia.toISOString().slice(0, 10);
+      const dia = new Date(f.dia).toISOString().slice(0, 10);
+
       if (dayMap[dia] && !dayMap[dia].ausencia_tipo) {
         dayMap[dia].minutos_trabajados = Number(f.minutos);
       }
