@@ -53,6 +53,94 @@ function boolOrNull(v) {
   return Symbol.for("invalid_boolean");
 }
 
+function cmpTime(a, b) {
+  return String(a).localeCompare(String(b));
+}
+
+// Convierte a ordenado + valida. Si quieres CONTIGUO, activa requireContiguous=true
+function validateBloques(bloques, { requireContiguous = true } = {}) {
+  if (!Array.isArray(bloques)) {
+    const err = new Error("bloques debe ser array");
+    err.status = 400;
+    throw err;
+  }
+
+  const sorted = [...bloques].sort((x, y) =>
+    cmpTime(x.hora_inicio, y.hora_inicio)
+  );
+
+  for (let i = 0; i < sorted.length; i++) {
+    const b = sorted[i];
+
+    if (!b?.tipo || !b?.hora_inicio || !b?.hora_fin) {
+      const err = new Error(
+        `Bloque ${i + 1}: requiere tipo, hora_inicio y hora_fin`
+      );
+      err.status = 400;
+      throw err;
+    }
+
+    if (cmpTime(b.hora_inicio, b.hora_fin) >= 0) {
+      const err = new Error(
+        `Bloque ${i + 1}: hora_fin debe ser posterior a hora_inicio`
+      );
+      err.status = 400;
+      throw err;
+    }
+
+    if (i > 0) {
+      const prev = sorted[i - 1];
+
+      // solape
+      if (cmpTime(prev.hora_fin, b.hora_inicio) > 0) {
+        const err = new Error(`Bloque ${i + 1}: solapa con el anterior`);
+        err.status = 400;
+        throw err;
+      }
+
+      // contigüidad estricta (tu regla: inicio nuevo = fin anterior)
+      if (requireContiguous && cmpTime(prev.hora_fin, b.hora_inicio) !== 0) {
+        const err = new Error(
+          `Bloque ${i + 1}: debe empezar exactamente a ${prev.hora_fin} (fin del bloque anterior)`
+        );
+        err.status = 400;
+        throw err;
+      }
+    }
+  }
+
+  return sorted;
+}
+
+function assertBloquesDentroDeRango(sortedBloques, rangoInicio, rangoFin) {
+  // si no hay rango definido, no imponemos esta regla
+  if (!rangoInicio || !rangoFin) return;
+
+  for (let i = 0; i < sortedBloques.length; i++) {
+    const b = sortedBloques[i];
+    if (
+      cmpTime(b.hora_inicio, rangoInicio) < 0 ||
+      cmpTime(b.hora_fin, rangoFin) > 0
+    ) {
+      const err = new Error(
+        `Bloque ${i + 1}: debe estar dentro del rango ${rangoInicio} - ${rangoFin}`
+      );
+      err.status = 400;
+      throw err;
+    }
+  }
+
+  // opcional: que cubran todo el rango
+  // si lo quieres obligatorio, descomenta:
+  // const first = sortedBloques[0];
+  // const last = sortedBloques[sortedBloques.length - 1];
+  // if (cmpTime(first.hora_inicio, rangoInicio) !== 0 || cmpTime(last.hora_fin, rangoFin) !== 0) {
+  //   const err = new Error(`Los bloques deben cubrir todo el rango ${rangoInicio} - ${rangoFin}`);
+  //   err.status = 400;
+  //   throw err;
+  // }
+}
+
 async function assertPlantillaEmpresa(tx, plantillaId, empresaId) {
   const p = await tx`
     select 1
@@ -264,7 +352,7 @@ export const upsertDiaSemana = async (req, res) => {
     }
 
     const diaSemana = toIntOrThrow(dia_semana, "dia_semana");
-    if (diaSemana < 0 || diaSemana > 6) {
+    if (diaSemana < 1 || diaSemana > 7) {
       return res
         .status(400)
         .json({ error: "dia_semana debe estar entre 0 y 6" });
@@ -328,25 +416,23 @@ export const upsertBloquesDia = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
     const { plantilla_dia_id } = req.params;
-    const { bloques } = req.body || {}; // [{tipo, hora_inicio, hora_fin, obligatorio}]
-
-    if (!Array.isArray(bloques)) {
-      return res.status(400).json({ error: "bloques debe ser array" });
-    }
+    const { bloques } = req.body || {};
 
     const out = await sql.begin(async (tx) => {
-      await getPlantillaDiaAndAssertEmpresa(tx, plantilla_dia_id, empresaId);
+      const dia = await getPlantillaDiaAndAssertEmpresa(
+        tx,
+        plantilla_dia_id,
+        empresaId
+      );
 
+      // VALIDACION FUERTE
+      const sorted = validateBloques(bloques, { requireContiguous: true });
+      assertBloquesDentroDeRango(sorted, dia.hora_inicio, dia.hora_fin);
+
+      // atomicidad: delete + insert
       await tx`delete from plantilla_bloques_180 where plantilla_dia_id=${plantilla_dia_id}`;
 
-      for (const b of bloques) {
-        if (!b?.tipo || !b?.hora_inicio || !b?.hora_fin) {
-          const err = new Error(
-            "Cada bloque requiere tipo, hora_inicio y hora_fin"
-          );
-          err.status = 400;
-          throw err;
-        }
+      for (const b of sorted) {
         const obligatorioParsed = boolOrNull(b.obligatorio);
         if (obligatorioParsed === Symbol.for("invalid_boolean")) {
           const err = new Error("obligatorio debe ser boolean");
@@ -367,7 +453,7 @@ export const upsertBloquesDia = async (req, res) => {
       }
 
       return tx`
-        select *
+        select id, tipo, hora_inicio, hora_fin, obligatorio
         from plantilla_bloques_180
         where plantilla_dia_id=${plantilla_dia_id}
         order by hora_inicio asc
@@ -379,7 +465,6 @@ export const upsertBloquesDia = async (req, res) => {
     handleErr(res, err, "upsertBloquesDia");
   }
 };
-
 /**
  * =========================
  * Excepciones por fecha
@@ -453,23 +538,20 @@ export const upsertBloquesExcepcion = async (req, res) => {
     const { excepcion_id } = req.params;
     const { bloques } = req.body || {};
 
-    if (!Array.isArray(bloques)) {
-      return res.status(400).json({ error: "bloques debe ser array" });
-    }
-
     const out = await sql.begin(async (tx) => {
-      await getExcepcionAndAssertEmpresa(tx, excepcion_id, empresaId);
+      const ex = await getExcepcionAndAssertEmpresa(
+        tx,
+        excepcion_id,
+        empresaId
+      );
+
+      // VALIDACION FUERTE
+      const sorted = validateBloques(bloques, { requireContiguous: true });
+      assertBloquesDentroDeRango(sorted, ex.hora_inicio, ex.hora_fin);
 
       await tx`delete from plantilla_excepcion_bloques_180 where excepcion_id=${excepcion_id}`;
 
-      for (const b of bloques) {
-        if (!b?.tipo || !b?.hora_inicio || !b?.hora_fin) {
-          const err = new Error(
-            "Cada bloque requiere tipo, hora_inicio y hora_fin"
-          );
-          err.status = 400;
-          throw err;
-        }
+      for (const b of sorted) {
         const obligatorioParsed = boolOrNull(b.obligatorio);
         if (obligatorioParsed === Symbol.for("invalid_boolean")) {
           const err = new Error("obligatorio debe ser boolean");
@@ -490,7 +572,7 @@ export const upsertBloquesExcepcion = async (req, res) => {
       }
 
       return tx`
-        select *
+        select id, tipo, hora_inicio, hora_fin, obligatorio
         from plantilla_excepcion_bloques_180
         where excepcion_id=${excepcion_id}
         order by hora_inicio asc
@@ -508,47 +590,75 @@ export const upsertBloquesExcepcion = async (req, res) => {
  * Asignaciones
  * =========================
  */
+// helper: null = abierto
+function normDateOrNull(v) {
+  const s = (v ?? "").toString().trim();
+  return s ? s : null;
+}
+
 export const asignarPlantillaEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
-    const { empleado_id, plantilla_id, fecha_inicio, fecha_fin } =
-      req.body || {};
+    if (!empresaId)
+      return res.status(403).json({ error: "Empresa no asociada" });
 
+    const { empleado_id, plantilla_id, fecha_inicio, fecha_fin } = req.body;
+    const fin = normDateOrNull(fecha_fin);
+
+    // validaciones mínimas
     if (!empleado_id || !plantilla_id || !fecha_inicio) {
+      return res.status(400).json({
+        error: "empleado_id, plantilla_id, fecha_inicio obligatorios",
+      });
+    }
+    if (fin && fin < fecha_inicio) {
       return res
         .status(400)
-        .json({
-          error: "empleado_id, plantilla_id y fecha_inicio son obligatorios",
-        });
+        .json({ error: "fecha_fin no puede ser anterior a fecha_inicio" });
     }
 
-    const out = await sql.begin(async (tx) => {
-      const e =
-        await tx`select 1 from employees_180 where id=${empleado_id} and empresa_id=${empresaId} limit 1`;
-      if (!e.length) {
-        const err = new Error("Empleado no válido");
-        err.status = 404;
-        throw err;
-      }
+    // valida empresa del empleado y plantilla
+    const e = await sql`
+      select 1 from employees_180
+      where id=${empleado_id} and empresa_id=${empresaId}
+      limit 1
+    `;
+    const p = await sql`
+      select 1 from plantillas_jornada_180
+      where id=${plantilla_id} and empresa_id=${empresaId} and activo=true
+      limit 1
+    `;
+    if (!e.length) return res.status(404).json({ error: "Empleado no válido" });
+    if (!p.length)
+      return res.status(404).json({ error: "Plantilla no válida o inactiva" });
 
-      await assertPlantillaEmpresa(tx, plantilla_id, empresaId);
-
-      const r = await tx`
-        insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
-        values (
-          ${empleado_id},
-          ${plantilla_id},
-          ${fecha_inicio}::date,
-          ${fecha_fin ?? null}::date
+    // BLOQUEO de solapes (incluye abiertos)
+    const conflict = await sql`
+      select id, plantilla_id, fecha_inicio, fecha_fin
+      from empleado_plantillas_180
+      where empleado_id = ${empleado_id}
+        and (
+          (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
+          and (${fin}::date is null or fecha_inicio <= ${fin}::date)
         )
-        returning *
-      `;
-      return r[0];
-    });
+      limit 1
+    `;
+    if (conflict.length) {
+      return res.status(409).json({
+        error: "Solapamiento de asignaciones",
+        conflict: conflict[0],
+      });
+    }
 
-    res.json(out);
+    const r = await sql`
+      insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
+      values (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${fin}::date)
+      returning *
+    `;
+    res.json(r[0]);
   } catch (err) {
-    handleErr(res, err, "asignarPlantillaEmpleado");
+    console.error("[asignarPlantillaEmpleado]", err);
+    res.status(500).json({ error: "Error interno" });
   }
 };
 
