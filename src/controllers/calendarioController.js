@@ -175,6 +175,7 @@ export const getCalendarioEmpresa = async (req, res) => {
     }
 
     const { desde, hasta } = getRangoFechas(req.query.desde, req.query.hasta);
+    const dayMap = buildDayMap(desde, hasta);
 
     // Empresa del admin
     const empresaRows = await sql`
@@ -187,82 +188,63 @@ export const getCalendarioEmpresa = async (req, res) => {
 
     // Empleados de la empresa
     const empleados = await sql`
-      SELECT e.id, e.nombre, u.id AS user_id
-      FROM employees_180 e
-      JOIN users_180 u ON u.id = e.user_id
-      WHERE e.empresa_id = ${empresaId}
+      SELECT id
+      FROM employees_180
+      WHERE empresa_id = ${empresaId}
     `;
 
     if (empleados.length === 0) {
-      return res.json([]);
+      return res.json(Object.values(dayMap));
     }
 
     const empleadoIds = empleados.map((e) => e.id);
-    const userIds = empleados.map((e) => e.user_id);
 
-    // AUSENCIAS de la empresa
+    // =========================
+    // AUSENCIAS
+    // =========================
     const ausencias = await sql`
-      SELECT 
-        a.id,
-        a.tipo,
-        a.fecha_inicio,
-        a.fecha_fin,
-        a.estado,
-        a.empleado_id,
-        e.nombre AS empleado_nombre
-      FROM ausencias_180 a
-      JOIN employees_180 e ON e.id = a.empleado_id
-      WHERE a.empresa_id = ${empresaId}
-      AND a.fecha_inicio <= ${hasta}
-      AND a.fecha_fin >= ${desde}
-      ORDER BY a.fecha_inicio ASC
+      SELECT tipo, fecha_inicio, fecha_fin, estado
+      FROM ausencias_180
+      WHERE empresa_id = ${empresaId}
+        AND fecha_inicio <= ${hasta}
+        AND fecha_fin >= ${desde}
     `;
 
-    // FICHAJES de los empleados de la empresa
+    for (const a of ausencias) {
+      let cur = a.fecha_inicio.slice(0, 10);
+      const end = a.fecha_fin.slice(0, 10);
+
+      while (cur <= end) {
+        if (dayMap[cur]) {
+          dayMap[cur].ausencia_tipo = a.tipo;
+          dayMap[cur].estado = a.estado;
+          dayMap[cur].es_laborable = false;
+        }
+        cur = addDays(cur, 1);
+      }
+    }
+
+    // =========================
+    // FICHAJES (sumados por día)
+    // =========================
     const fichajes = await sql`
-      SELECT 
-        f.id,
-        f.tipo,
-        f.fecha,
-        f.cliente_id,
-        f.empleado_id,
-        u.nombre AS empleado_nombre,
-        c.nombre AS cliente_nombre
-      FROM fichajes_180 f
-      LEFT JOIN users_180 u ON u.id = f.user_id
-      LEFT JOIN clients_180 c ON c.id = f.cliente_id
-      WHERE f.empleado_id = ANY(${empleadoIds})
-      AND f.fecha::date BETWEEN ${desde} AND ${hasta}
-      ORDER BY f.fecha ASC
+      SELECT
+        fecha::date AS dia,
+        SUM(minutos) AS minutos
+      FROM fichajes_180
+      WHERE empleado_id = ANY(${empleadoIds})
+        AND fecha::date BETWEEN ${desde} AND ${hasta}
+      GROUP BY dia
     `;
 
-    const eventosAusencias = ausencias.map((a) => ({
-      id: `aus-${a.id}`,
-      tipo: a.tipo,
-      subtipo: a.tipo,
-      title:
-        a.tipo === "baja_medica"
-          ? `${a.empleado_nombre} - Baja médica`
-          : `${a.empleado_nombre} - Vacaciones`,
-      start: a.fecha_inicio,
-      end: addOneDay(a.fecha_fin),
-      allDay: true,
-      estado: a.estado,
-      empleado_id: a.empleado_id,
-    }));
+    for (const f of fichajes) {
+      const dia = f.dia.toISOString().slice(0, 10);
+      if (dayMap[dia] && !dayMap[dia].ausencia_tipo) {
+        dayMap[dia].minutos_trabajados = Number(f.minutos);
+      }
+    }
 
-    const eventosFichajes = fichajes.map((f) => ({
-      id: `fic-${f.id}`,
-      tipo: "fichaje",
-      subtipo: f.tipo,
-      title: f.cliente_nombre
-        ? `${f.empleado_nombre} - ${f.tipo} - ${f.cliente_nombre}`
-        : `${f.empleado_nombre} - ${f.tipo}`,
-      start: f.fecha,
-      allDay: false,
-    }));
-
-    return res.json([...eventosAusencias, ...eventosFichajes]);
+    return res.json(Object.values(dayMap));
   } catch (err) {
     console.error("❌ Error en getCalendarioEmpresa:", err);
     return res
