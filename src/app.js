@@ -83,6 +83,9 @@ app.use("/admin", adminJornadasRoutes);
 app.use("/admin", adminplantillasRoutes);
 app.use("/empleado", empleadoPlanDiaRoutes);
 app.use("/worklogs", workLogsRoutes);
+app.use("/admin", adminCalendarioRoutes);
+app.use("/empleado", empleadoCalendarioRoutes);
+app.use("/empleado", empleadoJornadasRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {

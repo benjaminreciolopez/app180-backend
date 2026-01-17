@@ -209,6 +209,7 @@ export const getEventosCalendarioAdmin = async (req, res) => {
     res.status(500).json({ error: "Error calendario admin" });
   }
 };
+
 export async function importarFestivosNager(req, res) {
   try {
     const year = Number(req.params.year);

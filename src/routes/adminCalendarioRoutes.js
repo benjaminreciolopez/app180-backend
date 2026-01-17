@@ -8,6 +8,7 @@ import {
 } from "../controllers/adminCalendarioController.js";
 import { resolverAusencia } from "../controllers/ausenciasController.js";
 import { importarFestivosNager } from "../controllers/adminCalendarioController.js";
+import { getCalendarioIntegradoAdmin } from "../controllers/adminCalendarioIntegradoController.js";
 
 const router = Router();
 
@@ -23,5 +24,7 @@ router.patch("/ausencias/:id", resolverAusencia);
 
 // 📥 importar festivos Nager.Date
 router.post("/calendario/importar-festivos/:year", importarFestivosNager);
+
+router.get("/calendario/integrado", getCalendarioIntegradoAdmin);
 
 export default router;
