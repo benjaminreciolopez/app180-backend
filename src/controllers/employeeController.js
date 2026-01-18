@@ -109,14 +109,14 @@ export const getEmployeesAdmin = async (req, res) => {
         e.nombre,
         u.email,
         e.activo,
-        e.device_hash,
+        d.device_hash,
         d.activo AS dispositivo_activo,
 
         p.id AS plantilla_id,
         p.nombre AS plantilla_nombre
 
       FROM employees_180 e
-      
+
       JOIN users_180 u ON u.id = e.user_id
 
       LEFT JOIN employee_devices_180 d
