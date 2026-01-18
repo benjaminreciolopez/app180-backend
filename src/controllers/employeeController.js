@@ -1,6 +1,7 @@
 import { sql } from "../db.js";
 import bcrypt from "bcryptjs";
 import { syncDailyReport } from "../services/dailyReportService.js";
+import { resolverPlanDia } from "../services/planificacionResolver.js";
 
 // ==========================
 // CREAR EMPLEADO (PASSWORD FORZADO)
@@ -103,24 +104,32 @@ export const getEmployeesAdmin = async (req, res) => {
     const empresaId = empresa[0].id;
 
     const empleados = await sql`
-      SELECT
+    SELECT
         e.id,
         e.nombre,
-        u.email,
+        e.email,
         e.activo,
-        t.nombre AS turno_nombre,
+        e.device_hash,
         d.activo AS dispositivo_activo,
-        d.device_hash
+
+        p.id AS plantilla_id,
+        p.nombre AS plantilla_nombre
+
       FROM employees_180 e
-      JOIN users_180 u ON u.id = e.user_id
-      LEFT JOIN turnos_180 t ON t.id = e.turno_id
-      LEFT JOIN LATERAL (
-        SELECT device_hash, activo
-        FROM employee_devices_180
-        WHERE empleado_id = e.id
-        ORDER BY created_at DESC
-        LIMIT 1
-      ) d ON true
+
+      LEFT JOIN employee_devices_180 d
+        ON d.empleado_id = e.id
+      AND d.activo = true
+
+      LEFT JOIN empleado_plantillas_180 ep
+        ON ep.empleado_id = e.id
+      AND ep.fecha_inicio <= CURRENT_DATE
+      AND (ep.fecha_fin IS NULL OR ep.fecha_fin >= CURRENT_DATE)
+
+      LEFT JOIN plantillas_jornada_180 p
+        ON p.id = ep.plantilla_id
+      AND p.activo = true
+
       WHERE e.empresa_id = ${empresaId}
       ORDER BY e.nombre
     `;
@@ -201,7 +210,7 @@ function nextAccionFromFichajes(fichajes) {
 
 export const empleadoDashboard = async (req, res) => {
   try {
-    const user = req.user; // tu middleware JWT ya lo pone
+    const user = req.user;
     const empresaId = user.empresa_id;
     const empleadoId = user.empleado_id;
 
@@ -213,22 +222,30 @@ export const empleadoDashboard = async (req, res) => {
 
     const day = todayYYYYMMDD();
 
-    // Fuerza sincronización (seguro e idempotente)
+    // 🔁 Sincroniza parte diario (igual que antes)
     const parte = await syncDailyReport({
       empresaId,
       empleadoId,
       fecha: day,
     });
 
+    // 👤 Datos básicos
     const emp = await sql`
-      SELECT e.nombre, e.turno_id, t.nombre AS turno_nombre
-      FROM employees_180 e
-      LEFT JOIN turnos_180 t ON t.id = e.turno_id
-      WHERE e.id = ${empleadoId}
-        AND e.empresa_id = ${empresaId}
+      SELECT nombre
+      FROM employees_180
+      WHERE id = ${empleadoId}
+        AND empresa_id = ${empresaId}
       LIMIT 1
     `;
 
+    // 📆 PLAN DEL DÍA (JORNADA REAL)
+    const plan = await resolverPlanDia({
+      empresaId,
+      empleadoId,
+      fecha: day,
+    });
+
+    // 🕒 Fichajes de hoy
     const fichajes = await sql`
       SELECT id, tipo, fecha
       FROM fichajes_180
@@ -238,6 +255,7 @@ export const empleadoDashboard = async (req, res) => {
       ORDER BY fecha ASC
     `;
 
+    // 🧾 Jornada técnica (abierta/cerrada)
     const jornadas = await sql`
       SELECT id, estado, inicio, fin
       FROM jornadas_180
@@ -252,19 +270,33 @@ export const empleadoDashboard = async (req, res) => {
     const fichando = jornada
       ? String(jornada.estado).toLowerCase().includes("abiert")
       : false;
+
     const accion = nextAccionFromFichajes(fichajes);
 
     const { label, color } = mapEstado(parte?.estado);
 
     return res.json({
       nombre: emp[0]?.nombre || user.nombre || "Empleado",
-      turno: { nombre: emp[0]?.turno_nombre || null },
+
+      // ⬇️ AHORA SE DEVUELVE LA JORNADA REAL
+      jornada: {
+        plantilla_id: plan.plantilla_id,
+        modo: plan.modo, // semanal | excepcion | sin_plantilla
+        rango: plan.rango || null,
+        bloques: plan.bloques || [],
+        nota: plan.nota || null,
+      },
+
       fichando,
+
       estado_label: label,
       estado_color: color,
+
       minutos_trabajados_hoy:
         parte?.horas_trabajadas != null ? `${parte.horas_trabajadas} h` : "—",
+
       accion,
+
       fichajes_hoy: fichajes.map((f) => ({
         id: f.id,
         tipo_label: f.tipo,
