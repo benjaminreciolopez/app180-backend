@@ -66,7 +66,9 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
     const eventos = [];
 
+    // =========================
     // 1) Calendario empresa + días no laborables
+    // =========================
     const dias = await sql`
       SELECT
         d.fecha,
@@ -85,10 +87,10 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
     for (const d of dias) {
       const fecha = ymd(d.fecha);
-      const endExclusive = addOneDayYMD(fecha); // FullCalendar usa end exclusivo
+      const endExclusive = addOneDayYMD(fecha);
 
       if (d.cal_tipo) {
-        const tipo = String(d.cal_tipo); // festivo_nacional / festivo_local / cierre / laborable_extra...
+        const tipo = String(d.cal_tipo);
 
         eventos.push({
           id: `cal-${tipo}-${fecha}`,
@@ -119,7 +121,10 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         });
       }
     }
+
+    // =========================
     // 2) Ausencias
+    // =========================
     const ausencias = await sql`
       SELECT
         a.id,
@@ -140,7 +145,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
     for (const a of ausencias) {
       const start = ymd(a.fecha_inicio);
-      const end = addOneDay(ymd(a.fecha_fin)); // FullCalendar allDay end exclusivo
+      const end = addOneDayYMD(ymd(a.fecha_fin));
 
       const title =
         a.tipo === "vacaciones"
@@ -163,7 +168,9 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       });
     }
 
+    // =========================
     // 3) Jornadas reales
+    // =========================
     if (wantReal) {
       const jornadas = await sql`
         SELECT
@@ -198,14 +205,13 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             ).length
           : 0;
 
-        eventos.push({
+        const ev = {
           id: `jor-${j.id}`,
           tipo: "jornada_real",
           title: empleadoIdSafe
             ? `Jornada (${j.estado})`
             : `${j.empleado_nombre}: Jornada (${j.estado})`,
           start: j.inicio ? String(j.inicio) : `${fecha}T00:00:00`,
-          end: j.fin ? String(j.fin) : null,
           allDay: false,
           estado: j.estado || null,
           empleado_id: j.empleado_id,
@@ -217,11 +223,17 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             minutos_extra: j.minutos_extra,
             warn_count: warnCount,
           },
-        });
+        };
+
+        if (j.fin) ev.end = String(j.fin);
+
+        eventos.push(ev);
       }
     }
 
+    // =========================
     // 4) Plan esperado (opcional)
+    // =========================
     if (wantPlan) {
       if (!empleadoIdSafe) {
         return res.status(400).json({
@@ -250,21 +262,14 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         const bloques = plan.bloques || [];
         if (!bloques.length && !plan.rango) continue;
 
-        const start = plan.rango?.inicio
-          ? combineDateTime(fecha, plan.rango.inicio)
-          : `${fecha}T00:00:00`;
-
-        const end = plan.rango?.fin
-          ? combineDateTime(fecha, plan.rango.fin)
-          : null;
-
-        eventos.push({
+        const ev = {
           id: `plan-${empleadoIdSafe}-${fecha}`,
           tipo: "jornada_plan",
           title:
             plan.modo === "excepcion" ? "Plan (excepción)" : "Plan (plantilla)",
-          start,
-          end,
+          start: plan.rango?.inicio
+            ? combineDateTime(fecha, plan.rango.inicio)
+            : `${fecha}T00:00:00`,
           allDay: false,
           estado: null,
           empleado_id: empleadoIdSafe,
@@ -276,7 +281,13 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             bloques,
             nota: plan.nota || null,
           },
-        });
+        };
+
+        if (plan.rango?.fin) {
+          ev.end = combineDateTime(fecha, plan.rango.fin);
+        }
+
+        eventos.push(ev);
       }
     }
 
