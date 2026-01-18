@@ -1,34 +1,23 @@
-// backend/src/routes/turnosRoutes.js
-
 import { Router } from "express";
-import {
-  getTurnos,
-  getTurno,
-  createTurno,
-  updateTurno,
-  deleteTurno,
-} from "../controllers/turnosController.js";
+import { getTurnos, getTurno } from "../controllers/turnosController.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 
 const router = Router();
 
-// 🔐 Todas las rutas protegidas (admin)
+// 🔐 Solo admin
 router.use(authRequired, roleRequired("admin"));
 
-// GET turnos empresa
+// 📖 SOLO LECTURA (catálogo interno)
 router.get("/", getTurnos);
-
-// GET turno por id
 router.get("/detalle/:id", getTurno);
 
-// Crear turno
-router.post("/", createTurno);
-
-// Editar turno
-router.put("/:id", updateTurno);
-
-// Borrar turno
-router.delete("/:id", deleteTurno);
+// ❌ NO crear / editar / borrar desde API pública
+router.all("*", (_req, res) =>
+  res.status(403).json({
+    error: "Los turnos son gestionados automáticamente por el sistema",
+  })
+);
 
 export default router;
+// backend/src/routes/turnosRoutes.js

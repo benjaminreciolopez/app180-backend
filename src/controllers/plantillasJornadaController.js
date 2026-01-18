@@ -3,6 +3,9 @@
 
 import { sql } from "../db.js";
 import { resolverPlanDia } from "../services/planificacionResolver.js";
+import { inferirTipoTurnoDesdePlan } from "../helpers/turnosInferenciaHelper.js";
+import { getOrCreateTurnoCatalogo } from "../services/turnoAutoService.js";
+import { recalcularTurnosDesdePlantilla } from "../services/recalcularTurnosDesdePlantilla.js";
 
 /**
  * Helpers
@@ -27,18 +30,6 @@ function toIntOrThrow(v, name) {
     throw err;
   }
   return n;
-}
-
-function requireBody(res, obj, field) {
-  if (
-    obj?.[field] === undefined ||
-    obj?.[field] === null ||
-    obj?.[field] === ""
-  ) {
-    res.status(400).json({ error: `${field} obligatorio` });
-    return false;
-  }
-  return true;
 }
 
 function boolOrNull(v) {
@@ -456,6 +447,21 @@ export const upsertBloquesDia = async (req, res) => {
             coalesce(${obligatorioParsed}, true)
           )
         `;
+        // 🔁 Recalcular turnos de empleados con esta plantilla
+        const plantillaDia = await tx`
+        SELECT plantilla_id
+        FROM plantilla_dias_180
+        WHERE id = ${plantilla_dia_id}
+        LIMIT 1
+      `;
+
+        if (plantillaDia.length) {
+          await recalcularTurnosDesdePlantilla({
+            empresaId,
+            plantillaId: plantillaDia[0].plantilla_id,
+            tx,
+          });
+        }
       }
 
       return tx`
@@ -581,6 +587,14 @@ export const upsertBloquesExcepcion = async (req, res) => {
             coalesce(${obligatorioParsed}, true)
           )
         `;
+
+        // 🔁 Recalcular turnos de empleados con esta plantilla
+        await recalcularTurnosDesdePlantilla({
+          empresaId,
+          plantillaId: ex.plantilla_id,
+          fecha: ex.fecha,
+          tx,
+        });
       }
 
       return tx`
@@ -611,8 +625,6 @@ function normDateOrNull(v) {
 export const asignarPlantillaEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
-    if (!empresaId)
-      return res.status(403).json({ error: "Empresa no asociada" });
 
     const { empleado_id, plantilla_id, fecha_inicio, fecha_fin } = req.body;
     const fin = normDateOrNull(fecha_fin);
@@ -629,48 +641,98 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         .json({ error: "fecha_fin no puede ser anterior a fecha_inicio" });
     }
 
-    // valida empresa del empleado y plantilla
-    const e = await sql`
-      select 1 from employees_180
-      where id=${empleado_id} and empresa_id=${empresaId}
-      limit 1
-    `;
-    const p = await sql`
-      select 1 from plantillas_jornada_180
-      where id=${plantilla_id} and empresa_id=${empresaId} and activo=true
-      limit 1
-    `;
-    if (!e.length) return res.status(404).json({ error: "Empleado no válido" });
-    if (!p.length)
-      return res.status(404).json({ error: "Plantilla no válida o inactiva" });
+    const out = await sql.begin(async (tx) => {
+      // valida empresa del empleado y plantilla
+      const e = await tx`
+        select 1 from employees_180
+        where id=${empleado_id} and empresa_id=${empresaId}
+        limit 1
+      `;
+      const p = await tx`
+        select 1 from plantillas_jornada_180
+        where id=${plantilla_id} and empresa_id=${empresaId} and activo=true
+        limit 1
+      `;
+      if (!e.length) {
+        const err = new Error("Empleado no válido");
+        err.status = 404;
+        throw err;
+      }
+      if (!p.length) {
+        const err = new Error("Plantilla no válida o inactiva");
+        err.status = 404;
+        throw err;
+      }
 
-    // BLOQUEO de solapes (incluye abiertos)
-    const conflict = await sql`
-      select id, plantilla_id, fecha_inicio, fecha_fin
-      from empleado_plantillas_180
-      where empleado_id = ${empleado_id}
-        and (
-          (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
-          and (${fin}::date is null or fecha_inicio <= ${fin}::date)
-        )
-      limit 1
-    `;
-    if (conflict.length) {
+      // BLOQUEO de solapes (incluye abiertos)
+      const conflict = await tx`
+        select id, plantilla_id, fecha_inicio, fecha_fin
+        from empleado_plantillas_180
+        where empleado_id = ${empleado_id}
+          and (
+            (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
+            and (${fin}::date is null or fecha_inicio <= ${fin}::date)
+          )
+        limit 1
+      `;
+      if (conflict.length) {
+        const err = new Error("Solapamiento de asignaciones");
+        err.status = 409;
+        err.conflict = conflict[0];
+        throw err;
+      }
+
+      // 1) Inserta asignación
+      const r = await tx`
+        insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
+        values (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${fin}::date)
+        returning *
+      `;
+      const asignacion = r[0];
+
+      // 2) Resolver plan del día (en fecha_inicio) y deducir tipo de turno
+      //    Nota: tu resolverPlanDia usa empresaId/empleadoId/fecha
+      const plan = await resolverPlanDia({
+        empresaId,
+        empleadoId: empleado_id,
+        fecha: String(fecha_inicio).slice(0, 10),
+      });
+
+      const tipo_turno = inferirTipoTurnoDesdePlan(plan);
+
+      // 3) Obtener o crear turno catálogo y asignarlo al empleado
+      const turno = await getOrCreateTurnoCatalogo(
+        { empresaId, tipo: tipo_turno },
+        tx
+      );
+
+      await tx`
+        update employees_180
+        set turno_id = ${turno.id}
+        where id = ${empleado_id}
+          and empresa_id = ${empresaId}
+      `;
+
+      return {
+        asignacion,
+        turno_auto: {
+          tipo_turno,
+          turno_id: turno.id,
+          turno_nombre: turno.nombre,
+        },
+      };
+    });
+
+    res.json(out);
+  } catch (err) {
+    // Si venía un conflicto enriquecido
+    if (err?.status === 409 && err?.conflict) {
       return res.status(409).json({
-        error: "Solapamiento de asignaciones",
-        conflict: conflict[0],
+        error: err.message,
+        conflict: err.conflict,
       });
     }
-
-    const r = await sql`
-      insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
-      values (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${fin}::date)
-      returning *
-    `;
-    res.json(r[0]);
-  } catch (err) {
-    console.error("[asignarPlantillaEmpleado]", err);
-    res.status(500).json({ error: "Error interno" });
+    handleErr(res, err, "asignarPlantillaEmpleado");
   }
 };
 
