@@ -161,11 +161,7 @@ export const createFichaje = async (req, res) => {
     // JORNADA
     // =========================
     const fecha = fechaHora.toISOString().slice(0, 10);
-    let jornada = await obtenerJornadaAbierta({
-      empresaId,
-      empleadoId,
-      fecha,
-    });
+    let jornada = await obtenerJornadaAbierta(empleadoId);
     let jornadaId = null;
 
     // Si NO es entrada, debe existir jornada abierta
