@@ -7,21 +7,22 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
   // 1) plantilla activa del empleado para esa fecha
   const asig = await sql`
-    SELECT ep.plantilla_id
+    SELECT ep.plantilla_id, p.nombre AS plantilla_nombre
     FROM empleado_plantillas_180 ep
     JOIN plantillas_jornada_180 p ON p.id = ep.plantilla_id
     WHERE ep.empleado_id = ${empleadoId}
-      AND p.empresa_id = ${empresaId}
-      AND p.activo = true
-      AND ep.fecha_inicio <= ${fecha}::date
-      AND (ep.fecha_fin is null OR ep.fecha_fin >= ${fecha}::date)
+        AND p.empresa_id = ${empresaId}
+        AND p.activo = true
+        AND ep.fecha_inicio <= ${fecha}::date
+        AND (ep.fecha_fin is null OR ep.fecha_fin >= ${fecha}::date)
     ORDER BY ep.fecha_inicio DESC
     LIMIT 1
-  `;
+    `;
 
   if (!asig.length) {
     return {
       plantilla_id: null,
+      plantilla_nombre: null,
       fecha,
       modo: "sin_plantilla",
       bloques: [],
@@ -29,7 +30,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   }
 
   const plantillaId = asig[0].plantilla_id;
-
+  const plantillaNombre = asig[0].plantilla_nombre;
   // 2) excepción del día (si existe)
   const ex = await sql`
     SELECT id, hora_inicio, hora_fin, nota
@@ -52,6 +53,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
     return {
       plantilla_id: plantillaId,
+      plantilla_nombre: plantillaNombre,
       fecha,
       modo: "excepcion",
       rango:
@@ -94,6 +96,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     console.error("[resolverPlanDia] fecha invalida:", fecha);
     return {
       plantilla_id: plantillaId,
+      plantilla_nombre: plantillaNombre,
       fecha,
       modo: "semanal",
       rango: null,
@@ -113,6 +116,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   if (!dia.length) {
     return {
       plantilla_id: plantillaId,
+      plantilla_nombre: plantillaNombre,
       fecha,
       modo: "semanal",
       rango: null,
@@ -129,6 +133,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
   return {
     plantilla_id: plantillaId,
+    plantilla_nombre: plantillaNombre,
     fecha,
     modo: "semanal",
     rango: {
