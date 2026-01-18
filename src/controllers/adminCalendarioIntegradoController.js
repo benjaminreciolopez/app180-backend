@@ -30,8 +30,9 @@ function ymd(d) {
   return String(d).slice(0, 10);
 }
 
-function addOneDay(ymdStr) {
-  const d = new Date(`${ymdStr}T00:00:00`);
+function addOneDayYMD(ymd) {
+  const d = new Date(`${ymd}T00:00:00`);
+  if (isNaN(d.getTime())) return ymd;
   d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
 }
@@ -84,9 +85,10 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
     for (const d of dias) {
       const fecha = ymd(d.fecha);
+      const endExclusive = addOneDayYMD(fecha); // FullCalendar usa end exclusivo
 
       if (d.cal_tipo) {
-        const tipo = String(d.cal_tipo);
+        const tipo = String(d.cal_tipo); // festivo_nacional / festivo_local / cierre / laborable_extra...
 
         eventos.push({
           id: `cal-${tipo}-${fecha}`,
@@ -95,7 +97,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             ? String(d.cal_nombre)
             : tipo.replaceAll("_", " "),
           start: fecha,
-          end: null,
+          end: endExclusive,
           allDay: true,
           estado: null,
           empleado_id: null,
@@ -108,7 +110,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
           tipo: "no_laborable",
           title: "No laborable",
           start: fecha,
-          end: null,
+          end: endExclusive,
           allDay: true,
           estado: null,
           empleado_id: null,
@@ -117,7 +119,6 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         });
       }
     }
-
     // 2) Ausencias
     const ausencias = await sql`
       SELECT
