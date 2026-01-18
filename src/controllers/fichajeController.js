@@ -68,6 +68,10 @@ export const createFichaje = async (req, res) => {
     const empleadoId = empleado.id;
     const empresaId = empleado.empresa_id;
 
+    if (Number.isNaN(fechaHora.getTime())) {
+      return res.status(400).json({ error: "fecha_hora inválida" });
+    }
+
     if (!empleado.activo) {
       return res.status(403).json({ error: "Empleado desactivado" });
     }

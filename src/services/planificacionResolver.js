@@ -68,13 +68,37 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     };
   }
 
-  // 3) semana
-  // dia_semana: 1=lunes ... 7=domingo
-  const diaSemana = (() => {
-    const d = new Date(`${fecha}T00:00:00`);
-    const js = d.getDay(); // 0 domingo..6 sábado
+  function diaSemanaISO(fecha) {
+    const [y, m, d] = String(fecha).split("-").map(Number);
+
+    if (
+      !Number.isFinite(y) ||
+      !Number.isFinite(m) ||
+      !Number.isFinite(d) ||
+      m < 1 ||
+      m > 12 ||
+      d < 1 ||
+      d > 31
+    ) {
+      return null;
+    }
+
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const js = dt.getUTCDay();
     return js === 0 ? 7 : js;
-  })();
+  }
+
+  const diaSemana = diaSemanaISO(fecha);
+  if (!Number.isFinite(diaSemana)) {
+    console.error("[resolverPlanDia] fecha invalida:", fecha);
+    return {
+      plantilla_id: plantillaId,
+      fecha,
+      modo: "semanal",
+      rango: null,
+      bloques: [],
+    };
+  }
 
   const dia = await sql`
     SELECT id, hora_inicio, hora_fin
