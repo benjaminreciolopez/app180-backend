@@ -63,7 +63,6 @@ export const getEstadoFichaje = async (req, res) => {
 
     let estado = "fuera";
     let clienteActual = null;
-    let acciones = [];
 
     if (last) {
       if (last.tipo === "entrada" || last.tipo === "descanso_fin")
@@ -72,16 +71,15 @@ export const getEstadoFichaje = async (req, res) => {
       if (last.tipo === "salida") estado = "fuera";
 
       if (last.cliente_id) {
-        clienteActual = { id: last.cliente_id, nombre: last.cliente_nombre };
+        clienteActual = {
+          id: last.cliente_id,
+          nombre: last.cliente_nombre,
+        };
       }
     }
 
-    if (estado === "fuera") acciones = ["entrada"];
-    if (estado === "dentro") acciones = ["salida", "descanso_inicio"];
-    if (estado === "descanso") acciones = ["descanso_fin"];
-
     // =========================
-    // NUEVO: estado botón (plan + ausencia + margen)
+    // Estado del botón (plan + ausencia + margen)
     // =========================
     const hoy = new Date().toISOString().slice(0, 10);
 
@@ -95,8 +93,8 @@ export const getEstadoFichaje = async (req, res) => {
 
     const botonVisible = estadoPlan ? Boolean(estadoPlan.boton_visible) : true;
 
-    // Si se oculta el botón => acciones vacías
-    const acciones_permitidas = botonVisible ? acciones : [];
+    const acciones_permitidas =
+      estadoPlan && botonVisible ? estadoPlan.acciones_permitidas || [] : [];
 
     return res.json({
       estado,
@@ -114,13 +112,21 @@ export const getEstadoFichaje = async (req, res) => {
             color: estadoPlan.color || "negro",
             puede_fichar: Boolean(estadoPlan.puede_fichar),
             mensaje: estadoPlan.mensaje || null,
-            accion: estadoPlan.accion || null,
+            accion:
+              estadoPlan.boton_visible && estadoPlan.accion
+                ? estadoPlan.accion
+                : null,
             objetivo_hhmm: estadoPlan.objetivo_hhmm || null,
             margen_antes: estadoPlan.margen_antes,
             margen_despues: estadoPlan.margen_despues,
             motivo_oculto: estadoPlan.motivo_oculto || null,
           }
-        : { visible: true, color: "negro", puede_fichar: false, accion: null },
+        : {
+            visible: true,
+            color: "negro",
+            puede_fichar: false,
+            accion: null,
+          },
     });
   } catch (err) {
     console.error("❌ Error en getEstadoFichaje:", err);

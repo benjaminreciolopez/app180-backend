@@ -130,17 +130,12 @@ export async function getPlanDiaEstado({
 
   // 1) Ausencia bloqueante
   const ausencia = await getAusenciaActiva({ empleadoId, fechaYMD: ymd });
-  if (ausencia && ausenciaBloqueante(String(ausencia.tipo))) {
+  if (!accion) {
     return {
       fecha: ymd,
       boton_visible: false,
-      motivo_oculto: "ausencia",
-      ausencia: {
-        id: ausencia.id,
-        tipo: ausencia.tipo,
-        fecha_inicio: ausencia.fecha_inicio,
-        fecha_fin: ausencia.fecha_fin,
-      },
+      motivo_oculto: "jornada_finalizada",
+      plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
     };
@@ -209,20 +204,19 @@ export async function getPlanDiaEstado({
     puede_fichar: Boolean(dentro),
     mensaje: !esHoy
       ? "Fecha distinta de hoy"
-      : !accion
-        ? "Jornada finalizada"
-        : dentro
-          ? "Dentro del margen legal de fichaje"
-          : "Fuera del margen legal de fichaje",
+      : dentro
+        ? "Dentro del margen legal de fichaje"
+        : "Fuera del margen legal de fichaje",
 
     // decisión
-    accion, // entrada|descanso_inicio|descanso_fin|salida|null
+    accion,
+    acciones_permitidas: accion ? [accion] : [],
     objetivo_hhmm: objetivoHHMM || null,
     margen_antes: MARGEN_ANTES_MIN,
     margen_despues: MARGEN_DESPUES_MIN,
     motivo_oculto: null,
 
-    // trazabilidad (opcional para depurar)
+    // trazabilidad
     es_laboral,
     plan,
     ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
