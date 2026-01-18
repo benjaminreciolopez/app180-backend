@@ -123,29 +123,29 @@ async function getAusenciaActiva({ empleadoId, fechaYMD }) {
 export async function getPlanDiaEstado({
   empresaId,
   empleadoId,
-  fecha, // YYYY-MM-DD (o ISO; se normaliza)
+  fecha,
   now = new Date(),
 }) {
   const ymd = String(fecha).slice(0, 10);
 
   // 1) Ausencia bloqueante
   const ausencia = await getAusenciaActiva({ empleadoId, fechaYMD: ymd });
-  if (!accion) {
+  if (ausencia && ausenciaBloqueante(ausencia.tipo)) {
     return {
       fecha: ymd,
       boton_visible: false,
-      motivo_oculto: "jornada_finalizada",
-      plan,
+      motivo_oculto: "ausencia",
+      plan: null,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
+      ausencia: { id: ausencia.id, tipo: ausencia.tipo },
     };
   }
 
-  // 2) Plan del día (plantilla/excepción/semanal)
+  // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
   const es_laboral = isDiaLaboral(plan);
 
-  // Si no es laboral (incluye festivo sin trabajo, domingo libre, etc.) => oculto
   if (!es_laboral) {
     return {
       fecha: ymd,
@@ -154,10 +154,11 @@ export async function getPlanDiaEstado({
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
+      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
     };
   }
 
-  // 3) Fichajes del día (para decidir acción)
+  // 3) Fichajes del día
   const fichajes = await sql`
     SELECT tipo, fecha
     FROM fichajes_180
@@ -174,6 +175,18 @@ export async function getPlanDiaEstado({
 
   const accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
 
+  if (!accion) {
+    return {
+      fecha: ymd,
+      boton_visible: false,
+      motivo_oculto: "jornada_finalizada",
+      plan,
+      margen_antes: MARGEN_ANTES_MIN,
+      margen_despues: MARGEN_DESPUES_MIN,
+      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+    };
+  }
+
   const objetivoHHMM =
     accion === "entrada"
       ? targets.entrada
@@ -187,7 +200,7 @@ export async function getPlanDiaEstado({
 
   const objetivoMin = timeStrToMin(objetivoHHMM);
 
-  // 4) Ventana legal y estado (solo habilita si es HOY en Europe/Madrid)
+  // 4) Ventana legal
   const hoyYMD = getYMDInTZ(now, TZ);
   const nowMin = getNowMinInTZ(now, TZ);
   const esHoy = hoyYMD === ymd;
