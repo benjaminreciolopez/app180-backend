@@ -27,11 +27,6 @@ function dateToMinutes(date) {
   return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
 }
 
-function isWithin(min, start, end) {
-  if (start == null || end == null || min == null) return true;
-  return min >= start && min <= end;
-}
-
 // Tipo fichaje -> tipo esperado plantilla (MVP)
 function mapFichajeToPlanTipo(tipoFichaje) {
   // En tu planificador los bloques son text: trabajo/descanso/pausa/comida/otro

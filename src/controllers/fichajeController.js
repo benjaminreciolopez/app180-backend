@@ -12,6 +12,7 @@ import {
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
+import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 
 //
 // Obtener último fichaje del empleado/autónomo
@@ -67,6 +68,51 @@ export const createFichaje = async (req, res) => {
     const empleado = empleadoRows[0];
     const empleadoId = empleado.id;
     const empresaId = empleado.empresa_id;
+    // =========================
+    // VALIDACIÓN DÍA LABORAL + AUSENCIA + MARGEN LEGAL
+    // =========================
+    const fechaYMD = fechaHora.toISOString().slice(0, 10);
+
+    const estadoPlan = await getPlanDiaEstado({
+      empresaId,
+      empleadoId,
+      fecha: fechaYMD,
+    });
+
+    // 1) Botón oculto => no se puede fichar
+    if (!estadoPlan?.boton_visible) {
+      return res.status(403).json({
+        error:
+          estadoPlan?.motivo_oculto === "ausencia"
+            ? "No puedes fichar durante una ausencia aprobada"
+            : "Hoy no es día laboral según tu planificación",
+        code:
+          estadoPlan?.motivo_oculto === "ausencia"
+            ? "AUSENCIA_BLOQUEANTE"
+            : "NO_LABORAL",
+        detalle: estadoPlan,
+      });
+    }
+
+    // 2) Fuera de margen legal => no se puede fichar
+    if (!estadoPlan.puede_fichar) {
+      return res.status(403).json({
+        error: "Fuera del margen legal de fichaje",
+        code: "FUERA_DE_MARGEN",
+        detalle: estadoPlan,
+      });
+    }
+
+    // 3) Acción que llega desde frontend debe coincidir con la acción real del plan
+    // (si por estado del día ya no toca esa acción, 409)
+    if (estadoPlan.accion && estadoPlan.accion !== tipo) {
+      return res.status(409).json({
+        error: `Acción inválida. Ahora toca: ${estadoPlan.accion}`,
+        code: "ACCION_INCORRECTA",
+        accion_correcta: estadoPlan.accion,
+        detalle: estadoPlan,
+      });
+    }
 
     if (Number.isNaN(fechaHora.getTime())) {
       return res.status(400).json({ error: "fecha_hora inválida" });

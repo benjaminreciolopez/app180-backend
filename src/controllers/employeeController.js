@@ -276,3 +276,4 @@ export const empleadoDashboard = async (req, res) => {
     return res.status(500).json({ error: "Error cargando dashboard empleado" });
   }
 };
+// backend/src/controllers/employeeController.js

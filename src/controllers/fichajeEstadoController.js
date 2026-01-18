@@ -1,10 +1,7 @@
-// backend\src\controllers\fichajeEstadoController.js
-
+// backend/src/controllers/fichajeEstadoController.js
 import { sql } from "../db.js";
+import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 
-//
-// Obtener último fichaje real del usuario
-//
 const getLastRealFichaje = async (userId, empleadoId) => {
   if (empleadoId) {
     const rows = await sql`
@@ -31,13 +28,8 @@ const getLastRealFichaje = async (userId, empleadoId) => {
   }
 };
 
-//
-// Endpoint: Obtener estado actual del fichaje
-//
 export const getEstadoFichaje = async (req, res) => {
   try {
-    console.log("🔍 Estado fichaje req.user:", req.user);
-
     let empleadoId = req.user.empleado_id || null;
     let empresaId = req.user.empresa_id || null;
 
@@ -74,46 +66,61 @@ export const getEstadoFichaje = async (req, res) => {
     let acciones = [];
 
     if (last) {
-      if (last.tipo === "entrada" || last.tipo === "descanso_fin") {
+      if (last.tipo === "entrada" || last.tipo === "descanso_fin")
         estado = "dentro";
-      }
-
-      if (last.tipo === "descanso_inicio") {
-        estado = "descanso";
-      }
-
-      if (last.tipo === "salida") {
-        estado = "fuera";
-      }
+      if (last.tipo === "descanso_inicio") estado = "descanso";
+      if (last.tipo === "salida") estado = "fuera";
 
       if (last.cliente_id) {
-        clienteActual = {
-          id: last.cliente_id,
-          nombre: last.cliente_nombre,
-        };
+        clienteActual = { id: last.cliente_id, nombre: last.cliente_nombre };
       }
     }
 
-    if (estado === "fuera") {
-      acciones = ["entrada"];
-    }
+    if (estado === "fuera") acciones = ["entrada"];
+    if (estado === "dentro") acciones = ["salida", "descanso_inicio"];
+    if (estado === "descanso") acciones = ["descanso_fin"];
 
-    if (estado === "dentro") {
-      acciones = ["salida", "descanso_inicio"];
-    }
+    // =========================
+    // NUEVO: estado botón (plan + ausencia + margen)
+    // =========================
+    const hoy = new Date().toISOString().slice(0, 10);
 
-    if (estado === "descanso") {
-      acciones = ["descanso_fin"];
-    }
+    const estadoPlan = esEmpleado
+      ? await getPlanDiaEstado({
+          empresaId,
+          empleadoId,
+          fecha: hoy,
+        })
+      : null;
+
+    const botonVisible = estadoPlan ? Boolean(estadoPlan.boton_visible) : true;
+
+    // Si se oculta el botón => acciones vacías
+    const acciones_permitidas = botonVisible ? acciones : [];
 
     return res.json({
       estado,
       ultimo_fichaje: last || null,
       cliente_actual: clienteActual,
-      acciones_permitidas: acciones,
+      acciones_permitidas,
       es_empleado: esEmpleado,
       empleado_id: empleadoId,
       empresa_id: empresaId,
+
+      // Contrato final del botón
+      boton: estadoPlan
+        ? {
+            visible: Boolean(estadoPlan.boton_visible),
+            color: estadoPlan.color || "negro",
+            puede_fichar: Boolean(estadoPlan.puede_fichar),
+            mensaje: estadoPlan.mensaje || null,
+            accion: estadoPlan.accion || null,
+            objetivo_hhmm: estadoPlan.objetivo_hhmm || null,
+            margen_antes: estadoPlan.margen_antes,
+            margen_despues: estadoPlan.margen_despues,
+            motivo_oculto: estadoPlan.motivo_oculto || null,
+          }
+        : { visible: true, color: "negro", puede_fichar: false, accion: null },
     });
   } catch (err) {
     console.error("❌ Error en getEstadoFichaje:", err);
@@ -122,3 +129,4 @@ export const getEstadoFichaje = async (req, res) => {
       .json({ error: "Error al obtener estado del fichaje" });
   }
 };
+// backend/src/controllers/fichajeEstadoController.js

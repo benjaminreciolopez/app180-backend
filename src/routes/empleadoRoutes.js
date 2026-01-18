@@ -3,6 +3,7 @@ import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { sql } from "../db.js";
 import { activateInstall } from "../controllers/authController.js"; // 👈 IMPORTA ESTO
+import { getPlanDiaEmpleado } from "../controllers/planDiaController.js";
 
 const router = Router();
 
@@ -47,5 +48,10 @@ router.get(
     });
   }
 );
-
+router.get(
+  "/plan-dia",
+  authRequired,
+  roleRequired("empleado"),
+  getPlanDiaEmpleado
+);
 export default router;

@@ -69,7 +69,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   }
 
   function diaSemanaISO(fecha) {
-    const [y, m, d] = String(fecha).split("-").map(Number);
+    const iso = String(fecha).slice(0, 10); // admite YYYY-MM-DD o ISO completo
+    const [y, m, d] = iso.split("-").map(Number);
 
     if (
       !Number.isFinite(y) ||
@@ -84,8 +85,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     }
 
     const dt = new Date(Date.UTC(y, m - 1, d));
-    const js = dt.getUTCDay();
-    return js === 0 ? 7 : js;
+    const js = dt.getUTCDay(); // 0..6
+    return js === 0 ? 7 : js; // 1..7
   }
 
   const diaSemana = diaSemanaISO(fecha);
