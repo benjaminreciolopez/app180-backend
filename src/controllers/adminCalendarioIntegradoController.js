@@ -15,6 +15,7 @@ import { resolverPlanDia } from "../services/planificacionResolver.js";
  *  - include_plan=1 (opcional)  -> genera "jornada_plan" por dia
  *  - include_real=1 (opcional)  -> incluye jornadas reales (por defecto sí)
  */
+
 async function getEmpresaAdmin(req) {
   const rows = await sql`
     SELECT id
@@ -29,8 +30,13 @@ function ymd(d) {
   return String(d).slice(0, 10);
 }
 
+function addOneDay(ymdStr) {
+  const d = new Date(`${ymdStr}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function combineDateTime(fechaYmd, timeStr) {
-  // timeStr: "HH:MM:SS"
   return `${fechaYmd}T${String(timeStr).slice(0, 8)}`;
 }
 
@@ -47,17 +53,19 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     }
 
     const empresaId = await getEmpresaAdmin(req);
-    if (!empresaId)
+    if (!empresaId) {
       return res.status(400).json({ error: "Empresa no encontrada" });
+    }
 
     const empleadoIdSafe =
       empleado_id && empleado_id !== "" ? String(empleado_id) : null;
+
     const wantPlan = String(include_plan || "") === "1";
     const wantReal = include_real == null ? true : String(include_real) === "1";
 
     const eventos = [];
 
-    // 1) Calendario empresa (v_calendario_empresa_180) + laborable (v_dia_laborable_empresa_180)
+    // 1) Calendario empresa + días no laborables
     const dias = await sql`
       SELECT
         d.fecha,
@@ -78,7 +86,8 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       const fecha = ymd(d.fecha);
 
       if (d.cal_tipo) {
-        const tipo = String(d.cal_tipo); // festivo_nacional / festivo_local / cierre / laborable_extra...
+        const tipo = String(d.cal_tipo);
+
         eventos.push({
           id: `cal-${tipo}-${fecha}`,
           tipo: "calendario_empresa",
@@ -109,7 +118,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       }
     }
 
-    // 2) Ausencias (admin ve todas o filtradas por empleado)
+    // 2) Ausencias
     const ausencias = await sql`
       SELECT
         a.id,
@@ -130,7 +139,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
     for (const a of ausencias) {
       const start = ymd(a.fecha_inicio);
-      const end = ymd(a.fecha_fin);
+      const end = addOneDay(ymd(a.fecha_fin)); // FullCalendar allDay end exclusivo
 
       const title =
         a.tipo === "vacaciones"
@@ -144,7 +153,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         tipo: "ausencia",
         title: empleadoIdSafe ? title : `${a.empleado_nombre}: ${title}`,
         start,
-        end, // para allDay multi-day, FullCalendar suele usar end exclusivo; si te da problemas, sumamos +1 día (frontend)
+        end,
         allDay: true,
         estado: a.estado || null,
         empleado_id: a.empleado_id,
@@ -153,7 +162,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       });
     }
 
-    // 3) Jornadas reales (resumen_json + avisos)
+    // 3) Jornadas reales
     if (wantReal) {
       const jornadas = await sql`
         SELECT
@@ -178,6 +187,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
       for (const j of jornadas) {
         const fecha = j.fecha ? ymd(j.fecha) : j.inicio ? ymd(j.inicio) : null;
+
         if (!fecha) continue;
 
         const avisos = j?.resumen_json?.avisos || [];
@@ -210,28 +220,24 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       }
     }
 
-    // 4) Plan esperado (plantilla) por día (opcional)
-    // Nota: para ADMIN esto puede ser costoso si no filtras empleado.
-    // Se recomienda usar include_plan=1 solo cuando haya empleado_id.
+    // 4) Plan esperado (opcional)
     if (wantPlan) {
       if (!empleadoIdSafe) {
-        // para no reventar: exigimos empleado_id si quieres plan
         return res.status(400).json({
           error:
             "include_plan=1 requiere empleado_id para evitar cargas masivas",
         });
       }
 
-      // Generamos días iterando en SQL (generate_series)
       const days = await sql`
         SELECT d::date AS fecha
         FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
         ORDER BY d
       `;
 
-      // Plan por día (resolverPlanDia)
       for (const r of days) {
         const fecha = ymd(r.fecha);
+
         const plan = await resolverPlanDia({
           empresaId,
           empleadoId: empleadoIdSafe,
@@ -240,13 +246,13 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
         if (!plan?.plantilla_id) continue;
 
-        // Si no hay bloques, no pintamos (menos ruido)
         const bloques = plan.bloques || [];
         if (!bloques.length && !plan.rango) continue;
 
         const start = plan.rango?.inicio
           ? combineDateTime(fecha, plan.rango.inicio)
           : `${fecha}T00:00:00`;
+
         const end = plan.rango?.fin
           ? combineDateTime(fecha, plan.rango.fin)
           : null;
