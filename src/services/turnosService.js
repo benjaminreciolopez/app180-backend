@@ -1,5 +1,3 @@
-// backend/src/services/turnosService.js
-
 import { sql } from "../db.js";
 
 export async function obtenerTurnosEmpresa(empresa_id) {
@@ -7,8 +5,8 @@ export async function obtenerTurnosEmpresa(empresa_id) {
     SELECT *
     FROM turnos_180
     WHERE empresa_id = ${empresa_id}
-    AND activo = true
-    ORDER BY created_at DESC
+      AND activo = true
+    ORDER BY nombre
   `;
   return rows;
 }
@@ -68,7 +66,6 @@ export async function editarTurno(id, data) {
     WHERE id = ${id}
     RETURNING *
   `;
-
   return rows[0];
 }
 
@@ -79,3 +76,4 @@ export async function borrarTurno(id) {
     WHERE id = ${id}
   `;
 }
+// backend/src/services/turnosService.js
