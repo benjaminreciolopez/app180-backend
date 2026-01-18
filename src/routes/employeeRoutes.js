@@ -13,8 +13,6 @@ import {
   updateEmployeeDeviceStatus,
 } from "../controllers/employeeSecurityController.js";
 
-import { asignarTurnoEmpleado } from "../controllers/turnosController.js";
-
 const router = express.Router();
 
 // 🔐 Todo este router es SOLO ADMIN
@@ -32,9 +30,6 @@ router.post("/", createEmployee);
 
 // Activar / desactivar empleado
 router.put("/:id/status", updateEmployeeStatus);
-
-// Asignar turno
-router.put("/:id/turno", asignarTurnoEmpleado);
 
 // ==========================
 // SEGURIDAD / DISPOSITIVOS
