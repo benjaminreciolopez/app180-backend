@@ -55,6 +55,37 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     const wantReal = include_real == null ? true : String(include_real) === "1";
 
     const eventos = [];
+    // =========================
+    // 0) Festivos nacionales (Nager -> festivos_es_180)
+    // =========================
+    const festivos = await sql`
+  SELECT fecha, nombre, ambito, comunidad
+  FROM festivos_es_180
+  WHERE fecha BETWEEN ${desde}::date AND ${hasta}::date
+  ORDER BY fecha ASC
+`;
+
+    for (const f of festivos) {
+      const fecha = ymd(f.fecha);
+      const endExclusive = addOneDayYMD(fecha);
+
+      eventos.push({
+        id: `festivo-${fecha}`,
+        tipo: "calendario_empresa",
+        title: f.nombre || "Festivo",
+        start: fecha,
+        end: endExclusive,
+        allDay: true,
+        estado: null,
+        empleado_id: null,
+        empleado_nombre: null,
+        meta: {
+          fuente: "nager",
+          ambito: f.ambito,
+          comunidad: f.comunidad,
+        },
+      });
+    }
 
     // =========================
     // 1) Calendario empresa + no laborables
@@ -93,7 +124,12 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
           empleado_nombre: null,
           meta: { fuente: d.cal_fuente || null, cal_tipo: tipo },
         });
-      } else if (d.es_laborable === false) {
+      } else if (
+        d.es_laborable === false &&
+        !eventos.some(
+          (ev) => ev.start === fecha && ev.tipo === "calendario_empresa",
+        )
+      ) {
         eventos.push({
           id: `no-lab-${fecha}`,
           tipo: "no_laborable",
