@@ -57,7 +57,7 @@ function validateBloques(bloques, { requireContiguous = true } = {}) {
   }
 
   const sorted = [...bloques].sort((x, y) =>
-    cmpTime(x.hora_inicio, y.hora_inicio)
+    cmpTime(x.hora_inicio, y.hora_inicio),
   );
 
   for (let i = 0; i < sorted.length; i++) {
@@ -65,7 +65,7 @@ function validateBloques(bloques, { requireContiguous = true } = {}) {
 
     if (!b?.tipo || !b?.hora_inicio || !b?.hora_fin) {
       const err = new Error(
-        `Bloque ${i + 1}: requiere tipo, hora_inicio y hora_fin`
+        `Bloque ${i + 1}: requiere tipo, hora_inicio y hora_fin`,
       );
       err.status = 400;
       throw err;
@@ -73,7 +73,7 @@ function validateBloques(bloques, { requireContiguous = true } = {}) {
 
     if (cmpTime(b.hora_inicio, b.hora_fin) >= 0) {
       const err = new Error(
-        `Bloque ${i + 1}: hora_fin debe ser posterior a hora_inicio`
+        `Bloque ${i + 1}: hora_fin debe ser posterior a hora_inicio`,
       );
       err.status = 400;
       throw err;
@@ -92,7 +92,7 @@ function validateBloques(bloques, { requireContiguous = true } = {}) {
       // contigüidad estricta (tu regla: inicio nuevo = fin anterior)
       if (requireContiguous && cmpTime(prev.hora_fin, b.hora_inicio) !== 0) {
         const err = new Error(
-          `Bloque ${i + 1}: debe empezar exactamente a ${prev.hora_fin} (fin del bloque anterior)`
+          `Bloque ${i + 1}: debe empezar exactamente a ${prev.hora_fin} (fin del bloque anterior)`,
         );
         err.status = 400;
         throw err;
@@ -114,7 +114,7 @@ function assertBloquesDentroDeRango(sortedBloques, rangoInicio, rangoFin) {
       cmpTime(b.hora_fin, rangoFin) > 0
     ) {
       const err = new Error(
-        `Bloque ${i + 1}: debe estar dentro del rango ${rangoInicio} - ${rangoFin}`
+        `Bloque ${i + 1}: debe estar dentro del rango ${rangoInicio} - ${rangoFin}`,
       );
       err.status = 400;
       throw err;
@@ -413,7 +413,7 @@ export const upsertBloquesDia = async (req, res) => {
       const dia = await getPlantillaDiaAndAssertEmpresa(
         tx,
         plantilla_dia_id,
-        empresaId
+        empresaId,
       );
 
       // VALIDACION FUERTE
@@ -554,7 +554,7 @@ export const upsertBloquesExcepcion = async (req, res) => {
       const ex = await getExcepcionAndAssertEmpresa(
         tx,
         excepcion_id,
-        empresaId
+        empresaId,
       );
 
       // VALIDACION FUERTE
@@ -635,7 +635,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         error: "empleado_id, plantilla_id, fecha_inicio obligatorios",
       });
     }
-    if (fin && fin < fecha_inicio) {
+    if (fin && new Date(fin) < new Date(fecha_inicio)) {
       return res
         .status(400)
         .json({ error: "fecha_fin no puede ser anterior a fecha_inicio" });
@@ -666,20 +666,35 @@ export const asignarPlantillaEmpleado = async (req, res) => {
 
       // BLOQUEO de solapes (incluye abiertos)
       const conflict = await tx`
-        select id, plantilla_id, fecha_inicio, fecha_fin
+        select id, fecha_inicio, fecha_fin
         from empleado_plantillas_180
         where empleado_id = ${empleado_id}
           and (
             (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
             and (${fin}::date is null or fecha_inicio <= ${fin}::date)
           )
+        order by fecha_inicio desc
         limit 1
       `;
+
       if (conflict.length) {
-        const err = new Error("Solapamiento de asignaciones");
-        err.status = 409;
-        err.conflict = conflict[0];
-        throw err;
+        const prev = conflict[0];
+
+        // cerrar la anterior el día anterior a la nueva
+        const cierre = new Date(`${fecha_inicio}T00:00:00`);
+        if (isNaN(cierre.getTime())) {
+          const err = new Error("fecha_inicio inválida");
+          err.status = 400;
+          throw err;
+        }
+        cierre.setDate(cierre.getDate() - 1);
+        const cierreStr = cierre.toISOString().slice(0, 10);
+
+        await tx`
+    update empleado_plantillas_180
+    set fecha_fin = ${cierreStr}
+    where id = ${prev.id}
+  `;
       }
 
       // 1) Inserta asignación
@@ -703,7 +718,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // 3) Obtener o crear turno catálogo y asignarlo al empleado
       const turno = await getOrCreateTurnoCatalogo(
         { empresaId, tipo: tipo_turno },
-        tx
+        tx,
       );
 
       await tx`
