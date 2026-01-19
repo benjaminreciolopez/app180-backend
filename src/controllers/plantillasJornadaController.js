@@ -626,31 +626,23 @@ export const asignarPlantillaEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
 
-    const { empleado_id, plantilla_id, fecha_inicio, fecha_fin } = req.body;
+    const { empleado_id, plantilla_id, fecha_fin } = req.body || {};
     const fin = normDateOrNull(fecha_fin);
 
-    // validaciones mínimas
-    if (!empleado_id || !plantilla_id || !fecha_inicio) {
+    if (!empleado_id || !plantilla_id) {
       return res.status(400).json({
-        error: "empleado_id, plantilla_id, fecha_inicio obligatorios",
+        error: "empleado_id y plantilla_id son obligatorios",
       });
-    }
-    if (fin && new Date(fin) < new Date(fecha_inicio)) {
-      return res
-        .status(400)
-        .json({ error: "fecha_fin no puede ser anterior a fecha_inicio" });
     }
 
     const out = await sql.begin(async (tx) => {
-      // valida empresa del empleado y plantilla
+      // =========================
+      // Validar empleado y plantilla (multiempresa)
+      // =========================
       const e = await tx`
-        select 1 from employees_180
+        select 1
+        from employees_180
         where id=${empleado_id} and empresa_id=${empresaId}
-        limit 1
-      `;
-      const p = await tx`
-        select 1 from plantillas_jornada_180
-        where id=${plantilla_id} and empresa_id=${empresaId} and activo=true
         limit 1
       `;
       if (!e.length) {
@@ -658,16 +650,29 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         err.status = 404;
         throw err;
       }
+
+      const p = await tx`
+        select 1
+        from plantillas_jornada_180
+        where id=${plantilla_id}
+          and empresa_id=${empresaId}
+          and activo=true
+        limit 1
+      `;
       if (!p.length) {
         const err = new Error("Plantilla no válida o inactiva");
         err.status = 404;
         throw err;
       }
 
-      // Fecha "hoy" consistente desde Postgres (evita líos de TZ/servidor)
+      // =========================
+      // Fecha HOY desde Postgres
+      // =========================
       const [{ hoy }] = await tx`select current_date as hoy`;
 
-      // 0) Cerrar asignación activa si existe (fecha_fin = hoy)
+      // =========================
+      // Cerrar asignación activa si existe
+      // =========================
       const activa = await tx`
         select id
         from empleado_plantillas_180
@@ -684,30 +689,50 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         `;
       }
 
-      // 1) Insertar nueva asignación empezando HOY (y abierta si no mandas fin)
+      // =========================
+      // Insertar nueva asignación (empieza HOY)
+      // =========================
       const r = await tx`
-        insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin, empresa_id)
-        values (${empleado_id}, ${plantilla_id}, ${hoy}::date, ${fin}::date, ${empresaId})
+        insert into empleado_plantillas_180 (
+          empleado_id,
+          plantilla_id,
+          fecha_inicio,
+          fecha_fin,
+          empresa_id
+        )
+        values (
+          ${empleado_id},
+          ${plantilla_id},
+          ${hoy}::date,
+          ${fin}::date,
+          ${empresaId}
+        )
         returning *
       `;
       const asignacion = r[0];
 
-      // 2) Resolver plan del día (en fecha_inicio) y deducir tipo de turno
-      //    Nota: tu resolverPlanDia usa empresaId/empleadoId/fecha
+      // =========================
+      // Resolver plan del día y deducir tipo de turno
+      // =========================
       const plan = await resolverPlanDia({
         empresaId,
         empleadoId: empleado_id,
-        fecha: String(fecha_inicio).slice(0, 10),
+        fecha: hoy.toISOString().slice(0, 10),
       });
 
       const tipo_turno = inferirTipoTurnoDesdePlan(plan);
 
-      // 3) Obtener o crear turno catálogo y asignarlo al empleado
+      // =========================
+      // Obtener o crear turno catálogo
+      // =========================
       const turno = await getOrCreateTurnoCatalogo(
         { empresaId, tipo: tipo_turno },
         tx,
       );
 
+      // =========================
+      // Asignar turno al empleado
+      // =========================
       await tx`
         update employees_180
         set turno_id = ${turno.id}
@@ -727,13 +752,6 @@ export const asignarPlantillaEmpleado = async (req, res) => {
 
     res.json(out);
   } catch (err) {
-    // Si venía un conflicto enriquecido
-    if (err?.status === 409 && err?.conflict) {
-      return res.status(409).json({
-        error: err.message,
-        conflict: err.conflict,
-      });
-    }
     handleErr(res, err, "asignarPlantillaEmpleado");
   }
 };
