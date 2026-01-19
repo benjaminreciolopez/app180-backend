@@ -4,7 +4,10 @@ import { resolverPlanDia } from "../services/planificacionResolver.js";
 import { ensureFestivosForYear } from "../services/festivosNagerService.js";
 
 function ymd(d) {
-  return String(d).slice(0, 10);
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
 }
 
 function addOneDayYMD(ymdStr) {
