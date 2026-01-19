@@ -664,37 +664,23 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         throw err;
       }
 
-      // BLOQUEO de solapes (incluye abiertos)
-      const conflict = await tx`
-        select id, fecha_inicio, fecha_fin
+      // Buscar asignación activa
+      const activa = await tx`
+        select id
         from empleado_plantillas_180
         where empleado_id = ${empleado_id}
-          and (
-            (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
-            and (${fin}::date is null or fecha_inicio <= ${fin}::date)
-          )
-        order by fecha_inicio desc
+          and fecha_fin is null
         limit 1
       `;
 
-      if (conflict.length) {
-        const prev = conflict[0];
-
-        // cerrar la anterior el día anterior a la nueva
-        const cierre = new Date(`${fecha_inicio}T00:00:00`);
-        if (isNaN(cierre.getTime())) {
-          const err = new Error("fecha_inicio inválida");
-          err.status = 400;
-          throw err;
-        }
-        cierre.setDate(cierre.getDate() - 1);
-        const cierreStr = cierre.toISOString().slice(0, 10);
+      if (activa.length) {
+        const hoy = new Date().toISOString().slice(0, 10);
 
         await tx`
-    update empleado_plantillas_180
-    set fecha_fin = ${cierreStr}
-    where id = ${prev.id}
-  `;
+      update empleado_plantillas_180
+      set fecha_fin = ${hoy}
+      where id = ${activa[0].id}
+    `;
       }
 
       // 1) Inserta asignación
