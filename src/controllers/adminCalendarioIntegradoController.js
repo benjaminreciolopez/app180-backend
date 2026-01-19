@@ -1,37 +1,7 @@
-// =========================
-// 1) BACKEND: Controller Admin (añadir festivos + no laborables)
-// Archivo sugerido: backend/src/controllers/adminCalendarioIntegradoController.js
-// Ruta: GET /admin/calendario/integrado
-// =========================
-
+// backend/src/controllers/adminCalendarioIntegradoController.js
 import { sql } from "../db.js";
 import { resolverPlanDia } from "../services/planificacionResolver.js";
 import { ensureFestivosForYear } from "../services/festivosNagerService.js";
-
-/**
- * ADMIN: calendario integrado
- * - calendario empresa (festivos / no laborable / extras)
- * - ausencias
- * - jornadas reales (resumen + avisos)
- * - plan esperado (plantilla) opcional
- *
- * Query:
- *  - desde=YYYY-MM-DD (requerido)
- *  - hasta=YYYY-MM-DD (requerido)
- *  - empleado_id=uuid (opcional)
- *  - include_plan=1 (opcional)  -> genera "jornada_plan" por dia (requiere empleado_id)
- *  - include_real=1 (opcional)  -> incluye jornadas reales (por defecto sí)
- */
-
-async function getEmpresaAdmin(req) {
-  const rows = await sql`
-    SELECT id
-    FROM empresa_180
-    WHERE user_id = ${req.user.id}
-    LIMIT 1
-  `;
-  return rows[0]?.id || null;
-}
 
 function ymd(d) {
   return String(d).slice(0, 10);
@@ -46,6 +16,16 @@ function addOneDayYMD(ymdStr) {
 
 function combineDateTime(fechaYmd, timeStr) {
   return `${fechaYmd}T${String(timeStr).slice(0, 8)}`;
+}
+
+async function getEmpresaAdmin(req) {
+  const rows = await sql`
+    SELECT id
+    FROM empresa_180
+    WHERE user_id = ${req.user.id}
+    LIMIT 1
+  `;
+  return rows[0]?.id || null;
 }
 
 export const getCalendarioIntegradoAdmin = async (req, res) => {
@@ -65,95 +45,72 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       return res.status(400).json({ error: "Empresa no encontrada" });
     }
 
-    // Asegurar festivos del/los años implicados (Nager -> festivos_es_180)
-    // (Si ya existen, no hace nada)
     const y1 = Number(String(desde).slice(0, 4));
     const y2 = Number(String(hasta).slice(0, 4));
     if (Number.isFinite(y1)) await ensureFestivosForYear(y1);
     if (Number.isFinite(y2) && y2 !== y1) await ensureFestivosForYear(y2);
 
-    const empleadoIdSafe =
-      empleado_id && empleado_id !== "" ? String(empleado_id) : null;
-
+    const empleadoIdSafe = empleado_id || null;
     const wantPlan = String(include_plan || "") === "1";
     const wantReal = include_real == null ? true : String(include_real) === "1";
 
     const eventos = [];
 
     // =========================
-    // 0) Festivos ES (tabla festivos_es_180) -> tipo "calendario_empresa"
-    //   - Se muestran para TODOS (no dependen de empleado)
-    //   - AllDay con end EXCLUSIVO
+    // 1) Calendario empresa + no laborables
     // =========================
-    const festivos = await sql`
-      SELECT fecha, nombre, ambito, comunidad
-      FROM festivos_es_180
-      WHERE fecha BETWEEN ${desde}::date AND ${hasta}::date
-      ORDER BY fecha ASC
+    const dias = await sql`
+      SELECT
+        d.fecha,
+        d.es_laborable,
+        vc.tipo AS cal_tipo,
+        vc.nombre AS cal_nombre,
+        vc.fuente AS cal_fuente
+      FROM v_dia_laborable_empresa_180 d
+      LEFT JOIN v_calendario_empresa_180 vc
+        ON vc.empresa_id = d.empresa_id
+       AND vc.fecha = d.fecha
+      WHERE d.empresa_id = ${empresaId}
+        AND d.fecha BETWEEN ${desde} AND ${hasta}
+      ORDER BY d.fecha
     `;
 
-    for (const f of festivos) {
-      const fecha = ymd(f.fecha);
-      const endExclusive = addOneDayYMD(fecha);
-
-      eventos.push({
-        id: `festivo-es-${fecha}`,
-        tipo: "calendario_empresa",
-        title: f.nombre ? String(f.nombre) : "Festivo",
-        start: fecha,
-        end: endExclusive,
-        allDay: true,
-        estado: null,
-        empleado_id: null,
-        empleado_nombre: null,
-        meta: {
-          fuente: "nager",
-          ambito: f.ambito || null,
-          comunidad: f.comunidad || null,
-        },
-      });
-    }
-
-    // =========================
-    // 1) Días no laborables (por empresa) -> tipo "no_laborable"
-    //    (Si tu vista v_dia_laborable_empresa_180 ya contempla reglas internas)
-    // =========================
-    const diasNoLab = await sql`
-      SELECT fecha, es_laborable
-      FROM v_dia_laborable_empresa_180
-      WHERE empresa_id = ${empresaId}
-        AND fecha BETWEEN ${desde}::date AND ${hasta}::date
-        AND es_laborable = false
-      ORDER BY fecha ASC
-    `;
-
-    for (const d of diasNoLab) {
+    for (const d of dias) {
       const fecha = ymd(d.fecha);
       const endExclusive = addOneDayYMD(fecha);
 
-      // Si ya existe un festivo-es ese día, NO duplicamos "no_laborable"
-      // (opcional: si lo quieres, quita este if)
-      const alreadyFestivo = eventos.some(
-        (x) => x.tipo === "calendario_empresa" && x.start === fecha,
-      );
-      if (alreadyFestivo) continue;
-
-      eventos.push({
-        id: `no-lab-${fecha}`,
-        tipo: "no_laborable",
-        title: "No laborable",
-        start: fecha,
-        end: endExclusive,
-        allDay: true,
-        estado: null,
-        empleado_id: null,
-        empleado_nombre: null,
-        meta: { fuente: "empresa" },
-      });
+      if (d.cal_tipo) {
+        const tipo = String(d.cal_tipo);
+        eventos.push({
+          id: `cal-${tipo}-${fecha}`,
+          tipo: "calendario_empresa",
+          title: d.cal_nombre || tipo.replaceAll("_", " "),
+          start: fecha,
+          end: endExclusive,
+          allDay: true,
+          estado: null,
+          empleado_id: null,
+          empleado_nombre: null,
+          meta: { fuente: d.cal_fuente || null, cal_tipo: tipo },
+        });
+      } else if (d.es_laborable === false) {
+        eventos.push({
+          id: `no-lab-${fecha}`,
+          tipo: "no_laborable",
+          title: "No laborable",
+          start: fecha,
+          end: endExclusive,
+          allDay: true,
+          estado: null,
+          empleado_id: null,
+          empleado_nombre: null,
+          meta: null,
+        });
+      }
     }
 
     // =========================
-    // 2) Ausencias (allDay end EXCLUSIVO)
+    // 2) Ausencias
     // =========================
     const ausencias = await sql`
       SELECT
@@ -199,7 +156,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     }
 
     // =========================
-    // 3) Jornadas reales (timed)
+    // 3) Jornadas reales
     // =========================
     if (wantReal) {
       const jornadas = await sql`
@@ -234,7 +191,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             ).length
           : 0;
 
-        const ev = {
+        eventos.push({
           id: `jor-${j.id}`,
           tipo: "jornada_real",
           title: empleadoIdSafe
@@ -253,23 +210,14 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             minutos_extra: j.minutos_extra,
             warn_count: warnCount,
           },
-        };
-
-        eventos.push(ev);
+        });
       }
     }
 
     // =========================
-    // 4) Plan esperado (opcional) - requiere empleado_id
+    // 4) Plan (opcional)
     // =========================
-    if (wantPlan) {
-      if (!empleadoIdSafe) {
-        return res.status(400).json({
-          error:
-            "include_plan=1 requiere empleado_id para evitar cargas masivas",
-        });
-      }
-
+    if (wantPlan && empleadoIdSafe) {
       const days = await sql`
         SELECT d::date AS fecha
         FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
@@ -278,7 +226,6 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
       for (const r of days) {
         const fecha = ymd(r.fecha);
-
         const plan = await resolverPlanDia({
           empresaId,
           empleadoId: empleadoIdSafe,
@@ -290,15 +237,20 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         const bloques = plan.bloques || [];
         if (!bloques.length && !plan.rango) continue;
 
-        const ev = {
+        const start = plan.rango?.inicio
+          ? combineDateTime(fecha, plan.rango.inicio)
+          : `${fecha}T00:00:00`;
+        const end = plan.rango?.fin
+          ? combineDateTime(fecha, plan.rango.fin)
+          : null;
+
+        eventos.push({
           id: `plan-${empleadoIdSafe}-${fecha}`,
           tipo: "jornada_plan",
           title:
             plan.modo === "excepcion" ? "Plan (excepción)" : "Plan (plantilla)",
-          start: plan.rango?.inicio
-            ? combineDateTime(fecha, plan.rango.inicio)
-            : `${fecha}T00:00:00`,
-          end: plan.rango?.fin ? combineDateTime(fecha, plan.rango.fin) : null,
+          start,
+          end,
           allDay: false,
           estado: null,
           empleado_id: empleadoIdSafe,
@@ -310,9 +262,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             bloques,
             nota: plan.nota || null,
           },
-        };
-
-        eventos.push(ev);
+        });
       }
     }
 
