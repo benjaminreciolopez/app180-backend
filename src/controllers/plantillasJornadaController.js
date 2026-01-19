@@ -664,7 +664,10 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         throw err;
       }
 
-      // Buscar asignación activa
+      // Fecha "hoy" consistente desde Postgres (evita líos de TZ/servidor)
+      const [{ hoy }] = await tx`select current_date as hoy`;
+
+      // 0) Cerrar asignación activa si existe (fecha_fin = hoy)
       const activa = await tx`
         select id
         from empleado_plantillas_180
@@ -674,19 +677,17 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       `;
 
       if (activa.length) {
-        const hoy = new Date().toISOString().slice(0, 10);
-
         await tx`
-      update empleado_plantillas_180
-      set fecha_fin = ${hoy}
-      where id = ${activa[0].id}
-    `;
+          update empleado_plantillas_180
+          set fecha_fin = ${hoy}::date
+          where id = ${activa[0].id}
+        `;
       }
 
-      // 1) Inserta asignación
+      // 1) Insertar nueva asignación empezando HOY (y abierta si no mandas fin)
       const r = await tx`
-        insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin)
-        values (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${fin}::date)
+        insert into empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin, empresa_id)
+        values (${empleado_id}, ${plantilla_id}, ${hoy}::date, ${fin}::date, ${empresaId})
         returning *
       `;
       const asignacion = r[0];
