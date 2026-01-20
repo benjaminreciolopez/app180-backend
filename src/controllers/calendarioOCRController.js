@@ -23,17 +23,25 @@ async function getEmpresaIdAdminOrThrow(userId) {
  */
 export async function importarPreviewOCR(req, res) {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "Falta archivo (file)" });
+    const files = req.files;
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: "Faltan archivos (files[])" });
     }
 
-    const text = await ocrExtractTextFromUpload(req.file);
-    const preview = parseCalendarioLaboralV2(text);
+    let fullText = "";
+    for (const f of files) {
+      const t = await ocrExtractTextFromUpload(f);
+      if (t) fullText += "\n" + t;
+    }
+    fullText = fullText.trim();
+
+    const preview = parseCalendarioLaboralV2(fullText);
 
     return res.json({
       ok: true,
-      raw_text: text,
+      raw_text: fullText,
       preview,
+      pages: files.length,
     });
   } catch (e) {
     console.error("[ocr/preview] error:", e);
@@ -42,7 +50,6 @@ export async function importarPreviewOCR(req, res) {
       .json({ error: e.message || "Error OCR" });
   }
 }
-
 /**
  * POST /admin/calendario/ocr/confirmar
  * body: { items: [{fecha, tipo, nombre, descripcion, es_laborable, label, activo}] }

@@ -8,19 +8,19 @@ import {
 } from "../controllers/calendarioOCRController.js";
 
 const router = Router();
-
 router.use(authRequired, roleRequired("admin"));
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB por imagen
 });
 
 router.post(
   "/calendario/ocr/preview",
-  upload.single("file"),
+  upload.array("files", 12), // hasta 12 páginas
   importarPreviewOCR,
 );
+
 router.post("/calendario/ocr/confirmar", confirmarOCR);
 
 export default router;
