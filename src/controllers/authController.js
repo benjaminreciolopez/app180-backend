@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import { sql } from "../db.js";
 import { config } from "../config.js";
 import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
+import crypto from "crypto";
+import { sendEmail } from "../services/emailService.js"; // lo creamos ahora
 
 // =====================
 // REGISTRO DE USUARIO
@@ -25,7 +27,7 @@ export const register = async (req, res) => {
 
     const user = result[0];
 
-    if (role === "admin") {
+    if (req.user.role === "admin") {
       await sql`
         INSERT INTO empresa_180 (user_id, nombre)
         VALUES (${user.id}, ${nombre})
@@ -43,7 +45,7 @@ export const getDeviceHash = async (req, res) => {
   try {
     const empleadoId = req.user.empleado_id;
 
-    if (role === "admin") {
+    if (req.user.role === "admin") {
       return res.json({ device_hash: null });
     }
 
@@ -226,7 +228,7 @@ export const login = async (req, res) => {
         password_forced: user.password_forced === true, // 👈 CLAVE
       },
       config.jwtSecret,
-      { expiresIn: "1d" }
+      { expiresIn: "1d" },
     );
 
     // 👈 MUY IMPORTANTE: responder exactamente esto
@@ -251,9 +253,6 @@ export const login = async (req, res) => {
 // ======================================
 // ACTIVACIÓN DEL DISPOSITIVO MEDIANTE INVITACIÓN
 // ======================================
-// ======================================
-// ACTIVACIÓN DEL DISPOSITIVO MEDIANTE INVITACIÓN
-// ======================================
 export const activateInstall = async (req, res) => {
   try {
     const { token, device_hash, user_agent } = req.body;
@@ -264,7 +263,10 @@ export const activateInstall = async (req, res) => {
     }
 
     const invites = await sql`
-      SELECT * FROM invite_180 WHERE token = ${token}
+      SELECT *
+      FROM invite_180
+      WHERE token = ${token}
+      LIMIT 1
     `;
 
     if (invites.length === 0) {
@@ -273,17 +275,30 @@ export const activateInstall = async (req, res) => {
 
     const invite = invites[0];
 
-    if (invite.usado) {
-      return res.status(400).json({ error: "La invitación ya fue usada" });
+    // ❌ ya usada
+    if (invite.usado === true || invite.used_at) {
+      return res.status(409).json({
+        error: "Esta invitación ya fue usada. Solicita otra al administrador.",
+      });
     }
 
-    // 🔐 SEGURIDAD: eliminamos cualquier dispositivo anterior
+    // ⏳ caducada
+    if (
+      invite.expires_at &&
+      new Date(invite.expires_at).getTime() < Date.now()
+    ) {
+      return res.status(410).json({
+        error: "Invitación caducada. Solicita otra al administrador.",
+      });
+    }
+
+    // 🔐 limpieza de dispositivos anteriores
     await sql`
       DELETE FROM employee_devices_180
       WHERE empleado_id = ${invite.empleado_id}
     `;
 
-    // 🔁 Registramos nuevo dispositivo limpio
+    // 🔁 registrar nuevo dispositivo
     const device = await sql`
       INSERT INTO employee_devices_180
         (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
@@ -298,10 +313,12 @@ export const activateInstall = async (req, res) => {
       RETURNING *;
     `;
 
-    // marcar invitación usada
+    // marcar invitación como usada
     await sql`
       UPDATE invite_180
-      SET usado = true, usado_en = now()
+      SET usado = true,
+          usado_en = now(),
+          used_at = now()
       WHERE id = ${invite.id}
     `;
 
@@ -376,7 +393,7 @@ export const changePassword = async (req, res) => {
         password_forced: false,
       },
       config.jwtSecret,
-      { expiresIn: "1d" }
+      { expiresIn: "1d" },
     );
 
     return res.json({
@@ -395,5 +412,98 @@ export const changePassword = async (req, res) => {
   } catch (err) {
     console.error("❌ Error en changePassword:", err);
     return res.status(500).json({ error: "Error al cambiar la contraseña" });
+  }
+};
+
+export const autorizarCambioDispositivo = async (req, res) => {
+  try {
+    const adminUserId = req.user.id;
+    const { empleado_id } = req.params;
+
+    const rows = await sql`
+      SELECT 
+        u.email,
+        u.nombre,
+        u.id AS user_id,
+        e.empresa_id
+      FROM employees_180 e
+      JOIN users_180 u ON u.id = e.user_id
+      WHERE e.id = ${empleado_id}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Empleado no encontrado" });
+    }
+
+    const { email, nombre, user_id, empresa_id } = rows[0];
+
+    // 1️⃣ invalidar invitaciones anteriores
+    await sql`
+      UPDATE invite_180
+      SET usado = true,
+          usado_en = now(),
+          used_at = now()
+      WHERE empleado_id = ${empleado_id}
+        AND (usado IS DISTINCT FROM true)
+    `;
+
+    // 2️⃣ generar token
+    const token = crypto.randomBytes(24).toString("hex");
+
+    // 3️⃣ guardar invitación (24h)
+    const invite = await sql`
+      INSERT INTO invite_180 (
+        token,
+        empleado_id,
+        empresa_id,
+        user_id,
+        usado,
+        expires_at
+      )
+      VALUES (
+        ${token},
+        ${empleado_id},
+        ${empresa_id},
+        ${user_id},
+        false,
+        now() + interval '24 hours'
+      )
+      RETURNING token, expires_at
+    `;
+
+    const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
+
+    // 4️⃣ enviar email
+    await sendEmail({
+      to: email,
+      subject: "Activación de nuevo dispositivo – APP180",
+      html: `
+        <p>Hola ${nombre},</p>
+        <p>Tu administrador ha autorizado un nuevo dispositivo.</p>
+        <p>Este enlace caduca en <strong>24 horas</strong>:</p>
+        <p><a href="${link}">${link}</a></p>
+        <p>Abre este enlace desde el móvil donde instalarás la PWA.</p>
+      `,
+      text: `Hola ${nombre},
+
+Tu administrador ha autorizado un nuevo dispositivo.
+
+Este enlace caduca en 24 horas:
+${link}
+
+Ábrelo desde el móvil donde instalarás la PWA.`,
+    });
+
+    return res.json({
+      success: true,
+      link,
+      expires_at: invite[0].expires_at,
+    });
+  } catch (err) {
+    console.error("❌ autorizarCambioDispositivo", err);
+    return res
+      .status(500)
+      .json({ error: "Error autorizando cambio de dispositivo" });
   }
 };
