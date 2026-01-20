@@ -1,6 +1,6 @@
 import { sql } from "../db.js";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
-import { parseCalendarioLaboral } from "../services/ocr/calendarioParser.js";
+import { parseCalendarioLaboralV2 } from "../services/ocr/calendarioParser.v2.js";
 
 /**
  * Obtén empresa_id desde user admin (ajusta si ya tienes helper)
@@ -28,7 +28,7 @@ export async function importarPreviewOCR(req, res) {
     }
 
     const text = await ocrExtractTextFromUpload(req.file);
-    const preview = parseCalendarioLaboral(text);
+    const preview = parseCalendarioLaboralV2(text);
 
     return res.json({
       ok: true,
