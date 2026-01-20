@@ -322,10 +322,44 @@ export const activateInstall = async (req, res) => {
       WHERE id = ${invite.id}
     `;
 
+    // obtener usuario
+    const userRows = await sql`
+  SELECT id, email, nombre, role, password_forced
+  FROM users_180
+  WHERE id = ${invite.user_id}
+  LIMIT 1
+`;
+
+    const user = userRows[0];
+
+    const tokenJwt = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        nombre: user.nombre,
+        empresa_id: invite.empresa_id,
+        empleado_id: invite.empleado_id,
+        device_hash,
+        password_forced: true,
+      },
+      config.jwtSecret,
+      { expiresIn: "1d" },
+    );
+
     return res.json({
       success: true,
-      message: "Dispositivo autorizado y activado",
-      device: device[0],
+      message: "Dispositivo autorizado y sesión iniciada",
+      token: tokenJwt,
+      user: {
+        id: user.id,
+        email: user.email,
+        nombre: user.nombre,
+        role: user.role,
+        empresa_id: invite.empresa_id,
+        empleado_id: invite.empleado_id,
+        password_forced: true,
+      },
     });
   } catch (err) {
     console.error("❌ Error en activateInstall:", err);
