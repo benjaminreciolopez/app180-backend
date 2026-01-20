@@ -27,7 +27,7 @@ export const register = async (req, res) => {
 
     const user = result[0];
 
-    if (req.user.role === "admin") {
+    if (role === "admin") {
       await sql`
         INSERT INTO empresa_180 (user_id, nombre)
         VALUES (${user.id}, ${nombre})
