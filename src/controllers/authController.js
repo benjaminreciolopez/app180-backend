@@ -507,3 +507,105 @@ ${link}
       .json({ error: "Error autorizando cambio de dispositivo" });
   }
 };
+import crypto from "crypto";
+import { sendEmail } from "../services/emailService.js";
+
+export const inviteEmpleado = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    const { id: empleado_id } = req.params;
+    const tipo = req.query.tipo || "nuevo"; // "nuevo" | "cambio"
+
+    const rows = await sql`
+      SELECT 
+        u.email,
+        u.nombre,
+        u.id AS user_id,
+        e.empresa_id
+      FROM employees_180 e
+      JOIN users_180 u ON u.id = e.user_id
+      WHERE e.id = ${empleado_id}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Empleado no encontrado" });
+    }
+
+    const { email, nombre, user_id, empresa_id } = rows[0];
+
+    // 1️⃣ Invalidar invitaciones anteriores
+    await sql`
+      UPDATE invite_180
+      SET usado = true,
+          usado_en = now(),
+          used_at = now()
+      WHERE empleado_id = ${empleado_id}
+        AND (usado IS DISTINCT FROM true)
+    `;
+
+    // 2️⃣ Si es cambio → limpiar dispositivos
+    if (tipo === "cambio") {
+      await sql`
+        DELETE FROM employee_devices_180
+        WHERE empleado_id = ${empleado_id}
+      `;
+    }
+
+    // 3️⃣ Token
+    const token = crypto.randomBytes(24).toString("hex");
+
+    // 4️⃣ Guardar invitación (24h)
+    const invite = await sql`
+      INSERT INTO invite_180 (
+        token,
+        empleado_id,
+        empresa_id,
+        user_id,
+        usado,
+        expires_at
+      )
+      VALUES (
+        ${token},
+        ${empleado_id},
+        ${empresa_id},
+        ${user_id},
+        false,
+        now() + interval '24 hours'
+      )
+      RETURNING token, expires_at
+    `;
+
+    const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
+
+    // 5️⃣ Enviar email
+    await sendEmail({
+      to: email,
+      subject: "Activación de dispositivo – APP180",
+      html: `
+        <p>Hola ${nombre},</p>
+        <p>Tu administrador ha autorizado el acceso a APP180.</p>
+        <p>Este enlace caduca en <strong>24 horas</strong>:</p>
+        <p><a href="${link}">${link}</a></p>
+        <p>Ábrelo desde el móvil donde instalarás la PWA.</p>
+      `,
+      text: `Hola ${nombre},
+
+Tu administrador ha autorizado el acceso a APP180.
+
+Este enlace caduca en 24 horas:
+${link}
+
+Ábrelo desde el móvil donde instalarás la PWA.`,
+    });
+
+    return res.json({
+      success: true,
+      installUrl: link,
+      expires_at: invite[0].expires_at,
+    });
+  } catch (err) {
+    console.error("❌ inviteEmpleado", err);
+    return res.status(500).json({ error: "No se pudo generar la invitación" });
+  }
+};

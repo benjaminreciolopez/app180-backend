@@ -28,6 +28,7 @@ import workLogsRoutes from "./routes/workLogsRoutes.js";
 import adminCalendarioRoutes from "./routes/adminCalendarioRoutes.js";
 import empleadoCalendarioRoutes from "./routes/empleadoCalendarioRoutes.js";
 import empleadoJornadasRoutes from "./routes/empleadoJornadasRoutes.js";
+import adminEmployeesRoutes from "./routes/adminEmployeesRoutes.js";
 
 const app = express();
 
@@ -59,7 +60,7 @@ app.use(
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  })
+  }),
 );
 
 app.use(express.json());
@@ -90,6 +91,7 @@ app.use("/worklogs", workLogsRoutes);
 app.use("/admin", adminCalendarioRoutes);
 app.use("/empleado", empleadoCalendarioRoutes);
 app.use("/empleado", empleadoJornadasRoutes);
+app.use("/admin", adminEmployeesRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
@@ -107,5 +109,5 @@ app.use((err, req, res, next) => {
 // START
 // =========================
 app.listen(config.port, () =>
-  console.log(`Servidor iniciado en puerto ${config.port}`)
+  console.log(`Servidor iniciado en puerto ${config.port}`),
 );

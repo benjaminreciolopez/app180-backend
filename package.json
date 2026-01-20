@@ -19,6 +19,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.12",
     "pg": "^8.11.3",
     "postgres": "^3.4.7"
   },
