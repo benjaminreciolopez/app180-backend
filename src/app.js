@@ -77,7 +77,7 @@ app.use("/fichajes", authRequired, fichajeRoutes);
 app.use("/calendario", authRequired, calendarioRoutes);
 app.use("/turnos", turnosRoutes);
 
-app.use("/empleado", authRequired, empleadoRoutes);
+app.use("/empleado", empleadoRoutes);
 app.use("/empleado", authRequired, empleadoAusenciasRoutes);
 
 app.use("/admin", authRequired, adminRoutes);
