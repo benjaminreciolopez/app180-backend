@@ -4,7 +4,7 @@ import { sql } from "../db.js";
 import { config } from "../config.js";
 import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
 import crypto from "crypto";
-import { sendEmail } from "../services/emailService.js"; // lo creamos ahora
+import { sendEmail } from "../services/emailService.js";
 
 // =====================
 // REGISTRO DE USUARIO
@@ -507,8 +507,6 @@ ${link}
       .json({ error: "Error autorizando cambio de dispositivo" });
   }
 };
-import crypto from "crypto";
-import { sendEmail } from "../services/emailService.js";
 
 export const inviteEmpleado = async (req, res) => {
   try {
