@@ -84,7 +84,7 @@ export async function confirmarOCR(req, res) {
       .map((it) => ({
         fecha: it.fecha,
         tipo: it.tipo,
-        nombre: it.nombre ?? null,
+        nombre: null,
         descripcion: it.descripcion ?? null,
         es_laborable: !!it.es_laborable,
         label: it.label ?? null,
