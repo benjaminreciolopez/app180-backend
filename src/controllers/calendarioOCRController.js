@@ -71,6 +71,7 @@ export async function confirmarOCR(req, res) {
     if (!userId) return res.status(401).json({ error: "No auth" });
 
     const empresaId = await getEmpresaIdAdminOrThrow(userId);
+    const origen = it.origen === "manual" ? "manual" : "ocr";
 
     const items = req.body?.items;
     if (!Array.isArray(items) || items.length === 0) {
@@ -87,6 +88,7 @@ export async function confirmarOCR(req, res) {
         es_laborable: !!it.es_laborable,
         label: it.label ?? null,
         activo: it.activo !== false,
+        origen: it.origen === "manual" ? "manual" : "ocr",
       }))
       .filter(
         (it) => typeof it.fecha === "string" && typeof it.tipo === "string",
@@ -102,7 +104,7 @@ export async function confirmarOCR(req, res) {
           insert into calendario_empresa_180
             (empresa_id, fecha, tipo, nombre, descripcion, es_laborable, label, activo, origen, confirmado, creado_por)
           values
-            (${empresaId}, ${it.fecha}::date, ${it.tipo}, ${it.nombre}, ${it.descripcion}, ${it.es_laborable}, ${it.label}, ${it.activo}, 'ocr', true, ${userId})
+            (${empresaId}, ${it.fecha}::date, ${it.tipo}, ${it.nombre}, ${it.descripcion}, ${it.es_laborable}, ${it.label}, ${it.activo}, ${origen}, true, ${userId})
           on conflict (empresa_id, fecha)
           do update set
             tipo = excluded.tipo,
@@ -111,7 +113,7 @@ export async function confirmarOCR(req, res) {
             es_laborable = excluded.es_laborable,
             label = excluded.label,
             activo = excluded.activo,
-            origen = 'ocr',
+            origen = excluded.origen,
             confirmado = true,
             updated_at = now()
         `;
