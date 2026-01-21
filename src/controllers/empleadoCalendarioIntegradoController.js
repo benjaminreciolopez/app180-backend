@@ -64,7 +64,9 @@ export const getCalendarioIntegradoEmpleado = async (req, res) => {
         eventos.push({
           id: `cal-${tipo}-${fecha}`,
           tipo, // ✅ aquí
-          title: d.cal_nombre ? String(d.cal_nombre) : titleForTipo(tipo, null),
+          title: d.cal_nombre
+            ? String(d.cal_nombre)
+            : tipo.replaceAll("_", " "),
           start: fecha,
           end: null,
           allDay: true,
