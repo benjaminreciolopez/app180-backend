@@ -30,6 +30,8 @@ import empleadoCalendarioRoutes from "./routes/empleadoCalendarioRoutes.js";
 import empleadoJornadasRoutes from "./routes/empleadoJornadasRoutes.js";
 import adminEmployeesRoutes from "./routes/adminEmployeesRoutes.js";
 import adminCalendarioOCRRoutes from "./routes/adminCalendarioOCRRoutes.js";
+import adminCalendarioImportacionesRoutes from "./routes/adminCalendarioImportacionesRoutes.js";
+
 const app = express();
 
 // =========================
@@ -93,6 +95,7 @@ app.use("/empleado", empleadoCalendarioRoutes);
 app.use("/empleado", empleadoJornadasRoutes);
 app.use("/admin", adminEmployeesRoutes);
 app.use("/admin", adminCalendarioOCRRoutes);
+app.use("/admin", adminCalendarioImportacionesRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
