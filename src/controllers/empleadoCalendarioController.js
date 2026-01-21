@@ -4,6 +4,26 @@ import { sql } from "../db.js";
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
+function titleForTipo(tipo, nombre) {
+  if (nombre) return nombre;
+
+  switch (tipo) {
+    case "festivo_local":
+      return "Festivo local";
+    case "festivo_nacional":
+      return "Festivo nacional";
+    case "convenio":
+      return "Ajuste de convenio";
+    case "cierre_empresa":
+      return "Cierre de empresa";
+    case "laborable_extra":
+      return "Laborable extra";
+    case "domingo":
+      return "Domingo";
+    default:
+      return tipo.replaceAll("_", " ");
+  }
+}
 
 export const getCalendarioHoyEmpleado = async (req, res) => {
   try {
@@ -134,6 +154,7 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
           start: fecha,
           allDay: true,
           estado: d.ausencia_estado,
+          origen: "ausencia",
         });
         continue;
       }
@@ -142,9 +163,10 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
         eventos.push({
           id: `cal-${d.cal_tipo}-${fecha}`,
           tipo: d.cal_tipo,
-          title: d.cal_nombre || d.cal_tipo.replaceAll("_", " "),
+          title: titleForTipo(d.cal_tipo, d.cal_nombre),
           start: fecha,
           allDay: true,
+          origen: "empresa",
         });
         continue;
       }
@@ -156,6 +178,7 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
           title: "No laborable",
           start: fecha,
           allDay: true,
+          origen: "sistema",
         });
       }
     }
@@ -183,11 +206,12 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
         const b = bloquesReales[i];
         eventos.push({
           id: `real-${j.id}-${i}`,
-          tipo: b.tipo,
+          tipo: `real_${b.tipo}`,
           title: b.tipo === "trabajo" ? "Trabajo" : "Descanso",
           start: b.inicio,
           end: b.fin,
           allDay: false,
+          origen: "real",
         });
       }
 
@@ -199,12 +223,13 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
         const b = bloquesPlan[i];
         eventos.push({
           id: `plan-${j.id}-${i}`,
-          tipo: "plan_" + b.tipo,
+          tipo: `plan_${b.tipo}`,
           title: "Plan",
           start: `${fecha}T${b.inicio}`,
           end: `${fecha}T${b.fin}`,
           allDay: false,
-          display: "background",
+          meta: { display: "background" },
+          origen: "plan",
         });
       }
     }
