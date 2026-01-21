@@ -66,7 +66,7 @@ export async function getCalendarioIntegradoEmpleado(req, res) {
     // 1) empleado
     const rEmp = await sql`
       select id, empresa_id
-      from empleados_180
+      from employees_180
       where user_id=${userId}
       limit 1
     `;
