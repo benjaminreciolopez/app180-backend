@@ -71,14 +71,15 @@ export async function confirmarOCR(req, res) {
     if (!userId) return res.status(401).json({ error: "No auth" });
 
     const empresaId = await getEmpresaIdAdminOrThrow(userId);
-    const origen = it.origen === "manual" ? "manual" : "ocr";
 
     const items = req.body?.items;
+    const raw_text =
+      typeof req.body?.raw_text === "string" ? req.body.raw_text : null;
+
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items vacío" });
     }
 
-    // Solo lo que tu tabla necesita. Ignoramos meta.
     const clean = items
       .map((it) => ({
         fecha: it.fecha,
@@ -98,13 +99,56 @@ export async function confirmarOCR(req, res) {
       return res.status(400).json({ error: "items inválidos" });
     }
 
-    await sql.begin(async (tx) => {
+    // stats
+    const stats = {
+      total: clean.length,
+      activos: clean.filter((x) => x.activo).length,
+      festivos: clean.filter((x) => x.tipo === "festivo_local").length,
+      convenios: clean.filter((x) => x.tipo === "convenio").length,
+      cierres: clean.filter((x) => x.tipo === "cierre_empresa").length,
+      extras: clean.filter((x) => x.tipo === "laborable_extra").length,
+      manuales: clean.filter((x) => x.origen === "manual").length,
+      ocr: clean.filter((x) => x.origen === "ocr").length,
+    };
+
+    const origenGlobal =
+      stats.manuales === 0 ? "ocr" : stats.ocr === 0 ? "manual" : "mixto";
+
+    const result = await sql.begin(async (tx) => {
+      // 1) crear importación
+      const ins = await tx`
+        insert into calendario_importacion_180 (empresa_id, creado_por, origen, raw_text, stats)
+        values (${empresaId}, ${userId}, ${origenGlobal}, ${raw_text}, ${stats}::jsonb)
+        returning id
+      `;
+      const importacionId = ins[0].id;
+
+      // 2) snapshot items
+      for (const it of clean) {
+        await tx`
+          insert into calendario_importacion_item_180
+            (importacion_id, empresa_id, fecha, tipo, nombre, descripcion, es_laborable, label, activo, origen)
+          values
+            (${importacionId}, ${empresaId}, ${it.fecha}::date, ${it.tipo}, ${it.nombre}, ${it.descripcion}, ${it.es_laborable}, ${it.label}, ${it.activo}, ${it.origen})
+          on conflict (importacion_id, fecha)
+          do update set
+            tipo = excluded.tipo,
+            nombre = excluded.nombre,
+            descripcion = excluded.descripcion,
+            es_laborable = excluded.es_laborable,
+            label = excluded.label,
+            activo = excluded.activo,
+            origen = excluded.origen
+        `;
+      }
+
+      // 3) aplicar a calendario_empresa_180
       for (const it of clean) {
         await tx`
           insert into calendario_empresa_180
-            (empresa_id, fecha, tipo, nombre, descripcion, es_laborable, label, activo, origen, confirmado, creado_por)
+            (empresa_id, fecha, tipo, nombre, descripcion, es_laborable, label, activo, origen, confirmado, creado_por, importacion_id)
           values
-            (${empresaId}, ${it.fecha}::date, ${it.tipo}, ${it.nombre}, ${it.descripcion}, ${it.es_laborable}, ${it.label}, ${it.activo}, ${origen}, true, ${userId})
+            (${empresaId}, ${it.fecha}::date, ${it.tipo}, ${it.nombre}, ${it.descripcion}, ${it.es_laborable}, ${it.label}, ${it.activo}, ${it.origen}, true, ${userId}, ${importacionId})
           on conflict (empresa_id, fecha)
           do update set
             tipo = excluded.tipo,
@@ -115,12 +159,19 @@ export async function confirmarOCR(req, res) {
             activo = excluded.activo,
             origen = excluded.origen,
             confirmado = true,
+            importacion_id = excluded.importacion_id,
             updated_at = now()
         `;
       }
+
+      return { importacionId };
     });
 
-    return res.json({ ok: true, inserted_or_updated: clean.length });
+    return res.json({
+      ok: true,
+      importacion_id: result.importacionId,
+      stats,
+    });
   } catch (e) {
     console.error("[ocr/confirmar] error:", e);
     return res
