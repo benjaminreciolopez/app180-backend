@@ -1,10 +1,7 @@
 import { sql } from "../db.js";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
-import { parseCalendarioLaboralV2 } from "../services/ocr/calendarioParser.v2.js";
+import { parseCalendarioLaboralV3 } from "../services/ocr/calendarioParser.v3.js";
 
-/**
- * Obtén empresa_id desde user admin (ajusta si ya tienes helper)
- */
 async function getEmpresaIdAdminOrThrow(userId) {
   const r =
     await sql`select id from empresa_180 where user_id=${userId} limit 1`;
@@ -17,10 +14,6 @@ async function getEmpresaIdAdminOrThrow(userId) {
   return empresaId;
 }
 
-/**
- * POST /admin/calendario/ocr/preview
- * multipart/form-data: file
- */
 export async function importarPreviewOCR(req, res) {
   try {
     const files = req.files;
@@ -35,7 +28,7 @@ export async function importarPreviewOCR(req, res) {
     }
     fullText = fullText.trim();
 
-    const preview = parseCalendarioLaboralV2(fullText);
+    const preview = parseCalendarioLaboralV3(fullText);
 
     return res.json({
       ok: true,
@@ -50,10 +43,28 @@ export async function importarPreviewOCR(req, res) {
       .json({ error: e.message || "Error OCR" });
   }
 }
-/**
- * POST /admin/calendario/ocr/confirmar
- * body: { items: [{fecha, tipo, nombre, descripcion, es_laborable, label, activo}] }
- */
+
+export async function reparseOCR(req, res) {
+  try {
+    const raw = req.body?.raw_text;
+    if (typeof raw !== "string" || raw.trim().length < 20) {
+      return res.status(400).json({ error: "raw_text vacío o inválido" });
+    }
+
+    const preview = parseCalendarioLaboralV3(raw);
+
+    return res.json({
+      ok: true,
+      preview,
+    });
+  } catch (e) {
+    console.error("[ocr/reparse] error:", e);
+    return res
+      .status(e.status || 500)
+      .json({ error: e.message || "Error reparse" });
+  }
+}
+
 export async function confirmarOCR(req, res) {
   try {
     const userId = req.user?.id;
@@ -66,7 +77,7 @@ export async function confirmarOCR(req, res) {
       return res.status(400).json({ error: "items vacío" });
     }
 
-    // Normalización mínima + protección
+    // Solo lo que tu tabla necesita. Ignoramos meta.
     const clean = items
       .map((it) => ({
         fecha: it.fecha,
@@ -85,9 +96,6 @@ export async function confirmarOCR(req, res) {
       return res.status(400).json({ error: "items inválidos" });
     }
 
-    // UPSERT por (empresa_id, fecha)
-    // Si existe, actualiza. Si no, inserta.
-    // Importante: origen='ocr', confirmado=true, creado_por=userId
     await sql.begin(async (tx) => {
       for (const it of clean) {
         await tx`
@@ -105,7 +113,6 @@ export async function confirmarOCR(req, res) {
             activo = excluded.activo,
             origen = 'ocr',
             confirmado = true,
-            actualizado_por = null,
             updated_at = now()
         `;
       }

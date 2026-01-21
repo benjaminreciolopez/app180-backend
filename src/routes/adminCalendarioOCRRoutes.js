@@ -4,6 +4,7 @@ import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import {
   importarPreviewOCR,
+  reparseOCR,
   confirmarOCR,
 } from "../controllers/calendarioOCRController.js";
 
@@ -12,14 +13,17 @@ router.use(authRequired, roleRequired("admin"));
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB por imagen
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 router.post(
   "/calendario/ocr/preview",
-  upload.array("files", 12), // hasta 12 páginas
+  upload.array("files", 12),
   importarPreviewOCR,
 );
+
+// NUEVO: re-analizar texto OCR editado
+router.post("/calendario/ocr/reparse", reparseOCR);
 
 router.post("/calendario/ocr/confirmar", confirmarOCR);
 
