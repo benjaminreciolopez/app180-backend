@@ -34,11 +34,9 @@ function titleForTipo(tipo) {
 function normalizeAllDayEvent(ev) {
   const allDay = !!ev.allDay;
   const start = ymd(ev.start);
-
   let end = ev.end ? ymd(ev.end) : null;
 
   if (allDay) {
-    // FullCalendar end exclusive: mínimo start+1
     if (!end) end = addDaysISO(start, 1);
     if (end === start) end = addDaysISO(start, 1);
   }
@@ -65,13 +63,14 @@ export async function getCalendarioIntegradoEmpleado(req, res) {
         .json({ error: "Parámetros desde/hasta requeridos" });
     }
 
-    // 1) localizar empleado_id del usuario
+    // 1) empleado
     const rEmp = await sql`
       select id, empresa_id
       from empleados_180
       where user_id=${userId}
       limit 1
     `;
+
     const empleadoId = rEmp[0]?.id;
     const empresaId = rEmp[0]?.empresa_id;
 
@@ -79,8 +78,7 @@ export async function getCalendarioIntegradoEmpleado(req, res) {
       return res.status(403).json({ error: "Empleado no asociado" });
     }
 
-    // 2) Cargar AUSENCIAS (vacaciones/baja_medica)
-    // Ajusta el nombre real de tu tabla/columnas si difieren.
+    // 2) AUSENCIAS
     const aus = await sql`
       select
         'aus-' || a.id as id,
@@ -97,21 +95,30 @@ export async function getCalendarioIntegradoEmpleado(req, res) {
         and a.fecha_fin >= ${desde}::date
     `;
 
-    // 3) Cargar FESTIVOS / CIERRES / CONVENIO desde tu calendario empresa
-    // Ajusta vistas/tablas según tu modelo real.
-    // Aquí asumo que tienes una vista v_calendario_empresa_180 con columnas:
-    // (fecha, tipo, label, meta/display)
+    // 3) FESTIVOS / CONVENIO / CIERRES (DESDE TU VISTA REAL)
     const cal = await sql`
       select
-        'cal-' || c.id as id,
+        'cal-' || row_number() over() as id,
         c.tipo as tipo,
-        coalesce(c.label, null) as title,
+        c.nombre as title,
         c.fecha::text as start,
         (c.fecha::date + interval '1 day')::date::text as end,
         true as "allDay",
         null::text as estado,
-        jsonb_build_object('display', case when c.tipo in ('festivo_nacional','festivo_local','cierre_empresa','no_laborable') then 'background' else 'block' end) as meta
-      from calendario_empresa_180 c
+        jsonb_build_object(
+          'display',
+          case
+            when c.tipo in (
+              'festivo_nacional',
+              'festivo_local',
+              'festivo_empresa',
+              'cierre_empresa',
+              'no_laborable'
+            ) then 'background'
+            else 'block'
+          end
+        ) as meta
+      from v_calendario_empresa_180 c
       where c.empresa_id=${empresaId}
         and c.fecha between ${desde}::date and ${hasta}::date
     `;
@@ -123,6 +130,7 @@ export async function getCalendarioIntegradoEmpleado(req, res) {
     ].map((e) => {
       const tipo = String(e.tipo || "").toLowerCase();
       const title = e.title || titleForTipo(tipo);
+
       return normalizeAllDayEvent({
         id: String(e.id),
         tipo,
