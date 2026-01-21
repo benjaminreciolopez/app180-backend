@@ -15,7 +15,7 @@ router.use(authRequired);
 router.get("/calendario/hoy", getCalendarioHoyEmpleado);
 
 // rango (drawer calendario)
-router.get("/calendario/usuario", getCalendarioEmpleadoRango);
+router.get("/calendario/usuario", getCalendarioIntegradoEmpleado);
 
 router.get("/calendario/integrado", getCalendarioIntegradoEmpleado);
 
