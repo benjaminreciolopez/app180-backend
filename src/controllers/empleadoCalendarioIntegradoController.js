@@ -60,20 +60,17 @@ export const getCalendarioIntegradoEmpleado = async (req, res) => {
       const fecha = ymd(d.fecha);
 
       if (d.cal_tipo) {
-        const tipo = String(d.cal_tipo);
+        const tipo = String(d.cal_tipo); // convenio / festivo_local / etc.
         eventos.push({
           id: `cal-${tipo}-${fecha}`,
-          tipo: "calendario_empresa",
-          title: d.cal_nombre
-            ? String(d.cal_nombre)
-            : tipo.replaceAll("_", " "),
+          tipo, // ✅ aquí
+          title: d.cal_nombre ? String(d.cal_nombre) : titleForTipo(tipo, null),
           start: fecha,
           end: null,
           allDay: true,
           estado: null,
-          empleado_id,
-          empleado_nombre: null,
-          meta: { fuente: d.cal_fuente || null, cal_tipo: tipo },
+          origen: "empresa",
+          meta: { fuente: d.cal_fuente || null },
         });
       } else if (d.es_laborable === false) {
         eventos.push({
@@ -149,7 +146,7 @@ export const getCalendarioIntegradoEmpleado = async (req, res) => {
         const avisos = j?.resumen_json?.avisos || [];
         const warnCount = Array.isArray(avisos)
           ? avisos.filter(
-              (x) => x?.nivel === "warning" || x?.nivel === "danger"
+              (x) => x?.nivel === "warning" || x?.nivel === "danger",
             ).length
           : 0;
 
