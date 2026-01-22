@@ -25,6 +25,28 @@ export const authRequired = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     req.user = decoded;
+    // ==========================
+    // 👷 GARANTIZAR EMPLEADO_ID PARA EMPLEADOS
+    // ==========================
+    if (req.user.role === "empleado" && !req.user.empleado_id) {
+      const rows = await sql`
+    SELECT id, empresa_id, activo
+    FROM employees_180
+    WHERE user_id = ${req.user.id}
+    LIMIT 1
+  `;
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Empleado no encontrado" });
+      }
+
+      if (!rows[0].activo) {
+        return res.status(403).json({ error: "Empleado desactivado" });
+      }
+
+      req.user.empleado_id = rows[0].id;
+      req.user.empresa_id = rows[0].empresa_id;
+    }
 
     // ==========================
     // 🔐 BLOQUEO POR PASSWORD FORZADA
