@@ -61,13 +61,22 @@ export async function validarFichajeSegunTurno({
   tipo = null,
 }) {
   const data = await obtenerTurnoEmpleado({ empleadoId, empresaId });
+  console.log("🔎 resultado turno:", data);
 
   // Error técnico (empleado no existe / no pertenece)
   if (!data) {
     return {
-      ok: false,
-      status: 404,
-      error: "Empleado no encontrado",
+      ok: true,
+      data: null,
+      incidencias: ["Empleado sin turno configurado"],
+      warnings: [],
+      meta: {
+        tiene_turno: false,
+        es_nocturno: false,
+        tiene_plan: false,
+        modo_plan: null,
+        plantilla_id: null,
+      },
     };
   }
 
@@ -129,7 +138,7 @@ export async function validarFichajeSegunTurno({
 
       if (!dentroConMargen) {
         incidencias.push(
-          `Fichaje fuera del rango esperado (${plan.rango.inicio}–${plan.rango.fin})`
+          `Fichaje fuera del rango esperado (${plan.rango.inicio}–${plan.rango.fin})`,
         );
       }
     }
@@ -145,18 +154,18 @@ export async function validarFichajeSegunTurno({
       const hayDescansoPlan = planBloques.some((b) =>
         String(b.tipo || "")
           .toLowerCase()
-          .includes("descanso")
+          .includes("descanso"),
       );
       if (!hayDescansoPlan) {
         incidencias.push(
-          "Descanso registrado pero no existe descanso en plantilla"
+          "Descanso registrado pero no existe descanso en plantilla",
         );
       }
     }
 
     if ((tipo === "entrada" || tipo === "salida") && planBloques.length === 0) {
       incidencias.push(
-        "La plantilla del día no define bloques (solo rango o vacío)"
+        "La plantilla del día no define bloques (solo rango o vacío)",
       );
     }
   }
