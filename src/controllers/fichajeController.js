@@ -96,12 +96,6 @@ export const createFichaje = async (req, res) => {
       });
     }
 
-    const fueraDeMargen = Boolean(estadoPlan?.fuera_de_margen);
-
-    if (fueraDeMargen) {
-      incidencias.push("FUERA_DE_MARGEN");
-    }
-
     // 3) Acción correcta según estado del día
     //    Si el backend dice que toca X, y el frontend envía Y => conflicto
     if (estadoPlan?.accion && estadoPlan.accion !== tipo) {
@@ -168,6 +162,11 @@ export const createFichaje = async (req, res) => {
     const incidencias = Array.from(
       new Set([...incidenciasTurno, ...incidenciasPlan]),
     );
+    const fueraDeMargen = Boolean(estadoPlan?.fuera_de_margen);
+
+    if (fueraDeMargen) {
+      incidencias.push("FUERA_DE_MARGEN");
+    }
 
     // =========================
     // SECUENCIA MÍNIMA (tu regla original)
