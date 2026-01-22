@@ -96,13 +96,10 @@ export const createFichaje = async (req, res) => {
       });
     }
 
-    // 2) Fuera de margen legal => no se puede fichar
-    if (!estadoPlan?.puede_fichar) {
-      return res.status(403).json({
-        error: "Fuera del margen legal de fichaje",
-        code: "FUERA_DE_MARGEN",
-        detalle: estadoPlan,
-      });
+    const fueraDeMargen = Boolean(estadoPlan?.fuera_de_margen);
+
+    if (fueraDeMargen) {
+      incidencias.push("FUERA_DE_MARGEN");
     }
 
     // 3) Acción correcta según estado del día
@@ -169,7 +166,7 @@ export const createFichaje = async (req, res) => {
     const incidenciasPlan = validacionPlan.incidencias || [];
 
     const incidencias = Array.from(
-      new Set([...incidenciasTurno, ...incidenciasPlan])
+      new Set([...incidenciasTurno, ...incidenciasPlan]),
     );
 
     // =========================

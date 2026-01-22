@@ -276,12 +276,13 @@ export async function getPlanDiaEstado({
 
     // UI
     color: dentro ? "rojo" : "negro",
-    puede_fichar: Boolean(dentro),
+    puede_fichar: true,
+    fuera_de_margen: !dentro,
     mensaje: !esHoy
       ? "Fecha distinta de hoy"
       : dentro
         ? "Dentro del margen legal de fichaje"
-        : "Fuera del margen legal de fichaje",
+        : "Fuera del margen legal (quedará como incidencia)",
 
     // decisión
     accion,
