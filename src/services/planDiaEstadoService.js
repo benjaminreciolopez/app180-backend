@@ -8,14 +8,53 @@ const TZ = "Europe/Madrid";
 export const MARGEN_ANTES_MIN = 15;
 export const MARGEN_DESPUES_MIN = 15;
 
-function timeStrToMin(t) {
+function timeStrToMin(t, tz = TZ) {
   if (!t) return null;
-  const [hh, mm] = String(t).split(":");
-  if (hh == null || mm == null) return null;
-  const h = Number(hh);
-  const m = Number(mm);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return h * 60 + m;
+
+  // Si es Date
+  if (t instanceof Date && !Number.isNaN(t.getTime())) {
+    const fmt = new Intl.DateTimeFormat("es-ES", {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(t);
+    const hh = Number(parts.find((p) => p.type === "hour")?.value);
+    const mm = Number(parts.find((p) => p.type === "minute")?.value);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    return hh * 60 + mm;
+  }
+
+  const s = String(t).trim();
+
+  // Caso HH:MM o HH:MM:SS
+  // (acepta también "8:00")
+  const m1 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m1) {
+    const h = Number(m1[1]);
+    const m = Number(m1[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  }
+
+  // Caso ISO / timestamp parseable
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    const fmt = new Intl.DateTimeFormat("es-ES", {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(d);
+    const hh = Number(parts.find((p) => p.type === "hour")?.value);
+    const mm = Number(parts.find((p) => p.type === "minute")?.value);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    return hh * 60 + mm;
+  }
+
+  return null;
 }
 
 function getYMDInTZ(date, tz = TZ) {
@@ -52,7 +91,9 @@ function isDiaLaboral(plan) {
 function pickTargetsFromPlan(plan) {
   const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
   const trabajos = bloques.filter((b) => b.tipo === "trabajo");
-  const descansos = bloques.filter((b) => String(b.tipo).includes("descanso"));
+  const descansos = bloques.filter((b) =>
+    ["descanso", "pausa", "comida"].includes(b.tipo),
+  );
 
   const entrada =
     trabajos.length > 0 ? trabajos[0].inicio : plan?.rango?.inicio || null;
@@ -144,6 +185,16 @@ export async function getPlanDiaEstado({
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
+  // Normalización de bloques
+  if (plan?.bloques) {
+    plan.bloques = plan.bloques.map((b) => ({
+      ...b,
+      inicio: b.inicio || b.hora_inicio || null,
+      fin: b.fin || b.hora_fin || null,
+      tipo: b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo,
+    }));
+  }
+
   const es_laboral = isDiaLaboral(plan);
 
   if (!es_laboral) {
@@ -170,7 +221,7 @@ export async function getPlanDiaEstado({
 
   const targets = pickTargetsFromPlan(plan);
   const hayDescansoPlan = Boolean(
-    targets.descanso_inicio && targets.descanso_fin
+    targets.descanso_inicio && targets.descanso_fin,
   );
 
   const accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
@@ -198,7 +249,18 @@ export async function getPlanDiaEstado({
             ? targets.salida
             : null;
 
-  const objetivoMin = timeStrToMin(objetivoHHMM);
+  const objetivoMin = timeStrToMin(objetivoHHMM, TZ);
+  if (objetivoMin == null) {
+    return {
+      fecha: ymd,
+      boton_visible: false,
+      motivo_oculto: "sin_objetivo",
+      plan,
+      margen_antes: MARGEN_ANTES_MIN,
+      margen_despues: MARGEN_DESPUES_MIN,
+      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+    };
+  }
 
   // 4) Ventana legal
   const hoyYMD = getYMDInTZ(now, TZ);

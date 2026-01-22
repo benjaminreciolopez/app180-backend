@@ -81,7 +81,12 @@ export const getEstadoFichaje = async (req, res) => {
     // =========================
     // Estado del botón (plan + ausencia + margen)
     // =========================
-    const hoy = new Date().toISOString().slice(0, 10);
+    const hoy = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Madrid",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
 
     const estadoPlan = esEmpleado
       ? await getPlanDiaEstado({
