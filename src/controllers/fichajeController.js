@@ -56,10 +56,9 @@ export const createFichaje = async (req, res) => {
     const empleadoRows = await sql`
       SELECT id, activo, empresa_id, tipo_trabajo, turno_id
       FROM employees_180
-      WHERE user_id = ${req.user.id}
+      WHERE id = ${req.user.empleado_id}
       LIMIT 1
     `;
-
     if (empleadoRows.length === 0) {
       return res.status(403).json({ error: "Usuario no es empleado" });
     }

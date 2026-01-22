@@ -1,4 +1,5 @@
 // backend\src\middlewares\authMiddleware.js
+import { sql } from "../db.js";
 
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
