@@ -6,18 +6,23 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   // fecha: 'YYYY-MM-DD'
 
   // 1) plantilla activa del empleado para esa fecha
+  // 1) plantilla activa del empleado para esa fecha
   const asig = await sql`
-    SELECT ep.plantilla_id, p.nombre AS plantilla_nombre
-    FROM empleado_plantillas_180 ep
-    JOIN plantillas_jornada_180 p ON p.id = ep.plantilla_id
-    WHERE ep.empleado_id = ${empleadoId}
-        AND p.empresa_id = ${empresaId}
-        AND p.activo = true
-        AND ep.fecha_inicio <= ${fecha}::date
-        AND (ep.fecha_fin is null OR ep.fecha_fin >= ${fecha}::date)
-    ORDER BY ep.fecha_inicio DESC
+    SELECT 
+      a.plantilla_jornada_id AS plantilla_id,
+      p.nombre AS plantilla_nombre
+    FROM asignaciones_plantilla_jornada_180 a
+    JOIN plantillas_jornada_180 p 
+      ON p.id = a.plantilla_jornada_id
+    WHERE a.empleado_id = ${empleadoId}
+      AND a.empresa_id = ${empresaId}
+      AND a.activo = true
+      AND p.activo = true
+      AND a.fecha_inicio <= ${fecha}::date
+      AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${fecha}::date)
+    ORDER BY a.fecha_inicio DESC
     LIMIT 1
-    `;
+  `;
 
   if (!asig.length) {
     return {
