@@ -1,10 +1,11 @@
 // services/fichajeEngine.js
 
 import { validarFichajeSegunTurno } from "./fichajesValidacionService.js";
-import { validarFichajeSegunPlan } from "./validarFichajeSegunPlan.js";
 import { detectarFichajeSospechoso } from "./fichajeSospechoso.js";
 import { distanciaMetros } from "../utils/distancia.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
+import { getPlanDiaEstado } from "./planDiaEstadoService.js";
+import { getYMDMadrid } from "../utils/dateMadrid.js";
 
 export async function evaluarFichaje(ctx) {
   const {
@@ -85,18 +86,25 @@ export async function evaluarFichaje(ctx) {
   }
 
   /* =====================================================
-     3. Planificación
-  ===================================================== */
+   3. Planificación
+===================================================== */
 
-  const plan = await validarFichajeSegunPlan({
+  const fechaYMD = getYMDMadrid(fechaHora);
+
+  const plan = await getPlanDiaEstado({
     empresaId,
     empleadoId: empleado.id,
-    fechaHora,
-    tipo,
+    fecha: fechaYMD,
   });
 
-  if (plan?.incidencias?.length) {
-    result.incidencias.push(...plan.incidencias);
+  if (!plan) {
+    result.permitido = false;
+    result.bloqueado = true;
+    result.errores.push("Planificación no disponible");
+  } else if (!plan.boton_visible) {
+    result.permitido = false;
+    result.bloqueado = true;
+    result.errores.push(plan.motivo_oculto || "Fuera de jornada");
   }
 
   /* =====================================================
@@ -195,14 +203,6 @@ export async function evaluarFichaje(ctx) {
 
   if (accuracy && accuracy > 100) {
     result.incidencias.push("GPS con baja precisión");
-  }
-
-  /* =====================================================
-     8. Decisión final
-  ===================================================== */
-
-  if (result.errores.length > 0) {
-    result.permitido = false;
   }
 
   return result;
