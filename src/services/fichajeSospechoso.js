@@ -1,15 +1,16 @@
 import { sql } from "../db.js";
 import { distanciaMetros } from "../utils/distancia.js";
 import { getIpInfo } from "../utils/ipLocation.js";
+import { validarFichajeSegunTurno } from "./fichajesValidacionService.js";
 
 export const detectarFichajeSospechoso = async ({
   userId,
   empleadoId,
+  empresaId,
   tipo,
   lat,
   lng,
   clienteId,
-  deviceHash,
   reqIp,
 }) => {
   const razones = [];
@@ -76,14 +77,14 @@ export const detectarFichajeSospechoso = async ({
         Number(lat),
         Number(lng),
         Number(clienteRows[0].lat),
-        Number(clienteRows[0].lng)
+        Number(clienteRows[0].lng),
       );
 
       if (dist > Number(clienteRows[0].radio_m)) {
         razones.push(
           `Fuera de la zona permitida del cliente. Distancia: ${Math.round(
-            dist
-          )}m (máx: ${clienteRows[0].radio_m}m)`
+            dist,
+          )}m (máx: ${clienteRows[0].radio_m}m)`,
         );
       }
     }
@@ -161,14 +162,14 @@ export const detectarFichajeSospechoso = async ({
               Number(dev.ip_lat),
               Number(dev.ip_lng),
               Number(infoActual.lat),
-              Number(infoActual.lng)
+              Number(infoActual.lng),
             ) / 1000;
 
           if (distKm > 50) {
             razones.push(
               `IP geográficamente alejada de la habitual (~${distKm.toFixed(
-                1
-              )} km)`
+                1,
+              )} km)`,
             );
           }
         }
@@ -179,10 +180,38 @@ export const detectarFichajeSospechoso = async ({
           dev.ip_country !== infoActual.country
         ) {
           razones.push(
-            `País distinto al habitual (${infoActual.country} vs ${dev.ip_country})`
+            `País distinto al habitual (${infoActual.country} vs ${dev.ip_country})`,
           );
         }
       }
+    }
+  }
+  // ------------------------------
+  // REGLA 5 — Desviación horaria vs planificación
+  // ------------------------------
+  if (empleadoId && empresaId) {
+    try {
+      const validacion = await validarFichajeSegunTurno({
+        empleadoId,
+        empresaId,
+        fechaHora: new Date(),
+        tipo,
+      });
+
+      if (validacion?.incidencias?.length > 0) {
+        for (const inc of validacion.incidencias) {
+          razones.push(`Horario: ${inc}`);
+        }
+      }
+
+      if (validacion?.warnings?.length > 0) {
+        for (const warn of validacion.warnings) {
+          razones.push(`Aviso: ${warn}`);
+        }
+      }
+    } catch (err) {
+      console.error("Error validando contra planificación:", err);
+      razones.push("No se pudo validar el horario contra planificación");
     }
   }
 

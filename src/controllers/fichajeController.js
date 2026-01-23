@@ -220,6 +220,7 @@ export const createFichaje = async (req, res) => {
     const analisis = await detectarFichajeSospechoso({
       userId: req.user.id,
       empleadoId,
+      empresaId: req.user.empresa_id,
       tipo,
       lat,
       lng,
