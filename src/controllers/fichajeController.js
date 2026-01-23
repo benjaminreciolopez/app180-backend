@@ -99,7 +99,7 @@ export const createFichaje = async (req, res) => {
     const estadoPlan = await getPlanDiaEstado({
       empresaId,
       empleadoId,
-      fecha: fechaYMD,
+      fecha: fechaHora,
     });
 
     if (!estadoPlan?.boton_visible) {
@@ -143,44 +143,28 @@ export const createFichaje = async (req, res) => {
     }
 
     /* =========================
-       7. Secuencia mínima
-    ========================= */
-
-    const abierta = await sql`
-      SELECT id
-      FROM jornadas_180
-      WHERE empleado_id = ${empleadoId}
-        AND estado = 'abierta'
-      LIMIT 1
-    `;
-
-    if (tipo === "entrada" && abierta.length > 0) {
-      return res.status(400).json({ error: "Ya hay una jornada abierta" });
-    }
-
-    if (tipo === "salida" && abierta.length === 0) {
-      return res.status(400).json({ error: "No hay jornada abierta" });
-    }
-
-    /* =========================
-       8. Jornada
+      7. Jornada
     ========================= */
 
     let jornada = await obtenerJornadaAbierta(empleadoId);
 
-    if (tipo !== "entrada" && !jornada) {
-      return res.status(400).json({ error: "No hay jornada abierta" });
+    if (tipo === "entrada") {
+      if (!jornada) {
+        jornada = await crearJornada({
+          empresaId,
+          empleadoId,
+          inicio: fechaHora,
+        });
+      }
+    } else {
+      if (!jornada) {
+        return res.status(400).json({
+          error: "No hay jornada abierta",
+        });
+      }
     }
 
-    if (tipo === "entrada" && !jornada) {
-      jornada = await crearJornada({
-        empresaId,
-        empleadoId,
-        inicio: fechaHora,
-      });
-    }
-
-    const jornadaId = jornada?.id || null;
+    const jornadaId = jornada.id;
 
     /* =========================
        9. Motor central
