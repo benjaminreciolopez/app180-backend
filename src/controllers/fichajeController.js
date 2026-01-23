@@ -134,9 +134,16 @@ export const createFichaje = async (req, res) => {
         return res.status(400).json({ error: "Debes seleccionar un cliente" });
       }
     }
+    /* =========================
+       6. Autocierre
+    ========================= */
+
+    if (tipo === "entrada" || tipo === "salida") {
+      await ejecutarAutocierre();
+    }
 
     /* =========================
-       6. Secuencia mínima
+       7. Secuencia mínima
     ========================= */
 
     const last = await getLastFichaje(empleadoId);
@@ -147,14 +154,6 @@ export const createFichaje = async (req, res) => {
 
     if (tipo === "salida" && (!last || last.tipo !== "entrada")) {
       return res.status(400).json({ error: "Debes fichar entrada antes" });
-    }
-
-    /* =========================
-       7. Autocierre
-    ========================= */
-
-    if (tipo === "entrada" || tipo === "salida") {
-      await ejecutarAutocierre();
     }
 
     /* =========================
