@@ -2,8 +2,15 @@
 import { sql } from "../db.js";
 import { resolverPlanDia } from "./planificacionResolver.js";
 
-function ymdFromDate(d) {
-  return new Date(d).toISOString().slice(0, 10);
+function ymdFromDate(d, tz = "Europe/Madrid") {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  return fmt.format(new Date(d));
 }
 
 // Obtener jornada abierta del empleado (NO filtrar por fecha, por nocturnos)
@@ -31,12 +38,28 @@ export async function crearJornada({
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha });
 
   const resumen = {
+    version: 1,
+    tz: "Europe/Madrid",
+
     fecha,
-    plan, // snapshot
-    real: null, // lo rellena jornadaEngine
+
+    plan, // snapshot planificación
+
+    real: null,
+
     desviaciones: [],
     avisos: incidencia ? [incidencia] : [],
+
+    margenes: {
+      antes: 15,
+      despues: 15,
+    },
   };
+  const abierta = await obtenerJornadaAbierta(empleadoId);
+
+  if (abierta) {
+    return abierta;
+  }
 
   const rows = await sql`
     insert into jornadas_180 (

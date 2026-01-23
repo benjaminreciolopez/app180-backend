@@ -80,6 +80,18 @@ function getNowMinInTZ(date, tz = TZ) {
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
   return hh * 60 + mm;
 }
+function toYMD(fecha, tz = TZ) {
+  if (fecha instanceof Date && !Number.isNaN(fecha.getTime())) {
+    return getYMDInTZ(fecha, tz);
+  }
+  const s = String(fecha);
+  // Si viene ISO, coge YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // Último recurso: intentar parsear y formatear en TZ
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return getYMDInTZ(d, tz);
+  return null;
+}
 
 function isDiaLaboral(plan) {
   const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
@@ -192,7 +204,15 @@ export async function getPlanDiaEstado({
   fecha,
   now = new Date(),
 }) {
-  const ymd = String(fecha).slice(0, 10);
+  const ymd = toYMD(fecha, TZ);
+  if (!ymd) {
+    return {
+      fecha: null,
+      boton_visible: false,
+      motivo_oculto: "fecha_invalida",
+      plan: null,
+    };
+  }
 
   // 1) Ausencia bloqueante
   const ausencia = await getAusenciaActiva({ empleadoId, fechaYMD: ymd });
@@ -274,23 +294,22 @@ export async function getPlanDiaEstado({
   const es_laboral = fuerzaLaboral ? true : isDiaLaboral(plan);
 
   // Normalización de bloques
+  // Normalización de bloques (correcta)
   if (Array.isArray(plan?.bloques)) {
     plan.bloques = plan.bloques
-      .map((b) => ({
-        ...b,
+      .map((b) => {
+        const inicio = b.inicio || b.hora_inicio || null;
+        const fin = b.fin || b.hora_fin || null;
 
-        // Normalizar horas
-        inicio: b.inicio || b.hora_inicio || null,
-        fin: b.fin || b.hora_fin || null,
+        // Mapear pausa/comida → descanso
+        const tipoNorm =
+          b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo;
 
-        // Normalizar tipo REAL
-        tipo: b.es_descanso ? "descanso" : "trabajo",
-      }))
-      // Orden cronológico
-      .sort((a, b) => {
-        if (!a.inicio || !b.inicio) return 0;
-        return String(a.inicio).localeCompare(String(b.inicio));
-      });
+        return { ...b, inicio, fin, tipo: tipoNorm };
+      })
+      .sort((a, b) =>
+        String(a.inicio || "").localeCompare(String(b.inicio || "")),
+      );
   }
 
   if (!es_laboral) {
@@ -327,31 +346,37 @@ export async function getPlanDiaEstado({
     targets.descanso_inicio && targets.descanso_fin,
   );
 
-  const accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
-  // Si no hay acción pero aún estamos dentro del rango del turno → permitir salida
-  if (!accion && targets?.salida) {
-    const salidaMin = timeStrToMin(targets.salida, TZ);
-    const nowMin = getNowMinInTZ(now, TZ);
+  // 3.5) Jornada abierta real (fuente de verdad)
+  const [jAbierta] = await sql`
+  SELECT id
+  FROM jornadas_180
+  WHERE empresa_id = ${empresaId}
+    AND empleado_id = ${empleadoId}
+    AND estado = 'abierta'
+  LIMIT 1
+`;
 
-    if (salidaMin && nowMin && nowMin < salidaMin + 120) {
-      return {
-        fecha: ymd,
-        boton_visible: true,
-        color: "negro",
-        puede_fichar: true,
-        fuera_de_margen: true,
-        mensaje: "Fuera de margen, pero jornada activa",
-        accion: "salida",
-        acciones_permitidas: ["salida"],
-        objetivo_hhmm: targets.salida,
-        margen_antes: MARGEN_ANTES_MIN,
-        margen_despues: MARGEN_DESPUES_MIN,
-        plan,
-        motivo_oculto: null,
-      };
-    }
+  const hayJornadaAbierta = !!jAbierta;
+
+  // 3.6) Acción según fichajes
+  let accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
+
+  // Sin jornada → solo se puede entrar
+  if (!hayJornadaAbierta) {
+    accion = "entrada";
   }
 
+  // Hay jornada pero no hay fichajes → continuar jornada
+  if (hayJornadaAbierta && fichajes.length === 0) {
+    accion = hayDescansoPlan ? "descanso_inicio" : "salida";
+  }
+
+  // Hay jornada pero los fichajes dicen "entrada" → corregir
+  if (hayJornadaAbierta && accion === "entrada") {
+    accion = hayDescansoPlan ? "descanso_inicio" : "salida";
+  }
+
+  // Jornada cerrada realmente
   if (!accion) {
     return {
       fecha: ymd,
@@ -360,17 +385,8 @@ export async function getPlanDiaEstado({
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: ausencia
-        ? {
-            id: ausencia.id,
-            tipo: ausencia.tipo,
-            fecha_inicio: ausencia.fecha_inicio,
-            fecha_fin: ausencia.fecha_fin,
-          }
-        : null,
     };
   }
-
   const objetivoHHMM =
     accion === "entrada"
       ? targets.entrada
@@ -383,6 +399,7 @@ export async function getPlanDiaEstado({
             : null;
 
   const objetivoMin = timeStrToMin(objetivoHHMM, TZ);
+
   if (objetivoMin == null) {
     return {
       fecha: ymd,
@@ -391,14 +408,6 @@ export async function getPlanDiaEstado({
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: ausencia
-        ? {
-            id: ausencia.id,
-            tipo: ausencia.tipo,
-            fecha_inicio: ausencia.fecha_inicio,
-            fecha_fin: ausencia.fecha_fin,
-          }
-        : null,
     };
   }
 
