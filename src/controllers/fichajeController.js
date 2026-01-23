@@ -146,14 +146,20 @@ export const createFichaje = async (req, res) => {
        7. Secuencia mínima
     ========================= */
 
-    const last = await getLastFichaje(empleadoId);
+    const abierta = await sql`
+      SELECT id
+      FROM jornadas_180
+      WHERE empleado_id = ${empleadoId}
+        AND estado = 'abierta'
+      LIMIT 1
+    `;
 
-    if (tipo === "entrada" && last && last.tipo !== "salida") {
-      return res.status(400).json({ error: "Ya hay una entrada abierta" });
+    if (tipo === "entrada" && abierta.length > 0) {
+      return res.status(400).json({ error: "Ya hay una jornada abierta" });
     }
 
-    if (tipo === "salida" && (!last || last.tipo !== "entrada")) {
-      return res.status(400).json({ error: "Debes fichar entrada antes" });
+    if (tipo === "salida" && abierta.length === 0) {
+      return res.status(400).json({ error: "No hay jornada abierta" });
     }
 
     /* =========================
