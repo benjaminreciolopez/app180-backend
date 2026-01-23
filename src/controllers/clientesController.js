@@ -16,6 +16,9 @@ async function getEmpresaId(userId) {
 
   return r[0].id;
 }
+function n(v) {
+  return v === undefined ? null : v;
+}
 
 function validarModoPrecio(modo, body) {
   switch (modo) {
@@ -110,53 +113,53 @@ export async function crearCliente(req, res) {
 
   const r = await sql`
     insert into clients_180 (
-      empresa_id,
-      nombre,
-      codigo,
-      tipo,
+        empresa_id,
+        nombre,
+        codigo,
+        tipo,
 
-      direccion,
-      telefono,
-      contacto_nombre,
-      contacto_email,
+        direccion,
+        telefono,
+        contacto_nombre,
+        contacto_email,
 
-      modo_trabajo,
-      precio_hora,
-      precio_dia,
-      precio_mes,
-      precio_trabajo,
+        modo_trabajo,
+        precio_hora,
+        precio_dia,
+        precio_mes,
+        precio_trabajo,
 
-      lat,lng,radio_m,requiere_geo,
+        lat,lng,radio_m,requiere_geo,
 
-      fecha_inicio,fecha_fin,
+        fecha_inicio,fecha_fin,
 
-      notas
+        notas
     )
     values (
-      ${empresaId},
-      ${nombre},
-      ${codigo},
-      ${tipo},
+        ${empresaId},
+        ${nombre},
+        ${n(codigo)},
+        ${tipo},
 
-      ${direccion},
-      ${telefono},
-      ${contacto_nombre},
-      ${contacto_email},
+        ${n(direccion)},
+        ${n(telefono)},
+        ${n(contacto_nombre)},
+        ${n(contacto_email)},
 
-      ${modo_trabajo},
-      ${precio_hora},
-      ${precio_dia},
-      ${precio_mes},
-      ${precio_trabajo},
+        ${modo_trabajo},
+        ${n(precio_hora)},
+        ${n(precio_dia)},
+        ${n(precio_mes)},
+        ${n(precio_trabajo)},
 
-      ${lat},${lng},${radio_m},${requiere_geo},
+        ${n(lat)},${n(lng)},${n(radio_m)},${requiere_geo},
 
-      ${fecha_inicio},${fecha_fin},
+        ${n(fecha_inicio)},${n(fecha_fin)},
 
-      ${notas}
+        ${n(notas)}
     )
     returning *
-  `;
+    `;
 
   res.status(201).json(r[0]);
 }
