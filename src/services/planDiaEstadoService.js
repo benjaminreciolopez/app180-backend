@@ -205,7 +205,12 @@ export async function getPlanDiaEstado({
       plan: null,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: { id: ausencia.id, tipo: ausencia.tipo },
+      ausencia: {
+        id: ausencia.id,
+        tipo: ausencia.tipo,
+        fecha_inicio: ausencia.fecha_inicio,
+        fecha_fin: ausencia.fecha_fin,
+      },
     };
   }
   // 1.5) Calendario laboral empresa (OCR / manual / API)
@@ -247,7 +252,14 @@ export async function getPlanDiaEstado({
         confirmado: eventoCal.confirmado,
       },
 
-      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+      ausencia: ausencia
+        ? {
+            id: ausencia.id,
+            tipo: ausencia.tipo,
+            fecha_inicio: ausencia.fecha_inicio,
+            fecha_fin: ausencia.fecha_fin,
+          }
+        : null,
     };
   }
 
@@ -279,7 +291,14 @@ export async function getPlanDiaEstado({
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+      ausencia: ausencia
+        ? {
+            id: ausencia.id,
+            tipo: ausencia.tipo,
+            fecha_inicio: ausencia.fecha_inicio,
+            fecha_fin: ausencia.fecha_fin,
+          }
+        : null,
     };
   }
 
@@ -308,7 +327,14 @@ export async function getPlanDiaEstado({
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+      ausencia: ausencia
+        ? {
+            id: ausencia.id,
+            tipo: ausencia.tipo,
+            fecha_inicio: ausencia.fecha_inicio,
+            fecha_fin: ausencia.fecha_fin,
+          }
+        : null,
     };
   }
 
@@ -332,7 +358,14 @@ export async function getPlanDiaEstado({
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+      ausencia: ausencia
+        ? {
+            id: ausencia.id,
+            tipo: ausencia.tipo,
+            fecha_inicio: ausencia.fecha_inicio,
+            fecha_fin: ausencia.fecha_fin,
+          }
+        : null,
     };
   }
 
@@ -369,7 +402,14 @@ export async function getPlanDiaEstado({
     // trazabilidad
     es_laboral,
     plan,
-    ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+    ausencia: ausencia
+      ? {
+          id: ausencia.id,
+          tipo: ausencia.tipo,
+          fecha_inicio: ausencia.fecha_inicio,
+          fecha_fin: ausencia.fecha_fin,
+        }
+      : null,
   };
 }
 // backend/src/services/planDiaEstadoService.js
