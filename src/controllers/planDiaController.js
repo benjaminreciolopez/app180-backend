@@ -1,5 +1,6 @@
 // backend/src/controllers/planDiaController.js
 import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
+import { getYMDMadrid } from "../utils/dateMadrid.js";
 
 function isValidYMD(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -23,7 +24,8 @@ export const getPlanDiaEmpleado = async (req, res) => {
         .status(400)
         .json({ error: "fecha es obligatoria (YYYY-MM-DD)" });
     }
-    const ymd = fecha ? fecha.slice(0, 10) : null;
+    const ymd =
+      fecha instanceof Date ? getYMDMadrid(fecha) : String(fecha).slice(0, 10);
 
     if (!ymd) {
       return res

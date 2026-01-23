@@ -74,6 +74,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       })),
     };
   }
+  console.log("[PLAN] fecha recibida:", fecha);
 
   function diaSemanaISO(fecha) {
     const iso = String(fecha).slice(0, 10); // admite YYYY-MM-DD o ISO completo

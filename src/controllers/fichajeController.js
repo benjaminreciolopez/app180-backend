@@ -16,6 +16,7 @@ import { recalcularJornada } from "../services/jornadaEngine.js";
 import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 import { evaluarFichaje } from "../services/fichajeEngine.js";
 import { DateTime } from "luxon";
+import { getYMDMadrid } from "../utils/dateMadrid.js";
 
 // Obtener último fichaje del empleado
 const getLastFichaje = async (empleadoId) => {
@@ -90,19 +91,19 @@ export const createFichaje = async (req, res) => {
         return res.status(404).json({ error: "Cliente no válido" });
       }
     }
+    console.log("[FICHAJE] fechaHora:", fechaHora);
+    console.log("[FICHAJE] fechaYMD:", fechaYMD);
 
     /* =========================
        4. Estado planificación
     ========================= */
 
-    const fechaYMD = DateTime.fromJSDate(fechaHora, {
-      zone: "Europe/Madrid",
-    }).toFormat("yyyy-MM-dd");
+    const fechaYMD = getYMDMadrid(fechaHora);
 
     const estadoPlan = await getPlanDiaEstado({
       empresaId,
       empleadoId,
-      fecha: fechaHora,
+      fecha: fechaYMD,
     });
 
     if (!estadoPlan?.boton_visible) {
