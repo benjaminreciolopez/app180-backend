@@ -1,4 +1,3 @@
-// backend/src/jobs/autocierre.js
 import { sql } from "../db.js";
 import { calcularMinutos } from "../services/jornadasCalculo.js";
 
@@ -11,14 +10,14 @@ function addHours(date, hours) {
 
 function endOfDay(date) {
   const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
+  d.setHours(23, 59, 59, 0);
   return d;
 }
 
 export const ejecutarAutocierre = async () => {
   try {
     const ahora = new Date();
-    const hoy = new Date().toISOString().slice(0, 10);
+    const hoyYMD = ahora.toISOString().slice(0, 10);
 
     const jornadas = await sql`
       SELECT 
@@ -40,39 +39,45 @@ export const ejecutarAutocierre = async () => {
       const inicio = new Date(j.inicio);
       const inicioYMD = inicio.toISOString().slice(0, 10);
 
-      const maxHoras = Number(j.max_horas || 14);
-      const finMax = addHours(inicio, maxHoras);
-
       let fin = null;
       let motivo = null;
+      let origen = null;
 
       /* ======================
-         1️⃣ Exceso horas
+         1️⃣ Cambio de día
       ====================== */
 
-      if (ahora >= finMax) {
-        fin = finMax;
-        motivo = "exceso_duracion";
-      }
-
-      /* ======================
-         2️⃣ Cambio de día
-      ====================== */
-
-      if (!fin && inicioYMD < hoy) {
-        // Nocturno
+      if (inicioYMD < hoyYMD) {
+        // Turno nocturno
         if (j.nocturno_permitido && j.hora_fin) {
           const finNocturno = new Date(
-            `${hoy}T${String(j.hora_fin).slice(0, 5)}:00`,
+            `${hoyYMD}T${String(j.hora_fin).slice(0, 5)}:00`,
           );
 
           if (ahora >= finNocturno) {
             fin = finNocturno;
             motivo = "fin_turno_nocturno";
+            origen = "automatico";
           }
         } else {
           fin = endOfDay(inicio);
           motivo = "fin_dia";
+          origen = "automatico";
+        }
+      }
+
+      /* ======================
+         2️⃣ Exceso de horas
+      ====================== */
+
+      if (!fin) {
+        const maxHoras = Number(j.max_horas || 14);
+        const finMax = addHours(inicio, maxHoras);
+
+        if (ahora >= finMax) {
+          fin = finMax;
+          motivo = "exceso_duracion";
+          origen = "autocierre_seguridad";
         }
       }
 
@@ -91,11 +96,11 @@ export const ejecutarAutocierre = async () => {
           hora_salida = ${fin},
           minutos_trabajados = ${minutos},
           estado = 'incompleta',
-          origen_cierre = 'autocierre',
+          origen_cierre = ${origen},
           incidencia = concat_ws(
             ' | ',
             NULLIF(incidencia, ''),
-            'Autocierre: ' || ${motivo}
+            ${"Autocierre: " + motivo}
           ),
           updated_at = NOW()
         WHERE id = ${j.id}
@@ -124,8 +129,8 @@ export const ejecutarAutocierre = async () => {
           'salida',
           ${fin},
           'confirmado',
-          'autocierre',
-          'Salida automática por autocierre (${motivo})',
+          ${origen},
+          ${"Salida automática por " + motivo},
           false,
           false
         )
