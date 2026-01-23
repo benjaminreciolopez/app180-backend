@@ -30,7 +30,7 @@ export async function crearWorkLog(req, res) {
     }
 
     const {
-      client_id,
+      cliente_id,
       work_item_id,
       descripcion,
       fecha, // opcional, YYYY-MM-DD o ISO
@@ -56,11 +56,11 @@ export async function crearWorkLog(req, res) {
     }
 
     // Validar cliente si viene
-    if (client_id) {
+    if (cliente_id) {
       const c = await sql`
         SELECT id
         FROM clients_180
-        WHERE id = ${client_id}
+        WHERE id = ${cliente_id}
           AND empresa_id = ${empresaId}
         LIMIT 1
       `;
@@ -96,32 +96,32 @@ export async function crearWorkLog(req, res) {
     const fechaFinal = fecha ? new Date(fecha) : new Date();
 
     const rows = await sql`
-  INSERT INTO work_logs_180
-    (
-      empresa_id,
-      employee_id,
-      client_id,
-      work_item_id,
-      descripcion,
-      precio,
-      fecha,
-      minutos,
-      created_at
-    )
-  VALUES
-    (
-      ${empresaId},
-      ${empleadoId},
-      ${client_id || null},
-      ${work_item_id || null},
-      ${descripcion.trim()},
-      ${precio || null},
-      ${fechaFinal.toISOString()},
-      ${minutosN},
-      now()
-    )
-  RETURNING *
-`;
+      INSERT INTO work_logs_180
+        (
+          empresa_id,
+          employee_id,
+          cliente_id,
+          work_item_id,
+          descripcion,
+          precio,
+          fecha,
+          minutos,
+          created_at
+        )
+      VALUES
+        (
+          ${empresaId},
+          ${empleadoId},
+          ${cliente_id || null},
+          ${work_item_id || null},
+          ${descripcion.trim()},
+          ${precio || null},
+          ${fechaFinal.toISOString()},
+          ${minutosN},
+          now()
+        )
+      RETURNING *
+    `;
 
     return res.json(rows[0]);
   } catch (err) {
@@ -154,7 +154,7 @@ export async function misWorkLogs(req, res) {
         wi.nombre AS work_item_nombre
       FROM work_logs_180 w
       JOIN employees_180 e ON e.id = w.employee_id
-      LEFT JOIN clients_180 c ON c.id = w.client_id
+      LEFT JOIN clients_180 c ON c.id = w.cliente_id
       LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
       WHERE w.employee_id = ${empleadoId}
         AND e.empresa_id = ${empresaId}
@@ -207,7 +207,7 @@ export async function adminWorkLogs(req, res) {
         wi.nombre AS work_item_nombre
       FROM work_logs_180 w
       JOIN employees_180 e ON e.id = w.employee_id
-      LEFT JOIN clients_180 c ON c.id = w.client_id
+      LEFT JOIN clients_180 c ON c.id = w.cliente_id
       LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
       WHERE e.empresa_id = ${empresaId}
         AND w.fecha::date BETWEEN ${desde}::date AND ${hasta}::date
@@ -249,7 +249,7 @@ export async function adminWorkLogsResumen(req, res) {
         COUNT(*)::int AS trabajos
       FROM work_logs_180 w
       JOIN employees_180 e ON e.id = w.employee_id
-      LEFT JOIN clients_180 c ON c.id = w.client_id
+      LEFT JOIN clients_180 c ON c.id = w.cliente_id
       WHERE e.empresa_id = ${empresaId}
         AND w.fecha::date BETWEEN ${desde}::date AND ${hasta}::date
       GROUP BY c.id, c.nombre
