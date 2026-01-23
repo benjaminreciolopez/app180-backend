@@ -15,6 +15,7 @@ import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
 import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 import { evaluarFichaje } from "../services/fichajeEngine.js";
+import { DateTime } from "luxon";
 
 // Obtener último fichaje del empleado
 const getLastFichaje = async (empleadoId) => {
@@ -94,7 +95,9 @@ export const createFichaje = async (req, res) => {
        4. Estado planificación
     ========================= */
 
-    const fechaYMD = fechaHora.toISOString().slice(0, 10);
+    const fechaYMD = DateTime.fromJSDate(fechaHora, {
+      zone: "Europe/Madrid",
+    }).toFormat("yyyy-MM-dd");
 
     const estadoPlan = await getPlanDiaEstado({
       empresaId,
