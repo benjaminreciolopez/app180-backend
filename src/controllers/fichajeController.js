@@ -2,9 +2,6 @@
 
 import { sql } from "../db.js";
 import { ejecutarAutocierre } from "../jobs/autocierre.js";
-import { detectarFichajeSospechoso } from "../services/fichajeSospechoso.js";
-import { validarFichajeSegunTurno } from "../services/fichajesValidacionService.js";
-import { validarFichajeSegunPlan } from "../services/validarFichajeSegunPlan.js";
 import {
   obtenerJornadaAbierta,
   crearJornada,
@@ -15,20 +12,7 @@ import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
 import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 import { evaluarFichaje } from "../services/fichajeEngine.js";
-import { DateTime } from "luxon";
 import { getYMDMadrid } from "../utils/dateMadrid.js";
-
-// Obtener último fichaje del empleado
-const getLastFichaje = async (empleadoId) => {
-  const rows = await sql`
-    SELECT id, tipo, fecha, jornada_id
-    FROM fichajes_180
-    WHERE empleado_id = ${empleadoId}
-    ORDER BY fecha DESC
-    LIMIT 1
-  `;
-  return rows.length ? rows[0] : null;
-};
 
 export const createFichaje = async (req, res) => {
   try {
@@ -91,14 +75,15 @@ export const createFichaje = async (req, res) => {
         return res.status(404).json({ error: "Cliente no válido" });
       }
     }
-    console.log("[FICHAJE] fechaHora:", fechaHora);
-    console.log("[FICHAJE] fechaYMD:", fechaYMD);
 
     /* =========================
        4. Estado planificación
     ========================= */
 
     const fechaYMD = getYMDMadrid(fechaHora);
+
+    console.log("[FICHAJE] fechaHora:", fechaHora);
+    console.log("[FICHAJE] fechaYMD:", fechaYMD);
 
     const estadoPlan = await getPlanDiaEstado({
       empresaId,
