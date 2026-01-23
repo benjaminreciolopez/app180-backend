@@ -1,6 +1,7 @@
 import { sql } from "../db.js";
 import { distanciaMetros } from "../utils/distancia.js";
 import { getIpInfo } from "../utils/ipLocation.js";
+import { validarFichajeSegunPlan } from "./validarFichajeSegunPlan.js";
 import { validarFichajeSegunTurno } from "./fichajesValidacionService.js";
 
 export const detectarFichajeSospechoso = async ({
@@ -212,6 +213,28 @@ export const detectarFichajeSospechoso = async ({
     } catch (err) {
       console.error("Error validando contra planificación:", err);
       razones.push("No se pudo validar el horario contra planificación");
+    }
+  }
+  // ------------------------------
+  // REGLA 6 — Desviación vs bloques de plantilla (plan avanzado)
+  // ------------------------------
+  if (empleadoId && empresaId) {
+    try {
+      const validacionPlan = await validarFichajeSegunPlan({
+        empresaId,
+        empleadoId,
+        fechaHora: new Date(),
+        tipo,
+      });
+
+      if (validacionPlan?.incidencias?.length > 0) {
+        for (const inc of validacionPlan.incidencias) {
+          razones.push(`Plan: ${inc}`);
+        }
+      }
+    } catch (err) {
+      console.error("Error validando contra plan:", err);
+      razones.push("Error validando contra plantilla");
     }
   }
 
