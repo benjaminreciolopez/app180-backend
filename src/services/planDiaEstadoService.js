@@ -146,6 +146,25 @@ function nextAccionFromFichajes(fichajes, hayDescansoPlan) {
 function ausenciaBloqueante(tipo) {
   return tipo === "vacaciones" || tipo === "baja_medica";
 }
+async function getEventoCalendarioLaboral({ empresaId, fechaYMD }) {
+  // Debe devolver el “evento dominante” del día
+  // (por ejemplo, festivo > convenio > laborable_extra)
+  const rows = await sql`
+    SELECT tipo, titulo, origen
+    FROM calendario_empresa_180
+    WHERE empresa_id = ${empresaId}
+      AND fecha = ${fechaYMD}::date
+    ORDER BY
+      CASE tipo
+        WHEN 'festivo' THEN 1
+        WHEN 'convenio' THEN 2
+        WHEN 'laborable_extra' THEN 3
+        ELSE 9
+      END
+    LIMIT 1
+  `;
+  return rows[0] || null;
+}
 
 async function getAusenciaActiva({ empleadoId, fechaYMD }) {
   const rows = await sql`
@@ -182,9 +201,36 @@ export async function getPlanDiaEstado({
       ausencia: { id: ausencia.id, tipo: ausencia.tipo },
     };
   }
+  // 1.5) Calendario laboral (OCR + ajustes)
+  const evento = await getEventoCalendarioLaboral({ empresaId, fechaYMD: ymd });
+
+  if (evento && (evento.tipo === "festivo" || evento.tipo === "convenio")) {
+    return {
+      fecha: ymd,
+      boton_visible: false,
+      motivo_oculto: "calendario",
+      mensaje:
+        evento.tipo === "festivo"
+          ? "Hoy es festivo según el calendario laboral"
+          : "Hoy es día de convenio (no laborable)",
+
+      plan: null,
+      margen_antes: MARGEN_ANTES_MIN,
+      margen_despues: MARGEN_DESPUES_MIN,
+
+      calendario: {
+        tipo: evento.tipo,
+        titulo: evento.titulo || null,
+        origen: evento.origen || "ocr",
+      },
+      ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
+    };
+  }
+  const forzarLaboral = evento?.tipo === "laborable_extra";
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
+
   // Normalización de bloques
   if (plan?.bloques) {
     plan.bloques = plan.bloques.map((b) => ({
@@ -195,7 +241,7 @@ export async function getPlanDiaEstado({
     }));
   }
 
-  const es_laboral = isDiaLaboral(plan);
+  const es_laboral = forzarLaboral ? true : isDiaLaboral(plan);
 
   if (!es_laboral) {
     return {
