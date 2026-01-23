@@ -2,43 +2,88 @@
 import { sql } from "../db.js";
 import { calcularMinutos } from "../services/jornadasCalculo.js";
 
-// Helper: suma horas a una fecha
+// Helpers
 function addHours(date, hours) {
   const d = new Date(date);
   d.setHours(d.getHours() + hours);
   return d;
 }
 
+function endOfDay(date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
 export const ejecutarAutocierre = async () => {
   try {
     const ahora = new Date();
+    const hoy = new Date().toISOString().slice(0, 10);
 
-    const jornadasAbiertas = await sql`
+    const jornadas = await sql`
       SELECT 
         j.*,
         COALESCE(e.max_duracion_turno, 14) AS max_horas,
-        e.user_id AS empleado_user_id
+        e.user_id AS empleado_user_id,
+        t.nocturno_permitido,
+        t.hora_fin
       FROM jornadas_180 j
       JOIN employees_180 e ON e.id = j.empleado_id
+      LEFT JOIN turnos_180 t ON t.id = e.turno_id
       WHERE j.estado = 'abierta'
         AND j.inicio IS NOT NULL
     `;
 
-    if (jornadasAbiertas.length === 0) return;
+    if (!jornadas.length) return;
 
-    for (const j of jornadasAbiertas) {
+    for (const j of jornadas) {
       const inicio = new Date(j.inicio);
+      const inicioYMD = inicio.toISOString().slice(0, 10);
+
       const maxHoras = Number(j.max_horas || 14);
       const finMax = addHours(inicio, maxHoras);
 
-      // Si aún no supera maxHoras, no cerrar
-      if (ahora < finMax) continue;
+      let fin = null;
+      let motivo = null;
 
-      // fin_autocierre: inicio + maxHoras (regla segura)
-      const fin = finMax;
+      /* ======================
+         1️⃣ Exceso horas
+      ====================== */
+
+      if (ahora >= finMax) {
+        fin = finMax;
+        motivo = "exceso_duracion";
+      }
+
+      /* ======================
+         2️⃣ Cambio de día
+      ====================== */
+
+      if (!fin && inicioYMD < hoy) {
+        // Nocturno
+        if (j.nocturno_permitido && j.hora_fin) {
+          const finNocturno = new Date(
+            `${hoy}T${String(j.hora_fin).slice(0, 5)}:00`,
+          );
+
+          if (ahora >= finNocturno) {
+            fin = finNocturno;
+            motivo = "fin_turno_nocturno";
+          }
+        } else {
+          fin = endOfDay(inicio);
+          motivo = "fin_dia";
+        }
+      }
+
+      if (!fin) continue;
+
       const minutos = calcularMinutos(inicio, fin);
 
-      // Cierra jornada (con fin + hora_salida)
+      /* ======================
+         CIERRE
+      ====================== */
+
       await sql`
         UPDATE jornadas_180
         SET
@@ -46,17 +91,17 @@ export const ejecutarAutocierre = async () => {
           hora_salida = ${fin},
           minutos_trabajados = ${minutos},
           estado = 'incompleta',
-          origen_cierre = 'autocierre_seguridad',
-          incidencia = COALESCE(incidencia, '') || CASE 
-            WHEN incidencia IS NULL OR incidencia = '' THEN 'Cierre automático por exceso de duración'
-            ELSE ' | Cierre automático por exceso de duración'
-          END,
+          origen_cierre = 'autocierre',
+          incidencia = concat_ws(
+            ' | ',
+            NULLIF(incidencia, ''),
+            'Autocierre: ' || ${motivo}
+          ),
           updated_at = NOW()
         WHERE id = ${j.id}
           AND estado = 'abierta'
       `;
 
-      // Inserta fichaje "salida" automático (trazabilidad)
       await sql`
         INSERT INTO fichajes_180 (
           user_id,
@@ -80,7 +125,7 @@ export const ejecutarAutocierre = async () => {
           ${fin},
           'confirmado',
           'autocierre',
-          'Autocierre: salida generada automáticamente por falta de fichaje',
+          'Salida automática por autocierre (${motivo})',
           false,
           false
         )
@@ -90,3 +135,4 @@ export const ejecutarAutocierre = async () => {
     console.error("❌ Error ejecutando autocierre:", err);
   }
 };
+// backend/src/controllers/workLogsController.js

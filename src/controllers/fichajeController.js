@@ -28,10 +28,6 @@ const getLastFichaje = async (empleadoId) => {
   return rows.length ? rows[0] : null;
 };
 
-function isValidDate(d) {
-  return d instanceof Date && !Number.isNaN(d.getTime());
-}
-
 export const createFichaje = async (req, res) => {
   try {
     const { tipo, cliente_id, lat, lng, accuracy, fecha_hora } = req.body;
