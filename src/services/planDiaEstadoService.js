@@ -146,23 +146,22 @@ function nextAccionFromFichajes(fichajes, hayDescansoPlan) {
 function ausenciaBloqueante(tipo) {
   return tipo === "vacaciones" || tipo === "baja_medica";
 }
-async function getEventoCalendarioLaboral({ empresaId, fechaYMD }) {
-  // Debe devolver el “evento dominante” del día
-  // (por ejemplo, festivo > convenio > laborable_extra)
+async function getEventoCalendarioEmpresa({ empresaId, fechaYMD }) {
   const rows = await sql`
-    SELECT tipo, titulo, origen
+    SELECT
+      tipo,
+      nombre,
+      descripcion,
+      es_laborable,
+      origen,
+      confirmado
     FROM calendario_empresa_180
     WHERE empresa_id = ${empresaId}
       AND fecha = ${fechaYMD}::date
-    ORDER BY
-      CASE tipo
-        WHEN 'festivo' THEN 1
-        WHEN 'convenio' THEN 2
-        WHEN 'laborable_extra' THEN 3
-        ELSE 9
-      END
+      AND activo = true
     LIMIT 1
   `;
+
   return rows[0] || null;
 }
 
@@ -190,6 +189,7 @@ export async function getPlanDiaEstado({
 
   // 1) Ausencia bloqueante
   const ausencia = await getAusenciaActiva({ empleadoId, fechaYMD: ymd });
+
   if (ausencia && ausenciaBloqueante(ausencia.tipo)) {
     return {
       fecha: ymd,
@@ -201,35 +201,58 @@ export async function getPlanDiaEstado({
       ausencia: { id: ausencia.id, tipo: ausencia.tipo },
     };
   }
-  // 1.5) Calendario laboral (OCR + ajustes)
-  const evento = await getEventoCalendarioLaboral({ empresaId, fechaYMD: ymd });
+  // 1.5) Calendario laboral empresa (OCR / manual / API)
+  const eventoCal = await getEventoCalendarioEmpresa({
+    empresaId,
+    fechaYMD: ymd,
+  });
 
-  if (evento && (evento.tipo === "festivo" || evento.tipo === "convenio")) {
+  const bloqueaPorCalendario =
+    eventoCal &&
+    (eventoCal.es_laborable === false ||
+      ["festivo_local", "convenio", "cierre_empresa"].includes(eventoCal.tipo));
+
+  if (bloqueaPorCalendario) {
     return {
       fecha: ymd,
       boton_visible: false,
       motivo_oculto: "calendario",
+
       mensaje:
-        evento.tipo === "festivo"
-          ? "Hoy es festivo según el calendario laboral"
-          : "Hoy es día de convenio (no laborable)",
+        eventoCal.tipo === "festivo_local"
+          ? "Hoy es festivo"
+          : eventoCal.tipo === "convenio"
+            ? "Día no laborable por convenio"
+            : eventoCal.tipo === "cierre_empresa"
+              ? "Empresa cerrada"
+              : "Día no laborable",
 
       plan: null,
+
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
 
       calendario: {
-        tipo: evento.tipo,
-        titulo: evento.titulo || null,
-        origen: evento.origen || "ocr",
+        tipo: eventoCal.tipo,
+        nombre: eventoCal.nombre,
+        descripcion: eventoCal.descripcion,
+        origen: eventoCal.origen,
+        confirmado: eventoCal.confirmado,
       },
+
       ausencia: ausencia ? { id: ausencia.id, tipo: ausencia.tipo } : null,
     };
   }
-  const forzarLaboral = evento?.tipo === "laborable_extra";
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
+
+  const fuerzaLaboral =
+    eventoCal &&
+    eventoCal.tipo === "laborable_extra" &&
+    eventoCal.es_laborable === true;
+
+  const es_laboral = fuerzaLaboral ? true : isDiaLaboral(plan);
 
   // Normalización de bloques
   if (plan?.bloques) {
@@ -240,8 +263,6 @@ export async function getPlanDiaEstado({
       tipo: b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo,
     }));
   }
-
-  const es_laboral = forzarLaboral ? true : isDiaLaboral(plan);
 
   if (!es_laboral) {
     return {
