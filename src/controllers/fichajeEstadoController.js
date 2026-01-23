@@ -125,6 +125,10 @@ export const getEstadoFichaje = async (req, res) => {
             margen_antes: estadoPlan.margen_antes,
             margen_despues: estadoPlan.margen_despues,
             motivo_oculto: estadoPlan.motivo_oculto || null,
+
+            // ✅ AÑADIR ESTO
+            ausencia: estadoPlan.ausencia || null,
+            calendario: estadoPlan.calendario || null,
           }
         : {
             visible: true,
