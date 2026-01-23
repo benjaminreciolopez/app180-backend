@@ -328,6 +328,29 @@ export async function getPlanDiaEstado({
   );
 
   const accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
+  // Si no hay acción pero aún estamos dentro del rango del turno → permitir salida
+  if (!accion && targets?.salida) {
+    const salidaMin = timeStrToMin(targets.salida, TZ);
+    const nowMin = getNowMinInTZ(now, TZ);
+
+    if (salidaMin && nowMin && nowMin < salidaMin + 120) {
+      return {
+        fecha: ymd,
+        boton_visible: true,
+        color: "negro",
+        puede_fichar: true,
+        fuera_de_margen: true,
+        mensaje: "Fuera de margen, pero jornada activa",
+        accion: "salida",
+        acciones_permitidas: ["salida"],
+        objetivo_hhmm: targets.salida,
+        margen_antes: MARGEN_ANTES_MIN,
+        margen_despues: MARGEN_DESPUES_MIN,
+        plan,
+        motivo_oculto: null,
+      };
+    }
+  }
 
   if (!accion) {
     return {
