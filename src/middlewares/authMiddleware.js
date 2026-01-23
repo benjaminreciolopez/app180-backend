@@ -10,6 +10,23 @@ export const authRequired = async (req, res, next) => {
   if (req.method === "OPTIONS") {
     return next();
   }
+  // ==========================
+  // 🌐 RUTAS PÚBLICAS (SIN AUTH)
+  // ==========================
+
+  const publicPaths = [
+    "/manifest.json",
+    "/favicon.ico",
+    "/sw.js",
+    "/robots.txt",
+    "/icons/",
+    "/_next/",
+    "/static/",
+  ];
+
+  if (publicPaths.some((p) => req.path.startsWith(p))) {
+    return next();
+  }
 
   const authHeader = req.headers.authorization || req.get("Authorization");
 
@@ -56,7 +73,7 @@ export const authRequired = async (req, res, next) => {
     const passwordForced = decoded.password_forced === true;
 
     if (isEmpleado && passwordForced) {
-      const ruta = req.originalUrl;
+      const ruta = req.path;
 
       const rutasPermitidas = ["/auth/change-password", "/auth/logout"];
 
