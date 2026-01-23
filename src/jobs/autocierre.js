@@ -25,7 +25,6 @@ export const ejecutarAutocierre = async () => {
         COALESCE(e.max_duracion_turno, 14) AS max_horas,
         e.user_id AS empleado_user_id,
         t.nocturno_permitido,
-        t.hora_fin
       FROM jornadas_180 j
       JOIN employees_180 e ON e.id = j.empleado_id
       LEFT JOIN turnos_180 t ON t.id = e.turno_id
