@@ -11,20 +11,22 @@ export const authRequired = async (req, res, next) => {
     return next();
   }
   // ==========================
-  // 🌐 RUTAS PÚBLICAS (SIN AUTH)
+  // 🌐 RUTAS PÚBLICAS
   // ==========================
 
-  const publicPaths = [
-    "/manifest.json",
-    "/favicon.ico",
-    "/sw.js",
-    "/robots.txt",
-    "/icons/",
-    "/_next/",
-    "/static/",
+  const publicRegex = [
+    /^\/manifest\.json$/,
+    /^\/favicon\.ico$/,
+    /^\/sw\.js$/,
+    /^\/robots\.txt$/,
+    /^\/icons\//,
+    /^\/_next\//,
+    /^\/static\//,
   ];
 
-  if (publicPaths.some((p) => req.path.startsWith(p))) {
+  const path = req.originalUrl.split("?")[0];
+
+  if (publicRegex.some((r) => r.test(path))) {
     return next();
   }
 
