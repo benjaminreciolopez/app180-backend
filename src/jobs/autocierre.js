@@ -1,3 +1,5 @@
+// backend/src/jobs/autocierre.js
+
 import { sql } from "../db.js";
 import { calcularMinutos } from "../services/jornadasCalculo.js";
 
@@ -10,7 +12,7 @@ function addHours(date, hours) {
 
 function endOfDay(date) {
   const d = new Date(date);
-  d.setHours(23, 59, 59, 0);
+  d.setHours(23, 59, 59, 999);
   return d;
 }
 
@@ -24,7 +26,7 @@ export const ejecutarAutocierre = async () => {
         j.*,
         COALESCE(e.max_duracion_turno, 14) AS max_horas,
         e.user_id AS empleado_user_id,
-        t.nocturno_permitido,
+        t.nocturno_permitido
       FROM jornadas_180 j
       JOIN employees_180 e ON e.id = j.empleado_id
       LEFT JOIN turnos_180 t ON t.id = e.turno_id
@@ -40,33 +42,20 @@ export const ejecutarAutocierre = async () => {
 
       let fin = null;
       let motivo = null;
-      let origen = null;
+      let origenCierre = null;
 
       /* ======================
-         1️⃣ Cambio de día
+         1️⃣ Cambio de día (no nocturno)
       ====================== */
 
-      if (inicioYMD < hoyYMD) {
-        // Turno nocturno
-        if (j.nocturno_permitido && j.hora_fin) {
-          const finNocturno = new Date(
-            `${hoyYMD}T${String(j.hora_fin).slice(0, 5)}:00`,
-          );
-
-          if (ahora >= finNocturno) {
-            fin = finNocturno;
-            motivo = "fin_turno_nocturno";
-            origen = "automatico";
-          }
-        } else {
-          fin = endOfDay(inicio);
-          motivo = "fin_dia";
-          origen = "automatico";
-        }
+      if (!j.nocturno_permitido && inicioYMD < hoyYMD) {
+        fin = endOfDay(inicio);
+        motivo = "fin_dia";
+        origenCierre = "automatico";
       }
 
       /* ======================
-         2️⃣ Exceso de horas
+         2️⃣ Exceso de horas (seguridad)
       ====================== */
 
       if (!fin) {
@@ -76,7 +65,7 @@ export const ejecutarAutocierre = async () => {
         if (ahora >= finMax) {
           fin = finMax;
           motivo = "exceso_duracion";
-          origen = "autocierre_seguridad";
+          origenCierre = "autocierre_seguridad";
         }
       }
 
@@ -85,7 +74,7 @@ export const ejecutarAutocierre = async () => {
       const minutos = calcularMinutos(inicio, fin);
 
       /* ======================
-         CIERRE
+         CIERRE JORNADA
       ====================== */
 
       await sql`
@@ -95,7 +84,7 @@ export const ejecutarAutocierre = async () => {
           hora_salida = ${fin},
           minutos_trabajados = ${minutos},
           estado = 'incompleta',
-          origen_cierre = ${origen},
+          origen_cierre = ${origenCierre},
           incidencia = concat_ws(
             ' | ',
             NULLIF(incidencia, ''),
@@ -105,6 +94,10 @@ export const ejecutarAutocierre = async () => {
         WHERE id = ${j.id}
           AND estado = 'abierta'
       `;
+
+      /* ======================
+         FICHAJE TRAZABLE
+      ====================== */
 
       await sql`
         INSERT INTO fichajes_180 (
@@ -128,7 +121,7 @@ export const ejecutarAutocierre = async () => {
           'salida',
           ${fin},
           'confirmado',
-          ${origen},
+          'autocierre',
           ${"Salida automática por " + motivo},
           false,
           false
@@ -139,4 +132,3 @@ export const ejecutarAutocierre = async () => {
     console.error("❌ Error ejecutando autocierre:", err);
   }
 };
-// backend/src/controllers/workLogsController.js
