@@ -274,13 +274,23 @@ export async function getPlanDiaEstado({
   const es_laboral = fuerzaLaboral ? true : isDiaLaboral(plan);
 
   // Normalización de bloques
-  if (plan?.bloques) {
-    plan.bloques = plan.bloques.map((b) => ({
-      ...b,
-      inicio: b.inicio || b.hora_inicio || null,
-      fin: b.fin || b.hora_fin || null,
-      tipo: b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo,
-    }));
+  if (Array.isArray(plan?.bloques)) {
+    plan.bloques = plan.bloques
+      .map((b) => ({
+        ...b,
+
+        // Normalizar horas
+        inicio: b.inicio || b.hora_inicio || null,
+        fin: b.fin || b.hora_fin || null,
+
+        // Normalizar tipo REAL
+        tipo: b.es_descanso ? "descanso" : "trabajo",
+      }))
+      // Orden cronológico
+      .sort((a, b) => {
+        if (!a.inicio || !b.inicio) return 0;
+        return String(a.inicio).localeCompare(String(b.inicio));
+      });
   }
 
   if (!es_laboral) {
