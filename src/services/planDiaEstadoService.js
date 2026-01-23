@@ -173,9 +173,16 @@ async function getAusenciaActiva({ empleadoId, fechaYMD }) {
       AND estado = 'aprobado'
       AND fecha_inicio <= ${fechaYMD}::date
       AND fecha_fin >= ${fechaYMD}::date
-    ORDER BY fecha_inicio DESC
+    ORDER BY
+      CASE
+        WHEN tipo = 'baja_medica' THEN 1
+        WHEN tipo = 'vacaciones' THEN 2
+        ELSE 3
+      END,
+      fecha_inicio DESC
     LIMIT 1
   `;
+
   return rows[0] || null;
 }
 
