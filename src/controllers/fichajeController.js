@@ -14,6 +14,7 @@ import { syncDailyReport } from "../services/dailyReportService.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
 import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
+import { evaluarFichaje } from "../services/fichajeEngine.js";
 
 // Obtener último fichaje del empleado
 const getLastFichaje = async (empleadoId) => {
@@ -33,48 +34,70 @@ function isValidDate(d) {
 
 export const createFichaje = async (req, res) => {
   try {
-    const { tipo, cliente_id, lat, lng, fecha_hora } = req.body;
+    const { tipo, cliente_id, lat, lng, accuracy, fecha_hora } = req.body;
 
-    const tiposValidos = [
-      "entrada",
-      "salida",
-      "descanso_inicio",
-      "descanso_fin",
-    ];
-    if (!tiposValidos.includes(tipo)) {
+    /* =========================
+       1. Validaciones básicas
+    ========================= */
+
+    const TIPOS = ["entrada", "salida", "descanso_inicio", "descanso_fin"];
+
+    if (!TIPOS.includes(tipo)) {
       return res.status(400).json({ error: "Tipo de fichaje no válido" });
     }
 
     const fechaHora = fecha_hora ? new Date(fecha_hora) : new Date();
-    if (!isValidDate(fechaHora)) {
+
+    if (!(fechaHora instanceof Date) || isNaN(fechaHora.getTime())) {
       return res.status(400).json({ error: "fecha_hora inválida" });
     }
 
-    // =========================
-    // EMPLEADO
-    // =========================
-    const empleadoRows = await sql`
+    /* =========================
+       2. Cargar empleado
+    ========================= */
+
+    const [empleado] = await sql`
       SELECT id, activo, empresa_id, tipo_trabajo, turno_id
       FROM employees_180
       WHERE id = ${req.user.empleado_id}
       LIMIT 1
     `;
-    if (empleadoRows.length === 0) {
+
+    if (!empleado) {
       return res.status(403).json({ error: "Usuario no es empleado" });
     }
-
-    const empleado = empleadoRows[0];
-    const empleadoId = empleado.id;
-    const empresaId = empleado.empresa_id;
 
     if (!empleado.activo) {
       return res.status(403).json({ error: "Empleado desactivado" });
     }
 
-    // =========================
-    // VALIDACIÓN DÍA LABORAL + AUSENCIA + MARGEN LEGAL
-    // Fuente de verdad: getPlanDiaEstado
-    // =========================
+    const empleadoId = empleado.id;
+    const empresaId = empleado.empresa_id;
+
+    /* =========================
+       3. Cargar cliente
+    ========================= */
+
+    let cliente = null;
+
+    if (cliente_id) {
+      [cliente] = await sql`
+        SELECT *
+        FROM clients_180
+        WHERE id = ${cliente_id}
+          AND empresa_id = ${empresaId}
+        LIMIT 1
+      `;
+
+      if (!cliente) {
+        return res.status(404).json({ error: "Cliente no válido" });
+      }
+    }
+
+    /* =========================
+       4. Estado planificación
+    ========================= */
+
     const fechaYMD = fechaHora.toISOString().slice(0, 10);
 
     const estadoPlan = await getPlanDiaEstado({
@@ -83,93 +106,43 @@ export const createFichaje = async (req, res) => {
       fecha: fechaYMD,
     });
 
-    // 1) Botón oculto => no se puede fichar
     if (!estadoPlan?.boton_visible) {
-      const esAusencia = estadoPlan?.motivo_oculto === "ausencia";
       return res.status(403).json({
-        error: esAusencia
-          ? "No puedes fichar durante una ausencia aprobada"
-          : "Hoy no es día laboral según tu planificación",
-        code: esAusencia ? "AUSENCIA_BLOQUEANTE" : "NO_LABORAL",
+        error:
+          estadoPlan?.motivo_oculto === "ausencia"
+            ? "No puedes fichar durante una ausencia"
+            : "Hoy no es día laboral",
         detalle: estadoPlan,
       });
     }
 
-    // 3) Acción correcta según estado del día
-    //    Si el backend dice que toca X, y el frontend envía Y => conflicto
     if (estadoPlan?.accion && estadoPlan.accion !== tipo) {
       return res.status(409).json({
         error: `Acción inválida. Ahora toca: ${estadoPlan.accion}`,
-        code: "ACCION_INCORRECTA",
         accion_correcta: estadoPlan.accion,
-        detalle: estadoPlan,
       });
     }
 
-    // (Opcional) si tu estadoPlan incluye acciones_permitidas
-    if (
-      Array.isArray(estadoPlan?.acciones_permitidas) &&
-      estadoPlan.acciones_permitidas.length > 0 &&
-      !estadoPlan.acciones_permitidas.includes(tipo)
-    ) {
-      return res.status(409).json({
-        error: "Acción no permitida en este estado",
-        code: "ACCION_NO_PERMITIDA",
-        acciones_permitidas: estadoPlan.acciones_permitidas,
-        detalle: estadoPlan,
-      });
-    }
+    /* =========================
+       5. Cliente obligatorio
+    ========================= */
 
-    // =========================
-    // CLIENTE OBLIGATORIO
-    // =========================
-    if (tipo === "entrada" && empleado.tipo_trabajo === "oficina") {
-      const clientes = await sql`
-        SELECT 1 FROM clients_180 WHERE empresa_id = ${empresaId} LIMIT 1
+    if (tipo === "entrada" && empleado.tipo_trabajo === "oficina" && !cliente) {
+      const hayClientes = await sql`
+        SELECT 1 FROM clients_180
+        WHERE empresa_id = ${empresaId}
+        LIMIT 1
       `;
-      if (clientes.length > 0 && !cliente_id) {
+
+      if (hayClientes.length > 0) {
         return res.status(400).json({ error: "Debes seleccionar un cliente" });
       }
     }
 
-    // =========================
-    // VALIDACIÓN TURNO + PLAN (incidencias, no bloqueantes)
-    // =========================
-    const validacionTurno = await validarFichajeSegunTurno({
-      empleadoId,
-      empresaId,
-      fechaHora,
-      tipo,
-    });
+    /* =========================
+       6. Secuencia mínima
+    ========================= */
 
-    if (!validacionTurno.ok) {
-      return res
-        .status(validacionTurno.status || 400)
-        .json({ error: validacionTurno.error });
-    }
-
-    const validacionPlan = await validarFichajeSegunPlan({
-      empresaId,
-      empleadoId,
-      fechaHora,
-      tipo,
-    });
-
-    const incidenciasTurno = validacionTurno.incidencias || [];
-    const incidenciasPlan = validacionPlan.incidencias || [];
-
-    const incidencias = Array.from(
-      new Set([...incidenciasTurno, ...incidenciasPlan]),
-    );
-    const fueraDeMargen = Boolean(estadoPlan?.fuera_de_margen);
-
-    if (fueraDeMargen) {
-      incidencias.push("FUERA_DE_MARGEN");
-    }
-
-    // =========================
-    // SECUENCIA MÍNIMA (tu regla original)
-    // =========================
     const last = await getLastFichaje(empleadoId);
 
     if (tipo === "entrada" && last && last.tipo !== "salida") {
@@ -180,95 +153,78 @@ export const createFichaje = async (req, res) => {
       return res.status(400).json({ error: "Debes fichar entrada antes" });
     }
 
-    // (Nota) si quieres endurecer descansos, aquí puedes exigir:
-    // - descanso_inicio solo si last.tipo === 'entrada'
-    // - descanso_fin solo si last.tipo === 'descanso_inicio'
-    // De momento lo dejamos gobernado por estadoPlan.accion.
+    /* =========================
+       7. Autocierre
+    ========================= */
 
-    // =========================
-    // AUTOCIERRE (ANTES)
-    // =========================
     if (tipo === "entrada" || tipo === "salida") {
       await ejecutarAutocierre();
     }
 
-    // =========================
-    // JORNADA (no filtrar por fecha: soporta nocturnos)
-    // =========================
+    /* =========================
+       8. Jornada
+    ========================= */
+
     let jornada = await obtenerJornadaAbierta(empleadoId);
 
-    // Si NO es entrada, debe existir jornada abierta
     if (tipo !== "entrada" && !jornada) {
       return res.status(400).json({ error: "No hay jornada abierta" });
     }
 
-    // Si es entrada, crear jornada si no existe
     if (tipo === "entrada" && !jornada) {
       jornada = await crearJornada({
         empresaId,
         empleadoId,
         inicio: fechaHora,
-        incidencia: incidencias.length ? incidencias.join(" | ") : null,
       });
     }
 
     const jornadaId = jornada?.id || null;
 
-    // =========================
-    // SOSPECHOSO
-    // =========================
-    const analisis = await detectarFichajeSospechoso({
+    /* =========================
+       9. Motor central
+    ========================= */
+
+    const evalResult = await evaluarFichaje({
       userId: req.user.id,
-      empleadoId,
-      empresaId: req.user.empresa_id,
+      empleado,
+      cliente,
       tipo,
+      fechaHora,
       lat,
       lng,
-      clienteId: cliente_id || null,
-      deviceHash: req.headers["x-device-id"] || null,
+      empresaId,
       reqIp: req.ip,
     });
 
-    const estado = "confirmado";
+    if (!evalResult.permitido) {
+      return res.status(403).json({
+        error: "Fichaje no permitido",
+        detalles: evalResult.errores,
+      });
+    }
 
-    const sospechaMotivo = analisis.sospechoso
-      ? analisis.razones.join(" | ")
-      : null;
+    /* =========================
+       10. Reverse geocode
+    ========================= */
 
-    const ipInfo = analisis?.ipInfo ?? null;
-    const distanciaKm = analisis?.distanciaKm ?? null;
-
-    // =========================
-    // DIRECCIÓN (OpenStreetMap)
-    // =========================
     let direccion = null;
     let ciudad = null;
     let pais = null;
 
-    const gpsOk =
-      lat != null &&
-      lng != null &&
-      Number.isFinite(Number(lat)) &&
-      Number.isFinite(Number(lng)) &&
-      Number(lat) >= -90 &&
-      Number(lat) <= 90 &&
-      Number(lng) >= -180 &&
-      Number(lng) <= 180;
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
 
-    const latUse = gpsOk
-      ? Number(lat)
-      : analisis?.ipInfo?.actual?.lat != null
-        ? Number(analisis.ipInfo.actual.lat)
-        : null;
+    if (
+      Number.isFinite(latNum) &&
+      Number.isFinite(lngNum) &&
+      latNum >= -90 &&
+      latNum <= 90 &&
+      lngNum >= -180 &&
+      lngNum <= 180
+    ) {
+      const geo = await reverseGeocode({ lat: latNum, lng: lngNum });
 
-    const lngUse = gpsOk
-      ? Number(lng)
-      : analisis?.ipInfo?.actual?.lng != null
-        ? Number(analisis.ipInfo.actual.lng)
-        : null;
-
-    if (latUse != null && lngUse != null) {
-      const geo = await reverseGeocode({ lat: latUse, lng: lngUse });
       if (geo) {
         direccion = geo.direccion;
         ciudad = geo.ciudad;
@@ -276,63 +232,81 @@ export const createFichaje = async (req, res) => {
       }
     }
 
-    // =========================
-    // INSERT FICHAJE
-    // =========================
-    const nota = null;
+    /* =========================
+       11. Insert
+    ========================= */
 
-    const nuevo = await sql`
-      INSERT INTO fichajes_180 (
-        user_id,
-        empleado_id,
-        cliente_id,
-        empresa_id,
-        jornada_id,
-        tipo,
-        fecha,
-        estado,
-        origen,
-        nota,
-        sospechoso,
-        sospecha_motivo,
-        ip_info,
-        distancia_km,
-        direccion,
-        ciudad,
-        pais
-      )
-      VALUES (
-        ${req.user.id},
-        ${empleadoId},
-        ${cliente_id || null},
-        ${empresaId},
-        ${jornadaId},
-        ${tipo},
-        ${fechaHora},
-        ${estado},
-        'app',
-        ${nota},
-        ${analisis.sospechoso},
-        ${sospechaMotivo},
-        ${ipInfo},
-        ${distanciaKm},
-        ${direccion},
-        ${ciudad},
-        ${pais}
-      )
-      RETURNING *
-    `;
+    const [nuevo] = await sql`
+  INSERT INTO fichajes_180 (
 
-    const fichajeCreado = nuevo[0];
+    user_id,
+    empleado_id,
+    cliente_id,
+    empresa_id,
+    jornada_id,
 
-    // =========================
-    // CIERRE JORNADA (si salida)
-    // =========================
+    tipo,
+    fecha,
+    estado,
+    origen,
+
+    -- NUEVO GEO
+    geo_distancia,
+    geo_sospechoso,
+    geo_motivos,
+    geo_direccion,
+
+    gps_accuracy,
+    ip_info,
+
+    -- LEGACY (compatibilidad)
+    sospechoso,
+    sospecha_motivo,
+    direccion,
+    ciudad,
+    pais
+
+  )
+  VALUES (
+
+    ${req.user.id},
+    ${empleadoId},
+    ${cliente?.id || null},
+    ${empresaId},
+    ${jornadaId},
+
+    ${tipo},
+    ${fechaHora},
+    'confirmado',
+    'app',
+
+    -- GEO NUEVO
+    ${evalResult.geo?.distancia || null},
+    ${evalResult.sospechoso},
+    ${JSON.stringify(evalResult.razones || [])},
+    ${JSON.stringify(evalResult.geo?.direccion || null)},
+
+    ${accuracy || null},
+    ${evalResult.ipInfo || null},
+
+    -- LEGACY
+    ${evalResult.sospechoso},
+    ${evalResult.razones?.join(" | ") || null},
+    ${evalResult.geo?.direccion?.direccion || null},
+    ${evalResult.geo?.direccion?.ciudad || null},
+    ${evalResult.geo?.direccion?.pais || null}
+
+  )
+  RETURNING *
+`;
+
+    /* =========================
+       12. Cierre jornada
+    ========================= */
+
     if (tipo === "salida" && jornadaId) {
-      // recalcular primero para tener minutos coherentes
       const j = await recalcularJornada(jornadaId);
 
-      // cerramos con fin=fechaHora y métricas desde j
       await cerrarJornada({
         jornadaId,
         fin: fechaHora,
@@ -340,25 +314,32 @@ export const createFichaje = async (req, res) => {
         minutos_descanso: j?.minutos_descanso || 0,
         minutos_extra: j?.minutos_extra || 0,
         origen_cierre: "app",
-        incidencia: incidencias.length ? incidencias.join(" | ") : null,
       });
     } else if (jornadaId) {
       await recalcularJornada(jornadaId);
     }
 
-    // =========================
-    // DAILY REPORT
-    // =========================
+    /* =========================
+       13. Daily report
+    ========================= */
+
     await syncDailyReport({
       empresaId,
       empleadoId,
       fecha: fechaHora,
     });
 
-    return res.json({ success: true, fichaje: fichajeCreado });
+    return res.json({
+      success: true,
+      fichaje: nuevo,
+      incidencias: evalResult.incidencias,
+    });
   } catch (err) {
     console.error("❌ Error en createFichaje:", err);
-    return res.status(500).json({ error: "Error al registrar fichaje" });
+
+    return res.status(500).json({
+      error: "Error al registrar fichaje",
+    });
   }
 };
 
