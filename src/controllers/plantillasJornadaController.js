@@ -760,12 +760,13 @@ export const asignarPlantillaEmpleado = async (req, res) => {
 
     res.json(out);
   } catch (err) {
+    if (err?.code === "23P01") {
+      return res.status(409).json({
+        error: "Conflicto de fechas en asignación",
+      });
+    }
+
     handleErr(res, err, "asignarPlantillaEmpleado");
-  }
-  if (err?.code === "23P01") {
-    return res.status(409).json({
-      error: "Ya existe una asignación activa en ese rango",
-    });
   }
 };
 
