@@ -777,8 +777,6 @@ export const listarAsignacionesEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
     const { empleado_id } = req.params;
-    const [clientes, setClientes] = useState([]);
-    const [clienteSel, setClienteSel] = useState("");
 
     const rows = await sql`
       select ep.*, p.nombre as plantilla_nombre, c.nombre as cliente_nombre
