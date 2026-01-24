@@ -84,37 +84,37 @@ export async function upsertFestivosES(rows) {
     return { inserted_or_updated: 0 };
   }
 
+  let count = 0;
+
   for (const r of rows) {
     if (typeof r.fecha !== "string") {
       throw new Error("Fecha inválida en festivos");
     }
+
+    await sql`
+      INSERT INTO festivos_es_180
+        (fecha, nombre, ambito, comunidad, provincia, municipio)
+      VALUES
+        (
+          ${r.fecha},
+          ${r.nombre},
+          ${r.ambito},
+          ${r.comunidad},
+          ${r.provincia},
+          ${r.municipio}
+        )
+      ON CONFLICT (fecha) DO UPDATE SET
+        nombre = EXCLUDED.nombre,
+        ambito = EXCLUDED.ambito,
+        comunidad = EXCLUDED.comunidad,
+        provincia = EXCLUDED.provincia,
+        municipio = EXCLUDED.municipio
+    `;
+
+    count++;
   }
 
-  const selects = rows.map(
-    (r) => sql`
-      SELECT
-        ${r.fecha}     AS fecha,
-        ${r.nombre}    AS nombre,
-        ${r.ambito}    AS ambito,
-        ${r.comunidad} AS comunidad,
-        ${r.provincia} AS provincia,
-        ${r.municipio} AS municipio
-    `,
-  );
-
-  await sql`
-    INSERT INTO festivos_es_180
-      (fecha, nombre, ambito, comunidad, provincia, municipio)
-    ${sql(selects)}
-    ON CONFLICT (fecha) DO UPDATE SET
-      nombre = EXCLUDED.nombre,
-      ambito = EXCLUDED.ambito,
-      comunidad = EXCLUDED.comunidad,
-      provincia = EXCLUDED.provincia,
-      municipio = EXCLUDED.municipio
-  `;
-
-  return { inserted_or_updated: rows.length };
+  return { inserted_or_updated: count };
 }
 
 /**
