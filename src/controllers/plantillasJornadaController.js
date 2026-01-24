@@ -626,12 +626,12 @@ export const asignarPlantillaEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
 
-    const { empleado_id, plantilla_id, fecha_fin } = req.body || {};
+    const { empleado_id, plantilla_id, cliente_id, fecha_fin } = req.body || {};
     const fin = normDateOrNull(fecha_fin);
 
-    if (!empleado_id || !plantilla_id) {
+    if (!empleado_id || !plantilla_id || !cliente_id) {
       return res.status(400).json({
-        error: "empleado_id y plantilla_id son obligatorios",
+        error: "empleado_id, plantilla_id y cliente_id son obligatorios",
       });
     }
 
@@ -664,6 +664,20 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         err.status = 404;
         throw err;
       }
+      const c = await tx`
+        select 1
+        from clients_180
+        where id=${cliente_id}
+          and empresa_id=${empresaId}
+          and activo=true
+        limit 1
+      `;
+
+      if (!c.length) {
+        const err = new Error("Cliente no válido");
+        err.status = 404;
+        throw err;
+      }
 
       // =========================
       // Fecha HOY desde Postgres
@@ -677,6 +691,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         select id
         from empleado_plantillas_180
         where empleado_id = ${empleado_id}
+          and cliente_id = ${cliente_id}
           and fecha_fin is null
         limit 1
       `;
@@ -696,6 +711,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         insert into empleado_plantillas_180 (
           empleado_id,
           plantilla_id,
+          cliente_id,
           fecha_inicio,
           fecha_fin,
           empresa_id
@@ -703,6 +719,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         values (
           ${empleado_id},
           ${plantilla_id},
+          ${cliente_id},
           ${hoy}::date,
           ${fin}::date,
           ${empresaId}
@@ -760,11 +777,14 @@ export const listarAsignacionesEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
     const { empleado_id } = req.params;
+    const [clientes, setClientes] = useState([]);
+    const [clienteSel, setClienteSel] = useState("");
 
     const rows = await sql`
-      select ep.*, p.nombre as plantilla_nombre
+      select ep.*, p.nombre as plantilla_nombre, c.nombre as cliente_nombre
       from empleado_plantillas_180 ep
       join plantillas_jornada_180 p on p.id = ep.plantilla_id
+      join clients_180 c on c.id = ep.cliente_id
       join employees_180 e on e.id = ep.empleado_id
       where ep.empleado_id=${empleado_id}
         and e.empresa_id=${empresaId}
