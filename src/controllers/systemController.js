@@ -8,8 +8,11 @@ export async function getSystemStatus(req, res) {
 
   const total = rows[0].total;
 
+  const initialized = total > 0;
+
   res.json({
-    hasCompany: total > 0,
-    bootstrap: total === 0,
+    initialized, // claro
+    hasCompany: initialized,
+    bootstrap: initialized, // 👈 CLAVE: mismo significado
   });
 }
