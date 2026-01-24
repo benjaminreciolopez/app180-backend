@@ -690,7 +690,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // Cerrar TODAS las asignaciones abiertas
       await tx`
         update empleado_plantillas_180
-        set fecha_fin = (${hoy}::date - interval '1 day')
+        set fecha_fin = greatest(fecha_inicio, ${hoy}::date - interval '1 day')
         where empleado_id = ${empleado_id}
           and fecha_fin is null
       `;
