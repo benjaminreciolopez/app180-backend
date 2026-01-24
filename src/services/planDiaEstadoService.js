@@ -285,20 +285,15 @@ export async function getPlanDiaEstado({
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
+  console.log("PLAN RAW:", JSON.stringify(plan, null, 2));
 
   // 🔧 Normalizar bloques ANTES de evaluar si es laboral
   if (Array.isArray(plan?.bloques)) {
     plan.bloques = plan.bloques
-      .map((b) => {
-        const inicio = b.inicio || b.hora_inicio || null;
-        const fin = b.fin || b.hora_fin || null;
-
-        // Mapear pausa/comida → descanso
-        const tipoNorm =
-          b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo;
-
-        return { ...b, inicio, fin, tipo: tipoNorm };
-      })
+      .map((b) => ({
+        ...b,
+        tipo: b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo,
+      }))
       .sort((a, b) =>
         String(a.inicio || "").localeCompare(String(b.inicio || "")),
       );
