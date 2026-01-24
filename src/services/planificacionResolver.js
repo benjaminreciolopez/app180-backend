@@ -5,13 +5,9 @@ import { sql } from "../db.js";
 export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   // fecha: 'YYYY-MM-DD'
 
-  /* =========================
-     1) Asignación activa
-  ========================= */
-
   const asig = await sql`
     SELECT 
-      a.plantilla_id AS plantilla_id,
+      a.plantilla_jornada_id AS plantilla_id,
       p.nombre AS plantilla_nombre,
 
       a.cliente_id,
@@ -26,7 +22,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     FROM asignaciones_plantilla_jornada_180 a
 
     JOIN plantillas_jornada_180 p
-      ON p.id = a.plantilla_id
+      ON p.id = a.plantilla_jornada_id
 
     LEFT JOIN clients_180 c
       ON c.id = a.cliente_id
@@ -53,10 +49,6 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     };
   }
 
-  /* =========================
-     Normalizar datos
-  ========================= */
-
   const plantillaId = asig[0].plantilla_id;
   const plantillaNombre = asig[0].plantilla_nombre;
 
@@ -73,7 +65,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     : null;
 
   /* =========================
-     2) Excepción
+     Excepción
   ========================= */
 
   const ex = await sql`
@@ -119,7 +111,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   }
 
   /* =========================
-     3) Día semana
+     Día semana
   ========================= */
 
   function diaSemanaISO(fecha) {
@@ -151,7 +143,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   }
 
   /* =========================
-     4) Día de plantilla
+     Día plantilla
   ========================= */
 
   const dia = await sql`
@@ -176,7 +168,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   }
 
   /* =========================
-     5) Bloques
+     Bloques
   ========================= */
 
   const bloques = await sql`
