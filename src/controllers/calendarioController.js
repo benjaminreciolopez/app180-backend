@@ -1,7 +1,12 @@
 import { sql } from "../db.js";
 import { ensureFestivosForYear } from "../services/festivosNagerService.js";
 
-const toYMD = (v) => String(v).slice(0, 10);
+function toYMD(v) {
+  if (!v) return null;
+
+  const d = new Date(v);
+  return d.toISOString().split("T")[0];
+}
 
 function getRangoFechas(desde, hasta) {
   if (desde && hasta) return { desde, hasta };
@@ -151,10 +156,12 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
         tipo: r.tipo,
         label: r.label,
         es_laborable: r.es_laborable === true,
+        prioridad: 2,
       };
 
       dayMap[dia].es_laborable = r.es_laborable === true;
     }
+    console.log("DAYMAP", dia, dayMap[dia]);
 
     // 2) Festivos ES
     const festivos = await sql`
@@ -176,6 +183,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
 
       dayMap[dia].es_laborable = false;
     }
+    console.log("DAYMAP", dia, dayMap[dia]);
 
     // 3) Ausencias
     const ausencias = await sql`
@@ -188,8 +196,8 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
     `;
 
     for (const a of ausencias) {
-      let cur = new Date(a.fecha_inicio);
-      const end = new Date(a.fecha_fin);
+      let cur = new Date(a.fecha_inicio + "T00:00:00");
+      const end = new Date(a.fecha_fin + "T00:00:00");
 
       while (cur <= end) {
         const ymd = cur.toISOString().split("T")[0];
@@ -205,6 +213,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
         cur.setDate(cur.getDate() + 1);
       }
     }
+    console.log("DAYMAP", dia, dayMap[dia]);
 
     // 4) Jornadas
     const jornadas = await sql`
@@ -222,7 +231,13 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
     for (const j of jornadas) {
       const dia = toYMD(j.dia);
       if (!dayMap[dia]) continue;
-      if (dayMap[dia].ausencia) continue;
+      if (
+        dayMap[dia].ausencia ||
+        dayMap[dia].empresa ||
+        dayMap[dia].festivo_es
+      ) {
+        continue;
+      }
 
       const trabajado = Number(j.minutos_trabajados || 0);
       const comida = Number(j.minutos_comida || 0);
@@ -230,6 +245,12 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
 
       dayMap[dia].minutos_trabajados = neto;
       dayMap[dia].jornada_estado = j.estado || null;
+    }
+
+    for (const d of Object.values(dayMap)) {
+      if (d.ausencia || d.empresa || d.festivo_es) {
+        d.minutos_trabajados = null;
+      }
     }
 
     const eventos = [];
