@@ -10,7 +10,7 @@ import {
 
 import { authRequired } from "../middlewares/authRequired.js";
 
-const router = Router();
+const router = express.Router();
 
 router.post("/register", register);
 router.post("/login", login);
