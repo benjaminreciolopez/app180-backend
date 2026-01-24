@@ -127,6 +127,19 @@ export async function crearCliente(req, res) {
   if (!finalCodigo) {
     finalCodigo = await generarCodigoCliente(empresaId);
   }
+  if (finalCodigo) {
+    const existe = await sql`
+    select 1
+    from clients_180
+    where empresa_id=${empresaId}
+      and codigo=${finalCodigo}
+    limit 1
+  `;
+
+    if (existe[0]) {
+      return res.status(400).json({ error: "Código duplicado" });
+    }
+  }
 
   const r = await sql`
     insert into clients_180 (
