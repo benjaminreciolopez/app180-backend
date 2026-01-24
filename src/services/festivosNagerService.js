@@ -90,24 +90,22 @@ export async function upsertFestivosES(rows) {
     }
   }
 
-  const values = rows.map(
+  const selects = rows.map(
     (r) => sql`
-    (
-      ${r.fecha},
-      ${r.nombre},
-      ${r.ambito},
-      ${r.comunidad},
-      ${r.provincia},
-      ${r.municipio}
-    )
-  `,
+      SELECT
+        ${r.fecha}     AS fecha,
+        ${r.nombre}    AS nombre,
+        ${r.ambito}    AS ambito,
+        ${r.comunidad} AS comunidad,
+        ${r.provincia} AS provincia,
+        ${r.municipio} AS municipio
+    `,
   );
 
   await sql`
     INSERT INTO festivos_es_180
       (fecha, nombre, ambito, comunidad, provincia, municipio)
-    VALUES
-      ${sql.join(values, sql`, `)}
+    ${sql(selects)}
     ON CONFLICT (fecha) DO UPDATE SET
       nombre = EXCLUDED.nombre,
       ambito = EXCLUDED.ambito,
