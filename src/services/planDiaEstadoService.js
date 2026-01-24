@@ -368,16 +368,30 @@ export async function getPlanDiaEstado({
     accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
   }
 
-  // Si ya terminó la jornada
+  // Si el último fichaje fue salida, puede haber reentrada
   if (!accion) {
-    return {
-      fecha: ymd,
-      boton_visible: false,
-      motivo_oculto: "jornada_finalizada",
-      plan,
-      margen_antes: MARGEN_ANTES_MIN,
-      margen_despues: MARGEN_DESPUES_MIN,
-    };
+    const salidaObj = targets.salida ? timeStrToMin(targets.salida, TZ) : null;
+
+    const ahoraMin = getNowMinInTZ(now, TZ);
+
+    // Si aún estamos dentro del turno → permitir nueva entrada
+    if (
+      salidaObj != null &&
+      ahoraMin != null &&
+      ahoraMin < salidaObj + MARGEN_DESPUES_MIN
+    ) {
+      accion = "entrada";
+    } else {
+      // Turno realmente finalizado
+      return {
+        fecha: ymd,
+        boton_visible: false,
+        motivo_oculto: "jornada_finalizada",
+        plan,
+        margen_antes: MARGEN_ANTES_MIN,
+        margen_despues: MARGEN_DESPUES_MIN,
+      };
+    }
   }
 
   const objetivoHHMM =
