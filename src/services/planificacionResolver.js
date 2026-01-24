@@ -34,9 +34,17 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       AND a.fecha_inicio <= ${fecha}::date
       AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${fecha}::date)
 
-    ORDER BY a.fecha_inicio DESC
+    ORDER BY 
+      a.activo DESC,
+      a.fecha_inicio DESC
     LIMIT 1
   `;
+  if (asig.length > 1) {
+    console.warn(
+      "[resolverPlanDia] múltiples asignaciones activas:",
+      asig.map((a) => a.id),
+    );
+  }
 
   if (!asig.length) {
     return {
