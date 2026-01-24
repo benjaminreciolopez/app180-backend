@@ -94,10 +94,13 @@ function toYMD(fecha, tz = TZ) {
 }
 
 function isDiaLaboral(plan) {
+  if (!plan) return false;
+
+  if (plan?.rango?.inicio && plan?.rango?.fin) return true;
+
   const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
-  const hayTrabajo = bloques.some((b) => b.tipo === "trabajo");
-  const hayRango = !!(plan?.rango?.inicio && plan?.rango?.fin);
-  return hayTrabajo || hayRango;
+
+  return bloques.some((b) => b.tipo === "trabajo" && b.inicio && b.fin);
 }
 
 function pickTargetsFromPlan(plan) {
@@ -285,6 +288,25 @@ export async function getPlanDiaEstado({
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
+
+  // 🔧 Normalizar bloques ANTES de evaluar si es laboral
+  if (Array.isArray(plan?.bloques)) {
+    plan.bloques = plan.bloques
+      .map((b) => {
+        const inicio = b.inicio || b.hora_inicio || null;
+        const fin = b.fin || b.hora_fin || null;
+
+        // Mapear pausa/comida → descanso
+        const tipoNorm =
+          b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo;
+
+        return { ...b, inicio, fin, tipo: tipoNorm };
+      })
+      .sort((a, b) =>
+        String(a.inicio || "").localeCompare(String(b.inicio || "")),
+      );
+  }
+
   // 2.1) Cliente asignado (work context / geocerca)
   const asigCliente = await sql`
     SELECT
@@ -323,26 +345,8 @@ export async function getPlanDiaEstado({
     eventoCal.tipo === "laborable_extra" &&
     eventoCal.es_laborable === true;
 
+  // ✅ AHORA sí: bloques ya existen
   const es_laboral = fuerzaLaboral ? true : isDiaLaboral(plan);
-
-  // Normalización de bloques
-  // Normalización de bloques (correcta)
-  if (Array.isArray(plan?.bloques)) {
-    plan.bloques = plan.bloques
-      .map((b) => {
-        const inicio = b.inicio || b.hora_inicio || null;
-        const fin = b.fin || b.hora_fin || null;
-
-        // Mapear pausa/comida → descanso
-        const tipoNorm =
-          b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo;
-
-        return { ...b, inicio, fin, tipo: tipoNorm };
-      })
-      .sort((a, b) =>
-        String(a.inicio || "").localeCompare(String(b.inicio || "")),
-      );
-  }
 
   if (!es_laboral) {
     return {
@@ -362,7 +366,6 @@ export async function getPlanDiaEstado({
         : null,
     };
   }
-
   // 3) Fichajes del día
   const fichajes = await sql`
     SELECT tipo, fecha
