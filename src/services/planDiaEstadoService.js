@@ -94,13 +94,10 @@ function toYMD(fecha, tz = TZ) {
 }
 
 function isDiaLaboral(plan) {
-  if (!plan) return false;
-
-  if (plan?.rango?.inicio && plan?.rango?.fin) return true;
-
   const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
-
-  return bloques.some((b) => b.tipo === "trabajo" && b.inicio && b.fin);
+  const hayTrabajo = bloques.some((b) => b.tipo === "trabajo");
+  const hayRango = !!(plan?.rango?.inicio && plan?.rango?.fin);
+  return hayTrabajo || hayRango;
 }
 
 function pickTargetsFromPlan(plan) {
