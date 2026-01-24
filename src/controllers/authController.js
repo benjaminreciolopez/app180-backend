@@ -7,19 +7,25 @@ import crypto from "crypto";
 import { sendEmail } from "../services/emailService.js";
 
 export const registerFirstAdmin = async (req, res) => {
+  const trx = await sql.begin();
+
   try {
     const { email, password, nombre, empresa_nombre } = req.body;
 
     if (!email || !password || !nombre || !empresa_nombre) {
+      await trx.rollback();
       return res.status(400).json({ error: "Faltan datos" });
     }
 
-    // ¿Sistema inicializado?
-    const check = await sql`
-      SELECT COUNT(*)::int AS total FROM empresa_180
+    // Lock para evitar doble setup concurrente
+    const check = await trx`
+      SELECT COUNT(*)::int AS total
+      FROM empresa_180
+      FOR UPDATE
     `;
 
     if (check[0].total > 0) {
+      await trx.rollback();
       return res.status(403).json({
         error: "Sistema ya inicializado",
       });
@@ -28,7 +34,7 @@ export const registerFirstAdmin = async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
 
     // Crear admin
-    const user = await sql`
+    const user = await trx`
       INSERT INTO users_180 (
         email,
         password,
@@ -49,7 +55,7 @@ export const registerFirstAdmin = async (req, res) => {
     const userId = user[0].id;
 
     // Crear empresa
-    const empresa = await sql`
+    const empresa = await trx`
       INSERT INTO empresa_180 (user_id, nombre)
       VALUES (${userId}, ${empresa_nombre})
       RETURNING id
@@ -58,16 +64,30 @@ export const registerFirstAdmin = async (req, res) => {
     const empresaId = empresa[0].id;
 
     // Asociar empresa
-    await sql`
+    await trx`
       UPDATE users_180
       SET empresa_id = ${empresaId}
       WHERE id = ${userId}
     `;
 
+    await trx.commit();
+
     return res.json({ success: true });
   } catch (e) {
-    console.error("❌ registerFirstAdmin", e);
-    res.status(500).json({ error: "Error inicializando sistema" });
+    await trx.rollback();
+
+    console.error("❌ registerFirstAdmin FULL:", {
+      message: e.message,
+      code: e.code,
+      detail: e.detail,
+      constraint: e.constraint,
+      stack: e.stack,
+    });
+
+    return res.status(500).json({
+      error: "Error inicializando sistema",
+      message: e.message,
+    });
   }
 };
 
