@@ -1,6 +1,7 @@
 // backend/src/services/jornadasService.js
 import { sql } from "../db.js";
 import { resolverPlanDia } from "./planificacionResolver.js";
+import { getWorkContext } from "./workContextService.js";
 
 function ymdFromDate(d, tz = "Europe/Madrid") {
   const fmt = new Intl.DateTimeFormat("en-CA", {
@@ -30,10 +31,17 @@ export async function obtenerJornadaAbierta(empleadoId) {
 export async function crearJornada({
   empresaId,
   empleadoId,
+  clienteId,
   inicio,
   incidencia,
 }) {
   const fecha = ymdFromDate(inicio);
+
+  const contexto = await getWorkContext({
+    empresaId,
+    clienteId,
+    fecha,
+  });
 
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha });
 
@@ -44,6 +52,10 @@ export async function crearJornada({
     fecha,
 
     plan, // snapshot planificación
+
+    cliente: contexto.cliente,
+    tarifas: contexto.tarifas,
+    trabajos: contexto.trabajos,
 
     real: null,
 

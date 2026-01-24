@@ -1,8 +1,11 @@
+// backend/src/services/fichajeEngine.js
+
 import { validarFichajeSegunTurno } from "./fichajesValidacionService.js";
 import { detectarFichajeSospechoso } from "./fichajeSospechoso.js";
 import { getPlanDiaEstado } from "./planDiaEstadoService.js";
 import { getYMDMadrid } from "../utils/dateMadrid.js";
 import { validarFichajeGeo } from "./geoValidator.js";
+import { getWorkContext } from "./workContextService.js";
 
 export async function evaluarFichaje(ctx) {
   const {
@@ -21,6 +24,7 @@ export async function evaluarFichaje(ctx) {
     reqIp,
   } = ctx;
 
+  // Resultado base (debe existir antes de cualquier try/catch)
   const result = {
     permitido: true,
     bloqueado: false,
@@ -35,30 +39,52 @@ export async function evaluarFichaje(ctx) {
     ipInfo: null,
   };
 
+  /* =========================
+     Work context
+  ========================= */
+
+  let contexto = null;
+
+  if (cliente?.id) {
+    try {
+      contexto = await getWorkContext({
+        empresaId,
+        clienteId: cliente.id,
+        fecha: getYMDMadrid(fechaHora),
+      });
+    } catch {
+      result.permitido = false;
+      result.bloqueado = true;
+      result.errores.push("Cliente no válido");
+      return result;
+    }
+  }
+
   /* =====================================================
-     1. Reglas por modo_trabajo
+     1. Modo orientativo del cliente (no bloqueante)
   ===================================================== */
 
-  if (cliente) {
-    switch (cliente.modo_trabajo) {
+  if (contexto?.cliente?.modo_defecto) {
+    switch (contexto.cliente.modo_defecto) {
       case "mes":
         if (tipo !== "entrada") {
-          result.bloqueado = true;
-          result.permitido = false;
-          result.errores.push(
-            "Modo mensual: solo se permite fichaje de entrada",
-          );
+          result.incidencias.push("Modo mensual: fichaje distinto de entrada");
         }
         break;
 
       case "dia":
         if (tipo !== "entrada") {
-          result.incidencias.push("Modo día: fichaje no principal");
+          result.incidencias.push("Modo diario: fichaje distinto de entrada");
         }
         break;
 
-      case "precio_fijo":
-        result.incidencias.push("Proyecto a precio fijo");
+      case "trabajo":
+        result.incidencias.push("Cliente orientado a trabajos");
+        break;
+
+      case "mixto":
+      default:
+        // No avisamos
         break;
     }
   }
@@ -128,9 +154,9 @@ export async function evaluarFichaje(ctx) {
     empleadoLng: gpsOk ? lngNum : null,
     accuracy,
 
-    clienteLat: cliente?.lat ?? null,
-    clienteLng: cliente?.lng ?? null,
-    radio: cliente?.radio_m ?? null,
+    clienteLat: contexto?.cliente?.lat ?? null,
+    clienteLng: contexto?.cliente?.lng ?? null,
+    radio: contexto?.cliente?.radio ?? null,
 
     ip: reqIp,
   });
@@ -142,11 +168,11 @@ export async function evaluarFichaje(ctx) {
   ) {
     result.geo = {
       distancia: geoCheck.distancia,
-      accuracy,
-      direccion: geoCheck.direccion,
+      accuracy: accuracy ?? null,
+      direccion: geoCheck.direccion ?? null,
       dentro_radio:
-        geoCheck.distancia != null && cliente?.radio_m != null
-          ? geoCheck.distancia <= cliente.radio_m
+        geoCheck.distancia != null && contexto?.cliente?.radio != null
+          ? geoCheck.distancia <= contexto.cliente.radio
           : null,
     };
   }
@@ -157,13 +183,22 @@ export async function evaluarFichaje(ctx) {
 
   if (geoCheck.sospechoso) {
     result.sospechoso = true;
-    result.razones.push(...geoCheck.motivos);
+    result.razones.push(...(geoCheck.motivos || []));
   }
 
   if (!geoCheck.permitido) {
-    result.bloqueado = true;
-    result.permitido = false;
-    result.errores.push("Fuera del área autorizada");
+    const policy = contexto?.cliente?.geo_policy || "strict";
+
+    if (policy === "strict") {
+      result.bloqueado = true;
+      result.permitido = false;
+      result.errores.push("Fuera del área autorizada");
+    } else if (policy === "soft") {
+      result.incidencias.push("Fuera del área recomendada");
+    } else {
+      // info: no bloquea, solo informa
+      result.incidencias.push("Ubicación fuera del área (informativo)");
+    }
   }
 
   /* =====================================================
@@ -177,7 +212,7 @@ export async function evaluarFichaje(ctx) {
     tipo,
     lat,
     lng,
-    clienteId: cliente?.id,
+    clienteId: cliente?.id ?? null,
     reqIp,
   });
 
@@ -194,7 +229,7 @@ export async function evaluarFichaje(ctx) {
      7. Precisión GPS
   ===================================================== */
 
-  if (accuracy && accuracy > 100) {
+  if (accuracy && Number(accuracy) > 100) {
     result.incidencias.push("GPS con baja precisión");
   }
 

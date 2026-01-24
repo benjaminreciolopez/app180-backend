@@ -1,3 +1,5 @@
+// backend/src/controllers/clientesController.js
+
 import { sql } from "../db.js";
 
 /* =========================
@@ -18,24 +20,6 @@ async function getEmpresaId(userId) {
 }
 function n(v) {
   return v === undefined ? null : v;
-}
-
-function validarModoPrecio(modo, body) {
-  switch (modo) {
-    case "hora":
-      if (body.precio_hora == null) throw new Error("precio_hora requerido");
-      break;
-    case "dia":
-      if (body.precio_dia == null) throw new Error("precio_dia requerido");
-      break;
-    case "mes":
-      if (body.precio_mes == null) throw new Error("precio_mes requerido");
-      break;
-    case "precio_fijo":
-      if (body.precio_trabajo == null)
-        throw new Error("precio_trabajo requerido");
-      break;
-  }
 }
 
 /* =========================
@@ -83,17 +67,13 @@ export async function crearCliente(req, res) {
     nombre,
     codigo,
     tipo = "cliente",
+
     direccion,
     telefono,
     contacto_nombre,
     contacto_email,
 
-    modo_trabajo,
-
-    precio_hora,
-    precio_dia,
-    precio_mes,
-    precio_trabajo,
+    modo_defecto = "mixto",
 
     lat,
     lng,
@@ -106,60 +86,75 @@ export async function crearCliente(req, res) {
     notas,
   } = req.body;
 
-  if (!nombre || !modo_trabajo)
-    return res.status(400).json({ error: "Datos incompletos" });
+  if (!nombre) return res.status(400).json({ error: "Nombre requerido" });
 
-  validarModoPrecio(modo_trabajo, req.body);
+  const modosValidos = ["hora", "dia", "mes", "trabajo", "mixto"];
+
+  if (!modosValidos.includes(modo_defecto)) {
+    return res.status(400).json({ error: "Modo inválido" });
+  }
+
+  if (radio_m != null && Number(radio_m) <= 0) {
+    return res.status(400).json({ error: "Radio inválido" });
+  }
+
+  if (lat != null && (Number(lat) < -90 || Number(lat) > 90)) {
+    return res.status(400).json({ error: "Lat inválida" });
+  }
+
+  if (lng != null && (Number(lng) < -180 || Number(lng) > 180)) {
+    return res.status(400).json({ error: "Lng inválida" });
+  }
 
   const r = await sql`
     insert into clients_180 (
-        empresa_id,
-        nombre,
-        codigo,
-        tipo,
+      empresa_id,
+      nombre,
+      codigo,
+      tipo,
 
-        direccion,
-        telefono,
-        contacto_nombre,
-        contacto_email,
+      direccion,
+      telefono,
+      contacto_nombre,
+      contacto_email,
 
-        modo_trabajo,
-        precio_hora,
-        precio_dia,
-        precio_mes,
-        precio_trabajo,
+      modo_defecto,
 
-        lat,lng,radio_m,requiere_geo,
+      lat,
+      lng,
+      radio_m,
+      requiere_geo,
 
-        fecha_inicio,fecha_fin,
+      fecha_inicio,
+      fecha_fin,
 
-        notas
+      notas
     )
     values (
-        ${empresaId},
-        ${nombre},
-        ${n(codigo)},
-        ${tipo},
+      ${empresaId},
+      ${nombre},
+      ${n(codigo)},
+      ${tipo},
 
-        ${n(direccion)},
-        ${n(telefono)},
-        ${n(contacto_nombre)},
-        ${n(contacto_email)},
+      ${n(direccion)},
+      ${n(telefono)},
+      ${n(contacto_nombre)},
+      ${n(contacto_email)},
 
-        ${modo_trabajo},
-        ${n(precio_hora)},
-        ${n(precio_dia)},
-        ${n(precio_mes)},
-        ${n(precio_trabajo)},
+      ${modo_defecto},
 
-        ${n(lat)},${n(lng)},${n(radio_m)},${requiere_geo},
+      ${n(lat)},
+      ${n(lng)},
+      ${n(radio_m)},
+      ${requiere_geo},
 
-        ${n(fecha_inicio)},${n(fecha_fin)},
+      ${n(fecha_inicio)},
+      ${n(fecha_fin)},
 
-        ${n(notas)}
+      ${n(notas)}
     )
     returning *
-    `;
+  `;
 
   res.status(201).json(r[0]);
 }
@@ -170,7 +165,59 @@ export async function actualizarCliente(req, res) {
   const empresaId = await getEmpresaId(req.user.id);
   const { id } = req.params;
 
-  const fields = req.body;
+  const body = req.body;
+
+  const allowed = [
+    "nombre",
+    "codigo",
+    "tipo",
+
+    "direccion",
+    "telefono",
+    "contacto_nombre",
+    "contacto_email",
+
+    "modo_defecto",
+
+    "lat",
+    "lng",
+    "radio_m",
+    "requiere_geo",
+
+    "fecha_inicio",
+    "fecha_fin",
+
+    "notas",
+    "activo",
+    "geo_policy",
+
+    // fiscal
+    "razon_social",
+    "nif_cif",
+    "tipo_fiscal",
+    "pais",
+    "provincia",
+    "codigo_postal",
+    "direccion_fiscal",
+    "municipio",
+    "email_factura",
+    "telefono_factura",
+    "persona_contacto",
+    "iva_defecto",
+    "exento_iva",
+    "forma_pago",
+    "iban",
+  ];
+
+  const fields = {};
+
+  for (const k of allowed) {
+    if (k in body) fields[k] = body[k];
+  }
+
+  if (Object.keys(fields).length === 0) {
+    return res.status(400).json({ error: "Sin campos válidos" });
+  }
 
   const r = await sql`
     update clients_180
