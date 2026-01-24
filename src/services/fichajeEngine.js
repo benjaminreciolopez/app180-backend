@@ -1,11 +1,8 @@
-// services/fichajeEngine.js
-
 import { validarFichajeSegunTurno } from "./fichajesValidacionService.js";
 import { detectarFichajeSospechoso } from "./fichajeSospechoso.js";
-import { distanciaMetros } from "../utils/distancia.js";
-import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { getPlanDiaEstado } from "./planDiaEstadoService.js";
 import { getYMDMadrid } from "../utils/dateMadrid.js";
+import { validarFichajeGeo } from "./geoValidator.js";
 
 export async function evaluarFichaje(ctx) {
   const {
@@ -86,8 +83,8 @@ export async function evaluarFichaje(ctx) {
   }
 
   /* =====================================================
-   3. Planificación
-===================================================== */
+     3. Planificación
+  ===================================================== */
 
   const fechaYMD = getYMDMadrid(fechaHora);
 
@@ -108,7 +105,7 @@ export async function evaluarFichaje(ctx) {
   }
 
   /* =====================================================
-     4. Geolocalización
+     4. Normalizar GPS
   ===================================================== */
 
   const latNum = Number(lat);
@@ -122,62 +119,55 @@ export async function evaluarFichaje(ctx) {
     lngNum >= -180 &&
     lngNum <= 180;
 
-  if (cliente?.requiere_geo) {
-    if (!gpsOk) {
-      result.sospechoso = true;
-      result.razones.push("GPS inválido o ausente");
-    } else if (
-      cliente.lat != null &&
-      cliente.lng != null &&
-      cliente.radio_m != null
-    ) {
-      const dist = distanciaMetros(
-        latNum,
-        lngNum,
-        Number(cliente.lat),
-        Number(cliente.lng),
-      );
-
-      const dentro = dist <= Number(cliente.radio_m);
-
-      result.geo = {
-        distancia: Math.round(dist),
-        dentro_radio: dentro,
-        accuracy: accuracy || null,
-        direccion: null,
-      };
-
-      if (!dentro) {
-        result.sospechoso = true;
-        result.razones.push(`Fuera de radio cliente (${Math.round(dist)}m)`);
-
-        // Bloqueo duro solo en modo hora
-        if (cliente.modo_trabajo === "hora") {
-          result.bloqueado = true;
-          result.permitido = false;
-          result.errores.push("Fuera del área autorizada");
-        }
-      }
-    }
-  }
-
   /* =====================================================
-     5. Dirección legible
+     5. Geolocalización unificada
   ===================================================== */
 
-  if (gpsOk) {
-    const geoTxt = await reverseGeocode({
-      lat: latNum,
-      lng: lngNum,
-    });
+  const geoCheck = await validarFichajeGeo({
+    empleadoLat: gpsOk ? latNum : null,
+    empleadoLng: gpsOk ? lngNum : null,
+    accuracy,
 
-    if (geoTxt && result.geo) {
-      result.geo.direccion = geoTxt;
-    }
+    clienteLat: cliente?.lat ?? null,
+    clienteLng: cliente?.lng ?? null,
+    radio: cliente?.radio_m ?? null,
+
+    ip: reqIp,
+  });
+
+  if (
+    geoCheck.distancia != null ||
+    geoCheck.direccion != null ||
+    accuracy != null
+  ) {
+    result.geo = {
+      distancia: geoCheck.distancia,
+      accuracy,
+      direccion: geoCheck.direccion,
+      dentro_radio:
+        geoCheck.distancia != null && cliente?.radio_m != null
+          ? geoCheck.distancia <= cliente.radio_m
+          : null,
+    };
+  }
+
+  if (geoCheck.ipInfo) {
+    result.ipInfo = geoCheck.ipInfo;
+  }
+
+  if (geoCheck.sospechoso) {
+    result.sospechoso = true;
+    result.razones.push(...geoCheck.motivos);
+  }
+
+  if (!geoCheck.permitido) {
+    result.bloqueado = true;
+    result.permitido = false;
+    result.errores.push("Fuera del área autorizada");
   }
 
   /* =====================================================
-     6. Sospecha avanzada (IP, patrones, etc.)
+     6. Sospecha avanzada
   ===================================================== */
 
   const sospecha = await detectarFichajeSospechoso({
@@ -194,7 +184,10 @@ export async function evaluarFichaje(ctx) {
   if (sospecha?.sospechoso) {
     result.sospechoso = true;
     result.razones.push(...(sospecha.razones || []));
-    result.ipInfo = sospecha.ipInfo || null;
+
+    if (!result.ipInfo && sospecha.ipInfo) {
+      result.ipInfo = sospecha.ipInfo;
+    }
   }
 
   /* =====================================================

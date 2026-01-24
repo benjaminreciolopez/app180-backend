@@ -8,11 +8,11 @@ import {
   cerrarJornada,
 } from "../services/jornadasService.js";
 import { syncDailyReport } from "../services/dailyReportService.js";
-import { reverseGeocode } from "../utils/reverseGeocode.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
 import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 import { evaluarFichaje } from "../services/fichajeEngine.js";
 import { getYMDMadrid } from "../utils/dateMadrid.js";
+import { getClientIp } from "../utils/clientIp.js";
 
 export const createFichaje = async (req, res) => {
   try {
@@ -81,9 +81,6 @@ export const createFichaje = async (req, res) => {
     ========================= */
 
     const fechaYMD = getYMDMadrid(fechaHora);
-
-    console.log("[FICHAJE] fechaHora:", fechaHora);
-    console.log("[FICHAJE] fechaYMD:", fechaYMD);
 
     const estadoPlan = await getPlanDiaEstado({
       empresaId,
@@ -158,6 +155,7 @@ export const createFichaje = async (req, res) => {
     /* =========================
        9. Motor central
     ========================= */
+    const clientIp = getClientIp(req);
 
     const evalResult = await evaluarFichaje({
       userId: req.user.id,
@@ -168,7 +166,7 @@ export const createFichaje = async (req, res) => {
       lat,
       lng,
       empresaId,
-      reqIp: req.ip,
+      reqIp: clientIp,
     });
 
     if (!evalResult.permitido) {
@@ -176,34 +174,6 @@ export const createFichaje = async (req, res) => {
         error: "Fichaje no permitido",
         detalles: evalResult.errores,
       });
-    }
-
-    /* =========================
-       10. Reverse geocode
-    ========================= */
-
-    let direccion = null;
-    let ciudad = null;
-    let pais = null;
-
-    const latNum = Number(lat);
-    const lngNum = Number(lng);
-
-    if (
-      Number.isFinite(latNum) &&
-      Number.isFinite(lngNum) &&
-      latNum >= -90 &&
-      latNum <= 90 &&
-      lngNum >= -180 &&
-      lngNum <= 180
-    ) {
-      const geo = await reverseGeocode({ lat: latNum, lng: lngNum });
-
-      if (geo) {
-        direccion = geo.direccion;
-        ciudad = geo.ciudad;
-        pais = geo.pais;
-      }
     }
 
     /* =========================
