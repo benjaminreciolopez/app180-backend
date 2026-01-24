@@ -687,22 +687,13 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // =========================
       // Cerrar asignación activa si existe
       // =========================
-      const activa = await tx`
-        select id
-        from empleado_plantillas_180
+      // Cerrar TODAS las asignaciones abiertas
+      await tx`
+        update empleado_plantillas_180
+        set fecha_fin = (${hoy}::date - interval '1 day')
         where empleado_id = ${empleado_id}
-          and cliente_id = ${cliente_id}
           and fecha_fin is null
-        limit 1
       `;
-
-      if (activa.length) {
-        await tx`
-          update empleado_plantillas_180
-          set fecha_fin = (${hoy}::date - interval '1 day')
-          where id = ${activa[0].id}
-        `;
-      }
 
       // =========================
       // Insertar nueva asignación (empieza HOY)
@@ -770,6 +761,11 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     res.json(out);
   } catch (err) {
     handleErr(res, err, "asignarPlantillaEmpleado");
+  }
+  if (err?.code === "23P01") {
+    return res.status(409).json({
+      error: "Ya existe una asignación activa en ese rango",
+    });
   }
 };
 
