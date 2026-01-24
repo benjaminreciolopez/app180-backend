@@ -13,6 +13,7 @@ export const authRequired = async (req, res, next) => {
   // ==========================
   // 🌐 RUTAS PÚBLICAS
   // ==========================
+  const bootstrapRoutes = ["/auth/register-admin", "/system/status"];
 
   const publicRegex = [
     /^\/manifest\.json$/,
@@ -25,6 +26,10 @@ export const authRequired = async (req, res, next) => {
   ];
 
   const path = req.originalUrl.split("?")[0];
+
+  if (bootstrapRoutes.some((r) => path.startsWith(r))) {
+    return next();
+  }
 
   if (publicRegex.some((r) => r.test(path))) {
     return next();

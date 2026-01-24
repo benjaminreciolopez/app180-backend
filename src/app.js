@@ -33,6 +33,8 @@ import adminCalendarioOCRRoutes from "./routes/adminCalendarioOCRRoutes.js";
 import adminCalendarioImportacionesRoutes from "./routes/adminCalendarioImportacionesRoutes.js";
 import adminclientesroutes from "./routes/adminClientesRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
+import systemRoutes from "./routes/systemRoutes.js";
+
 const app = express();
 
 // =========================
@@ -74,6 +76,7 @@ app.use(express.json());
 app.get("/", (req, res) => res.send("API APP180 funcionando"));
 
 app.use("/auth", authRoutes);
+app.use("/system", systemRoutes);
 
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);

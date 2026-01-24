@@ -6,40 +6,80 @@ import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
 import crypto from "crypto";
 import { sendEmail } from "../services/emailService.js";
 
+export const registerFirstAdmin = async (req, res) => {
+  try {
+    const { email, password, nombre, empresa_nombre } = req.body;
+
+    if (!email || !password || !nombre || !empresa_nombre) {
+      return res.status(400).json({ error: "Faltan datos" });
+    }
+
+    // ¿Sistema inicializado?
+    const check = await sql`
+      SELECT COUNT(*)::int AS total FROM empresa_180
+    `;
+
+    if (check[0].total > 0) {
+      return res.status(403).json({
+        error: "Sistema ya inicializado",
+      });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+
+    // Crear admin
+    const user = await sql`
+      INSERT INTO users_180 (
+        email,
+        password,
+        nombre,
+        role,
+        password_forced
+      )
+      VALUES (
+        ${email},
+        ${hash},
+        ${nombre},
+        'admin',
+        false
+      )
+      RETURNING id
+    `;
+
+    const userId = user[0].id;
+
+    // Crear empresa
+    const empresa = await sql`
+      INSERT INTO empresa_180 (user_id, nombre)
+      VALUES (${userId}, ${empresa_nombre})
+      RETURNING id
+    `;
+
+    const empresaId = empresa[0].id;
+
+    // Asociar empresa
+    await sql`
+      UPDATE users_180
+      SET empresa_id = ${empresaId}
+      WHERE id = ${userId}
+    `;
+
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("❌ registerFirstAdmin", e);
+    res.status(500).json({ error: "Error inicializando sistema" });
+  }
+};
+
 // =====================
 // REGISTRO DE USUARIO
 // =====================
 export const register = async (req, res) => {
-  try {
-    const { email, password, nombre, role } = req.body;
-
-    if (!email || !password || !nombre || !role) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
-    }
-
-    const hashed = await bcrypt.hash(password, 10);
-
-    const result = await sql`
-      INSERT INTO users_180 (email, password, nombre, role)
-      VALUES (${email}, ${hashed}, ${nombre}, ${role})
-      RETURNING id, email, nombre, role
-    `;
-
-    const user = result[0];
-
-    if (role === "admin") {
-      await sql`
-        INSERT INTO empresa_180 (user_id, nombre)
-        VALUES (${user.id}, ${nombre})
-      `;
-    }
-
-    return res.json({ success: true, user });
-  } catch (err) {
-    console.error("Error en register:", err);
-    return res.status(500).json({ error: "Error al registrar usuario" });
-  }
+  return res.status(403).json({
+    error: "Registro público deshabilitado",
+  });
 };
+
 // GET /empleado/device-hash
 export const getDeviceHash = async (req, res) => {
   try {
