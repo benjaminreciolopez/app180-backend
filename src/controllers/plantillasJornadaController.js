@@ -821,3 +821,135 @@ export const getPlanDiaEmpleado = async (req, res) => {
     handleErr(res, err, "getPlanDiaEmpleado");
   }
 };
+export const replicarDiaSemana = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
+
+    const { dia_origen, dias_destino, sobrescribir = true } = req.body || {};
+
+    const origen = toIntOrThrow(dia_origen, "dia_origen");
+
+    if (!Array.isArray(dias_destino) || dias_destino.length === 0) {
+      return res.status(400).json({
+        error: "dias_destino debe ser un array no vacío",
+      });
+    }
+
+    const destinos = dias_destino.map((d) => toIntOrThrow(d, "dia_destino"));
+
+    if (origen < 1 || origen > 7) {
+      return res.status(400).json({ error: "dia_origen inválido (1-7)" });
+    }
+
+    for (const d of destinos) {
+      if (d < 1 || d > 7) {
+        return res.status(400).json({ error: "dia_destino inválido (1-7)" });
+      }
+    }
+
+    const out = await sql.begin(async (tx) => {
+      // Validar plantilla
+      await assertPlantillaEmpresa(tx, id, empresaId);
+
+      // Obtener día origen
+      const [diaBase] = await tx`
+        SELECT id
+        FROM plantilla_dias_180
+        WHERE plantilla_id=${id}
+          AND dia_semana=${origen}
+        LIMIT 1
+      `;
+
+      if (!diaBase) {
+        const err = new Error("Día origen sin configuración");
+        err.status = 400;
+        throw err;
+      }
+
+      // Bloques del origen
+      const bloques = await tx`
+        SELECT tipo, hora_inicio, hora_fin, obligatorio
+        FROM plantilla_bloques_180
+        WHERE plantilla_dia_id=${diaBase.id}
+        ORDER BY hora_inicio
+      `;
+
+      if (!bloques.length) {
+        const err = new Error("El día origen no tiene bloques");
+        err.status = 400;
+        throw err;
+      }
+
+      const copiados = [];
+
+      for (const dia of destinos) {
+        // Crear / obtener día destino
+        const [dest] = await tx`
+          INSERT INTO plantilla_dias_180
+            (plantilla_id, dia_semana, hora_inicio, hora_fin, activo)
+          SELECT
+            plantilla_id,
+            ${dia},
+            hora_inicio,
+            hora_fin,
+            activo
+          FROM plantilla_dias_180
+          WHERE id=${diaBase.id}
+          ON CONFLICT (plantilla_id, dia_semana)
+          DO UPDATE SET
+            hora_inicio = EXCLUDED.hora_inicio,
+            hora_fin = EXCLUDED.hora_fin,
+            activo = EXCLUDED.activo
+          RETURNING id
+        `;
+
+        if (sobrescribir) {
+          await tx`
+            DELETE FROM plantilla_bloques_180
+            WHERE plantilla_dia_id=${dest.id}
+          `;
+        }
+
+        // Si no sobrescribe y ya hay bloques → saltar
+        if (!sobrescribir) {
+          const [{ count }] = await tx`
+            SELECT COUNT(*)::int AS count
+            FROM plantilla_bloques_180
+            WHERE plantilla_dia_id=${dest.id}
+          `;
+
+          if (count > 0) continue;
+        }
+
+        // Copiar bloques
+        for (const b of bloques) {
+          await tx`
+            INSERT INTO plantilla_bloques_180
+              (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio)
+            VALUES
+              (
+                ${dest.id},
+                ${b.tipo},
+                ${b.hora_inicio},
+                ${b.hora_fin},
+                ${b.obligatorio}
+              )
+          `;
+        }
+
+        copiados.push(dia);
+      }
+
+      return { copiados };
+    });
+
+    res.json({
+      ok: true,
+      dia_origen: origen,
+      dias_destino: out.copiados,
+    });
+  } catch (err) {
+    handleErr(res, err, "replicarDiaSemana");
+  }
+};
