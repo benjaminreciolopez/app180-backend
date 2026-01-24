@@ -117,6 +117,19 @@ export const getDeviceHash = async (req, res) => {
 // src/controllers/authController.js
 
 export const login = async (req, res) => {
+  // ¿Sistema inicializado?
+  const check = await sql`
+    SELECT COUNT(*)::int AS total
+    FROM empresa_180
+  `;
+
+  if (check[0].total === 0) {
+    return res.status(409).json({
+      error: "Sistema no inicializado",
+      code: "BOOTSTRAP_REQUIRED",
+    });
+  }
+
   try {
     console.log("LOGIN desde frontend", req.body);
     const { email, password, device_hash, user_agent } = req.body;
