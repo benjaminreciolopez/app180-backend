@@ -57,6 +57,18 @@ export async function getClienteDetalle(req, res) {
 
   res.json(r[0]);
 }
+async function generarCodigoCliente(empresaId) {
+  const r = await sql`
+    update cliente_seq_180
+    set last_num = last_num + 1
+    where empresa_id = ${empresaId}
+    returning last_num
+  `;
+
+  const n = r[0].last_num;
+
+  return `CLI-${String(n).padStart(5, "0")}`;
+}
 
 /* ----------------------- */
 
@@ -104,6 +116,9 @@ export async function crearCliente(req, res) {
 
   if (lng != null && (Number(lng) < -180 || Number(lng) > 180)) {
     return res.status(400).json({ error: "Lng inválida" });
+  }
+  if (!body.codigo) {
+    body.codigo = await generarCodigoCliente(empresaId);
   }
 
   const r = await sql`
