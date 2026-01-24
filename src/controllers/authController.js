@@ -29,49 +29,35 @@ export const registerFirstAdmin = async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
 
     // 1️⃣ Crear usuario admin
-    const [user] = await sql`
-      INSERT INTO users_180 (
-        email,
-        password,
-        nombre,
-        role,
-        password_forced
-      )
-      VALUES (
-        ${email},
-        ${hash},
-        ${nombre},
-        'admin',
-        false
-      )
-      RETURNING id
-    `;
+    // Crear admin
+    const user = await sql`
+  INSERT INTO users_180 (
+    email,
+    password,
+    nombre,
+    role,
+    password_forced
+  )
+  VALUES (
+    ${email},
+    ${hash},
+    ${nombre},
+    'admin',
+    false
+  )
+  RETURNING id
+`;
 
-    // 2️⃣ Crear empresa
-    const [empresa] = await sql`
-      INSERT INTO empresa_180 (
-        user_id,
-        nombre
-      )
-      VALUES (
-        ${user.id},
-        ${empresa_nombre}
-      )
-      RETURNING id
-    `;
+    const userId = user[0].id;
 
-    // 3️⃣ Asociar empresa al usuario
-    await sql`
-      UPDATE users_180
-      SET empresa_id = ${empresa.id}
-      WHERE id = ${user.id}
-    `;
+    // Crear empresa (ya queda asociada por user_id)
+    const empresa = await sql`
+  INSERT INTO empresa_180 (user_id, nombre)
+  VALUES (${userId}, ${empresa_nombre})
+  RETURNING id
+`;
 
-    return res.json({
-      success: true,
-      user_id: user.id,
-      empresa_id: empresa.id,
-    });
+    return res.json({ success: true });
   } catch (e) {
     console.error("❌ registerFirstAdmin", e);
 
