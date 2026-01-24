@@ -79,14 +79,12 @@ export const authRequired = async (req, res, next) => {
     const isEmpleado = decoded.role === "empleado";
     const passwordForced = decoded.password_forced === true;
 
-    if (isEmpleado && passwordForced) {
-      const ruta = req.path;
+    const fullPath = req.originalUrl.split("?")[0];
 
+    if (isEmpleado && passwordForced) {
       const rutasPermitidas = ["/auth/change-password", "/auth/logout"];
 
-      const esRutaPermitida = rutasPermitidas.some((r) => ruta.startsWith(r));
-
-      if (!esRutaPermitida) {
+      if (!rutasPermitidas.some((r) => fullPath.startsWith(r))) {
         return res.status(403).json({
           error: "Debes cambiar tu contraseña antes de continuar",
           code: "PASSWORD_FORCED",
