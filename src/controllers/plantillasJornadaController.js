@@ -953,3 +953,30 @@ export const replicarDiaSemana = async (req, res) => {
     handleErr(res, err, "replicarDiaSemana");
   }
 };
+export async function resetDiaPlantilla(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    await sql.begin(async (tx) => {
+      // Desactivar rango
+      await tx`
+        UPDATE plantilla_dias_180
+        SET
+          hora_inicio = NULL,
+          hora_fin = NULL,
+          activo = false
+        WHERE id = ${id}
+      `;
+
+      // Borrar bloques
+      await tx`
+        DELETE FROM plantilla_bloques_180
+        WHERE plantilla_dia_id = ${id}
+      `;
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}

@@ -19,6 +19,7 @@ import {
   getBloquesDia,
   getBloquesExcepcion,
   replicarDiaSemana,
+  resetDiaPlantilla,
 } from "../controllers/plantillasJornadaController.js";
 
 const router = Router();
@@ -35,6 +36,14 @@ router.delete("/plantillas/:id", borrarPlantilla);
 router.put("/plantillas/:id/dias/:dia_semana", upsertDiaSemana);
 router.put("/plantillas/dias/:plantilla_dia_id/bloques", upsertBloquesDia);
 router.post("/plantillas/:id/replicar-dia-base", replicarDiaSemana);
+// cerca de los otros /dias
+router.put(
+  "/plantillas/dias/:id/reset",
+  authRequired,
+  roleRequired("admin"),
+  resetDiaPlantilla,
+);
+
 // excepciones por fecha
 router.put("/plantillas/:id/excepciones/:fecha", upsertExcepcionFecha); // fecha=YYYY-MM-DD
 router.put(
