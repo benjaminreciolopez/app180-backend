@@ -5,13 +5,15 @@ import { detectarFichajeSospechoso } from "./fichajeSospechoso.js";
 import { getPlanDiaEstado } from "./planDiaEstadoService.js";
 import { getYMDMadrid } from "../utils/dateMadrid.js";
 import { validarFichajeGeo } from "./geoValidator.js";
-import { getWorkContext } from "./workContextService.js";
 
+/**
+ * Motor principal de evaluación de fichajes
+ * Fuente única de verdad: planificación + asignaciones backend
+ */
 export async function evaluarFichaje(ctx) {
   const {
     userId,
     empleado,
-    cliente,
 
     tipo,
     fechaHora,
@@ -24,7 +26,10 @@ export async function evaluarFichaje(ctx) {
     reqIp,
   } = ctx;
 
-  // Resultado base (debe existir antes de cualquier try/catch)
+  /* =====================================================
+     Resultado base
+  ===================================================== */
+
   const result = {
     permitido: true,
     bloqueado: false,
@@ -39,58 +44,8 @@ export async function evaluarFichaje(ctx) {
     ipInfo: null,
   };
 
-  /* =========================
-     Work context
-  ========================= */
-
-  let contexto = null;
-
-  if (cliente?.id) {
-    try {
-      contexto = await getWorkContext({
-        empresaId,
-        clienteId: cliente.id,
-        fecha: getYMDMadrid(fechaHora),
-      });
-    } catch {
-      result.permitido = false;
-      result.bloqueado = true;
-      result.errores.push("Cliente no válido");
-      return result;
-    }
-  }
-
   /* =====================================================
-     1. Modo orientativo del cliente (no bloqueante)
-  ===================================================== */
-
-  if (contexto?.cliente?.modo_defecto) {
-    switch (contexto.cliente.modo_defecto) {
-      case "mes":
-        if (tipo !== "entrada") {
-          result.incidencias.push("Modo mensual: fichaje distinto de entrada");
-        }
-        break;
-
-      case "dia":
-        if (tipo !== "entrada") {
-          result.incidencias.push("Modo diario: fichaje distinto de entrada");
-        }
-        break;
-
-      case "trabajo":
-        result.incidencias.push("Cliente orientado a trabajos");
-        break;
-
-      case "mixto":
-      default:
-        // No avisamos
-        break;
-    }
-  }
-
-  /* =====================================================
-     2. Turno
+     1. Turno (regla laboral)
   ===================================================== */
 
   const turno = await validarFichajeSegunTurno({
@@ -109,7 +64,7 @@ export async function evaluarFichaje(ctx) {
   }
 
   /* =====================================================
-     3. Planificación
+     2. Planificación + cliente real
   ===================================================== */
 
   const fechaYMD = getYMDMadrid(fechaHora);
@@ -124,10 +79,45 @@ export async function evaluarFichaje(ctx) {
     result.permitido = false;
     result.bloqueado = true;
     result.errores.push("Planificación no disponible");
-  } else if (!plan.boton_visible) {
+    return result;
+  }
+
+  if (!plan.boton_visible) {
     result.permitido = false;
     result.bloqueado = true;
     result.errores.push(plan.motivo_oculto || "Fuera de jornada");
+    return result;
+  }
+
+  // Cliente real (desde backend)
+  const cliente = plan?.cliente || null;
+
+  /* =====================================================
+     3. Modo orientativo del cliente (no bloqueante)
+  ===================================================== */
+
+  if (cliente?.modo_defecto) {
+    switch (cliente.modo_defecto) {
+      case "mes":
+        if (tipo !== "entrada") {
+          result.incidencias.push("Modo mensual: fichaje distinto de entrada");
+        }
+        break;
+
+      case "dia":
+        if (tipo !== "entrada") {
+          result.incidencias.push("Modo diario: fichaje distinto de entrada");
+        }
+        break;
+
+      case "trabajo":
+        result.incidencias.push("Cliente orientado a trabajos");
+        break;
+
+      case "mixto":
+      default:
+        break;
+    }
   }
 
   /* =====================================================
@@ -154,12 +144,16 @@ export async function evaluarFichaje(ctx) {
     empleadoLng: gpsOk ? lngNum : null,
     accuracy,
 
-    clienteLat: contexto?.cliente?.lat ?? null,
-    clienteLng: contexto?.cliente?.lng ?? null,
-    radio: contexto?.cliente?.radio ?? null,
+    clienteLat: cliente?.lat ?? null,
+    clienteLng: cliente?.lng ?? null,
+    radio: cliente?.radio_m ?? null,
 
     ip: reqIp,
   });
+
+  /* ======================
+     Guardar info geo
+  ====================== */
 
   if (
     geoCheck.distancia != null ||
@@ -167,12 +161,13 @@ export async function evaluarFichaje(ctx) {
     accuracy != null
   ) {
     result.geo = {
-      distancia: geoCheck.distancia,
+      distancia: geoCheck.distancia ?? null,
       accuracy: accuracy ?? null,
       direccion: geoCheck.direccion ?? null,
+
       dentro_radio:
-        geoCheck.distancia != null && contexto?.cliente?.radio != null
-          ? geoCheck.distancia <= contexto.cliente.radio
+        geoCheck.distancia != null && cliente?.radio_m != null
+          ? geoCheck.distancia <= cliente.radio_m
           : null,
     };
   }
@@ -181,13 +176,21 @@ export async function evaluarFichaje(ctx) {
     result.ipInfo = geoCheck.ipInfo;
   }
 
+  /* ======================
+     Sospecha geográfica
+  ====================== */
+
   if (geoCheck.sospechoso) {
     result.sospechoso = true;
     result.razones.push(...(geoCheck.motivos || []));
   }
 
+  /* ======================
+     Política geográfica
+  ====================== */
+
   if (!geoCheck.permitido) {
-    const policy = contexto?.cliente?.geo_policy || "strict";
+    const policy = cliente?.geo_policy || "strict";
 
     if (policy === "strict") {
       result.bloqueado = true;
@@ -196,13 +199,13 @@ export async function evaluarFichaje(ctx) {
     } else if (policy === "soft") {
       result.incidencias.push("Fuera del área recomendada");
     } else {
-      // info: no bloquea, solo informa
+      // info
       result.incidencias.push("Ubicación fuera del área (informativo)");
     }
   }
 
   /* =====================================================
-     6. Sospecha avanzada
+     6. Sospecha avanzada (fraude / IP / patrón)
   ===================================================== */
 
   const sospecha = await detectarFichajeSospechoso({
@@ -232,6 +235,10 @@ export async function evaluarFichaje(ctx) {
   if (accuracy && Number(accuracy) > 100) {
     result.incidencias.push("GPS con baja precisión");
   }
+
+  /* =====================================================
+     Resultado final
+  ===================================================== */
 
   return result;
 }

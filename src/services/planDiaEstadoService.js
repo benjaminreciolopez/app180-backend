@@ -285,6 +285,38 @@ export async function getPlanDiaEstado({
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
+  // 2.1) Cliente asignado (work context / geocerca)
+  const asigCliente = await sql`
+    SELECT
+      a.cliente_id,
+      c.nombre as cliente_nombre,
+      c.lat as cliente_lat,
+      c.lng as cliente_lng,
+      c.radio_m as cliente_radio_m,
+      c.geo_policy as cliente_geo_policy,
+      c.modo_defecto as cliente_modo_defecto
+    FROM asignaciones_plantilla_jornada_180 a
+    LEFT JOIN clients_180 c ON c.id = a.cliente_id
+    WHERE a.empleado_id = ${empleadoId}
+      AND a.empresa_id = ${empresaId}
+      AND a.activo = true
+      AND a.fecha_inicio <= ${ymd}::date
+      AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${ymd}::date)
+    ORDER BY a.fecha_inicio DESC
+    LIMIT 1
+  `;
+
+  const cliente = asigCliente?.[0]?.cliente_id
+    ? {
+        id: asigCliente[0].cliente_id,
+        nombre: asigCliente[0].cliente_nombre ?? null,
+        lat: asigCliente[0].cliente_lat ?? null,
+        lng: asigCliente[0].cliente_lng ?? null,
+        radio_m: asigCliente[0].cliente_radio_m ?? null,
+        geo_policy: asigCliente[0].cliente_geo_policy ?? null,
+        modo_defecto: asigCliente[0].cliente_modo_defecto ?? null,
+      }
+    : null;
 
   const fuerzaLaboral =
     eventoCal &&
@@ -429,7 +461,7 @@ export async function getPlanDiaEstado({
   return {
     fecha: ymd,
     boton_visible: true,
-
+    cliente,
     // UI
     color: dentro ? "rojo" : "negro",
     puede_fichar: true,
