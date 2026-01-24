@@ -114,38 +114,38 @@ export const getDeviceHash = async (req, res) => {
 // LOGIN DE USUARIO
 // =====================
 
-// src/controllers/authController.js
-
 export const login = async (req, res) => {
-  // ¿Sistema inicializado?
-  const check = await sql`
-    SELECT COUNT(*)::int AS total
-    FROM empresa_180
-  `;
-
-  if (check[0].total === 0) {
-    return res.status(409).json({
-      error: "Sistema no inicializado",
-      code: "BOOTSTRAP_REQUIRED",
-    });
-  }
-
   try {
+    // BOOTSTRAP GUARD (único)
+    const init = await sql`
+      SELECT COUNT(*)::int AS total
+      FROM empresa_180
+    `;
+    console.log("BOOTSTRAP COUNT:", init[0].total);
+
+    if (init[0].total === 0) {
+      return res.status(409).json({
+        error: "Sistema no inicializado",
+        code: "BOOTSTRAP_REQUIRED",
+      });
+    }
+
     console.log("LOGIN desde frontend", req.body);
+
     const { email, password, device_hash, user_agent } = req.body;
     const ipActual = req.ip;
 
     const rows = await sql`
-  SELECT
-    id,
-    email,
-    password,
-    nombre,
-    role,
-    password_forced
-  FROM users_180
-  WHERE email = ${email}
-`;
+      SELECT
+        id,
+        email,
+        password,
+        nombre,
+        role,
+        password_forced
+      FROM users_180
+      WHERE email = ${email}
+    `;
 
     if (rows.length === 0) {
       return res.status(400).json({ error: "Usuario no encontrado" });
