@@ -9,6 +9,7 @@ import {
   desactivarCliente,
   getClienteDetalle,
   crearClienteHistorico,
+  getNextCodigoCliente,
 } from "../controllers/clientesController.js";
 
 import {
@@ -25,6 +26,7 @@ router.use(authRequired, roleRequired("admin"));
 
 router.get("/clientes", listarClientes);
 router.post("/clientes", crearCliente);
+router.get("/clientes/next-code", getNextCodigoCliente);
 
 /* TARIFAS (ANTES del :id) */
 router.get("/clientes/:id/tarifas", listarTarifasCliente);

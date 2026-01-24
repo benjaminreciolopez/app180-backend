@@ -69,6 +69,13 @@ async function generarCodigoCliente(empresaId) {
 
   return `CLI-${String(n).padStart(5, "0")}`;
 }
+export async function getNextCodigoCliente(req, res) {
+  const empresaId = await getEmpresaId(req.user.id);
+
+  const codigo = await generarCodigoCliente(empresaId);
+
+  res.json({ codigo });
+}
 
 /* ----------------------- */
 
