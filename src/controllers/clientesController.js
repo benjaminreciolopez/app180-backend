@@ -126,26 +126,26 @@ export async function crearCliente(req, res) {
   }
 
   /* =========================
-     Código automático
-  ========================= */
+   Código obligatorio
+========================= */
 
-  let finalCodigo = codigo;
-
-  if (!finalCodigo) {
-    finalCodigo = await generarCodigoCliente(empresaId);
+  if (!codigo) {
+    return res.status(400).json({ error: "Código requerido" });
   }
-  if (finalCodigo) {
-    const existe = await sql`
-    select 1
-    from clients_180
-    where empresa_id=${empresaId}
-      and codigo=${finalCodigo}
-    limit 1
-  `;
 
-    if (existe[0]) {
-      return res.status(400).json({ error: "Código duplicado" });
-    }
+  const finalCodigo = codigo;
+
+  /* comprobar duplicado */
+  const existe = await sql`
+  select 1
+  from clients_180
+  where empresa_id=${empresaId}
+    and codigo=${finalCodigo}
+  limit 1
+`;
+
+  if (existe[0]) {
+    return res.status(400).json({ error: "Código duplicado" });
   }
 
   const r = await sql`
@@ -211,7 +211,6 @@ export async function actualizarCliente(req, res) {
 
   const allowed = [
     "nombre",
-    "codigo",
     "tipo",
 
     "direccion",
