@@ -11,8 +11,8 @@ export async function getSystemStatus(req, res) {
   const initialized = total > 0;
 
   res.json({
-    initialized, // claro
-    hasCompany: initialized,
-    bootstrap: initialized, // 👈 CLAVE: mismo significado
+    initialized, // true si ya hay empresa
+    hasCompany: initialized, // alias
+    bootstrap: !initialized, // 👈 CLAVE: invertido
   });
 }
