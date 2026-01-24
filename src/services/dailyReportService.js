@@ -33,20 +33,24 @@ function buildResumenFromFichajes(fichajes) {
 function pickClienteFromWorkLogs(workLogs) {
   if (!Array.isArray(workLogs) || workLogs.length === 0) return null;
 
-  // Cliente dominante por conteo (simple y efectivo)
   const count = new Map();
+
   for (const w of workLogs) {
-    if (!w.client_id) continue;
-    count.set(w.client_id, (count.get(w.client_id) || 0) + 1);
+    if (!w.cliente_id) continue;
+
+    count.set(w.cliente_id, (count.get(w.cliente_id) || 0) + 1);
   }
+
   let best = null;
   let bestN = 0;
+
   for (const [cid, n] of count.entries()) {
     if (n > bestN) {
       bestN = n;
       best = cid;
     }
   }
+
   return best;
 }
 
@@ -85,7 +89,7 @@ export async function syncDailyReport({
 
   // 3) Work logs del día (clave para autónomo)
   const workLogs = await sql`
-    SELECT id, client_id, fecha, precio
+    SELECT id, cliente_id, fecha, precio
     FROM work_logs_180
     WHERE employee_id = ${empleadoId}
       AND fecha::date = ${day}::date
@@ -153,8 +157,8 @@ export async function syncDailyReport({
   const resumen = ausencia
     ? `Ausencia: ${ausencia.tipo} (${ausencia.estado})`
     : workLogs.length > 0 && fichajes.length === 0
-    ? `Trabajo registrado sin fichaje (${workLogs.length} entradas)`
-    : resumenBase;
+      ? `Trabajo registrado sin fichaje (${workLogs.length} entradas)`
+      : resumenBase;
 
   // 8) UPSERT en employee_daily_report_180 (unique empleado_id, fecha)
   const upsert = await sql`

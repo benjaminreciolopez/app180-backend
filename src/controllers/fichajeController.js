@@ -297,11 +297,15 @@ export const createFichaje = async (req, res) => {
        13. Daily report
     ========================= */
 
-    await syncDailyReport({
-      empresaId,
-      empleadoId,
-      fecha: fechaHora,
-    });
+    try {
+      await syncDailyReport({
+        empresaId,
+        empleadoId,
+        fecha: fechaHora,
+      });
+    } catch (e) {
+      console.error("❌ DAILY REPORT ERROR:", e);
+    }
 
     return res.json({
       success: true,
@@ -564,11 +568,16 @@ export const registrarFichajeManual = async (req, res) => {
     `;
     await recalcularJornada(jornada.id);
 
-    await syncDailyReport({
-      empresaId: empleado.empresa_id,
-      empleadoId: empleado_id,
-      fecha: fechaHora, // vale Date
-    });
+    try {
+      await syncDailyReport({
+        empresaId,
+        empleadoId,
+        fecha: fechaHora,
+      });
+    } catch (e) {
+      console.error("❌ DAILY REPORT ERROR:", e);
+    }
+
     return res.json(nuevo[0]);
   } catch (err) {
     console.error("❌ Error fichaje manual:", err);
