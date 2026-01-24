@@ -117,8 +117,15 @@ export async function crearCliente(req, res) {
   if (lng != null && (Number(lng) < -180 || Number(lng) > 180)) {
     return res.status(400).json({ error: "Lng inválida" });
   }
-  if (!body.codigo) {
-    body.codigo = await generarCodigoCliente(empresaId);
+
+  /* =========================
+     Código automático
+  ========================= */
+
+  let finalCodigo = codigo;
+
+  if (!finalCodigo) {
+    finalCodigo = await generarCodigoCliente(empresaId);
   }
 
   const r = await sql`
@@ -148,7 +155,7 @@ export async function crearCliente(req, res) {
     values (
       ${empresaId},
       ${nombre},
-      ${n(codigo)},
+      ${finalCodigo},
       ${tipo},
 
       ${n(direccion)},
