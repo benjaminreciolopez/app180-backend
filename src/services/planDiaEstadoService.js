@@ -358,25 +358,17 @@ export async function getPlanDiaEstado({
 
   const hayJornadaAbierta = !!jAbierta;
 
-  // 3.6) Acción según fichajes
-  let accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
+  // 3.6) Acción según fichajes (regla legal)
+  // Si NO hay fichajes hoy → siempre ENTRADA
+  let accion;
 
-  // Sin jornada → solo se puede entrar
-  if (!hayJornadaAbierta) {
+  if (!fichajes || fichajes.length === 0) {
     accion = "entrada";
+  } else {
+    accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
   }
 
-  // Hay jornada pero no hay fichajes → continuar jornada
-  if (hayJornadaAbierta && fichajes.length === 0) {
-    accion = hayDescansoPlan ? "descanso_inicio" : "salida";
-  }
-
-  // Hay jornada pero los fichajes dicen "entrada" → corregir
-  if (hayJornadaAbierta && accion === "entrada") {
-    accion = hayDescansoPlan ? "descanso_inicio" : "salida";
-  }
-
-  // Jornada cerrada realmente
+  // Si ya terminó la jornada
   if (!accion) {
     return {
       fecha: ymd,
@@ -387,6 +379,7 @@ export async function getPlanDiaEstado({
       margen_despues: MARGEN_DESPUES_MIN,
     };
   }
+
   const objetivoHHMM =
     accion === "entrada"
       ? targets.entrada

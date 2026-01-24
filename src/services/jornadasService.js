@@ -107,7 +107,7 @@ export async function cerrarJornada({
       minutos_trabajados = ${minutos_trabajados},
       minutos_descanso = ${minutos_descanso},
       minutos_extra = ${minutos_extra},
-      estado = 'cerrada',
+      estado = 'completa',
       origen_cierre = ${origen_cierre},
       incidencia = COALESCE(${incidencia}, incidencia),
       updated_at = NOW()
