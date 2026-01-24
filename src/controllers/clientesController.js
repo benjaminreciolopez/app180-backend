@@ -58,17 +58,29 @@ export async function getClienteDetalle(req, res) {
   res.json(r[0]);
 }
 async function generarCodigoCliente(empresaId) {
-  const r = await sql`
+  // Intentar incrementar
+  let r = await sql`
     update cliente_seq_180
     set last_num = last_num + 1
     where empresa_id = ${empresaId}
     returning last_num
   `;
 
-  const n = r[0].last_num;
+  // Si no existe fila → crearla
+  if (!r[0]) {
+    const init = await sql`
+      insert into cliente_seq_180 (empresa_id, last_num)
+      values (${empresaId}, 1)
+      returning last_num
+    `;
 
-  return `CLI-${String(n).padStart(5, "0")}`;
+    return `CLI-${String(init[0].last_num).padStart(5, "0")}`;
+  }
+
+  // Caso normal
+  return `CLI-${String(r[0].last_num).padStart(5, "0")}`;
 }
+
 export async function getNextCodigoCliente(req, res) {
   const empresaId = await getEmpresaId(req.user.id);
 
