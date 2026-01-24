@@ -699,7 +699,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       if (activa.length) {
         await tx`
           update empleado_plantillas_180
-          set fecha_fin = ${hoy}::date
+          set fecha_fin = (${hoy}::date - interval '1 day')
           where id = ${activa[0].id}
         `;
       }
