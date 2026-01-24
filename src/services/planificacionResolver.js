@@ -5,11 +5,13 @@ import { sql } from "../db.js";
 export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   // fecha: 'YYYY-MM-DD'
 
-  // 1) plantilla activa del empleado para esa fecha
-  // 1) plantilla activa del empleado para esa fecha
+  /* =========================
+     1) Asignación activa
+  ========================= */
+
   const asig = await sql`
     SELECT 
-      a.plantilla_jornada_id AS plantilla_id,
+      a.plantilla_id AS plantilla_id,
       p.nombre AS plantilla_nombre,
 
       a.cliente_id,
@@ -24,7 +26,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     FROM asignaciones_plantilla_jornada_180 a
 
     JOIN plantillas_jornada_180 p
-      ON p.id = a.plantilla_jornada_id
+      ON p.id = a.plantilla_id
 
     LEFT JOIN clients_180 c
       ON c.id = a.cliente_id
@@ -44,13 +46,20 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     return {
       plantilla_id: null,
       plantilla_nombre: null,
+      cliente: null,
       fecha,
       modo: "sin_plantilla",
       bloques: [],
     };
   }
 
+  /* =========================
+     Normalizar datos
+  ========================= */
+
   const plantillaId = asig[0].plantilla_id;
+  const plantillaNombre = asig[0].plantilla_nombre;
+
   const cliente = asig[0].cliente_id
     ? {
         id: asig[0].cliente_id,
@@ -63,8 +72,10 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       }
     : null;
 
-  const plantillaNombre = asig[0].plantilla_nombre;
-  // 2) excepción del día (si existe)
+  /* =========================
+     2) Excepción
+  ========================= */
+
   const ex = await sql`
     SELECT id, hora_inicio, hora_fin, nota
     FROM plantilla_excepciones_180
@@ -90,11 +101,14 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       cliente,
       fecha,
       modo: "excepcion",
+
       rango:
         ex[0].hora_inicio && ex[0].hora_fin
           ? { inicio: ex[0].hora_inicio, fin: ex[0].hora_fin }
           : null,
+
       nota: ex[0].nota ?? null,
+
       bloques: bloquesEx.map((b) => ({
         tipo: b.tipo,
         inicio: b.hora_inicio,
@@ -103,32 +117,28 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       })),
     };
   }
-  console.log("[PLAN] fecha recibida:", fecha);
+
+  /* =========================
+     3) Día semana
+  ========================= */
 
   function diaSemanaISO(fecha) {
-    const iso = String(fecha).slice(0, 10); // admite YYYY-MM-DD o ISO completo
+    const iso = String(fecha).slice(0, 10);
     const [y, m, d] = iso.split("-").map(Number);
 
-    if (
-      !Number.isFinite(y) ||
-      !Number.isFinite(m) ||
-      !Number.isFinite(d) ||
-      m < 1 ||
-      m > 12 ||
-      d < 1 ||
-      d > 31
-    ) {
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
       return null;
     }
 
     const dt = new Date(Date.UTC(y, m - 1, d));
-    const js = dt.getUTCDay(); // 0..6
-    return js === 0 ? 7 : js; // 1..7
+    const js = dt.getUTCDay();
+
+    return js === 0 ? 7 : js;
   }
 
   const diaSemana = diaSemanaISO(fecha);
+
   if (!Number.isFinite(diaSemana)) {
-    console.error("[resolverPlanDia] fecha invalida:", fecha);
     return {
       plantilla_id: plantillaId,
       plantilla_nombre: plantillaNombre,
@@ -139,6 +149,10 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       bloques: [],
     };
   }
+
+  /* =========================
+     4) Día de plantilla
+  ========================= */
 
   const dia = await sql`
     SELECT id, hora_inicio, hora_fin
@@ -161,6 +175,10 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     };
   }
 
+  /* =========================
+     5) Bloques
+  ========================= */
+
   const bloques = await sql`
     SELECT tipo, hora_inicio, hora_fin, obligatorio
     FROM plantilla_bloques_180
@@ -174,10 +192,12 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     cliente,
     fecha,
     modo: "semanal",
+
     rango: {
       inicio: dia[0].hora_inicio,
       fin: dia[0].hora_fin,
     },
+
     bloques: bloques.map((b) => ({
       tipo: b.tipo,
       inicio: b.hora_inicio,
