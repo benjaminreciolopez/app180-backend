@@ -84,21 +84,30 @@ export async function upsertFestivosES(rows) {
     return { inserted_or_updated: 0 };
   }
 
-  // Insert en batch: postgres tagged template soporta sql([...]) con arrays
-  // Si tu driver no lo soporta, te doy alternativa (for..of) abajo.
-  const inserted = await sql`
-    INSERT INTO festivos_es_180 (fecha, nombre, ambito, comunidad, provincia, municipio)
-    SELECT *
-    FROM ${sql(
-      rows.map((r) => [
-        r.fecha,
-        r.nombre,
-        r.ambito,
-        r.comunidad,
-        r.provincia,
-        r.municipio,
-      ])
-    )}
+  for (const r of rows) {
+    if (typeof r.fecha !== "string") {
+      throw new Error("Fecha inválida en festivos");
+    }
+  }
+
+  const values = rows.map(
+    (r) => sql`
+    (
+      ${r.fecha},
+      ${r.nombre},
+      ${r.ambito},
+      ${r.comunidad},
+      ${r.provincia},
+      ${r.municipio}
+    )
+  `,
+  );
+
+  await sql`
+    INSERT INTO festivos_es_180
+      (fecha, nombre, ambito, comunidad, provincia, municipio)
+    VALUES
+      ${sql.join(values, sql`, `)}
     ON CONFLICT (fecha) DO UPDATE SET
       nombre = EXCLUDED.nombre,
       ambito = EXCLUDED.ambito,
@@ -107,8 +116,7 @@ export async function upsertFestivosES(rows) {
       municipio = EXCLUDED.municipio
   `;
 
-  // No siempre devuelve rowCount según librería; devolvemos tamaño de input como aproximación segura.
-  return { inserted_or_updated: rows.length, result: inserted };
+  return { inserted_or_updated: rows.length };
 }
 
 /**
