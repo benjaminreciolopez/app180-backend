@@ -3,6 +3,8 @@ import { sql } from "../db.js";
 const DEFAULT_MODULOS = {
   clientes: true,
   fichajes: true,
+  calendario: true,
+  calendario_import: true,
   worklogs: true,
   ausencias: true,
   empleados: true,
@@ -82,12 +84,14 @@ export async function updateEmpresaConfig(req, res) {
 
     // Sanitizar + normalizar
     const safeModulos = {
-      clientes: !!input.clientes,
-      fichajes: !!input.fichajes,
-      worklogs: !!input.worklogs,
-      ausencias: !!input.ausencias,
-      empleados: !!input.empleados,
-      facturacion: !!input.facturacion,
+      clientes: !!modulos.clientes,
+      fichajes: !!modulos.fichajes,
+      calendario: !!modulos.calendario,
+      calendario_import: !!modulos.calendario_import,
+      worklogs: !!modulos.worklogs,
+      ausencias: !!modulos.ausencias,
+      empleados: !!modulos.empleados,
+      facturacion: !!modulos.facturacion,
     };
 
     await sql`
