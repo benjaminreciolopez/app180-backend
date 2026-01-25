@@ -168,8 +168,8 @@ export async function misWorkLogs(req, res) {
       return res.status(403).json({ error: "Sin empresa_id o empleado_id" });
     }
 
-    const desde = (req.query.desde || ymd()).toString();
-    const hasta = (req.query.hasta || ymd()).toString();
+    const desde = req.query.desde || '2000-01-01';
+    const hasta = req.query.hasta || '2100-01-01';
 
     const rows = await sql`
       SELECT
@@ -182,7 +182,8 @@ export async function misWorkLogs(req, res) {
       LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
       WHERE w.employee_id = ${empleadoId}
         AND e.empresa_id = ${empresaId}
-        AND w.fecha::date BETWEEN ${desde}::date AND ${hasta}::date
+        AND w.fecha::date >= ${desde}::date 
+        AND w.fecha::date <= ${hasta}::date
       ORDER BY w.fecha DESC
       LIMIT 300
     `;
@@ -208,8 +209,8 @@ export async function adminWorkLogs(req, res) {
     if (!empresaId)
       return res.status(400).json({ error: "Admin sin empresa_id" });
 
-    const desde = (req.query.desde || ymd()).toString();
-    const hasta = (req.query.hasta || ymd()).toString();
+    const desde = req.query.desde || '2000-01-01';
+    const hasta = req.query.hasta || '2100-01-01';
     const empleadoId = req.query.empleado_id
       ? req.query.empleado_id.toString()
       : null;
@@ -234,7 +235,8 @@ export async function adminWorkLogs(req, res) {
       LEFT JOIN clients_180 c ON c.id = w.cliente_id
       LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
       WHERE e.empresa_id = ${empresaId}
-        AND w.fecha::date BETWEEN ${desde}::date AND ${hasta}::date
+        AND w.fecha::date >= ${desde}::date 
+        AND w.fecha::date <= ${hasta}::date
         AND (${empleadoId}::uuid IS NULL OR e.id = ${empleadoId}::uuid)
         AND (${clienteId}::uuid IS NULL OR c.id = ${clienteId}::uuid)
       ORDER BY w.fecha DESC
