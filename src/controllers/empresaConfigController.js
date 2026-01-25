@@ -82,16 +82,15 @@ export async function updateEmpresaConfig(req, res) {
       return res.status(400).json({ error: "Formato inválido" });
     }
 
-    // Sanitizar + normalizar
     const safeModulos = {
-      clientes: !!modulos.clientes,
-      fichajes: !!modulos.fichajes,
-      calendario: !!modulos.calendario,
-      calendario_import: !!modulos.calendario_import,
-      worklogs: !!modulos.worklogs,
-      ausencias: !!modulos.ausencias,
-      empleados: !!modulos.empleados,
-      facturacion: !!modulos.facturacion,
+      clientes: !!input.clientes,
+      fichajes: !!input.fichajes,
+      calendario: !!input.calendario,
+      calendario_import: !!input.calendario_import,
+      worklogs: !!input.worklogs,
+      ausencias: !!input.ausencias,
+      empleados: !!input.empleados,
+      facturacion: !!input.facturacion,
     };
 
     await sql`
@@ -101,7 +100,10 @@ export async function updateEmpresaConfig(req, res) {
       DO UPDATE SET modulos = EXCLUDED.modulos
     `;
 
-    return res.json({ success: true, modulos: safeModulos });
+    return res.json({
+      success: true,
+      modulos: safeModulos,
+    });
   } catch (err) {
     console.error("❌ updateEmpresaConfig:", err);
     res.status(500).json({ error: "Error guardando configuración" });
