@@ -88,7 +88,7 @@ app.use("/empleado", empleadoRoutes);
 app.use("/empleado", authRequired, empleadoAusenciasRoutes);
 
 app.use("/admin", authRequired, adminRoutes);
-app.use("/admin", authRequired, adminAusenciasRoutes);
+app.use("/admin/ausencias", authRequired, adminAusenciasRoutes);
 app.use("/empleado", authRequired, empleadoAdjuntosRoutes);
 app.use("/admin", authRequired, adminAdjuntosRoutes);
 app.use("/admin", adminJornadasRoutes);

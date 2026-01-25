@@ -22,15 +22,13 @@ const router = Router();
  */
 router.use(authRequired, requireModule("ausencias"), roleRequired("admin"));
 
-router.get("/ausencias", listarAusenciasEmpresa);
+router.get("/", listarAusenciasEmpresa);
+router.post("/", crearAusenciaAdmin);
+
+router.post("/baja", crearBajaMedica);
+router.patch("/:id/aprobar", aprobarVacaciones);
 
 router.get("/calendario/eventos", listarEventosCalendarioAdmin);
-
-router.post("/ausencias/baja", crearBajaMedica);
-
-router.post("/ausencias", crearAusenciaAdmin);
-
-router.patch("/ausencias/:id/aprobar", aprobarVacaciones);
 
 router.patch("/ausencias/:id/rechazar", rechazarVacaciones);
 
