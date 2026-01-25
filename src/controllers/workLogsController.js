@@ -42,11 +42,35 @@ export async function crearWorkLog(req, res) {
       return res.status(400).json({ error: "La descripción es obligatoria" });
     }
 
+    let finalEmpleadoId = empleadoId;
+
+    // Si es admin, puede especificar empleado_id en el body
+    if (user.role === "admin") {
+      if (req.body.empleado_id) {
+        finalEmpleadoId = req.body.empleado_id;
+      } else {
+        // Modo autónomo: Si admin no manda empleado, se lo asigna a sí mismo
+        // Aseguramos que tenga ficha de empleado
+        const { ensureSelfEmployee } = await import(
+          "../services/ensureSelfEmployee.js"
+        );
+        finalEmpleadoId = await ensureSelfEmployee({
+          userId: user.id,
+          empresaId,
+          nombre: user.nombre,
+        });
+      }
+    }
+
+    if (!finalEmpleadoId) {
+       return res.status(403).json({ error: "Falta empleado_id" });
+    }
+
     // Validar que el empleado pertenece a la empresa del token
     const emp = await sql`
       SELECT id, empresa_id
       FROM employees_180
-      WHERE id = ${empleadoId}
+      WHERE id = ${finalEmpleadoId}
       LIMIT 1
     `;
     if (emp.length === 0 || emp[0].empresa_id !== empresaId) {
@@ -111,7 +135,7 @@ export async function crearWorkLog(req, res) {
       VALUES
         (
           ${empresaId},
-          ${empleadoId},
+          ${finalEmpleadoId},
           ${cliente_id || null},
           ${work_item_id || null},
           ${descripcion.trim()},
