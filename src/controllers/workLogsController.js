@@ -213,7 +213,6 @@ export async function adminWorkLogs(req, res) {
         w.id,
         w.fecha,
         w.minutos,
-        w.precio,
         w.descripcion,
         e.id AS empleado_id,
         e.nombre AS empleado_nombre,
