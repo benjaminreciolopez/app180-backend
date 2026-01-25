@@ -1,6 +1,9 @@
+// backend/src/routes/employeeRoutes.js
+
 import express from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { requireModule } from "../middlewares/requireModule.js";
 
 import {
   createEmployee,
@@ -16,8 +19,7 @@ import {
 const router = express.Router();
 
 // 🔐 Todo este router es SOLO ADMIN
-router.use(authRequired, roleRequired("admin"));
-
+router.use(authRequired, requireModule("empleados"), roleRequired("admin"));
 // ==========================
 // EMPLEADOS (ADMIN)
 // ==========================

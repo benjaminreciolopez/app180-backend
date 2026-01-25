@@ -175,12 +175,27 @@ export const login = async (req, res) => {
     }
     let empleadoId = null;
 
-    if (user.role === "admin") {
-      empleadoId = await ensureSelfEmployee({
-        userId: user.id,
-        empresaId,
-        nombre: user.nombre,
-      });
+    // =========================
+    // ADMIN → empleado lógico (si módulo empleados activo)
+    // =========================
+
+    if (user.role === "admin" && empresaId) {
+      const cfg = await sql`
+        SELECT modulos
+        FROM empresa_config_180
+        WHERE empresa_id = ${empresaId}
+        LIMIT 1
+      `;
+
+      const modulos = cfg[0]?.modulos || {};
+
+      if (modulos.empleados !== false) {
+        empleadoId = await ensureSelfEmployee({
+          userId: user.id,
+          empresaId,
+          nombre: user.nombre,
+        });
+      }
     }
 
     // =========================
@@ -707,5 +722,67 @@ ${link}
   } catch (err) {
     console.error("❌ inviteEmpleado", err);
     return res.status(500).json({ error: "No se pudo generar la invitación" });
+  }
+};
+
+// =====================
+// GET /auth/me
+// =====================
+export const getMe = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    const userId = req.user.id;
+
+    // Cargar usuario actualizado
+    const rows = await sql`
+      SELECT
+        u.id,
+        u.email,
+        u.nombre,
+        u.role,
+        u.password_forced,
+
+        e.id AS empleado_id,
+        e.empresa_id,
+
+        ec.modulos
+
+      FROM users_180 u
+
+      LEFT JOIN employees_180 e
+        ON e.user_id = u.id
+
+      LEFT JOIN empresa_config_180 ec
+        ON ec.empresa_id = e.empresa_id
+
+      WHERE u.id = ${userId}
+      LIMIT 1
+    `;
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const r = rows[0];
+
+    return res.json({
+      id: r.id,
+      email: r.email,
+      nombre: r.nombre,
+      role: r.role,
+
+      empresa_id: r.empresa_id,
+      empleado_id: r.empleado_id,
+
+      modulos: r.modulos || {},
+
+      password_forced: r.password_forced === true,
+    });
+  } catch (err) {
+    console.error("❌ getMe:", err);
+    res.status(500).json({ error: "Error obteniendo sesión" });
   }
 };

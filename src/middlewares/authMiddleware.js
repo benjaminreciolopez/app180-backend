@@ -98,7 +98,7 @@ export const authRequired = async (req, res, next) => {
       `;
 
       req.user.modulos = cfg[0]?.modulos || {
-        clientes: true,
+        empleados: true,
         fichajes: true,
         worklogs: true,
         ausencias: true,

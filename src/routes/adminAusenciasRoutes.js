@@ -1,3 +1,5 @@
+// backend/src/routes/adminAusenciasRoutes.js
+
 import { Router } from "express";
 import {
   aprobarVacaciones,
@@ -6,45 +8,32 @@ import {
   listarAusenciasEmpresa,
   crearAusenciaAdmin,
   actualizarEstadoAusencia,
+  listarEventosCalendarioAdmin,
 } from "../controllers/ausenciasController.js";
+
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
-import { listarEventosCalendarioAdmin } from "../controllers/ausenciasController.js";
+import { requireModule } from "../middlewares/requireModule.js";
 
 const router = Router();
 
-router.get(
-  "/ausencias",
-  authRequired,
-  roleRequired("admin"),
-  listarAusenciasEmpresa
-);
-router.get(
-  "/calendario/eventos",
-  authRequired,
-  roleRequired("admin"),
-  listarEventosCalendarioAdmin
-);
-router.post(
-  "/ausencias/baja",
-  authRequired,
-  roleRequired("admin"),
-  crearBajaMedica
-);
+/**
+ * Bloquea TODO el módulo ausencias si está desactivado
+ */
+router.use(authRequired, requireModule("ausencias"), roleRequired("admin"));
+
+router.get("/ausencias", listarAusenciasEmpresa);
+
+router.get("/calendario/eventos", listarEventosCalendarioAdmin);
+
+router.post("/ausencias/baja", crearBajaMedica);
+
 router.post("/ausencias", crearAusenciaAdmin);
 
-router.patch(
-  "/ausencias/:id/aprobar",
-  authRequired,
-  roleRequired("admin"),
-  aprobarVacaciones
-);
-router.patch(
-  "/ausencias/:id/rechazar",
-  authRequired,
-  roleRequired("admin"),
-  rechazarVacaciones
-);
+router.patch("/ausencias/:id/aprobar", aprobarVacaciones);
+
+router.patch("/ausencias/:id/rechazar", rechazarVacaciones);
+
 router.patch("/ausencias/:id/estado", actualizarEstadoAusencia);
 
 export default router;

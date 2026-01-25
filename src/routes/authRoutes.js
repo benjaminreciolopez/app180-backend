@@ -9,6 +9,7 @@ import {
 } from "../controllers/authController.js";
 
 import { authRequired } from "../middlewares/authRequired.js";
+import { getMe } from "../controllers/authController.js";
 
 const router = express.Router();
 
@@ -16,6 +17,7 @@ router.post("/register", register);
 router.post("/login", login);
 router.post("/activate-install", activateInstall);
 router.post("/register-first-admin", registerFirstAdmin);
+router.get("/me", authRequired, getMe);
 
 // 🔐 CAMBIO DE CONTRASEÑA (empleado / admin logueado)
 router.post("/change-password", authRequired, changePassword);

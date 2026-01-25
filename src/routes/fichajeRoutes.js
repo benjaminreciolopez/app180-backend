@@ -15,13 +15,14 @@ import {
 } from "../controllers/fichajeController.js";
 
 import { getEstadoFichaje } from "../controllers/fichajeEstadoController.js";
+import { requireModule } from "../middlewares/requireModule.js";
 
 const router = express.Router();
 
 // ======================================
 // TODAS LAS RUTAS → requieren login
 // ======================================
-router.use(authRequired);
+router.use(authRequired, requireModule("fichajes"));
 
 // ======================================
 // RUTAS USUARIO / EMPLEADO
