@@ -1,88 +1,111 @@
-// src/controllers/adminDashboardController.js
 import { sql } from "../db.js";
 
 /**
- * Dashboard admin:
- * - empleadosActivos
- * - fichajesHoy
- * - sospechososHoy
- * - trabajandoAhora: empleados cuya ÚLTIMA marca es ENTRADA
- * - ultimosFichajes: últimos 10 fichajes
+ * Dashboard admin (module-aware)
  */
 export const getAdminDashboard = async (req, res) => {
   try {
     const empresaId = req.user.empresa_id;
+    const modulos = req.user.modulos || {};
+
     if (!empresaId) {
       return res.status(400).json({ error: "Admin sin empresa asignada" });
     }
 
-    // =========================
-    // 1️⃣ CONTADORES
-    // =========================
+    /* =========================
+       Defaults
+    ========================= */
 
-    const [{ count: empleadosActivos = 0 }] = await sql`
-      SELECT COUNT(*)::int AS count
-      FROM employees_180
-      WHERE empresa_id = ${empresaId}
-        AND activo = true
-    `;
+    let empleadosActivos = 0;
+    let fichajesHoy = 0;
+    let sospechososHoy = 0;
 
-    const [{ count: fichajesHoy = 0 }] = await sql`
-      SELECT COUNT(*)::int AS count
-      FROM fichajes_180
-      WHERE empresa_id = ${empresaId}
-        AND fecha::date = CURRENT_DATE
-    `;
+    let trabajandoAhora = [];
+    let ultimosFichajes = [];
 
-    const [{ count: sospechososHoy = 0 }] = await sql`
-      SELECT COUNT(*)::int AS count
-      FROM fichajes_180
-      WHERE empresa_id = ${empresaId}
-        AND sospechoso = true
-        AND fecha::date = CURRENT_DATE
-    `;
+    /* =========================
+       EMPLEADOS
+    ========================= */
 
-    // =========================
-    // 2️⃣ TRABAJANDO AHORA
-    // =========================
-    const trabajandoAhora = await sql`
-      WITH ultimos AS (
+    if (modulos.empleados !== false) {
+      const [{ count = 0 }] = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM employees_180
+        WHERE empresa_id = ${empresaId}
+          AND activo = true
+      `;
+
+      empleadosActivos = count;
+    }
+
+    /* =========================
+       FICHAJES
+    ========================= */
+
+    if (modulos.fichajes !== false) {
+      // fichajes hoy
+      const [{ count = 0 }] = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM fichajes_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha::date = CURRENT_DATE
+      `;
+
+      fichajesHoy = count;
+
+      // sospechosos
+      const [{ count: sospechosos = 0 }] = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM fichajes_180
+        WHERE empresa_id = ${empresaId}
+          AND sospechoso = true
+          AND fecha::date = CURRENT_DATE
+      `;
+
+      sospechososHoy = sospechosos;
+
+      // trabajando ahora
+      trabajandoAhora = await sql`
+        WITH ultimos AS (
+          SELECT
+            f.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY f.empleado_id
+              ORDER BY f.fecha DESC
+            ) AS rn
+          FROM fichajes_180 f
+          WHERE f.empresa_id = ${empresaId}
+        )
         SELECT
-          f.*,
-          ROW_NUMBER() OVER (
-            PARTITION BY f.empleado_id
-            ORDER BY f.fecha DESC
-          ) AS rn
-        FROM fichajes_180 f
-        WHERE f.empresa_id = ${empresaId}
-      )
-      SELECT
-        u.empleado_id,
-        u.fecha AS desde,
-        e.nombre AS empleado_nombre
-      FROM ultimos u
-      JOIN employees_180 e ON e.id = u.empleado_id
-      WHERE u.rn = 1
-        AND u.tipo = 'entrada'
-      ORDER BY u.fecha DESC
-      LIMIT 20
-    `;
+          u.empleado_id,
+          u.fecha AS desde,
+          e.nombre AS empleado_nombre
+        FROM ultimos u
+        JOIN employees_180 e ON e.id = u.empleado_id
+        WHERE u.rn = 1
+          AND u.tipo = 'entrada'
+        ORDER BY u.fecha DESC
+        LIMIT 20
+      `;
 
-    // =========================
-    // 3️⃣ ÚLTIMOS FICHAJES
-    // =========================
-    const ultimosFichajes = await sql`
-      SELECT
-        f.id,
-        f.tipo,
-        f.fecha,
-        e.nombre AS empleado_nombre
-      FROM fichajes_180 f
-      JOIN employees_180 e ON e.id = f.empleado_id
-      WHERE f.empresa_id = ${empresaId}
-      ORDER BY f.fecha DESC
-      LIMIT 10
-    `;
+      // últimos fichajes
+      ultimosFichajes = await sql`
+        SELECT
+          f.id,
+          f.tipo,
+          f.fecha,
+          e.nombre AS empleado_nombre
+        FROM fichajes_180 f
+        JOIN employees_180 e ON e.id = f.empleado_id
+        WHERE f.empresa_id = ${empresaId}
+        ORDER BY f.fecha DESC
+        LIMIT 10
+      `;
+    }
+
+    /* =========================
+       RESPONSE
+    ========================= */
 
     return res.json({
       empleadosActivos,
@@ -93,6 +116,9 @@ export const getAdminDashboard = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ getAdminDashboard:", err);
-    return res.status(500).json({ error: "Error en dashboard admin" });
+
+    return res.status(500).json({
+      error: "Error en dashboard admin",
+    });
   }
 };
