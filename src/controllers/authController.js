@@ -752,11 +752,14 @@ export const getMe = async (req, res) => {
 
       FROM users_180 u
 
+      LEFT JOIN empresa_180 emp
+        ON emp.user_id = u.id
+
       LEFT JOIN employees_180 e
         ON e.user_id = u.id
 
       LEFT JOIN empresa_config_180 ec
-        ON ec.empresa_id = e.empresa_id
+        ON ec.empresa_id = COALESCE(e.empresa_id, emp.id)
 
       WHERE u.id = ${userId}
       LIMIT 1
