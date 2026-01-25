@@ -5,6 +5,7 @@ const DEFAULT_MODULOS = {
   fichajes: true,
   worklogs: true,
   ausencias: true,
+  empleados: true,
   facturacion: false,
 };
 
@@ -30,7 +31,7 @@ export async function getEmpresaConfig(req, res) {
       LIMIT 1
     `;
 
-    // 🔧 AUTOCREAR SI NO EXISTE
+    // Autocrear si no existe
     if (rows.length === 0) {
       await sql`
         INSERT INTO empresa_config_180 (empresa_id, modulos)
@@ -46,7 +47,12 @@ export async function getEmpresaConfig(req, res) {
       `;
     }
 
-    return res.json(rows[0]?.modulos || DEFAULT_MODULOS);
+    const stored = rows[0]?.modulos || {};
+
+    return res.json({
+      ...DEFAULT_MODULOS,
+      ...stored,
+    });
   } catch (err) {
     console.error("❌ getEmpresaConfig:", err);
     res.status(500).json({ error: "Error obteniendo configuración" });
@@ -68,19 +74,20 @@ export async function updateEmpresaConfig(req, res) {
       return res.status(403).json({ error: "Empresa no asociada" });
     }
 
-    const { modulos } = req.body;
+    const input = req.body.modulos;
 
-    if (!modulos || typeof modulos !== "object") {
+    if (!input || typeof input !== "object") {
       return res.status(400).json({ error: "Formato inválido" });
     }
 
-    // 🛡️ Sanitizar claves permitidas
+    // Sanitizar + normalizar
     const safeModulos = {
-      clientes: !!modulos.clientes,
-      fichajes: !!modulos.fichajes,
-      worklogs: !!modulos.worklogs,
-      ausencias: !!modulos.ausencias,
-      facturacion: !!modulos.facturacion,
+      clientes: !!input.clientes,
+      fichajes: !!input.fichajes,
+      worklogs: !!input.worklogs,
+      ausencias: !!input.ausencias,
+      empleados: !!input.empleados,
+      facturacion: !!input.facturacion,
     };
 
     await sql`
