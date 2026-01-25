@@ -19,7 +19,13 @@ export async function getEmpresaConfig(req, res) {
     `;
 
     if (!rows.length) {
-      return res.json({});
+      return res.json({
+        clientes: true,
+        fichajes: true,
+        worklogs: true,
+        ausencias: true,
+        facturacion: false,
+      });
     }
 
     return res.json(rows[0].modulos || {});
@@ -46,9 +52,10 @@ export async function updateEmpresaConfig(req, res) {
     }
 
     await sql`
-      UPDATE empresa_config_180
-      SET modulos = ${modulos}::jsonb
-      WHERE empresa_id = ${empresaId}
+      INSERT INTO empresa_config_180 (empresa_id, modulos)
+      VALUES (${empresaId}, ${modulos}::jsonb)
+      ON CONFLICT (empresa_id)
+      DO UPDATE SET modulos = EXCLUDED.modulos
     `;
 
     return res.json({ success: true, modulos });

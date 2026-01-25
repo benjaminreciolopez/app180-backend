@@ -52,26 +52,6 @@ export const authRequired = async (req, res, next) => {
     req.user = decoded;
 
     // ==========================
-    // 📦 CARGAR CONFIG EMPRESA
-    // ==========================
-    if (req.user.empresa_id) {
-      const cfg = await sql`
-        SELECT modulos
-        FROM empresa_config_180
-        WHERE empresa_id = ${req.user.empresa_id}
-        LIMIT 1
-      `;
-
-      req.user.modulos = cfg[0]?.modulos || {
-        clientes: true,
-        fichajes: true,
-        worklogs: true,
-        ausencias: true,
-        facturacion: false,
-      };
-    }
-
-    // ==========================
     // 👷 GARANTIZAR EMPLEADO_ID PARA EMPLEADOS
     // ==========================
     if (req.user.role === "empleado" && !req.user.empleado_id) {
@@ -95,25 +75,6 @@ export const authRequired = async (req, res, next) => {
     }
 
     // ==========================
-    // 🔐 BLOQUEO POR PASSWORD FORZADA
-    // ==========================
-    const isEmpleado = decoded.role === "empleado";
-    const passwordForced = decoded.password_forced === true;
-
-    const fullPath = req.originalUrl.split("?")[0];
-
-    if (isEmpleado && passwordForced) {
-      const rutasPermitidas = ["/auth/change-password", "/auth/logout"];
-
-      if (!rutasPermitidas.some((r) => fullPath.startsWith(r))) {
-        return res.status(403).json({
-          error: "Debes cambiar tu contraseña antes de continuar",
-          code: "PASSWORD_FORCED",
-        });
-      }
-    }
-
-    // ==========================
     // 👤 EMPLEADO LÓGICO PARA ADMIN (AUTÓNOMO)
     // ==========================
     if (
@@ -126,6 +87,41 @@ export const authRequired = async (req, res, next) => {
         empresaId: req.user.empresa_id,
         nombre: req.user.nombre,
       });
+    }
+    // 📦 Ahora sí: módulos
+    if (req.user.empresa_id) {
+      const cfg = await sql`
+        SELECT modulos
+        FROM empresa_config_180
+        WHERE empresa_id = ${req.user.empresa_id}
+        LIMIT 1
+      `;
+
+      req.user.modulos = cfg[0]?.modulos || {
+        clientes: true,
+        fichajes: true,
+        worklogs: true,
+        ausencias: true,
+        facturacion: false,
+      };
+    }
+    // ==========================
+    // 🔐 BLOQUEO POR PASSWORD FORZADA
+    // ==========================
+    const isEmpleado = req.user.role === "empleado";
+    const passwordForced = req.user.password_forced === true;
+
+    const fullPath = req.originalUrl.split("?")[0];
+
+    if (isEmpleado && passwordForced) {
+      const rutasPermitidas = ["/auth/change-password", "/auth/logout"];
+
+      if (!rutasPermitidas.some((r) => fullPath.startsWith(r))) {
+        return res.status(403).json({
+          error: "Debes cambiar tu contraseña antes de continuar",
+          code: "PASSWORD_FORCED",
+        });
+      }
     }
 
     return next();
