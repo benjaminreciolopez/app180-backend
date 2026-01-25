@@ -31,7 +31,7 @@ export async function crearWorkLog(req, res) {
 
     const {
       cliente_id,
-      work_item_id,
+      work_item_nombre, // Cambiado de _id a _nombre (texto libre)
       descripcion,
       fecha, // opcional, YYYY-MM-DD o ISO
       minutos, // opcional (recomendado)
@@ -40,6 +40,12 @@ export async function crearWorkLog(req, res) {
 
     if (!descripcion || descripcion.trim().length < 2) {
       return res.status(400).json({ error: "La descripción es obligatoria" });
+    }
+
+    // Concatenar tipo si existe: "[Tipo] Descripción..."
+    let finalDescription = descripcion.trim();
+    if (work_item_nombre && work_item_nombre.trim()) {
+      finalDescription = `[${work_item_nombre.trim()}] ${finalDescription}`;
     }
 
     let finalEmpleadoId = empleadoId;
@@ -95,20 +101,6 @@ export async function crearWorkLog(req, res) {
       }
     }
 
-    // Validar work_item si viene (y que sea de la empresa)
-    if (work_item_id) {
-      const wi = await sql`
-        SELECT id
-        FROM work_items_180
-        WHERE id = ${work_item_id}
-          AND (empresa_id = ${empresaId} OR empresa_id IS NULL)
-        LIMIT 1
-      `;
-      if (wi.length === 0) {
-        return res.status(400).json({ error: "Trabajo/servicio no válido" });
-      }
-    }
-
     const minutosN = minutos == null ? null : parseIntOrNull(minutos);
     if (minutosN != null && (minutosN < 1 || minutosN > 24 * 60)) {
       return res.status(400).json({ error: "Minutos fuera de rango" });
@@ -137,8 +129,8 @@ export async function crearWorkLog(req, res) {
           ${empresaId},
           ${finalEmpleadoId},
           ${cliente_id || null},
-          ${work_item_id || null},
-          ${descripcion.trim()},
+          NULL,
+          ${finalDescription},
           ${precio || null},
           ${fechaFinal.toISOString()},
           ${minutosN},
