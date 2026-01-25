@@ -119,7 +119,6 @@ export async function crearWorkLog(req, res) {
           cliente_id,
           work_item_id,
           descripcion,
-          precio,
           fecha,
           minutos,
           created_at
@@ -131,7 +130,6 @@ export async function crearWorkLog(req, res) {
           ${cliente_id || null},
           ${null},
           ${finalDescription},
-          ${precio || null},
           ${fechaFinal.toISOString()},
           ${minutosN},
           now()
