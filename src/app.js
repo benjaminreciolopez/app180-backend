@@ -35,6 +35,7 @@ import adminclientesroutes from "./routes/adminClientesRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import systemRoutes from "./routes/systemRoutes.js";
 import adminConfigRoutes from "./routes/adminConfigRoutes.js";
+import adminProfileRoutes from "./routes/adminProfileRoutes.js";
 
 const app = express();
 
@@ -104,6 +105,7 @@ app.use("/admin", adminCalendarioImportacionesRoutes);
 app.use("/admin", adminclientesroutes);
 app.use("/admin", paymentsRoutes);
 app.use("/admin", adminConfigRoutes);
+app.use("/perfil", adminProfileRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
