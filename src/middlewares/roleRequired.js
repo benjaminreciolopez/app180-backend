@@ -1,3 +1,5 @@
+// backend/src/middlewares/roleRequired.js
+
 export function roleRequired(role) {
   return (req, res, next) => {
     if (!req.user) {

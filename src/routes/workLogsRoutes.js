@@ -1,7 +1,8 @@
-// src/routes/workLogsRoutes.js
 import { Router } from "express";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { requireModule } from "../middlewares/requireModule.js";
+
 import {
   crearWorkLog,
   misWorkLogs,
@@ -11,17 +12,18 @@ import {
 
 const router = Router();
 
+/**
+ * Si el módulo worklogs está desactivado, nadie debería poder usar worklogs.
+ * Ponemos requireModule después de authRequired para garantizar req.user.
+ */
+router.use(authRequired, requireModule("worklogs"));
+
 // empleado
-router.post("/", authRequired, crearWorkLog);
-router.get("/mis", authRequired, misWorkLogs);
+router.post("/", crearWorkLog);
+router.get("/mis", misWorkLogs);
 
 // admin
-router.get("/admin", authRequired, roleRequired("admin"), adminWorkLogs);
-router.get(
-  "/admin/resumen",
-  authRequired,
-  roleRequired("admin"),
-  adminWorkLogsResumen
-);
+router.get("/admin", roleRequired("admin"), adminWorkLogs);
+router.get("/admin/resumen", roleRequired("admin"), adminWorkLogsResumen);
 
 export default router;

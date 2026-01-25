@@ -56,6 +56,10 @@ export const registerFirstAdmin = async (req, res) => {
   VALUES (${userId}, ${empresa_nombre})
   RETURNING id
 `;
+    await sql`
+      INSERT INTO empresa_config_180 (empresa_id)
+      VALUES (${empresa[0].id})
+    `;
 
     return res.json({ success: true });
   } catch (e) {
@@ -265,6 +269,19 @@ export const login = async (req, res) => {
         }
       }
     }
+    // cargar módulos empresa
+    let modulos = {};
+
+    if (empresaId) {
+      const cfg = await sql`
+        SELECT modulos
+        FROM empresa_config_180
+        WHERE empresa_id = ${empresaId}
+        LIMIT 1
+      `;
+
+      modulos = cfg[0]?.modulos || {};
+    }
 
     const token = jwt.sign(
       {
@@ -274,6 +291,7 @@ export const login = async (req, res) => {
         nombre: user.nombre,
         empresa_id: empresaId,
         empleado_id: empleadoId,
+        modulos,
         device_hash: device_hash || null,
         password_forced: user.password_forced === true, // 👈 CLAVE
       },

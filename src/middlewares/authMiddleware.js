@@ -50,6 +50,27 @@ export const authRequired = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     req.user = decoded;
+
+    // ==========================
+    // 📦 CARGAR CONFIG EMPRESA
+    // ==========================
+    if (req.user.empresa_id) {
+      const cfg = await sql`
+        SELECT modulos
+        FROM empresa_config_180
+        WHERE empresa_id = ${req.user.empresa_id}
+        LIMIT 1
+      `;
+
+      req.user.modulos = cfg[0]?.modulos || {
+        clientes: true,
+        fichajes: true,
+        worklogs: true,
+        ausencias: true,
+        facturacion: false,
+      };
+    }
+
     // ==========================
     // 👷 GARANTIZAR EMPLEADO_ID PARA EMPLEADOS
     // ==========================
