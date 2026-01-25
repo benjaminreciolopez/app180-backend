@@ -129,7 +129,7 @@ export async function crearWorkLog(req, res) {
           ${empresaId},
           ${finalEmpleadoId},
           ${cliente_id || null},
-          NULL,
+          ${null},
           ${finalDescription},
           ${precio || null},
           ${fechaFinal.toISOString()},
@@ -142,7 +142,7 @@ export async function crearWorkLog(req, res) {
     return res.json(rows[0]);
   } catch (err) {
     console.error("❌ crearWorkLog:", err);
-    return res.status(500).json({ error: "Error creando work log" });
+    return res.status(500).json({ error: "Error creando work log: " + err.message });
   }
 }
 
