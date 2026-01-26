@@ -152,9 +152,16 @@ export async function crearWorkLog(req, res) {
            } else if (tar.tipo === 'dia') {
                // Tarifa en dias. Asumimos 8h (480min) = 1 dia para la conversion
                valorInicial = (minutosN / (8 * 60)) * p;
+           } else if (tar.tipo === 'mes') {
+               // Tarifa en meses. 
+               // Estandard: 1 mes = 160 horas (4 semanas * 40h) ó 22 dias laborales * 8h = 176h
+               // User intent: "un mes de trabajo" = 9600 min (160h).
+               // Si el user metió min=9600, y la tarifa es 1000€/mes => (9600 / 9600) * 1000 = 1000.
+               // Asumiremos 160h/mes como base de conversión. 
+               const minMes = 160 * 60; 
+               valorInicial = (minutosN / minMes) * p;
            }
-           // Si tarifa es 'mes'? No implementado en tarifas aun.
-           
+           // Redondear a 2 decimales
            valorInicial = Math.round(valorInicial * 100) / 100;
        }
     }
