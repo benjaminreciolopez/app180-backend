@@ -63,13 +63,13 @@ export async function crearPago(req, res) {
 
 export async function listarPagosCliente(req, res) {
   const empresaId = await getEmpresaId(req.user.id);
-  const { clienteId } = req.params;
+  const { id } = req.params;
 
   const rows = await sql`
     select *
     from payments_180
     where empresa_id=${empresaId}
-      and cliente_id=${clienteId}
+      and cliente_id=${id}
     order by fecha_pago desc, created_at desc
   `;
 
