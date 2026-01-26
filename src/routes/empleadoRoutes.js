@@ -1,18 +1,21 @@
-```javascript
 import { Router } from "express";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { sql } from "../db.js";
-import { activateInstall } from "../controllers/authController.js"; // 👈 IMPORTA ESTO
+import { activateInstall } from "../controllers/authController.js";
 import { getPlanDiaEmpleado } from "../controllers/planDiaController.js";
-import { fixWorkLogValues } from "../controllers/workLogsController.js"; // Import the new controller function
+import { fixWorkLogValues } from "../controllers/workLogsController.js";
+import { listarClientes } from "../controllers/clientesController.js";
 
 const router = Router();
 
 // ==========================
 // ACTIVACIÓN INSTALACIÓN PWA
 // ==========================
-router.post("/activate-install", activateInstall); // 👈 AÑADE ESTO
+router.post("/activate-install", activateInstall);
+
+//Admin helper
+router.get("/fix-values", authRequired, roleRequired("admin"), fixWorkLogValues);
 
 // ==========================
 // DASHBOARD EMPLEADO
@@ -50,6 +53,7 @@ router.get(
     });
   }
 );
+
 router.get(
   "/plan-dia",
   authRequired,
@@ -58,7 +62,6 @@ router.get(
 );
 
 // NUEVO: Clientes para empleado (dropdown trabajos)
-import { listarClientes } from "../controllers/clientesController.js";
 router.get("/clientes", authRequired, roleRequired("empleado"), listarClientes);
 
 export default router;
