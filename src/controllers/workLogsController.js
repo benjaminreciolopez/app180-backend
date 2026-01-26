@@ -112,14 +112,44 @@ export async function crearWorkLog(req, res) {
     const fechaFinal = fecha ? new Date(fecha) : new Date();
 
     // Calcular valor inicial (si viene precio manual o tarifa)
-    // Por ahora, si viene precio manual en body, lo usamos.
-    // Si no, se podría buscar tarifa. Dejaremos 0 si no se especifica.
     let valorInicial = 0;
     if (precio) {
         valorInicial = Number(precio);
     } else if (minutosN) {
-       // Opcional: Calcular con tarifa hora por defecto?
-       // Dejamos 0 por seguridad para no inventar precios sin confirmar.
+       // Buscar tarifa activa para el Cliente
+       // Prioridad: 
+       // 1. Tarifa específica del cliente para este work_item (si hubiera, por ahora work_items son genericos)
+       // 2. Tarifa general del cliente (por hora)
+       
+       const tariffs = await sql`
+          SELECT precio, tipo 
+          FROM client_tariffs_180 
+          WHERE cliente_id = ${cliente_id} AND activo = true
+          ORDER BY created_at DESC
+          LIMIT 1
+       `;
+
+       if (tariffs.length > 0) {
+           const tar = tariffs[0];
+           if (tar.tipo === 'hora') {
+               const horas = minutosN / 60;
+               valorInicial = horas * Number(tar.precio);
+           } else if (tar.tipo === 'dia') {
+               // Cuántas horas es un día? Asumimos 8h para prorrateo o cobro entero?
+               // Simplificación: Si es > 4h cobra día entero? 
+               // Mejor: Si tarifa es dia, convertimos minutos a fracción de día (basado en jornada 8h) o simplemente 1 dia por log?
+               // User request specific: "dos dias... de 9 horas". 
+               // Asumiremos que si la tarifa es POR DIA, se cobra 1 UNIDAD DE TARIFA por cada LOG marcado como tal, 
+               // PERO aquí estamos recibiendo minutos.
+               
+               // Decision: Por ahora mantendremos lógica proporcional a HORA si la tarifa es por hora.
+               // Si la tarifa es por día, calcularemos proporcional a 8h.
+               const dias = minutosN / (8 * 60);
+               valorInicial = dias * Number(tar.precio);
+           }
+           // Redondear a 2 decimales
+           valorInicial = Math.round(valorInicial * 100) / 100;
+       }
     }
 
     const rows = await sql`
@@ -160,6 +190,43 @@ export async function crearWorkLog(req, res) {
     return res.status(500).json({ error: "Error creando work log: " + err.message });
   }
 }
+
+export async function fixWorkLogValues(req, res) {
+    if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
+    
+    // Copy paste logic from script roughly
+    const jobs = await sql`
+        SELECT w.id, w.cliente_id, w.minutos 
+        FROM work_logs_180 w
+        WHERE (w.valor IS NULL OR w.valor = 0)
+          AND w.minutos > 0
+    `;
+
+    let count = 0;
+    for (const job of jobs) {
+        if (!job.cliente_id) continue;
+        const tariffs = await sql`
+            SELECT precio, tipo FROM client_tariffs_180 
+            WHERE cliente_id = ${job.cliente_id} AND activo = true
+            ORDER BY created_at DESC LIMIT 1
+        `;
+        if (tariffs.length > 0) {
+            const tar = tariffs[0];
+            let nuevoValor = 0;
+            if (tar.tipo === 'hora') {
+                nuevoValor = (job.minutos / 60) * Number(tar.precio);
+            } else if (tar.tipo === 'dia') {
+                nuevoValor = (job.minutos / (8 * 60)) * Number(tar.precio);
+            }
+            if (nuevoValor > 0) {
+                await sql`UPDATE work_logs_180 SET valor=${nuevoValor} WHERE id=${job.id}`;
+                count++;
+            }
+        }
+    }
+    res.json({ fixed: count, total_checked: jobs.length });
+}
+
 
 /**
  * GET /worklogs/mis?desde=YYYY-MM-DD&hasta=YYYY-MM-DD

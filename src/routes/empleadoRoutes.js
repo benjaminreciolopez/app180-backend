@@ -1,9 +1,11 @@
+```javascript
 import { Router } from "express";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { sql } from "../db.js";
 import { activateInstall } from "../controllers/authController.js"; // 👈 IMPORTA ESTO
 import { getPlanDiaEmpleado } from "../controllers/planDiaController.js";
+import { fixWorkLogValues } from "../controllers/workLogsController.js"; // Import the new controller function
 
 const router = Router();
 
