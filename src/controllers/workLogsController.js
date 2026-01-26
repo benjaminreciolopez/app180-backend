@@ -266,6 +266,8 @@ export async function misWorkLogs(req, res) {
     const rows = await sql`
       SELECT
         w.*,
+        w.tipo_facturacion,
+        w.duracion_texto,
         c.nombre AS cliente_nombre,
         wi.nombre AS work_item_nombre
       FROM work_logs_180 w
