@@ -31,14 +31,19 @@ export async function crearWorkLog(req, res) {
 
     const {
       cliente_id,
-      work_item_nombre, // Cambiado de _id a _nombre (texto libre)
+      work_item_nombre, 
       descripcion,
-      fecha, // opcional, YYYY-MM-DD o ISO
-      minutos, // opcional (recomendado)
-      precio, // opcional (si se calcula/introduce)
+      fecha, 
+      minutos, 
+      precio,
+      tipo_facturacion = 'hora', 
+      duracion_texto 
     } = req.body;
 
+    console.log("📝 crearWorkLog Payload:", JSON.stringify(req.body));
+
     if (!descripcion || descripcion.trim().length < 2) {
+      console.log("❌ Error description length");
       return res.status(400).json({ error: "La descripción es obligatoria" });
     }
 
@@ -55,8 +60,6 @@ export async function crearWorkLog(req, res) {
       if (req.body.empleado_id) {
         finalEmpleadoId = req.body.empleado_id;
       } else {
-        // Modo autónomo: Si admin no manda empleado, se lo asigna a sí mismo
-        // Aseguramos que tenga ficha de empleado
         const { ensureSelfEmployee } = await import(
           "../services/ensureSelfEmployee.js"
         );
@@ -72,7 +75,6 @@ export async function crearWorkLog(req, res) {
        return res.status(403).json({ error: "Falta empleado_id" });
     }
 
-    // Validar que el empleado pertenece a la empresa del token
     const emp = await sql`
       SELECT id, empresa_id
       FROM employees_180
@@ -85,7 +87,6 @@ export async function crearWorkLog(req, res) {
         .json({ error: "Empleado no pertenece a la empresa" });
     }
 
-    // Validar cliente si viene
     if (cliente_id) {
       const c = await sql`
         SELECT id
@@ -101,26 +102,34 @@ export async function crearWorkLog(req, res) {
       }
     }
 
-    const minutosN = minutos == null ? null : parseIntOrNull(minutos);
-    if (minutosN != null && (minutosN < 1 || minutosN > 24 * 60)) {
-      return res.status(400).json({ error: "Minutos fuera de rango" });
+    const minutosN = minutos == null ? 0 : parseIntOrNull(minutos);
+    // if (minutosN == null || minutosN < 0 || minutosN > 24 * 60 * 31) { // Cap high
+    //   // return res.status(400).json({ error: "Minutos fuera de rango" });
+    // }
+    
+    // Si es valorado sin precio fijo, minutos puede ser 0
+    if (tipo_facturacion !== 'valorado' && minutosN <= 0) {
+        console.log("❌ Error duracion invalida:", minutosN, tipo_facturacion);
+        return res.status(400).json({ error: "Duración inválida" });
     }
+
     if (fecha && isNaN(new Date(fecha).getTime())) {
+      console.log("❌ Error fecha invalida");
       return res.status(400).json({ error: "Fecha no válida" });
     }
 
     const fechaFinal = fecha ? new Date(fecha) : new Date();
 
-    // Calcular valor inicial (si viene precio manual o tarifa)
+    // Calcular valor inicial
     let valorInicial = 0;
+    
+    // 1. Si viene precio manual (desde admin), manda
     if (precio) {
         valorInicial = Number(precio);
-    } else if (minutosN) {
-       // Buscar tarifa activa para el Cliente
-       // Prioridad: 
-       // 1. Tarifa específica del cliente para este work_item (si hubiera, por ahora work_items son genericos)
-       // 2. Tarifa general del cliente (por hora)
-       
+    } 
+    // 2. Si es calculado (hora, dia, mes)
+    else if (cliente_id) {
+       // Buscar tarifa
        const tariffs = await sql`
           SELECT precio, tipo 
           FROM client_tariffs_180 
@@ -131,23 +140,21 @@ export async function crearWorkLog(req, res) {
 
        if (tariffs.length > 0) {
            const tar = tariffs[0];
+           const p = Number(tar.precio);
+
+           // Normalización:
+           // Las horas, dias, meses las almacenamos en 'minutos' (calculado en front)
+           // Aquí calculamos valor en base a la TARIFA del cliente
+           
            if (tar.tipo === 'hora') {
-               const horas = minutosN / 60;
-               valorInicial = horas * Number(tar.precio);
+               // Tarifa en horas.
+               valorInicial = (minutosN / 60) * p;
            } else if (tar.tipo === 'dia') {
-               // Cuántas horas es un día? Asumimos 8h para prorrateo o cobro entero?
-               // Simplificación: Si es > 4h cobra día entero? 
-               // Mejor: Si tarifa es dia, convertimos minutos a fracción de día (basado en jornada 8h) o simplemente 1 dia por log?
-               // User request specific: "dos dias... de 9 horas". 
-               // Asumiremos que si la tarifa es POR DIA, se cobra 1 UNIDAD DE TARIFA por cada LOG marcado como tal, 
-               // PERO aquí estamos recibiendo minutos.
-               
-               // Decision: Por ahora mantendremos lógica proporcional a HORA si la tarifa es por hora.
-               // Si la tarifa es por día, calcularemos proporcional a 8h.
-               const dias = minutosN / (8 * 60);
-               valorInicial = dias * Number(tar.precio);
+               // Tarifa en dias. Asumimos 8h (480min) = 1 dia para la conversion
+               valorInicial = (minutosN / (8 * 60)) * p;
            }
-           // Redondear a 2 decimales
+           // Si tarifa es 'mes'? No implementado en tarifas aun.
+           
            valorInicial = Math.round(valorInicial * 100) / 100;
        }
     }
@@ -165,7 +172,9 @@ export async function crearWorkLog(req, res) {
           valor,
           pagado,
           estado_pago,
-          created_at
+          created_at,
+          tipo_facturacion,
+          duracion_texto
         )
       VALUES
         (
@@ -179,7 +188,9 @@ export async function crearWorkLog(req, res) {
           ${valorInicial},
           0,
           'pendiente',
-          now()
+          now(),
+          ${tipo_facturacion},
+          ${duracion_texto || null}
         )
       RETURNING *
     `;
