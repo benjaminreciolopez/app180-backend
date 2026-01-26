@@ -23,6 +23,7 @@ import { getBillingStatus, getBillingByClient } from "../controllers/billingCont
 import {
   listarPagosCliente,
   crearPago,
+  getTrabajosPendientes,
 } from "../controllers/paymentsController.js";
 
 const router = Router();
@@ -45,6 +46,7 @@ router.delete("/clientes/tarifas/:tarifaId", cerrarTarifa);
 
 /* PAGOS */
 router.get("/clientes/:id/pagos", listarPagosCliente);
+router.get("/clientes/:id/trabajos-pendientes", getTrabajosPendientes);
 router.post("/pagos", crearPago); // Generic create
 
 /* Cliente individual */

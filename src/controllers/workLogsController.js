@@ -111,6 +111,17 @@ export async function crearWorkLog(req, res) {
 
     const fechaFinal = fecha ? new Date(fecha) : new Date();
 
+    // Calcular valor inicial (si viene precio manual o tarifa)
+    // Por ahora, si viene precio manual en body, lo usamos.
+    // Si no, se podría buscar tarifa. Dejaremos 0 si no se especifica.
+    let valorInicial = 0;
+    if (precio) {
+        valorInicial = Number(precio);
+    } else if (minutosN) {
+       // Opcional: Calcular con tarifa hora por defecto?
+       // Dejamos 0 por seguridad para no inventar precios sin confirmar.
+    }
+
     const rows = await sql`
       INSERT INTO work_logs_180
         (
@@ -121,6 +132,9 @@ export async function crearWorkLog(req, res) {
           descripcion,
           fecha,
           minutos,
+          valor,
+          pagado,
+          estado_pago,
           created_at
         )
       VALUES
@@ -132,6 +146,9 @@ export async function crearWorkLog(req, res) {
           ${finalDescription},
           ${fechaFinal.toISOString()},
           ${minutosN},
+          ${valorInicial},
+          0,
+          'pendiente',
           now()
         )
       RETURNING *

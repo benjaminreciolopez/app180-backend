@@ -47,18 +47,63 @@ export async function crearPago(req, res) {
   `;
   if (!c[0]) return res.status(404).json({ error: "Cliente no existe" });
 
-  const r = await sql`
-    insert into payments_180 (
-      empresa_id, cliente_id, importe, metodo, fecha_pago, referencia, notas
-    )
-    values (
-      ${empresaId}, ${cliente_id}, ${importe}, ${metodo},
-      ${fecha_pago ?? null}, ${referencia ?? null}, ${notas ?? null}
-    )
-    returning *
-  `;
+  // Asignaciones: [{ work_log_id: "...", importe: 50 }, ...]
+  const asignaciones = req.body.asignaciones || [];
 
-  res.status(201).json(r[0]);
+  // Iniciar transacción (usamos sql.begin si available, o lógica manual secuencial si postgres.js simple)
+  // Postgres.js soporta sql.begin
+  
+  try {
+      const result = await sql.begin(async sql => {
+          // 1. Crear Pago
+          const p = await sql`
+            insert into payments_180 (
+              empresa_id, cliente_id, importe, metodo, fecha_pago, referencia, notas
+            )
+            values (
+              ${empresaId}, ${cliente_id}, ${importe}, ${metodo},
+              ${fecha_pago ?? null}, ${referencia ?? null}, ${notas ?? null}
+            )
+            returning *
+          `;
+          const payment = p[0];
+
+          // 2. Procesar Asignaciones
+          for (const item of asignaciones) {
+              if (item.work_log_id && item.importe > 0) {
+                   // Crear registro allocation
+                   await sql`
+                      insert into payment_allocations_180 (
+                          empresa_id, payment_id, work_log_id, importe
+                      ) values (
+                          ${empresaId}, ${payment.id}, ${item.work_log_id}, ${item.importe}
+                      )
+                   `;
+
+                   // Actualizar work_log
+                   // pagado = pagado + importe
+                   // estado = check si pagado >= valor
+                   await sql`
+                      UPDATE work_logs_180
+                      SET 
+                        pagado = COALESCE(pagado, 0) + ${item.importe},
+                        estado_pago = CASE 
+                            WHEN (COALESCE(pagado, 0) + ${item.importe}) >= valor THEN 'pagado'
+                            ELSE 'parcial'
+                        END
+                      WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
+                   `;
+              }
+          }
+          
+          return payment;
+      });
+
+      res.status(201).json(result);
+  } catch(e) {
+      console.error(e);
+      res.status(500).json({ error: "Error procesando pago: " + e.message });
+  }
 }
 
 export async function listarPagosCliente(req, res) {
@@ -129,4 +174,23 @@ export async function imputarPago(req, res) {
   });
 
   res.json(r);
+}
+
+/**
+ * GET /admin/clientes/:id/trabajos-pendientes
+ * Devuelve worklogs con deuda (val - pagado > 0)
+ */
+export async function getTrabajosPendientes(req, res) {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { id } = req.params; // clienteId
+
+    const rows = await sql`
+        SELECT * 
+        FROM work_logs_180
+        WHERE empresa_id = ${empresaId}
+          AND cliente_id = ${id}
+          AND (valor > COALESCE(pagado, 0))
+        ORDER BY fecha ASC
+    `;
+    res.json(rows);
 }
