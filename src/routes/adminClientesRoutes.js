@@ -18,11 +18,15 @@ import {
   cerrarTarifa,
 } from "../controllers/clientTariffsController.js";
 
+import { getBillingStatus } from "../controllers/billingController.js";
+
 const router = Router();
 
 router.use(authRequired, roleRequired("admin"));
 
 /* ================= CLIENTES ================= */
+
+router.get("/billing/status", getBillingStatus);
 
 router.get("/clientes", listarClientes);
 router.post("/clientes", crearCliente);

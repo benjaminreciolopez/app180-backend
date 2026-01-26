@@ -47,15 +47,23 @@ export async function listarClientes(req, res) {
 
 /* ----------------------- */
 
+/* ----------------------- */
+
 export async function getClienteDetalle(req, res) {
   const empresaId = await getEmpresaId(req.user.id);
   const { id } = req.params;
 
+  // Hacemos JOIN con datos fiscales
   const r = await sql`
-    select *
-    from clients_180
-    where id=${id}
-      and empresa_id=${empresaId}
+    select c.*,
+           f.razon_social, f.nif_cif, f.tipo_fiscal,
+           f.pais, f.provincia, f.municipio, f.codigo_postal, f.direccion_fiscal,
+           f.email_factura, f.telefono_factura, f.persona_contacto,
+           f.iva_defecto, f.exento_iva, f.forma_pago, f.iban
+    from clients_180 c
+    left join client_fiscal_data_180 f on f.cliente_id = c.id
+    where c.id=${id}
+      and c.empresa_id=${empresaId}
     limit 1
   `;
 
@@ -63,6 +71,7 @@ export async function getClienteDetalle(req, res) {
 
   res.json(r[0]);
 }
+
 async function generarCodigoCliente(empresaId) {
   // Intentar incrementar
   let r = await sql`
@@ -105,6 +114,7 @@ export async function crearCliente(req, res) {
     codigo,
     tipo = "cliente",
 
+    // Datos generales
     direccion,
     telefono,
     contacto_nombre,
@@ -121,6 +131,23 @@ export async function crearCliente(req, res) {
     fecha_fin,
 
     notas,
+
+    // Datos Fiscales
+    razon_social,
+    nif_cif,
+    tipo_fiscal,
+    pais,
+    provincia,
+    municipio,
+    codigo_postal,
+    direccion_fiscal,
+    email_factura,
+    telefono_factura,
+    persona_contacto,
+    iva_defecto,
+    exento_iva,
+    forma_pago,
+    iban
   } = req.body;
 
   if (!nombre) return res.status(400).json({ error: "Nombre requerido" });
@@ -166,6 +193,7 @@ export async function crearCliente(req, res) {
     return res.status(400).json({ error: "Código duplicado" });
   }
 
+  // 1. Insertar Cliente General
   const r = await sql`
     insert into clients_180 (
       empresa_id,
@@ -216,7 +244,51 @@ export async function crearCliente(req, res) {
     returning *
   `;
 
-  res.status(201).json(r[0]);
+  const newClient = r[0];
+
+  // 2. Insertar Datos Fiscales (incluso si vacíos, para tener la fila)
+  await sql`
+    insert into client_fiscal_data_180 (
+      empresa_id,
+      cliente_id,
+      razon_social,
+      nif_cif,
+      tipo_fiscal,
+      pais,
+      provincia,
+      municipio,
+      codigo_postal,
+      direccion_fiscal,
+      email_factura,
+      telefono_factura,
+      persona_contacto,
+      iva_defecto,
+      exento_iva,
+      forma_pago,
+      iban
+    ) values (
+      ${empresaId},
+      ${newClient.id},
+      ${n(razon_social)},
+      ${n(nif_cif)},
+      ${n(tipo_fiscal)},
+      ${n(pais) || 'España'},
+      ${n(provincia)},
+      ${n(municipio)},
+      ${n(codigo_postal)},
+      ${n(direccion_fiscal)},
+      ${n(email_factura)},
+      ${n(telefono_factura)},
+      ${n(persona_contacto)},
+      ${n(iva_defecto)},
+      ${exento_iva === true},
+      ${n(forma_pago)},
+      ${n(iban)}
+    )
+  `;
+
+  // Devolver objeto combinado (simulado)
+  res.status(201).json({ ...newClient, razon_social, nif_cif });
 }
 
 /* ----------------------- */
@@ -227,30 +299,28 @@ export async function actualizarCliente(req, res) {
 
   const body = req.body;
 
-  const allowed = [
+  // Campos de clients_180
+  const allowedGeneral = [
     "nombre",
     "tipo",
-
     "direccion",
     "telefono",
     "contacto_nombre",
     "contacto_email",
-
     "modo_defecto",
-
     "lat",
     "lng",
     "radio_m",
     "requiere_geo",
-
     "fecha_inicio",
     "fecha_fin",
-
     "notas",
     "activo",
-    "geo_policy",
+    "geo_policy"
+  ];
 
-    // fiscal
+  // Campos de client_fiscal_data_180
+  const allowedFiscal = [
     "razon_social",
     "nif_cif",
     "tipo_fiscal",
@@ -268,27 +338,53 @@ export async function actualizarCliente(req, res) {
     "iban",
   ];
 
-  const fields = {};
+  const fieldsGeneral = {};
+  const fieldsFiscal = {};
 
-  for (const k of allowed) {
-    if (k in body) fields[k] = body[k];
+  for (const k of Object.keys(body)) {
+    if (allowedGeneral.includes(k)) fieldsGeneral[k] = body[k];
+    if (allowedFiscal.includes(k)) fieldsFiscal[k] = body[k];
   }
 
-  if (Object.keys(fields).length === 0) {
-    return res.status(400).json({ error: "Sin campos válidos" });
+  // Actualizar tabla general
+  let clientUpdated = null;
+  if (Object.keys(fieldsGeneral).length > 0) {
+    const r = await sql`
+      update clients_180
+      set ${sql(fieldsGeneral)}
+      where id=${id}
+        and empresa_id=${empresaId}
+      returning *
+    `;
+    clientUpdated = r[0];
   }
 
-  const r = await sql`
-    update clients_180
-    set ${sql(fields)}
-    where id=${id}
-      and empresa_id=${empresaId}
-    returning *
-  `;
+  // Actualizar tabla fiscal (upsert por si no existía)
+  if (Object.keys(fieldsFiscal).length > 0) {
+    // Check if exists
+    const exists = await sql`select id from client_fiscal_data_180 where cliente_id=${id}`;
+    if (exists[0]) {
+      await sql`
+        update client_fiscal_data_180
+        set ${sql(fieldsFiscal)}
+        where cliente_id=${id}
+      `;
+    } else {
+      // Create if missing
+      await sql`
+        insert into client_fiscal_data_180 (empresa_id, cliente_id, ${sql(Object.keys(fieldsFiscal))})
+        values (${empresaId}, ${id}, ${sql(Object.values(fieldsFiscal))})
+      `;
+    }
+  }
 
-  if (!r[0]) return res.status(404).json({ error: "No encontrado" });
-
-  res.json(r[0]);
+  // Respuesta final
+  if (clientUpdated) {
+    res.json(clientUpdated); 
+  } else {
+    // Si solo actualizamos fiscal, devolvemos success genérico o fetch del cliente
+    res.json({ ok: true, id });
+  }
 }
 
 /* ----------------------- */
