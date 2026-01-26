@@ -54,4 +54,9 @@ router.get(
   roleRequired("empleado"),
   getPlanDiaEmpleado
 );
+
+// NUEVO: Clientes para empleado (dropdown trabajos)
+import { listarClientes } from "../controllers/clientesController.js";
+router.get("/clientes", authRequired, roleRequired("empleado"), listarClientes);
+
 export default router;

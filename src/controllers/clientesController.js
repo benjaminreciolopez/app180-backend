@@ -27,7 +27,13 @@ function n(v) {
 ========================= */
 
 export async function listarClientes(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  // Si viene con req.user.empresa_id (middleware auth), lo usamos
+  let empresaId = req.user.empresa_id;
+
+  // Si no está (caso raro o admin sin contexto), intentamos buscarlo
+  if (!empresaId) {
+    empresaId = await getEmpresaId(req.user.id);
+  }
 
   const rows = await sql`
     select *
