@@ -82,3 +82,65 @@ export async function getBillingStatus(req, res) {
     nota: "Cálculo basado en tarifas por hora activas. Ajustar lógica si hay tarifas por día/mes."
   });
 }
+
+/**
+ * GET /admin/billing/clients?desde=...&hasta=...
+ * Lista clientes con su resumen de facturación (deuda, pagado, etc.)
+ */
+export async function getBillingByClient(req, res) {
+  const empresaId = await getEmpresaId(req.user.id);
+  const { desde, hasta } = req.query;
+
+  const d = desde || '2000-01-01';
+  const h = hasta || '2100-01-01';
+
+  // Obtener lista clientes base
+  const clientes = await sql`
+      SELECT id, nombre, codigo 
+      FROM clients_180 
+      WHERE empresa_id = ${empresaId} 
+             AND activo = true
+      ORDER BY nombre
+  `;
+
+  // Esto podría optimizarse con GROUP BY pero para reutilizar lógica mejor iteramos o hacemos query compleja.
+  // Query compleja:
+  
+  const stats = await sql`
+      WITH payments_sum AS (
+        SELECT cliente_id, SUM(importe) as total_pagado
+        FROM payments_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha_pago BETWEEN ${d}::date AND ${h}::date
+          AND estado != 'anulado'
+        GROUP BY cliente_id
+      ),
+      work_val AS (
+        SELECT 
+            w.cliente_id,
+            SUM(
+                (w.minutos::numeric / 60.0) * COALESCE(t.precio, 0)
+            ) as valor_estimado
+        FROM work_logs_180 w
+        LEFT JOIN client_tariffs_180 t ON t.cliente_id = w.cliente_id 
+            AND t.activo = true 
+            AND t.tipo = 'hora' -- Simplificación tarifa hora
+        WHERE w.empresa_id = ${empresaId}
+          AND w.fecha::date BETWEEN ${d}::date AND ${h}::date
+        GROUP BY w.cliente_id
+      )
+      SELECT 
+        c.id, c.nombre, c.codigo,
+        COALESCE(p.total_pagado, 0) as total_pagado,
+        COALESCE(v.valor_estimado, 0) as total_valor,
+        (COALESCE(v.valor_estimado, 0) - COALESCE(p.total_pagado, 0)) as saldo
+      FROM clients_180 c
+      LEFT JOIN payments_sum p ON p.cliente_id = c.id
+      LEFT JOIN work_val v ON v.cliente_id = c.id
+      WHERE c.empresa_id = ${empresaId} 
+        AND c.activo = true
+      ORDER BY saldo DESC
+  `;
+
+  res.json(stats);
+}

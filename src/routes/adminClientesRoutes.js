@@ -18,7 +18,12 @@ import {
   cerrarTarifa,
 } from "../controllers/clientTariffsController.js";
 
-import { getBillingStatus } from "../controllers/billingController.js";
+import { getBillingStatus, getBillingByClient } from "../controllers/billingController.js";
+
+import {
+  listarPagosCliente,
+  crearPago,
+} from "../controllers/paymentsController.js";
 
 const router = Router();
 
@@ -26,7 +31,8 @@ router.use(authRequired, roleRequired("admin"));
 
 /* ================= CLIENTES ================= */
 
-router.get("/billing/status", getBillingStatus);
+router.get("/billing/clients", getBillingByClient); // Lista global
+router.get("/billing/status", getBillingStatus); // Individual
 
 router.get("/clientes", listarClientes);
 router.post("/clientes", crearCliente);
@@ -36,6 +42,10 @@ router.get("/clientes/next-code", getNextCodigoCliente);
 router.get("/clientes/:id/tarifas", listarTarifasCliente);
 router.post("/clientes/:id/tarifas", crearTarifaCliente);
 router.delete("/clientes/tarifas/:tarifaId", cerrarTarifa);
+
+/* PAGOS */
+router.get("/clientes/:id/pagos", listarPagosCliente);
+router.post("/pagos", crearPago); // Generic create
 
 /* Cliente individual */
 router.get("/clientes/:id", getClienteDetalle);
