@@ -1,5 +1,10 @@
 // scripts/recalculate_values.js
 import { sql } from "../src/db.js";
+import dotenv from "dotenv";
+import path from "path";
+
+dotenv.config({ path: path.join(process.cwd(), ".env") });
+
 
 async function main() {
     console.log("🔄 Recalculando valores de trabajos con valor 0...");
