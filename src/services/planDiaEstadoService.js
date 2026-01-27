@@ -304,6 +304,7 @@ export async function getPlanDiaEstado({
   }
 
   // 2.1) Cliente asignado (work context / geocerca)
+  // Intentar obtener de la asignación de jornada
   const asigCliente = await sql`
     SELECT
       a.cliente_id,
@@ -324,15 +325,44 @@ export async function getPlanDiaEstado({
     LIMIT 1
   `;
 
-  const cliente = asigCliente?.[0]?.cliente_id
+  let datosCliente = null;
+
+  // Si hay cliente en la jornada, usarlo
+  if (asigCliente && asigCliente.length > 0 && asigCliente[0].cliente_id) {
+      datosCliente = asigCliente[0];
+  } else {
+      // ⚠️ FALLBACK: Si no hay cliente en jornada, buscar CLIENTE POR DEFECTO en empleado
+      const empDef = await sql`
+        SELECT 
+            e.cliente_defecto_id,
+            c.nombre as cliente_nombre,
+            c.lat as cliente_lat,
+            c.lng as cliente_lng,
+            c.radio_m as cliente_radio_m,
+            c.geo_policy as cliente_geo_policy,
+            c.modo_defecto as cliente_modo_defecto
+        FROM employees_180 e
+        LEFT JOIN clients_180 c ON c.id = e.cliente_defecto_id
+        WHERE e.id = ${empleadoId}
+      `;
+      
+      if (empDef.length > 0 && empDef[0].cliente_defecto_id) {
+          datosCliente = {
+              cliente_id: empDef[0].cliente_defecto_id, // Homogeneizar campo
+              ...empDef[0]
+          };
+      }
+  }
+
+  const cliente = datosCliente
     ? {
-        id: asigCliente[0].cliente_id,
-        nombre: asigCliente[0].cliente_nombre ?? null,
-        lat: asigCliente[0].cliente_lat ?? null,
-        lng: asigCliente[0].cliente_lng ?? null,
-        radio_m: asigCliente[0].cliente_radio_m ?? null,
-        geo_policy: asigCliente[0].cliente_geo_policy ?? null,
-        modo_defecto: asigCliente[0].cliente_modo_defecto ?? null,
+        id: datosCliente.cliente_id, // o cliente_defecto_id, que mapeamos arriba
+        nombre: datosCliente.cliente_nombre ?? null,
+        lat: datosCliente.cliente_lat ?? null,
+        lng: datosCliente.cliente_lng ?? null,
+        radio_m: datosCliente.cliente_radio_m ?? null,
+        geo_policy: datosCliente.cliente_geo_policy ?? null,
+        modo_defecto: datosCliente.cliente_modo_defecto ?? null,
       }
     : null;
 
