@@ -307,4 +307,42 @@ export const empleadoDashboard = async (req, res) => {
     return res.status(500).json({ error: "Error cargando dashboard empleado" });
   }
 };
+// ==========================
+// EDITAR EMPLEADO (NOMBRE, CLIENTE DEFECTO)
+// ==========================
+export const updateEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, cliente_defecto_id } = req.body;
+
+    const empresa = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+
+    if (empresa.length === 0) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const empresaId = empresa[0].id;
+
+    const updated = await sql`
+      UPDATE employees_180
+      SET 
+        nombre = COALESCE(${nombre}, nombre),
+        cliente_defecto_id = ${cliente_defecto_id || null}
+      WHERE id = ${id}
+        AND empresa_id = ${empresaId}
+      RETURNING id, nombre, cliente_defecto_id, activo
+    `;
+
+    if (updated.length === 0) {
+      return res.status(404).json({ error: "Empleado no encontrado" });
+    }
+
+    res.json({ success: true, empleado: updated[0] });
+  } catch (err) {
+    console.error("❌ Error en updateEmployee:", err);
+    res.status(500).json({ error: "Error al actualizar empleado" });
+  }
+};
 // backend/src/controllers/employeeController.js
