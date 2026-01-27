@@ -94,10 +94,14 @@ function toYMD(fecha, tz = TZ) {
 }
 
 function isDiaLaboral(plan) {
-  const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
-  const hayTrabajo = bloques.some((b) => b.tipo === "trabajo");
+  // Si hay rango definido (hora inicio y fin), es laboral
   const hayRango = !!(plan?.rango?.inicio && plan?.rango?.fin);
-  return hayTrabajo || hayRango;
+  
+  // Si hay bloques definidos (cualquier tipo de bloque implica actividad)
+  const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
+  const hayBloques = bloques.length > 0;
+
+  return hayRango || hayBloques;
 }
 
 function pickTargetsFromPlan(plan) {
@@ -343,7 +347,7 @@ export async function getPlanDiaEstado({
   if (!es_laboral) {
     return {
       fecha: ymd,
-      boton_visible: false,
+      boton_visible: false, // No mostrar botón si no es día laboral
       motivo_oculto: "no_laboral",
       plan,
       margen_antes: MARGEN_ANTES_MIN,
@@ -386,7 +390,6 @@ export async function getPlanDiaEstado({
   const hayJornadaAbierta = !!jAbierta;
 
   // 3.6) Acción según fichajes (regla legal)
-  // Si NO hay fichajes hoy → siempre ENTRADA
   let accion;
 
   if (!fichajes || fichajes.length === 0) {
@@ -395,13 +398,12 @@ export async function getPlanDiaEstado({
     accion = nextAccionFromFichajes(fichajes, hayDescansoPlan);
   }
 
-  // Si el último fichaje fue salida, puede haber reentrada
+  // Si el último fichaje fue salida, comprobar reentrada
   if (!accion) {
     const salidaObj = targets.salida ? timeStrToMin(targets.salida, TZ) : null;
-
     const ahoraMin = getNowMinInTZ(now, TZ);
 
-    // Si aún estamos dentro del turno → permitir nueva entrada
+    // Si aún estamos dentro del turno (+ margen) → permitir nueva entrada
     if (
       salidaObj != null &&
       ahoraMin != null &&
@@ -445,27 +447,47 @@ export async function getPlanDiaEstado({
     };
   }
 
-  // 4) Ventana legal
+  // 4) Ventana legal y Visibilidad
   const hoyYMD = getYMDInTZ(now, TZ);
   const nowMin = getNowMinInTZ(now, TZ);
   const esHoy = hoyYMD === ymd;
 
-  const win = windowForTarget(objetivoMin);
-  const dentro = Boolean(esHoy && accion && win && withinWindow(nowMin, win));
+  let dentroMargen = false;
+  let mensajeEstado = "";
+  
+  if (esHoy && objetivoMin != null && nowMin != null) {
+    const win = windowForTarget(objetivoMin);
+    dentroMargen = withinWindow(nowMin, win);
+    
+    // Calcular distancia en minutos para mensaje (opcional)
+    const diff = objetivoMin - nowMin;
+    if (diff > MARGEN_ANTES_MIN) {
+      mensajeEstado = `Faltan ${Math.floor(diff / 60)}h ${diff % 60}m para fichar`;
+    } else if (diff < -MARGEN_DESPUES_MIN) {
+       mensajeEstado = "Has pasado la hora prevista";
+    } else {
+       mensajeEstado = "Es hora de fichar";
+    }
+  }
 
+  // REGLA DE NEGOCIO:
+  // - Botón SIEMPRE visible si es laboral (para no bloquear al empleado)
+  // - Color ROJO (destacado) si está dentro del margen de 15 min
+  // - Color NEGRO (gris/secundario) si está fuera del margen
+  
   return {
     fecha: ymd,
-    boton_visible: true,
+    boton_visible: true, // Siempre visible si hay jornada
     cliente,
-    // UI
-    color: dentro ? "rojo" : "negro",
-    puede_fichar: true,
-    fuera_de_margen: !dentro,
-    mensaje: !esHoy
-      ? "Fecha distinta de hoy"
-      : dentro
-        ? "Dentro del margen legal de fichaje"
-        : "Fuera del margen legal (quedará como incidencia)",
+    
+    // UI: Destacar solo cuando es el momento
+    color: dentroMargen ? "rojo" : "negro",
+    
+    can_fichar: true, // Permitir siempre fichar (flexibilidad)
+    puede_fichar: true, // Alias legacy
+    
+    fuera_de_margen: !dentroMargen,
+    mensaje: mensajeEstado,
 
     // decisión
     accion,
