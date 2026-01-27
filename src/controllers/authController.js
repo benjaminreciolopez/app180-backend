@@ -243,9 +243,9 @@ export const login = async (req, res) => {
       if (deviceRows.length === 0) {
         await sql`
       INSERT INTO employee_devices_180
-        (user_id, empleado_id, device_hash, user_agent, activo, ip_habitual)
+        (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
       VALUES
-        (${user.id}, ${empleadoId}, ${device_hash},
+        (${user.id}, ${empleadoId}, ${empresaId}, ${device_hash},
          ${user_agent || null}, true, ${ipActual})
     `;
       } else {
