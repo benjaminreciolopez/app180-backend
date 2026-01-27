@@ -7,7 +7,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
   const asig = await sql`
     SELECT 
-      a.plantilla_jornada_id AS plantilla_id,
+      a.plantilla_id AS plantilla_id,
       p.nombre AS plantilla_nombre,
 
       a.cliente_id,
@@ -19,23 +19,21 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       c.requiere_geo,
       c.geo_policy
 
-    FROM asignaciones_plantilla_jornada_180 a
+    FROM empleado_plantillas_180 a
 
     JOIN plantillas_jornada_180 p
-      ON p.id = a.plantilla_jornada_id
+      ON p.id = a.plantilla_id
 
     LEFT JOIN clients_180 c
       ON c.id = a.cliente_id
 
     WHERE a.empleado_id = ${empleadoId}
       AND a.empresa_id = ${empresaId}
-      AND a.activo = true
       AND p.activo = true
       AND a.fecha_inicio <= ${fecha}::date
       AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${fecha}::date)
 
     ORDER BY 
-      a.activo DESC,
       a.fecha_inicio DESC
     LIMIT 1
   `;
