@@ -344,24 +344,56 @@ export async function getPlanDiaEstado({
   // ✅ AHORA sí: bloques ya existen
   const es_laboral = fuerzaLaboral ? true : isDiaLaboral(plan);
 
-  if (!es_laboral) {
-    return {
+  // Si detectamos ausencia, TIENE PRIORIDAD y bloquea/oculta según lógica
+  if (ausencia && ausenciaBloqueante(ausencia.tipo)) {
+     const labels = {
+         vacaciones: "Estás de vacaciones",
+         baja_medica: "Estás de baja médica",
+         permiso: "Estás de permiso"
+     };
+     return {
       fecha: ymd,
-      boton_visible: false, // No mostrar botón si no es día laboral
-      motivo_oculto: "no_laboral",
+      boton_visible: false, 
+      motivo_oculto: "ausencia",
       plan,
       margen_antes: MARGEN_ANTES_MIN,
       margen_despues: MARGEN_DESPUES_MIN,
-      ausencia: ausencia
-        ? {
-            id: ausencia.id,
-            tipo: ausencia.tipo,
-            fecha_inicio: ausencia.fecha_inicio,
-            fecha_fin: ausencia.fecha_fin,
-          }
-        : null,
+      mensaje: labels[ausencia.tipo] || "Ausencia activa",
+      ausencia: {
+        id: ausencia.id,
+        tipo: ausencia.tipo,
+        fecha_inicio: ausencia.fecha_inicio,
+        fecha_fin: ausencia.fecha_fin,
+      },
     };
   }
+
+  // Comportamiento "Día no laboral" (sin ausencia ni festivo, simplemente no hay horario)
+  if (!es_laboral) {
+    // CAMBIO CLAVE: Si no es laboral, pero no hay bloqueo explícito (vacaciones/festivo),
+    // permitimos ver el botón para fichar "extras" o "fuera de horario".
+    return {
+      fecha: ymd,
+      boton_visible: true, // Permitir fichar aunque no haya horario
+      motivo_oculto: null, // No ocultamos
+      
+      plan,
+      margen_antes: MARGEN_ANTES_MIN,
+      margen_despues: MARGEN_DESPUES_MIN,
+      
+      color: "negro", // Color neutro
+      can_fichar: true,
+      puede_fichar: true,
+      
+      mensaje: "Día sin horario planificado (fichaje extra)",
+      
+      accion: "entrada", // Por defecto, si ficha fuera de horario es entrada
+      acciones_permitidas: ["entrada"],
+      
+      ausencia: null,
+    };
+  }
+
   // 3) Fichajes del día
   const fichajes = await sql`
     SELECT tipo, fecha
@@ -416,6 +448,7 @@ export async function getPlanDiaEstado({
         fecha: ymd,
         boton_visible: false,
         motivo_oculto: "jornada_finalizada",
+        mensaje: "Jornada finalizada",
         plan,
         margen_antes: MARGEN_ANTES_MIN,
         margen_despues: MARGEN_DESPUES_MIN,
@@ -436,17 +469,6 @@ export async function getPlanDiaEstado({
 
   const objetivoMin = timeStrToMin(objetivoHHMM, TZ);
 
-  if (objetivoMin == null) {
-    return {
-      fecha: ymd,
-      boton_visible: false,
-      motivo_oculto: "sin_objetivo",
-      plan,
-      margen_antes: MARGEN_ANTES_MIN,
-      margen_despues: MARGEN_DESPUES_MIN,
-    };
-  }
-
   // 4) Ventana legal y Visibilidad
   const hoyYMD = getYMDInTZ(now, TZ);
   const nowMin = getNowMinInTZ(now, TZ);
@@ -455,36 +477,43 @@ export async function getPlanDiaEstado({
   let dentroMargen = false;
   let mensajeEstado = "";
   
-  if (esHoy && objetivoMin != null && nowMin != null) {
+  // Si no hay objetivo (ej. no hay bloques pero isDiaLaboral dio true por rango raro),
+  // tratamos como fichaje generico
+  if (objetivoMin == null) {
+      mensajeEstado = "Fichaje disponible";
+      dentroMargen = false;
+  } else if (esHoy && nowMin != null) {
     const win = windowForTarget(objetivoMin);
     dentroMargen = withinWindow(nowMin, win);
     
-    // Calcular distancia en minutos para mensaje (opcional)
+    // Mensajes específicos solicitados
     const diff = objetivoMin - nowMin;
     if (diff > MARGEN_ANTES_MIN) {
-      mensajeEstado = `Faltan ${Math.floor(diff / 60)}h ${diff % 60}m para fichar`;
+      mensajeEstado = `Faltan ${Math.floor(diff / 60)}h ${diff % 60}m para tu jornada`;
     } else if (diff < -MARGEN_DESPUES_MIN) {
        mensajeEstado = "Has pasado la hora prevista";
     } else {
-       mensajeEstado = "Es hora de fichar";
+       // Dentro de ventana (aprox)
+       if (accion === 'entrada') mensajeEstado = "Es hora de entrar";
+       else if (accion === 'salida') mensajeEstado = "Es hora de salir";
+       else if (accion.includes('descanso')) mensajeEstado = "Hora de descanso";
+       else mensajeEstado = "Es hora de fichar";
     }
+  } else {
+      mensajeEstado = "Fecha distinta de hoy";
   }
 
-  // REGLA DE NEGOCIO:
-  // - Botón SIEMPRE visible si es laboral (para no bloquear al empleado)
-  // - Color ROJO (destacado) si está dentro del margen de 15 min
-  // - Color NEGRO (gris/secundario) si está fuera del margen
-  
+  // REGLA DE NEGOCIO: Botón siempre visible salvo bloqueo por calendario/ausencia
   return {
     fecha: ymd,
-    boton_visible: true, // Siempre visible si hay jornada
+    boton_visible: true, 
     cliente,
     
     // UI: Destacar solo cuando es el momento
     color: dentroMargen ? "rojo" : "negro",
     
-    can_fichar: true, // Permitir siempre fichar (flexibilidad)
-    puede_fichar: true, // Alias legacy
+    can_fichar: true,
+    puede_fichar: true,
     
     fuera_de_margen: !dentroMargen,
     mensaje: mensajeEstado,
@@ -500,14 +529,7 @@ export async function getPlanDiaEstado({
     // trazabilidad
     es_laboral,
     plan,
-    ausencia: ausencia
-      ? {
-          id: ausencia.id,
-          tipo: ausencia.tipo,
-          fecha_inicio: ausencia.fecha_inicio,
-          fecha_fin: ausencia.fecha_fin,
-        }
-      : null,
+    ausencia: null,
   };
 }
 // backend/src/services/planDiaEstadoService.js
