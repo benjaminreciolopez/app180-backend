@@ -358,11 +358,25 @@ export const activateInstall = async (req, res) => {
 
     const invite = invites[0];
 
-    // ❌ ya usada
+    // ❌ ya usada - PERO permitir si el dispositivo no está activo (instalación fallida)
     if (invite.usado === true || invite.used_at) {
-      return res.status(409).json({
-        error: "Esta invitación ya fue usada. Solicita otra al administrador.",
-      });
+      // Verificar si el dispositivo está activo
+      const deviceCheck = await sql`
+        SELECT activo
+        FROM employee_devices_180
+        WHERE empleado_id = ${invite.empleado_id}
+        LIMIT 1
+      `;
+
+      // Si el dispositivo existe y está activo, no permitir reutilizar
+      if (deviceCheck.length > 0 && deviceCheck[0].activo === true) {
+        return res.status(409).json({
+          error: "Esta invitación ya fue usada. Solicita otra al administrador.",
+        });
+      }
+
+      // Si el dispositivo no está activo o no existe, permitir reinstalar
+      console.log("⚠️ Token usado pero dispositivo inactivo, permitiendo reinstalación");
     }
 
     // ⏳ caducada
@@ -396,14 +410,16 @@ export const activateInstall = async (req, res) => {
       RETURNING *;
     `;
 
-    // marcar invitación como usada
-    await sql`
-      UPDATE invite_180
-      SET usado = true,
-          usado_en = now(),
-          used_at = now()
-      WHERE id = ${invite.id}
-    `;
+    // marcar invitación como usada (solo si no estaba ya marcada)
+    if (!invite.usado) {
+      await sql`
+        UPDATE invite_180
+        SET usado = true,
+            usado_en = now(),
+            used_at = now()
+        WHERE id = ${invite.id}
+      `;
+    }
 
     // obtener usuario
     const userRows = await sql`
