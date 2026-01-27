@@ -114,7 +114,12 @@ export const authRequired = async (req, res, next) => {
     const fullPath = req.originalUrl.split("?")[0];
 
     if (isEmpleado && passwordForced) {
-      const rutasPermitidas = ["/auth/change-password", "/auth/logout"];
+      // ✅ IMPORTANTE: Permitir /auth/me para que AuthInit funcione y no desconecte al usuario
+      const rutasPermitidas = [
+        "/auth/change-password",
+        "/auth/logout",
+        "/auth/me",
+      ];
 
       if (!rutasPermitidas.some((r) => fullPath.startsWith(r))) {
         return res.status(403).json({
