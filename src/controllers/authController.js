@@ -537,6 +537,8 @@ export const autorizarCambioDispositivo = async (req, res) => {
     const adminUserId = req.user.id;
     const { empleado_id } = req.params;
 
+    console.log(`🔄 Autorizando cambio de dispositivo para empleado ${empleado_id}`);
+
     const rows = await sql`
       SELECT 
         u.email,
@@ -556,14 +558,19 @@ export const autorizarCambioDispositivo = async (req, res) => {
     const { email, nombre, user_id, empresa_id } = rows[0];
 
     // 1️⃣ invalidar invitaciones anteriores
-    await sql`
+    const invalidated = await sql`
       UPDATE invite_180
       SET usado = true,
           usado_en = now(),
           used_at = now()
       WHERE empleado_id = ${empleado_id}
         AND (usado IS DISTINCT FROM true)
+      RETURNING id
     `;
+
+    if (invalidated.length > 0) {
+      console.log(`♻️ Invalidadas ${invalidated.length} invitaciones anteriores`);
+    }
 
     // 2️⃣ generar token
     const token = crypto.randomBytes(24).toString("hex");
@@ -591,31 +598,22 @@ export const autorizarCambioDispositivo = async (req, res) => {
 
     const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
 
-    // 4️⃣ enviar email
-    await sendEmail({
-      to: email,
-      subject: "Activación de nuevo dispositivo – APP180",
-      html: `
-        <p>Hola ${nombre},</p>
-        <p>Tu administrador ha autorizado un nuevo dispositivo.</p>
-        <p>Este enlace caduca en <strong>24 horas</strong>:</p>
-        <p><a href="${link}">${link}</a></p>
-        <p>Abre este enlace desde el móvil donde instalarás la PWA.</p>
-      `,
-      text: `Hola ${nombre},
+    console.log(`✅ Cambio de dispositivo autorizado para ${nombre} (${email})`);
+    console.log(`🔗 Enlace: ${link}`);
+    console.log(`⏰ Expira: ${invite[0].expires_at}`);
 
-Tu administrador ha autorizado un nuevo dispositivo.
-
-Este enlace caduca en 24 horas:
-${link}
-
-Ábrelo desde el móvil donde instalarás la PWA.`,
-    });
+    // ✅ NO enviar email automáticamente
+    // El admin decidirá cómo compartir el enlace
 
     return res.json({
       success: true,
-      link,
+      installUrl: link,
       expires_at: invite[0].expires_at,
+      token: token,
+      empleado: {
+        nombre,
+        email,
+      },
     });
   } catch (err) {
     console.error("❌ autorizarCambioDispositivo", err);
@@ -630,6 +628,8 @@ export const inviteEmpleado = async (req, res) => {
     const adminId = req.user.id;
     const { id: empleado_id } = req.params;
     const tipo = req.query.tipo || "nuevo"; // "nuevo" | "cambio"
+
+    console.log(`📧 Generando invitación para empleado ${empleado_id}, tipo: ${tipo}`);
 
     const rows = await sql`
       SELECT 
@@ -650,21 +650,28 @@ export const inviteEmpleado = async (req, res) => {
     const { email, nombre, user_id, empresa_id } = rows[0];
 
     // 1️⃣ Invalidar invitaciones anteriores
-    await sql`
+    const invalidated = await sql`
       UPDATE invite_180
       SET usado = true,
           usado_en = now(),
           used_at = now()
       WHERE empleado_id = ${empleado_id}
         AND (usado IS DISTINCT FROM true)
+      RETURNING id
     `;
+
+    if (invalidated.length > 0) {
+      console.log(`♻️ Invalidadas ${invalidated.length} invitaciones anteriores`);
+    }
 
     // 2️⃣ Si es cambio → limpiar dispositivos
     if (tipo === "cambio") {
-      await sql`
+      const deleted = await sql`
         DELETE FROM employee_devices_180
         WHERE empleado_id = ${empleado_id}
+        RETURNING id
       `;
+      console.log(`🗑️ Eliminados ${deleted.length} dispositivos anteriores`);
     }
 
     // 3️⃣ Token
@@ -693,37 +700,104 @@ export const inviteEmpleado = async (req, res) => {
 
     const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
 
-    // 5️⃣ Enviar email
-    await sendEmail({
-      to: email,
-      subject: "Activación de dispositivo – APP180",
-      html: `
-        <p>Hola ${nombre},</p>
-        <p>Tu administrador ha autorizado el acceso a APP180.</p>
-        <p>Este enlace caduca en <strong>24 horas</strong>:</p>
-        <p><a href="${link}">${link}</a></p>
-        <p>Ábrelo desde el móvil donde instalarás la PWA.</p>
-      `,
-      text: `Hola ${nombre},
+    console.log(`✅ Invitación generada para ${nombre} (${email})`);
+    console.log(`🔗 Enlace: ${link}`);
+    console.log(`⏰ Expira: ${invite[0].expires_at}`);
 
-Tu administrador ha autorizado el acceso a APP180.
-
-Este enlace caduca en 24 horas:
-${link}
-
-Ábrelo desde el móvil donde instalarás la PWA.`,
-    });
+    // ✅ NO enviar email automáticamente
+    // El admin decidirá cómo compartir el enlace (copiar, WhatsApp, email)
 
     return res.json({
       success: true,
       installUrl: link,
       expires_at: invite[0].expires_at,
+      token: token,
+      empleado: {
+        nombre,
+        email,
+      },
     });
   } catch (err) {
     console.error("❌ inviteEmpleado", err);
     return res.status(500).json({ error: "No se pudo generar la invitación" });
   }
 };
+
+// =====================
+// ENVIAR EMAIL DE INVITACIÓN (OPCIONAL)
+// =====================
+export const sendInviteEmail = async (req, res) => {
+  try {
+    const { id: empleado_id } = req.params;
+    const { token, tipo = "nuevo" } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Falta token de invitación" });
+    }
+
+    console.log(`📧 Enviando email de invitación para empleado ${empleado_id}`);
+
+    // Verificar que el token existe y no ha sido usado
+    const invites = await sql`
+      SELECT 
+        i.token,
+        i.expires_at,
+        i.usado,
+        u.email,
+        u.nombre
+      FROM invite_180 i
+      JOIN users_180 u ON u.id = i.user_id
+      WHERE i.token = ${token}
+        AND i.empleado_id = ${empleado_id}
+      LIMIT 1
+    `;
+
+    if (invites.length === 0) {
+      return res.status(404).json({ error: "Invitación no encontrada" });
+    }
+
+    const invite = invites[0];
+
+    if (invite.usado) {
+      return res.status(400).json({ error: "Esta invitación ya fue usada" });
+    }
+
+    if (new Date(invite.expires_at) < new Date()) {
+      return res.status(400).json({ error: "Esta invitación ha caducado" });
+    }
+
+    const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
+
+    // Importar template
+    const { getInviteEmailTemplate } = await import("../templates/emailTemplates.js");
+    const emailContent = getInviteEmailTemplate({
+      nombre: invite.nombre,
+      link,
+      expiresAt: invite.expires_at,
+      tipo,
+    });
+
+    // Enviar email
+    await sendEmail({
+      to: invite.email,
+      subject: emailContent.subject,
+      html: emailContent.html,
+      text: emailContent.text,
+    });
+
+    console.log(`✅ Email enviado a ${invite.email}`);
+
+    return res.json({
+      success: true,
+      message: "Email enviado correctamente",
+      sentTo: invite.email,
+    });
+  } catch (err) {
+    console.error("❌ sendInviteEmail", err);
+    return res.status(500).json({ error: "Error al enviar email" });
+  }
+};
+
 
 // =====================
 // GET /auth/me
