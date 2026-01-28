@@ -486,16 +486,33 @@ export async function getPlanDiaEstado({
     }
   }
 
-  const objetivoHHMM =
-    accion === "entrada"
-      ? targets.entrada
-      : accion === "descanso_inicio"
-        ? targets.descanso_inicio
-        : accion === "descanso_fin"
-          ? targets.descanso_fin
-          : accion === "salida"
-            ? targets.salida
-            : null;
+  let objetivoHHMM = null;
+  
+  if (accion === "entrada") {
+    objetivoHHMM = targets.entrada;
+  } else if (accion === "salida") {
+    objetivoHHMM = targets.salida;
+  } else if (accion === "descanso_inicio") {
+      // Buscar el descanso más apropiado (el que esté en curso o el siguiente más cercano)
+      // Si hay múltiples, cogemos el primero cuyo FIN no haya pasado (o margen). 
+      // Si todos pasaron, cogemos el último.
+      const cand = targets.descansos.find(d => {
+          const finMin = timeStrToMin(d.fin, TZ);
+          return finMin != null && (finMin + MARGEN_DESPUES_MIN) > nowMin;
+      });
+      objetivoHHMM = cand ? cand.inicio : (targets.descansos[targets.descansos.length - 1]?.inicio);
+      
+  } else if (accion === "descanso_fin") {
+      // Buscar el descanso cuyo inicio ya pasó pero estamos antes del fin (o cerca)
+      // O simplemente el más cercano a "ahora"
+      const cand = targets.descansos.find(d => {
+          const iniMin = timeStrToMin(d.inicio, TZ);
+          const finMin = timeStrToMin(d.fin, TZ);
+          // Estamos "dentro" o cerca del fin
+          return finMin != null && (finMin + MARGEN_DESPUES_MIN) > nowMin;
+      });
+      objetivoHHMM = cand ? cand.fin : (targets.descansos[targets.descansos.length - 1]?.fin);
+  }
 
   const objetivoMin = timeStrToMin(objetivoHHMM, TZ);
 
