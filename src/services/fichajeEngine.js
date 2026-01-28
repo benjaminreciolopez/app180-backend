@@ -155,15 +155,36 @@ export async function evaluarFichaje(ctx) {
      Guardar info geo
   ====================== */
 
+  /* ======================
+     Guardar info geo
+  ====================== */
+
+  let geoDireccion = geoCheck.direccion;
+
+  // FALLBACK: Si no hay dirección por GPS, intentar usar info de IP
+  if (!geoDireccion && geoCheck.ipInfo) {
+    geoDireccion = {
+      direccion: null,
+      ciudad: geoCheck.ipInfo.city,
+      pais: geoCheck.ipInfo.country,
+      lat: geoCheck.ipInfo.lat, // fallback IP lat
+      lng: geoCheck.ipInfo.lng, // fallback IP lng
+    };
+  } else if (geoDireccion && gpsOk) {
+    // Si hay dirección por GPS, añadir las coordenadas también
+    geoDireccion.lat = latNum;
+    geoDireccion.lng = lngNum;
+  }
+
   if (
     geoCheck.distancia != null ||
-    geoCheck.direccion != null ||
+    geoDireccion != null ||
     accuracy != null
   ) {
     result.geo = {
       distancia: geoCheck.distancia ?? null,
       accuracy: accuracy ?? null,
-      direccion: geoCheck.direccion ?? null,
+      direccion: geoDireccion ?? null,
 
       dentro_radio:
         geoCheck.distancia != null && cliente?.radio_m != null
@@ -190,17 +211,18 @@ export async function evaluarFichaje(ctx) {
   ====================== */
 
   if (!geoCheck.permitido) {
-    // const policy = cliente?.geo_policy || "soft";
-    const policy = "soft"; // FORZADO TEMPORALMENTE PARA QUE FUNCIONE EL FICHAJE
+    const policy = cliente?.geo_policy || "strict"; // Restauramos lectura real de política
 
     if (policy === "strict") {
-      result.bloqueado = true;
-      result.permitido = false;
-      result.errores.push("Fuera del área autorizada");
+      // CAMBIO: No bloqueamos, solo marcamos sospechoso
+      // result.bloqueado = true;
+      // result.permitido = false;
+      result.sospechoso = true;
+      result.razones.push("Fuera del área autorizada (Política estricta)");
+      result.incidencias.push("UBICACIÓN INVALIDA: Fichaje permitido pero fuera de rango");
     } else if (policy === "soft") {
       result.incidencias.push("Fuera del área recomendada");
     } else {
-      // info
       result.incidencias.push("Ubicación fuera del área (informativo)");
     }
   }

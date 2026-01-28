@@ -321,14 +321,23 @@ export const getFichajesSospechosos = async (req, res) => {
         f.nota,
         f.sospechoso,
         f.sospecha_motivo,
+        f.geo_direccion,
+        f.geo_motivos,
+        f.geo_sospechoso,
         f.direccion,
         f.ciudad,
         f.pais,
         f.ip_info,
         f.distancia_km,
-        e.nombre AS nombre_empleado
+        e.nombre AS nombre_empleado,
+        -- Datos Cliente para mapa
+        c.nombre AS nombre_cliente,
+        c.lat AS cliente_lat,
+        c.lng AS cliente_lng,
+        c.radio_m AS cliente_radio
       FROM fichajes_180 f
       JOIN employees_180 e ON e.id = f.empleado_id
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
       WHERE f.empresa_id = ${empresaId}
         AND f.sospechoso = true
       ORDER BY f.fecha DESC
