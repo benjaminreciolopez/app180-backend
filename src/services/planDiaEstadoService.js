@@ -486,6 +486,7 @@ export async function getPlanDiaEstado({
     }
   }
 
+  const nowMin = getNowMinInTZ(now, TZ);
   let objetivoHHMM = null;
   
   if (accion === "entrada") {
@@ -518,7 +519,7 @@ export async function getPlanDiaEstado({
 
   // 4) Ventana legal y Visibilidad
   const hoyYMD = getYMDInTZ(now, TZ);
-  const nowMin = getNowMinInTZ(now, TZ);
+  // const nowMin movemos arriba
   const esHoy = hoyYMD === ymd;
 
   let dentroMargen = false;
