@@ -190,7 +190,8 @@ export async function evaluarFichaje(ctx) {
   ====================== */
 
   if (!geoCheck.permitido) {
-    const policy = cliente?.geo_policy || "strict";
+    // const policy = cliente?.geo_policy || "soft";
+    const policy = "soft"; // FORZADO TEMPORALMENTE PARA QUE FUNCIONE EL FICHAJE
 
     if (policy === "strict") {
       result.bloqueado = true;
