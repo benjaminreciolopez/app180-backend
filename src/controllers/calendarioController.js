@@ -161,7 +161,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
 
       dayMap[dia].es_laborable = r.es_laborable === true;
     }
-    console.log("DAYMAP", dia, dayMap[dia]);
+
 
     // 2) Festivos ES
     const festivos = await sql`
@@ -183,7 +183,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
 
       dayMap[dia].es_laborable = false;
     }
-    console.log("DAYMAP", dia, dayMap[dia]);
+
 
     // 3) Ausencias
     const ausencias = await sql`
@@ -213,7 +213,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
         cur.setDate(cur.getDate() + 1);
       }
     }
-    console.log("DAYMAP", dia, dayMap[dia]);
+
 
     // 4) Jornadas
     const jornadas = await sql`

@@ -289,7 +289,7 @@ export async function getPlanDiaEstado({
 
   // 2) Plan del día
   const plan = await resolverPlanDia({ empresaId, empleadoId, fecha: ymd });
-  console.log("PLAN RAW:", JSON.stringify(plan, null, 2));
+
 
   // 🔧 Normalizar bloques ANTES de evaluar si es laboral
   if (Array.isArray(plan?.bloques)) {

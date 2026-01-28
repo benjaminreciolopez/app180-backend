@@ -61,7 +61,7 @@ export async function validarFichajeSegunTurno({
   tipo = null,
 }) {
   const data = await obtenerTurnoEmpleado({ empleadoId, empresaId });
-  console.log("🔎 resultado turno:", data);
+
 
   // Error técnico (empleado no existe / no pertenece)
   if (!data) {

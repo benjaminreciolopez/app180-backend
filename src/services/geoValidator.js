@@ -15,7 +15,7 @@ export async function validarFichajeGeo({
 
   ip,
 }) {
-  console.log(`[GeoValidator] Validando para: ${empleadoLat}, ${empleadoLng} (Acc: ${accuracy}, IP: ${ip})`);
+
 
   const out = {
     permitido: true,
