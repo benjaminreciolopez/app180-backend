@@ -37,7 +37,10 @@ export async function reverseGeocode({ lat, lng }) {
       signal: controller.signal,
     });
 
-    if (!r.ok) return null;
+    if (!r.ok) {
+      console.warn(`⚠️ reverseGeocode failed HTTP ${r.status}`);
+      return null;
+    }
 
     const data = await r.json();
 
@@ -65,7 +68,8 @@ export async function reverseGeocode({ lat, lng }) {
 
     cache.set(key, out);
     return out;
-  } catch {
+  } catch (err) {
+    console.error("❌ reverseGeocode Error:", err);
     return null;
   } finally {
     clearTimeout(timeout);

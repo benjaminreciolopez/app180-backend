@@ -15,6 +15,8 @@ export async function validarFichajeGeo({
 
   ip,
 }) {
+  console.log(`[GeoValidator] Validando para: ${empleadoLat}, ${empleadoLng} (Acc: ${accuracy}, IP: ${ip})`);
+
   const out = {
     permitido: true,
     distancia: null,
@@ -69,10 +71,17 @@ export async function validarFichajeGeo({
      4. Dirección legible
   ========================= */
 
-  if (Number.isFinite(empleadoLat) && Number.isFinite(empleadoLng)) {
+  /* =========================
+     4. Dirección legible
+  ========================= */
+
+  const latNum = Number(empleadoLat);
+  const lngNum = Number(empleadoLng);
+
+  if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
     out.direccion = await reverseGeocode({
-      lat: empleadoLat,
-      lng: empleadoLng,
+      lat: latNum,
+      lng: lngNum,
     });
   }
 
