@@ -6,6 +6,11 @@ export function roleRequired(role) {
       return res.status(401).json({ error: "No autenticado" });
     }
 
+    // Permitir acceso a admins en rutas de empleados
+    if (role === "empleado" && req.user.role === "admin") {
+      return next();
+    }
+
     if (req.user.role !== role) {
       return res.status(403).json({ error: "No autorizado" });
     }
