@@ -161,7 +161,7 @@ export async function evaluarFichaje(ctx) {
 
   let geoDireccion = geoCheck.direccion;
 
-  // FALLBACK: Si no hay dirección por GPS, intentar usar info de IP
+  // FALLBACK: Si no hay dirección por GPS (fallo API/reverse), intentar usar info de IP
   if (!geoDireccion && geoCheck.ipInfo) {
     geoDireccion = {
       direccion: null,
@@ -170,8 +170,12 @@ export async function evaluarFichaje(ctx) {
       lat: geoCheck.ipInfo.lat, // fallback IP lat
       lng: geoCheck.ipInfo.lng, // fallback IP lng
     };
-  } else if (geoDireccion && gpsOk) {
-    // Si hay dirección por GPS, añadir las coordenadas también
+  } 
+  
+  // SIEMPRE asegurar coordenadas reales si GPS es válido
+  if (gpsOk) {
+    if (!geoDireccion) geoDireccion = {};
+    // Sobrescribimos con lo real del dispositivo (más preciso que IP)
     geoDireccion.lat = latNum;
     geoDireccion.lng = lngNum;
   }
