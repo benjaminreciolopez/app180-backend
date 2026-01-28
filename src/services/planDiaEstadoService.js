@@ -398,33 +398,7 @@ export async function getPlanDiaEstado({
     };
   }
 
-  // Comportamiento "Día no laboral" (sin ausencia ni festivo, simplemente no hay horario)
-  if (!es_laboral) {
-    // CAMBIO CLAVE: Si no es laboral, pero no hay bloqueo explícito (vacaciones/festivo),
-    // permitimos ver el botón para fichar "extras" o "fuera de horario".
-    return {
-      fecha: ymd,
-      boton_visible: true, // Permitir fichar aunque no haya horario
-      motivo_oculto: null, // No ocultamos
-      
-      plan,
-      margen_antes: MARGEN_ANTES_MIN,
-      margen_despues: MARGEN_DESPUES_MIN,
-      
-      color: "negro", // Color neutro
-      can_fichar: true,
-      puede_fichar: true,
-      
-      mensaje: "Día sin horario planificado (fichaje extra)",
-      
-      accion: "entrada", // Por defecto, si ficha fuera de horario es entrada
-      acciones_permitidas: ["entrada"],
-      
-      ausencia: null,
-    };
-  }
-
-  // 3) Fichajes del día
+  // 3) Fichajes del día (MOVIDO ANTES DEL CHECK LABORAL)
   const fichajes = await sql`
     SELECT tipo, fecha
     FROM fichajes_180
@@ -433,6 +407,40 @@ export async function getPlanDiaEstado({
       AND fecha::date = ${ymd}::date
     ORDER BY fecha ASC
   `;
+
+  // Comportamiento "Día no laboral" (sin ausencia ni festivo, simplemente no hay horario)
+  if (!es_laboral) {
+    // CAMBIO CLAVE: Si ya hay fichajes, calculamos la acción siguiente real
+    // Si no hay fichajes, por defecto es entrada.
+    const accionExtra = nextAccionFromFichajes(fichajes, false); // false = no hay descansos planificados
+
+    // Mensaje dinámico
+    let msgExtra = "Día sin horario planificado (fichaje extra)";
+    if (accionExtra === "salida") msgExtra = "Estás trabajando fuera de horario";
+    
+    return {
+      fecha: ymd,
+      boton_visible: true, 
+      motivo_oculto: null,
+      
+      plan,
+      margen_antes: MARGEN_ANTES_MIN,
+      margen_despues: MARGEN_DESPUES_MIN,
+      
+      color: "negro",
+      can_fichar: true,
+      puede_fichar: true,
+      
+      mensaje: msgExtra,
+      
+      accion: accionExtra || "entrada", // si devuelve null (ya salió), poner entrada? O null?
+      acciones_permitidas: accionExtra ? [accionExtra] : ["entrada"],
+      
+      ausencia: null,
+    };
+  }
+
+  // 3) Fichajes del día -> YA OBTENIDOS ARRIBA
 
   const targets = pickTargetsFromPlan(plan);
   const hayDescansoPlan = Boolean(
