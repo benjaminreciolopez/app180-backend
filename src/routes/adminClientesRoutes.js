@@ -10,6 +10,8 @@ import {
   getClienteDetalle,
   crearClienteHistorico,
   getNextCodigoCliente,
+  asignarClienteEmpleado,
+  listarAsignacionesClientes,
 } from "../controllers/clientesController.js";
 
 import {
@@ -56,5 +58,9 @@ router.delete("/clientes/:id", desactivarCliente);
 
 /* Utilidad */
 router.post("/clientes/historico", crearClienteHistorico);
+
+/* ASIGNACIONES (Desacoplado) */
+router.post("/clientes/asignar", asignarClienteEmpleado);
+router.get("/clientes/asignaciones/:empleado_id", listarAsignacionesClientes);
 
 export default router;

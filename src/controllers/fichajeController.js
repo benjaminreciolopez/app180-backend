@@ -139,6 +139,7 @@ export const createFichaje = async (req, res) => {
         jornada = await crearJornada({
           empresaId,
           empleadoId,
+          clienteId: cliente?.id || null,
           inicio: fechaHora,
         });
       }

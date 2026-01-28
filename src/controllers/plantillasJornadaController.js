@@ -626,12 +626,13 @@ export const asignarPlantillaEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
 
+    // cliente_id ahora es OPCIONAL
     const { empleado_id, plantilla_id, cliente_id, fecha_fin } = req.body || {};
     const fin = normDateOrNull(fecha_fin);
 
-    if (!empleado_id || !plantilla_id || !cliente_id) {
+    if (!empleado_id || !plantilla_id) {
       return res.status(400).json({
-        error: "empleado_id, plantilla_id y cliente_id son obligatorios",
+        error: "empleado_id y plantilla_id son obligatorios",
       });
     }
 
@@ -664,19 +665,23 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         err.status = 404;
         throw err;
       }
-      const c = await tx`
-        select 1
-        from clients_180
-        where id=${cliente_id}
-          and empresa_id=${empresaId}
-          and activo=true
-        limit 1
-      `;
 
-      if (!c.length) {
-        const err = new Error("Cliente no válido");
-        err.status = 404;
-        throw err;
+      // Validar cliente SOLO si viene
+      if (cliente_id) {
+        const c = await tx`
+          select 1
+          from clients_180
+          where id=${cliente_id}
+            and empresa_id=${empresaId}
+            and activo=true
+          limit 1
+        `;
+
+        if (!c.length) {
+          const err = new Error("Cliente no válido");
+          err.status = 404;
+          throw err;
+        }
       }
 
       // =========================
@@ -710,7 +715,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         values (
           ${empleado_id},
           ${plantilla_id},
-          ${cliente_id},
+          ${cliente_id || null},
           ${hoy}::date,
           ${fin}::date,
           ${empresaId}

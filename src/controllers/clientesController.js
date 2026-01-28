@@ -441,3 +441,92 @@ export async function crearClienteHistorico(req, res) {
 
   res.json(r[0]);
 }
+
+/* =========================
+   Asignación de Clientes (Desacoplado)
+========================= */
+
+export async function asignarClienteEmpleado(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { empleado_id, cliente_id, fecha_inicio, fecha_fin } = req.body || {};
+
+    if (!empleado_id || !cliente_id || !fecha_inicio) {
+      return res.status(400).json({
+        error: "empleado_id, cliente_id y fecha_inicio son obligatorios",
+      });
+    }
+
+    const out = await sql.begin(async (tx) => {
+      // 1. Validar entidades
+      const [emp] = await tx`
+        select 1 from employees_180 
+        where id=${empleado_id} and empresa_id=${empresaId}
+      `;
+      if (!emp) throw new Error("Empleado inválido");
+
+      const [cli] = await tx`
+        select 1 from clients_180 
+        where id=${cliente_id} and empresa_id=${empresaId}
+      `;
+      if (!cli) throw new Error("Cliente inválido");
+
+      // 2. Cerrar asignación anterior activa si solapa (o fecha_fin es null)
+      //    Lógica simple: Si la nueva empieza en F, cerramos la anterior en F - 1 día
+      const inicioDate = new Date(fecha_inicio);
+      const ayer = new Date(inicioDate);
+      ayer.setDate(ayer.getDate() - 1);
+      const ayerStr = ayer.toISOString().slice(0, 10);
+
+      await tx`
+        update empleado_clientes_180
+        set fecha_fin = ${ayerStr}::date
+        where empleado_id=${empleado_id}
+          and empresa_id=${empresaId}
+          and activo=true
+          and (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
+      `;
+
+      // 3. Insertar nueva
+      const [nueva] = await tx`
+        insert into empleado_clientes_180 (
+          empresa_id, empleado_id, cliente_id, fecha_inicio, fecha_fin
+        ) values (
+          ${empresaId},
+          ${empleado_id},
+          ${cliente_id},
+          ${fecha_inicio}::date,
+          ${n(fecha_fin)}::date
+        )
+        returning *
+      `;
+      return nueva;
+    });
+
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || "Error al asignar cliente" });
+  }
+}
+
+export async function listarAsignacionesClientes(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { empleado_id } = req.params;
+
+    const rows = await sql`
+      select ec.*, c.nombre as cliente_nombre
+      from empleado_clientes_180 ec
+      join clients_180 c on c.id = ec.cliente_id
+      where ec.empleado_id=${empleado_id}
+        and ec.empresa_id=${empresaId}
+      order by ec.fecha_inicio desc
+    `;
+
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error listando clientes" });
+  }
+}

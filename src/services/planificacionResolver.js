@@ -58,17 +58,40 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   const plantillaId = asig[0].plantilla_id;
   const plantillaNombre = asig[0].plantilla_nombre;
 
-  const cliente = asig[0].cliente_id
-    ? {
-        id: asig[0].cliente_id,
-        nombre: asig[0].cliente_nombre,
-        lat: asig[0].lat,
-        lng: asig[0].lng,
-        radio_m: asig[0].radio_m,
-        requiere_geo: asig[0].requiere_geo,
-        geo_policy: asig[0].geo_policy,
-      }
-    : null;
+  // 1. Cliente legacy (si viene en la asignación de plantilla)
+  let clienteInfo = null;
+
+  if (asig[0].cliente_id) {
+    clienteInfo = {
+      id: asig[0].cliente_id,
+      nombre: asig[0].cliente_nombre,
+      lat: asig[0].lat,
+      lng: asig[0].lng,
+      radio_m: asig[0].radio_m,
+      requiere_geo: asig[0].requiere_geo,
+      geo_policy: asig[0].geo_policy,
+    };
+  } else {
+    // 2. Cliente desacoplado (tabla empleado_clientes_180)
+    const cliRow = await sql`
+      select c.id, c.nombre, c.lat, c.lng, c.radio_m, c.requiere_geo, c.geo_policy
+      from empleado_clientes_180 ec
+      join clients_180 c on c.id = ec.cliente_id
+      where ec.empleado_id = ${empleadoId}
+        and ec.empresa_id = ${empresaId}
+        and ec.fecha_inicio <= ${fecha}::date
+        and (ec.fecha_fin is null or ec.fecha_fin >= ${fecha}::date)
+        and ec.activo = true
+      order by ec.fecha_inicio desc
+      limit 1
+    `;
+
+    if (cliRow.length) {
+      clienteInfo = cliRow[0];
+    }
+  }
+
+  const cliente = clienteInfo;
 
   /* =========================
      Excepción

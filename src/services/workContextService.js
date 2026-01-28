@@ -15,6 +15,14 @@ export async function getWorkContext({
      1. Cliente
   ========================= */
 
+  if (!clienteId) {
+    return {
+      cliente: null,
+      tarifas: { hora: null, trabajo: null, mes: null },
+      trabajos: [],
+    };
+  }
+
   const clienteR = await sql`
     select *
     from clients_180
