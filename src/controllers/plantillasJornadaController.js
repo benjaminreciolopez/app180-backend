@@ -784,7 +784,7 @@ export const listarAsignacionesEmpleado = async (req, res) => {
       select ep.*, p.nombre as plantilla_nombre, c.nombre as cliente_nombre
       from empleado_plantillas_180 ep
       join plantillas_jornada_180 p on p.id = ep.plantilla_id
-      join clients_180 c on c.id = ep.cliente_id
+      left join clients_180 c on c.id = ep.cliente_id
       join employees_180 e on e.id = ep.empleado_id
       where ep.empleado_id=${empleado_id}
         and e.empresa_id=${empresaId}
