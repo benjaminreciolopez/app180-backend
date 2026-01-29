@@ -373,7 +373,7 @@ export const validarFichaje = async (req, res) => {
     const empresaId = adminEmpresa[0].id;
 
     const fichajeRows = await sql`
-      SELECT f.id, f.estado, f.sospechoso, f.nota, e.empresa_id
+      SELECT f.*, e.empresa_id, e.id as empleado_id
       FROM fichajes_180 f
       JOIN employees_180 e ON e.id = f.empleado_id
       WHERE f.id = ${id}
@@ -385,6 +385,7 @@ export const validarFichaje = async (req, res) => {
       return res.status(404).json({ error: "Fichaje no encontrado" });
     }
 
+    const fichajeAnterior = fichajeRows[0];
     const nuevoEstado = accion === "confirmar" ? "confirmado" : "rechazado";
     const notaAdmin = motivo ? `Admin: ${motivo}` : null;
 
@@ -401,6 +402,21 @@ export const validarFichaje = async (req, res) => {
       WHERE id = ${id}
       RETURNING *
     `;
+
+    // Registrar en auditoría
+    const { registrarAuditoria } = await import('../middlewares/auditMiddleware.js');
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      empleadoId: fichajeAnterior.empleado_id,
+      accion: accion === 'confirmar' ? 'fichaje_validado' : 'fichaje_rechazado',
+      entidadTipo: 'fichaje',
+      entidadId: id,
+      datosAnteriores: fichajeAnterior,
+      datosNuevos: update[0],
+      motivo: motivo || null,
+      req
+    });
 
     return res.json({
       success: true,
