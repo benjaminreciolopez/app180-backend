@@ -530,3 +530,46 @@ export async function listarAsignacionesClientes(req, res) {
     res.status(500).json({ error: "Error listando clientes" });
   }
 }
+
+export async function desasignarClienteEmpleado(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { empleado_id } = req.body || {};
+
+    if (!empleado_id) {
+      return res.status(400).json({ error: "empleado_id es obligatorio" });
+    }
+
+    await sql.begin(async (tx) => {
+      // Validar empleado
+      const e = await tx`
+        select 1
+        from employees_180
+        where id=${empleado_id} and empresa_id=${empresaId}
+        limit 1
+      `;
+      if (!e.length) {
+        return res.status(404).json({ error: "Empleado no válido" });
+      }
+
+      // Fecha HOY desde Postgres
+      const [{ hoy }] = await tx`select current_date as hoy`;
+
+      // Cerrar TODAS las asignaciones de cliente abiertas
+      await tx`
+        update empleado_clientes_180
+        set fecha_fin = greatest(fecha_inicio, ${hoy}::date - interval '1 day'),
+            activo = false
+        where empleado_id = ${empleado_id}
+          and empresa_id = ${empresaId}
+          and fecha_fin is null
+      `;
+    });
+
+    res.json({ ok: true, message: "Asignaciones de cliente cerradas correctamente" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error desasignando cliente" });
+  }
+}
+

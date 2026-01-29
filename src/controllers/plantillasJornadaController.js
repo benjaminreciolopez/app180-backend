@@ -985,3 +985,46 @@ export async function resetDiaPlantilla(req, res, next) {
     next(err);
   }
 }
+
+export const desasignarPlantillaEmpleado = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { empleado_id } = req.body || {};
+
+    if (!empleado_id) {
+      return res.status(400).json({ error: "empleado_id es obligatorio" });
+    }
+
+    await sql.begin(async (tx) => {
+      // Validar empleado
+      const e = await tx`
+        select 1
+        from employees_180
+        where id=${empleado_id} and empresa_id=${empresaId}
+        limit 1
+      `;
+      if (!e.length) {
+        const err = new Error("Empleado no válido");
+        err.status = 404;
+        throw err;
+      }
+
+      // Fecha HOY desde Postgres
+      const [{ hoy }] = await tx`select current_date as hoy`;
+
+      // Cerrar TODAS las asignaciones abiertas
+      await tx`
+        update empleado_plantillas_180
+        set fecha_fin = greatest(fecha_inicio, ${hoy}::date - interval '1 day'),
+            activo = false
+        where empleado_id = ${empleado_id}
+          and fecha_fin is null
+      `;
+    });
+
+    res.json({ ok: true, message: "Asignaciones cerradas correctamente" });
+  } catch (err) {
+    handleErr(res, err, "desasignarPlantillaEmpleado");
+  }
+};
+
