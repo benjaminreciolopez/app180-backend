@@ -11,6 +11,7 @@ import {
   crearClienteHistorico,
   getNextCodigoCliente,
   asignarClienteEmpleado,
+  desasignarClienteEmpleado,
   listarAsignacionesClientes,
 } from "../controllers/clientesController.js";
 

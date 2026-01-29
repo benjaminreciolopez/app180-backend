@@ -14,6 +14,7 @@ import {
   upsertExcepcionFecha,
   upsertBloquesExcepcion,
   asignarPlantillaEmpleado,
+  desasignarPlantillaEmpleado,
   listarAsignacionesEmpleado,
   getPlanDiaEmpleado,
   getBloquesDia,
