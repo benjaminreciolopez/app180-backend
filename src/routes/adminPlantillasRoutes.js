@@ -53,6 +53,7 @@ router.put(
 
 // asignaciones
 router.post("/plantillas/asignar", asignarPlantillaEmpleado);
+router.post("/plantillas/desasignar", desasignarPlantillaEmpleado);
 router.get("/plantillas/asignaciones/:empleado_id", listarAsignacionesEmpleado);
 
 // resolver plan de un día (para debug y para UI)

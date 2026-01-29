@@ -61,6 +61,7 @@ router.post("/clientes/historico", crearClienteHistorico);
 
 /* ASIGNACIONES (Desacoplado) */
 router.post("/clientes/asignar", asignarClienteEmpleado);
+router.post("/clientes/desasignar", desasignarClienteEmpleado);
 router.get("/clientes/asignaciones/:empleado_id", listarAsignacionesClientes);
 
 export default router;
