@@ -428,6 +428,99 @@ export const validarFichaje = async (req, res) => {
   }
 };
 
+/**
+ * Validar o rechazar múltiples fichajes sospechosos
+ */
+export const validarFichajesMasivo = async (req, res) => {
+  try {
+    const { ids, accion, motivo } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "Debe proporcionar al menos un ID" });
+    }
+
+    if (!["confirmar", "rechazar"].includes(accion)) {
+      return res.status(400).json({ error: "Acción inválida" });
+    }
+
+    const adminEmpresa = await sql`
+      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
+    `;
+
+    if (adminEmpresa.length === 0) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const empresaId = adminEmpresa[0].id;
+
+    // Obtener todos los fichajes a actualizar
+    const fichajes = await sql`
+      SELECT f.*, e.empresa_id, e.id as empleado_id
+      FROM fichajes_180 f
+      JOIN employees_180 e ON e.id = f.empleado_id
+      WHERE f.id = ANY(${ids})
+        AND e.empresa_id = ${empresaId}
+        AND f.sospechoso = true
+    `;
+
+    if (fichajes.length === 0) {
+      return res.status(404).json({ error: "No se encontraron fichajes sospechosos" });
+    }
+
+    const nuevoEstado = accion === "confirmar" ? "confirmado" : "rechazado";
+    const notaAdmin = motivo ? `Admin: ${motivo}` : null;
+
+    // Actualizar todos los fichajes
+    const updated = await sql`
+      UPDATE fichajes_180
+      SET
+        estado = ${nuevoEstado},
+        sospechoso = false,
+        sospecha_motivo = null,
+        nota = CASE
+          WHEN ${notaAdmin}::text IS NULL THEN nota
+          ELSE concat_ws(' | ', NULLIF(nota, ''), ${notaAdmin}::text)
+        END
+      WHERE id = ANY(${ids})
+        AND id IN (
+          SELECT f.id FROM fichajes_180 f
+          JOIN employees_180 e ON e.id = f.empleado_id
+          WHERE e.empresa_id = ${empresaId}
+        )
+      RETURNING *
+    `;
+
+    // Registrar en auditoría cada fichaje
+    const { registrarAuditoria } = await import('../middlewares/auditMiddleware.js');
+    
+    for (const fichaje of fichajes) {
+      const fichajeActualizado = updated.find(u => u.id === fichaje.id);
+      
+      await registrarAuditoria({
+        empresaId,
+        userId: req.user.id,
+        empleadoId: fichaje.empleado_id,
+        accion: accion === 'confirmar' ? 'fichaje_validado' : 'fichaje_rechazado',
+        entidadTipo: 'fichaje',
+        entidadId: fichaje.id,
+        datosAnteriores: fichaje,
+        datosNuevos: fichajeActualizado,
+        motivo: motivo || `Acción masiva: ${accion}`,
+        req
+      });
+    }
+
+    return res.json({
+      success: true,
+      procesados: updated.length,
+      fichajes: updated,
+    });
+  } catch (err) {
+    console.error("❌ Error en validarFichajesMasivo:", err);
+    return res.status(500).json({ error: "Error al actualizar fichajes" });
+  }
+};
+
 //
 // FICHAJES DEL DÍA DEL USUARIO
 //

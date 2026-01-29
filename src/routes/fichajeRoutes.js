@@ -9,6 +9,7 @@ import {
   getTodayFichajes,
   getFichajesSospechosos,
   validarFichaje,
+  validarFichajesMasivo,
   registrarFichajeManual,
   getFichajeDetalle,
   getFichajes,
@@ -48,6 +49,7 @@ router.get("/hoy", roleRequired("admin"), getTodayFichajes);
 router.get("/sospechosos", roleRequired("admin"), getFichajesSospechosos);
 router.get("/sospechosos/:id", roleRequired("admin"), getFichajeDetalle);
 router.patch("/sospechosos/:id", roleRequired("admin"), validarFichaje);
+router.post("/sospechosos/bulk", roleRequired("admin"), validarFichajesMasivo);
 
 // Fichaje manual admin
 router.post("/manual", roleRequired("admin"), registrarFichajeManual);
