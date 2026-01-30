@@ -75,9 +75,14 @@ async function createOAuth2Transporter(config) {
     // Decrypt refresh token
     const refreshToken = decrypt(config.oauth2_refresh_token);
     
-    console.log('🔧 Creating OAuth2 transporter for:', config.oauth2_email);
+    console.log('🔧 Creating OAuth2 transporter');
+    console.log('📧 Email:', config.oauth2_email);
+    console.log('🔑 Has refresh token:', !!refreshToken);
+    console.log('🔑 Refresh token length:', refreshToken?.length);
+    console.log('🔑 Has client ID:', !!process.env.GOOGLE_CLIENT_ID);
+    console.log('🔑 Has client secret:', !!process.env.GOOGLE_CLIENT_SECRET);
     
-    return createTransport({
+    const transporterConfig = {
       service: 'gmail',
       auth: {
         type: 'OAuth2',
@@ -86,7 +91,18 @@ async function createOAuth2Transporter(config) {
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         refreshToken: refreshToken
       }
+    };
+    
+    console.log('📦 Transporter config:', {
+      service: transporterConfig.service,
+      authType: transporterConfig.auth.type,
+      user: transporterConfig.auth.user,
+      hasClientId: !!transporterConfig.auth.clientId,
+      hasClientSecret: !!transporterConfig.auth.clientSecret,
+      hasRefreshToken: !!transporterConfig.auth.refreshToken
     });
+    
+    return createTransport(transporterConfig);
   } catch (error) {
     console.error('❌ Error creating OAuth2 transporter:', error);
     throw new Error('Error al conectar con Gmail. Por favor, reconecta tu cuenta.');
