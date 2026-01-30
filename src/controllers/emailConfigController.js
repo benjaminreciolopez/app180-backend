@@ -94,6 +94,12 @@ export async function startOAuth2(req, res) {
  * OAuth2 callback from Google
  */
 export async function handleGoogleCallback(req, res) {
+  // Log IMMEDIATELY to see if function is even called
+  console.log('🔵🔵🔵 CALLBACK FUNCTION CALLED 🔵🔵🔵');
+  console.log('📍 Request URL:', req.url);
+  console.log('📍 Request method:', req.method);
+  console.log('📍 Request headers:', JSON.stringify(req.headers, null, 2));
+  
   try {
     console.log('🔵 OAuth callback received');
     const { code, state, error } = req.query;
