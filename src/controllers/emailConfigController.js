@@ -68,7 +68,7 @@ export async function startOAuth2(req, res) {
     );
 
     const scopes = [
-      'https://www.googleapis.com/auth/gmail.send',
+      'https://mail.google.com/', // Full access required for SMTP XOAUTH2
       'https://www.googleapis.com/auth/userinfo.email'
     ];
 
