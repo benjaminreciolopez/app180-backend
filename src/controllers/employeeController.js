@@ -313,7 +313,7 @@ export const empleadoDashboard = async (req, res) => {
 export const updateEmployee = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre } = req.body;
+    const { nombre, email } = req.body;
 
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
@@ -325,6 +325,28 @@ export const updateEmployee = async (req, res) => {
 
     const empresaId = empresa[0].id;
 
+    // Validar formato de email si se proporciona
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Formato de email inválido" });
+      }
+    }
+
+    // Obtener el user_id del empleado
+    const empleado = await sql`
+      SELECT user_id FROM employees_180
+      WHERE id = ${id} AND empresa_id = ${empresaId}
+      LIMIT 1
+    `;
+
+    if (empleado.length === 0) {
+      return res.status(404).json({ error: "Empleado no encontrado" });
+    }
+
+    const user_id = empleado[0].user_id;
+
+    // Actualizar nombre del empleado
     const updated = await sql`
       UPDATE employees_180
       SET 
@@ -334,8 +356,13 @@ export const updateEmployee = async (req, res) => {
       RETURNING id, nombre, activo
     `;
 
-    if (updated.length === 0) {
-      return res.status(404).json({ error: "Empleado no encontrado" });
+    // Actualizar email en users_180 si se proporciona
+    if (email && user_id) {
+      await sql`
+        UPDATE users_180
+        SET email = ${email}
+        WHERE id = ${user_id}
+      `;
     }
 
     res.json({ success: true, empleado: updated[0] });
@@ -344,4 +371,5 @@ export const updateEmployee = async (req, res) => {
     res.status(500).json({ error: "Error al actualizar empleado" });
   }
 };
+
 // backend/src/controllers/employeeController.js
