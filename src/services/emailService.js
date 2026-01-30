@@ -72,20 +72,10 @@ function createLegacyTransporter() {
  */
 async function createOAuth2Transporter(config) {
   try {
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI
-    );
-    
-    // Decrypt and set refresh token
+    // Decrypt refresh token
     const refreshToken = decrypt(config.oauth2_refresh_token);
-    oauth2Client.setCredentials({
-      refresh_token: refreshToken
-    });
     
-    // Get access token
-    const { token: accessToken } = await oauth2Client.getAccessToken();
+    console.log('🔧 Creating OAuth2 transporter for:', config.oauth2_email);
     
     return createTransport({
       service: 'gmail',
@@ -94,8 +84,7 @@ async function createOAuth2Transporter(config) {
         user: config.oauth2_email,
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        refreshToken: refreshToken,
-        accessToken: accessToken
+        refreshToken: refreshToken
       }
     });
   } catch (error) {
