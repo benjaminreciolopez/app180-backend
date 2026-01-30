@@ -324,6 +324,7 @@ export const login = async (req, res) => {
         role: user.role,
         empresa_id: empresaId,
         empleado_id: empleadoId,
+        modulos,
         password_forced: user.password_forced === true,
       },
     });
