@@ -395,8 +395,9 @@ export async function sendTestEmail(req, res) {
         const tokenInfo = await oauth2Client.getTokenInfo(token);
         console.log('🛡️ Token Scopes:', tokenInfo.scopes);
         
-        if (!tokenInfo.scopes.includes('https://www.googleapis.com/auth/gmail.send')) {
-           console.error('❌ CRITICAL: Missing gmail.send scope! User likely unchecked the permission box.');
+        if (!tokenInfo.scopes.includes('https://www.googleapis.com/auth/gmail.send') && 
+            !tokenInfo.scopes.includes('https://mail.google.com/')) {
+           console.error('❌ CRITICAL: Missing gmail.send OR mail.google.com scope! User likely unchecked the permission box.');
            throw new Error('Permisos insuficientes. Por favor desconecta y vuelve a conectar, asegurándote de MARCAR todas las casillas de permisos.');
         }
 
