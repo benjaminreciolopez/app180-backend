@@ -68,7 +68,8 @@ export async function startOAuth2(req, res) {
     );
 
     const scopes = [
-      'https://www.googleapis.com/auth/gmail.send'
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/userinfo.email'
     ];
 
     // Store user ID in state to retrieve after callback
@@ -155,11 +156,12 @@ export async function handleGoogleCallback(req, res) {
     }
 
     // Get user email from Google
-    console.log('📧 Getting user email from Gmail API...');
+    console.log('📧 Getting user email from OAuth2 API...');
     oauth2Client.setCredentials(tokens);
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    const profile = await gmail.users.getProfile({ userId: 'me' });
-    const email = profile.data.emailAddress;
+    
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const userInfo = await oauth2.userinfo.get();
+    const email = userInfo.data.email;
     console.log('✅ Email obtained:', email);
 
     // Save configuration
