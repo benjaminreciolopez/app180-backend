@@ -345,6 +345,7 @@ export async function disconnectOAuth2Handler(req, res) {
  * Send test email
  */
 export async function sendTestEmail(req, res) {
+  console.log('🏁 sendTestEmail CONTROLLER START');
   try {
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
