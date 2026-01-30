@@ -76,34 +76,36 @@ function createLegacyTransporter() {
  */
 async function createOAuth2Transporter(config) {
   try {
-    // Decrypt refresh token
-    const refreshToken = decrypt(config.oauth2_refresh_token);
-    
     console.log('🔧 Creating OAuth2 transporter');
     console.log('📧 Email:', config.oauth2_email);
-    console.log('🔑 Has refresh token:', !!refreshToken);
-    console.log('🔑 Refresh token length:', refreshToken?.length);
-    console.log('🔑 Has client ID:', !!process.env.GOOGLE_CLIENT_ID);
-    console.log('🔑 Has client secret:', !!process.env.GOOGLE_CLIENT_SECRET);
+    
+    let authConfig = {
+        type: 'OAuth2',
+        user: config.oauth2_email
+    };
+
+    if (config.accessToken) {
+         console.log('🚀 Using EXPLICIT ACCESS TOKEN (No refresh token used)');
+         authConfig.accessToken = config.accessToken;
+         // IMPORTANT: Do NOT include clientId, clientSecret, or refreshToken here.
+         // This forces Nodemailer to use the accessToken provided without attempting refresh.
+    } else {
+         console.log('🔄 Using REFRESH TOKEN (Standard mode)');
+         authConfig.clientId = process.env.GOOGLE_CLIENT_ID;
+         authConfig.clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+         authConfig.refreshToken = decrypt(config.oauth2_refresh_token);
+    }
     
     const transporterConfig = {
       service: 'gmail',
-      auth: {
-        type: 'OAuth2',
-        user: config.oauth2_email,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        refreshToken: refreshToken,
-        accessToken: config.accessToken // Allow explicit access token
-      }
+      auth: authConfig
     };
     
     console.log('📦 Transporter config:', {
       service: transporterConfig.service,
       authType: transporterConfig.auth.type,
       user: transporterConfig.auth.user,
-      hasClientId: !!transporterConfig.auth.clientId,
-      hasClientSecret: !!transporterConfig.auth.clientSecret,
+      hasAccessToken: !!transporterConfig.auth.accessToken,
       hasRefreshToken: !!transporterConfig.auth.refreshToken
     });
     

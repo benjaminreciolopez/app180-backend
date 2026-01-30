@@ -400,6 +400,14 @@ export async function sendTestEmail(req, res) {
            throw new Error('Permisos insuficientes. Por favor desconecta y vuelve a conectar, asegurándote de MARCAR todas las casillas de permisos.');
         }
 
+        if (tokenInfo.email) {
+            console.log('📧 Token corresponds to email:', tokenInfo.email);
+            // Verify if it matches stored email (optional, but good for debug)
+            if (tokenInfo.email !== config.oauth2_email) {
+                console.warn(`⚠️ WARNING: Token email (${tokenInfo.email}) differs from stored config email (${config.oauth2_email})`);
+            }
+        }
+
         manualAccessToken = token; // Store for use in sendEmail
       } else if (config && config.modo === 'oauth2' && !config.oauth2_refresh_token) {
         console.error('❌ Config is OAuth2 but NO refresh token found in DB!');
