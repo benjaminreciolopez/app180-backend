@@ -359,13 +359,18 @@ export async function sendTestEmail(req, res) {
     `;
 
     const userEmail = user[0].email;
-    const empresaId = empresa[0].id;
-
     // DEBUG: Verify token validity explicitly before Nodemailer
     try {
+      const { decrypt } = await import('../utils/encryption.js'); // Import decrypt dynamically
       const config = await getEmailConfig(empresaId);
+      
       if (config && config.modo === 'oauth2' && config.oauth2_refresh_token) {
         console.log('🔍 Verifying OAuth2 token manually...');
+        
+        // DECRYPT TOKEN
+        const decryptedToken = decrypt(config.oauth2_refresh_token);
+        // console.log('🔑 Decrypted token preview:', decryptedToken?.substring(0, 10) + '...');
+
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
           process.env.GOOGLE_CLIENT_SECRET,
@@ -373,12 +378,13 @@ export async function sendTestEmail(req, res) {
         );
         
         oauth2Client.setCredentials({
-          refresh_token: config.oauth2_refresh_token
+          refresh_token: decryptedToken
         });
 
         // Attempt to get access token explicitly
         const { token } = await oauth2Client.getAccessToken();
         console.log('✅ Manual token refresh SUCCESS. Access token generated.');
+        console.log('🔑 Access Token Preview:', token?.substring(0, 10) + '...');
       } else if (config && config.modo === 'oauth2' && !config.oauth2_refresh_token) {
         console.error('❌ Config is OAuth2 but NO refresh token found in DB!');
       }
