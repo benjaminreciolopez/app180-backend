@@ -359,6 +359,38 @@ export async function sendTestEmail(req, res) {
     `;
 
     const userEmail = user[0].email;
+    const empresaId = empresa[0].id;
+
+    // DEBUG: Verify token validity explicitly before Nodemailer
+    try {
+      const config = await getEmailConfig(empresaId);
+      if (config && config.modo === 'oauth2' && config.oauth2_refresh_token) {
+        console.log('🔍 Verifying OAuth2 token manually...');
+        const oauth2Client = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          process.env.GOOGLE_REDIRECT_URI
+        );
+        
+        oauth2Client.setCredentials({
+          refresh_token: config.oauth2_refresh_token
+        });
+
+        // Attempt to get access token explicitly
+        const { token } = await oauth2Client.getAccessToken();
+        console.log('✅ Manual token refresh SUCCESS. Access token generated.');
+      } else if (config && config.modo === 'oauth2' && !config.oauth2_refresh_token) {
+        console.error('❌ Config is OAuth2 but NO refresh token found in DB!');
+      }
+    } catch (tokenErr) {
+      console.error('❌ Manual token refresh FAILED:', tokenErr.message);
+      if (tokenErr.response) {
+        console.error('❌ API Error Response:', JSON.stringify(tokenErr.response.data, null, 2));
+      }
+      return res.status(500).json({ 
+        error: `Error de autenticación con Google (Token Inválido): ${tokenErr.message}` 
+      });
+    }
 
     await sendEmail({
       to: userEmail,
@@ -374,7 +406,7 @@ export async function sendTestEmail(req, res) {
           </p>
         </div>
       `
-    }, empresa[0].id);
+    }, empresaId);
 
     res.json({ 
       success: true, 
