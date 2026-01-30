@@ -50,6 +50,14 @@ cron.schedule("59 23 * * *", () => ejecutarAutocierre());
 // =========================
 // MIDDLEWARES
 // =========================
+// =========================
+// MIDDLEWARES
+// =========================
+app.use((req, res, next) => {
+  console.log(`📡 REQUEST: ${req.method} ${req.url}`);
+  next();
+});
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -80,11 +88,10 @@ app.use(express.json());
 // =========================
 app.get("/", (req, res) => res.send("API APP180 funcionando"));
 
-app.use("/auth", authRoutes);
-app.use("/system", systemRoutes);
-
-// OAuth2 callback (must be at root level, not under /admin)
+// OAuth2 callback (must be at root level, PRIOR to other auth routes)
 app.get("/auth/google/callback", handleGoogleCallback);
+
+app.use("/auth", authRoutes);
 
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);
