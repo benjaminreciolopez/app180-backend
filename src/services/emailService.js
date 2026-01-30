@@ -1,23 +1,226 @@
-import nodemailer from "nodemailer";
+import nodemailer from 'nodemailer';
+import { google } from 'googleapis';
+import { sql } from '../db.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+/**
+ * Email Service
+ * Handles email sending using OAuth2 (Gmail) or SMTP configuration
+ */
 
-export async function sendEmail({ to, subject, text, html }) {
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+/**
+ * Get email configuration for an empresa
+ * @param {string} empresaId - UUID of the empresa
+ * @returns {Object|null} - Email configuration or null if not configured
+ */
+export async function getEmailConfig(empresaId) {
+  const config = await sql`
+    SELECT * FROM empresa_email_config_180
+    WHERE empresa_id = ${empresaId}
+  `;
+  
+  return config[0] || null;
+}
 
-  await transporter.sendMail({
-    from,
-    to,
-    subject,
-    text,
-    html,
+/**
+ * Get nodemailer transporter for an empresa
+ * @param {string} empresaId - UUID of the empresa
+ * @returns {Promise<nodemailer.Transporter>} - Configured transporter
+ */
+export async function getEmailTransporter(empresaId) {
+  const config = await getEmailConfig(empresaId);
+  
+  if (!config || config.modo === 'disabled') {
+    // Fallback to environment variables (legacy)
+    return createLegacyTransporter();
+  }
+  
+  if (config.modo === 'oauth2') {
+    return await createOAuth2Transporter(config);
+  }
+  
+  if (config.modo === 'smtp') {
+    return createSMTPTransporter(config);
+  }
+  
+  throw new Error('Modo de email no válido');
+}
+
+/**
+ * Create legacy SMTP transporter from environment variables
+ * @returns {nodemailer.Transporter}
+ */
+function createLegacyTransporter() {
+  return nodemailer.createTransporter({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
   });
+}
+
+/**
+ * Create OAuth2 transporter (Gmail)
+ * @param {Object} config - Email configuration
+ * @returns {Promise<nodemailer.Transporter>}
+ */
+async function createOAuth2Transporter(config) {
+  try {
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    // Decrypt and set refresh token
+    const refreshToken = decrypt(config.oauth2_refresh_token);
+    oauth2Client.setCredentials({
+      refresh_token: refreshToken
+    });
+    
+    // Get access token
+    const { token: accessToken } = await oauth2Client.getAccessToken();
+    
+    return nodemailer.createTransporter({
+      service: 'gmail',
+      auth: {
+        type: 'OAuth2',
+        user: config.oauth2_email,
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        refreshToken: refreshToken,
+        accessToken: accessToken
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error creating OAuth2 transporter:', error);
+    throw new Error('Error al conectar con Gmail. Por favor, reconecta tu cuenta.');
+  }
+}
+
+/**
+ * Create SMTP transporter
+ * @param {Object} config - Email configuration
+ * @returns {nodemailer.Transporter}
+ */
+function createSMTPTransporter(config) {
+  return nodemailer.createTransporter({
+    host: config.smtp_host,
+    port: config.smtp_port,
+    secure: config.smtp_secure,
+    auth: {
+      user: config.smtp_user,
+      pass: decrypt(config.smtp_password)
+    }
+  });
+}
+
+/**
+ * Send email using empresa's configuration
+ * Legacy function signature for backward compatibility
+ * @param {Object} emailData - Email data { to, subject, html, text }
+ * @param {string} empresaId - Optional empresa ID
+ * @returns {Promise<Object>} - Send result
+ */
+export async function sendEmail({ to, subject, text, html }, empresaId = null) {
+  try {
+    let transporter;
+    let fromEmail;
+    let fromName = 'CONTENDO GESTIONES';
+    
+    if (empresaId) {
+      const config = await getEmailConfig(empresaId);
+      transporter = await getEmailTransporter(empresaId);
+      
+      if (config) {
+        fromEmail = config.from_email || config.oauth2_email || config.smtp_user;
+        fromName = config.from_name || fromName;
+      } else {
+        fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
+      }
+    } else {
+      // Legacy mode: use environment variables
+      transporter = createLegacyTransporter();
+      fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
+    }
+    
+    const mailOptions = {
+      from: `"${fromName}" <${fromEmail}>`,
+      to,
+      subject,
+      html,
+      text: text || (html ? html.replace(/<[^>]*>/g, '') : '') // Strip HTML for text version
+    };
+    
+    const result = await transporter.sendMail(mailOptions);
+    console.log('✅ Email sent successfully:', result.messageId);
+    
+    return { success: true, messageId: result.messageId };
+  } catch (error) {
+    console.error('❌ Error sending email:', error);
+    throw error;
+  }
+}
+
+/**
+ * Save OAuth2 configuration for an empresa
+ * @param {string} empresaId - UUID of the empresa
+ * @param {Object} oauth2Data - { provider, email, refreshToken }
+ * @returns {Promise<Object>} - Saved configuration
+ */
+export async function saveOAuth2Config(empresaId, { provider, email, refreshToken }) {
+  const encryptedToken = encrypt(refreshToken);
+  
+  const result = await sql`
+    INSERT INTO empresa_email_config_180 (
+      empresa_id,
+      modo,
+      oauth2_provider,
+      oauth2_email,
+      oauth2_refresh_token,
+      oauth2_connected_at,
+      from_email
+    ) VALUES (
+      ${empresaId},
+      'oauth2',
+      ${provider},
+      ${email},
+      ${encryptedToken},
+      NOW(),
+      ${email}
+    )
+    ON CONFLICT (empresa_id)
+    DO UPDATE SET
+      modo = 'oauth2',
+      oauth2_provider = ${provider},
+      oauth2_email = ${email},
+      oauth2_refresh_token = ${encryptedToken},
+      oauth2_connected_at = NOW(),
+      from_email = ${email},
+      updated_at = NOW()
+    RETURNING *
+  `;
+  
+  return result[0];
+}
+
+/**
+ * Disconnect OAuth2 for an empresa
+ * @param {string} empresaId - UUID of the empresa
+ */
+export async function disconnectOAuth2(empresaId) {
+  await sql`
+    UPDATE empresa_email_config_180
+    SET 
+      modo = 'disabled',
+      oauth2_provider = NULL,
+      oauth2_email = NULL,
+      oauth2_refresh_token = NULL,
+      oauth2_connected_at = NULL,
+      updated_at = NOW()
+    WHERE empresa_id = ${empresaId}
+  `;
 }
