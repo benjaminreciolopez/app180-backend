@@ -359,6 +359,8 @@ export async function sendTestEmail(req, res) {
     `;
 
     const userEmail = user[0].email;
+    const empresaId = empresa[0].id;
+
     // DEBUG: Verify token validity explicitly before Nodemailer
     try {
       const { decrypt } = await import('../utils/encryption.js'); // Import decrypt dynamically
