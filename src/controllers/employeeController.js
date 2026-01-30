@@ -312,12 +312,12 @@ export const empleadoDashboard = async (req, res) => {
   }
 };
 // ==========================
-// EDITAR EMPLEADO (NOMBRE, CLIENTE DEFECTO)
+// EDITAR EMPLEADO (NOMBRE)
 // ==========================
 export const updateEmployee = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, cliente_defecto_id } = req.body;
+    const { nombre } = req.body;
 
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
@@ -332,11 +332,10 @@ export const updateEmployee = async (req, res) => {
     const updated = await sql`
       UPDATE employees_180
       SET 
-        nombre = COALESCE(${nombre}, nombre),
-        cliente_defecto_id = ${cliente_defecto_id || null}
+        nombre = COALESCE(${nombre}, nombre)
       WHERE id = ${id}
         AND empresa_id = ${empresaId}
-      RETURNING id, nombre, cliente_defecto_id, activo
+      RETURNING id, nombre, activo
     `;
 
     if (updated.length === 0) {
