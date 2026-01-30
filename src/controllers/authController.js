@@ -797,15 +797,22 @@ export const sendInviteEmail = async (req, res) => {
       tipo,
     });
 
-    // Enviar email usando la configuración de la empresa
-    await sendEmail({
-      to: invite.email,
-      subject: emailContent.subject,
-      html: emailContent.html,
-      text: emailContent.text,
-    }, invite.empresa_id);
+    console.log(`📧 Preparando email para ${invite.email} con empresa_id: ${invite.empresa_id}`);
 
-    console.log(`✅ Email enviado a ${invite.email}`);
+    // Enviar email usando la configuración de la empresa
+    try {
+      await sendEmail({
+        to: invite.email,
+        subject: emailContent.subject,
+        html: emailContent.html,
+        text: emailContent.text,
+      }, invite.empresa_id);
+      
+      console.log(`✅ Email enviado exitosamente a ${invite.email}`);
+    } catch (emailErr) {
+      console.error(`❌ Error al enviar email a ${invite.email}:`, emailErr);
+      throw emailErr;
+    }
 
     return res.json({
       success: true,
