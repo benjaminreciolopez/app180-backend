@@ -3,6 +3,9 @@ import { google } from 'googleapis';
 import { sql } from '../db.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
 
+// Ensure nodemailer is properly imported
+const { createTransport } = nodemailer;
+
 /**
  * Email Service
  * Handles email sending using OAuth2 (Gmail) or SMTP configuration
@@ -51,7 +54,7 @@ export async function getEmailTransporter(empresaId) {
  * @returns {nodemailer.Transporter}
  */
 function createLegacyTransporter() {
-  return nodemailer.createTransporter({
+  return createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: process.env.SMTP_SECURE === "true",
@@ -84,7 +87,7 @@ async function createOAuth2Transporter(config) {
     // Get access token
     const { token: accessToken } = await oauth2Client.getAccessToken();
     
-    return nodemailer.createTransporter({
+    return createTransport({
       service: 'gmail',
       auth: {
         type: 'OAuth2',
@@ -107,7 +110,7 @@ async function createOAuth2Transporter(config) {
  * @returns {nodemailer.Transporter}
  */
 function createSMTPTransporter(config) {
-  return nodemailer.createTransporter({
+  return createTransport({
     host: config.smtp_host,
     port: config.smtp_port,
     secure: config.smtp_secure,
