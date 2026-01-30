@@ -390,17 +390,27 @@ export async function sendTestEmail(req, res) {
         const { token } = await oauth2Client.getAccessToken();
         console.log('✅ Manual token refresh SUCCESS. Access token generated.');
         console.log('🔑 Access Token Preview:', token?.substring(0, 10) + '...');
+        
+        // CHECK SCOPES
+        const tokenInfo = await oauth2Client.getTokenInfo(token);
+        console.log('🛡️ Token Scopes:', tokenInfo.scopes);
+        
+        if (!tokenInfo.scopes.includes('https://www.googleapis.com/auth/gmail.send')) {
+           console.error('❌ CRITICAL: Missing gmail.send scope! User likely unchecked the permission box.');
+           throw new Error('Permisos insuficientes. Por favor desconecta y vuelve a conectar, asegurándote de MARCAR todas las casillas de permisos.');
+        }
+
         manualAccessToken = token; // Store for use in sendEmail
       } else if (config && config.modo === 'oauth2' && !config.oauth2_refresh_token) {
         console.error('❌ Config is OAuth2 but NO refresh token found in DB!');
       }
     } catch (tokenErr) {
-      console.error('❌ Manual token refresh FAILED:', tokenErr.message);
+      console.error('❌ Manual token refresh/verification FAILED:', tokenErr.message);
       if (tokenErr.response) {
         console.error('❌ API Error Response:', JSON.stringify(tokenErr.response.data, null, 2));
       }
       return res.status(500).json({ 
-        error: `Error de autenticación con Google (Token Inválido): ${tokenErr.message}` 
+        error: `Error de verificación: ${tokenErr.message}` 
       });
     }
 
