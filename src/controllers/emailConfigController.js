@@ -94,31 +94,49 @@ export async function startOAuth2(req, res) {
  */
 export async function handleGoogleCallback(req, res) {
   try {
+    console.log('🔵 OAuth callback received');
     const { code, state, error } = req.query;
 
+    console.log('📋 Query params:', { hasCode: !!code, hasState: !!state, error });
+
     if (error) {
+      console.log('❌ OAuth error from Google:', error);
       return res.redirect(`/admin/perfil?oauth_error=${encodeURIComponent(error)}`);
     }
 
     if (!code || !state) {
+      console.log('❌ Missing code or state');
       return res.status(400).send('Missing code or state');
     }
 
     // Decode state to get user ID
+    console.log('🔓 Decoding state...');
     const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+    console.log('✅ User ID from state:', userId);
 
     // Get empresa ID from user ID
+    console.log('🔍 Looking up empresa for user:', userId);
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${userId}
     `;
 
     if (empresa.length === 0) {
+      console.log('❌ No empresa found for user:', userId);
       return res.status(403).send('Unauthorized');
     }
 
     const empresaId = empresa[0].id;
+    console.log('✅ Empresa ID:', empresaId);
 
     // Exchange code for tokens
+    console.log('🔄 Exchanging code for tokens...');
+    console.log('📌 Environment check:', {
+      hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      hasRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
+      redirectUri: process.env.GOOGLE_REDIRECT_URI
+    });
+
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -126,23 +144,32 @@ export async function handleGoogleCallback(req, res) {
     );
 
     const { tokens } = await oauth2Client.getToken(code);
+    console.log('✅ Tokens received:', { 
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token 
+    });
     
     if (!tokens.refresh_token) {
+      console.log('❌ No refresh token received');
       return res.redirect('/admin/perfil?oauth_error=no_refresh_token');
     }
 
     // Get user email from Google
+    console.log('📧 Getting user email from Gmail API...');
     oauth2Client.setCredentials(tokens);
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const profile = await gmail.users.getProfile({ userId: 'me' });
     const email = profile.data.emailAddress;
+    console.log('✅ Email obtained:', email);
 
     // Save configuration
+    console.log('💾 Saving OAuth2 config...');
     await saveOAuth2Config(empresaId, {
       provider: 'gmail',
       email: email,
       refreshToken: tokens.refresh_token
     });
+    console.log('✅ Config saved successfully');
 
     // Redirect to success page
     res.send(`
@@ -215,6 +242,13 @@ export async function handleGoogleCallback(req, res) {
     `);
   } catch (err) {
     console.error("❌ Error in Google callback:", err);
+    console.error("❌ Error stack:", err.stack);
+    console.error("❌ Error details:", {
+      message: err.message,
+      name: err.name,
+      code: err.code
+    });
+    
     res.status(500).send(`
       <!DOCTYPE html>
       <html>
@@ -240,12 +274,25 @@ export async function handleGoogleCallback(req, res) {
           }
           h1 { color: #dc2626; }
           p { color: #6b7280; }
+          .error-details {
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            font-size: 0.875rem;
+            text-align: left;
+            color: #374151;
+          }
         </style>
       </head>
       <body>
         <div class="container">
           <h1>❌ Error</h1>
           <p>Hubo un error al conectar con Gmail. Por favor, inténtalo de nuevo.</p>
+          <div class="error-details">
+            <strong>Detalles técnicos:</strong><br>
+            ${err.message || 'Error desconocido'}
+          </div>
           <button onclick="window.close()">Cerrar</button>
         </div>
       </body>
