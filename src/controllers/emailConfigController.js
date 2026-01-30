@@ -166,6 +166,11 @@ export async function handleGoogleCallback(req, res) {
 
     // Save configuration
     console.log('💾 Saving OAuth2 config...');
+    console.log('🔑 Refresh token from Google:', {
+      length: tokens.refresh_token?.length,
+      preview: tokens.refresh_token?.substring(0, 20) + '...'
+    });
+    
     await saveOAuth2Config(empresaId, {
       provider: 'gmail',
       email: email,

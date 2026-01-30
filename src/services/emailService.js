@@ -180,7 +180,18 @@ export async function sendEmail({ to, subject, text, html }, empresaId = null) {
  * @returns {Promise<Object>} - Saved configuration
  */
 export async function saveOAuth2Config(empresaId, { provider, email, refreshToken }) {
+  console.log('📥 saveOAuth2Config called');
+  console.log('🔑 Input refresh token:', {
+    length: refreshToken?.length,
+    preview: refreshToken?.substring(0, 20) + '...'
+  });
+  
   const encryptedToken = encrypt(refreshToken);
+  
+  console.log('🔐 Encrypted token:', {
+    length: encryptedToken?.length,
+    preview: encryptedToken?.substring(0, 20) + '...'
+  });
   
   const result = await sql`
     INSERT INTO empresa_email_config_180 (
@@ -211,6 +222,8 @@ export async function saveOAuth2Config(empresaId, { provider, email, refreshToke
       updated_at = NOW()
     RETURNING *
   `;
+  
+  console.log('✅ Saved to database, row ID:', result[0]?.id);
   
   return result[0];
 }
