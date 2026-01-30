@@ -89,7 +89,8 @@ async function createOAuth2Transporter(config) {
         user: config.oauth2_email,
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        refreshToken: refreshToken
+        refreshToken: refreshToken,
+        accessToken: config.accessToken // Allow explicit access token
       }
     };
     
