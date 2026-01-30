@@ -82,6 +82,9 @@ export async function startOAuth2(req, res) {
       prompt: 'consent' // Force to get refresh_token
     });
 
+    console.log('🔗 Generated auth URL redirect_uri:', process.env.GOOGLE_REDIRECT_URI);
+    console.log('🔗 Full auth URL:', authUrl);
+
     res.json({ authUrl });
   } catch (err) {
     console.error("❌ Error starting OAuth2:", err);
