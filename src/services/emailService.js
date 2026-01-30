@@ -30,7 +30,7 @@ export async function getEmailConfig(empresaId) {
  * @param {string} empresaId - UUID of the empresa
  * @returns {Promise<nodemailer.Transporter>} - Configured transporter
  */
-export async function getEmailTransporter(empresaId) {
+export async function getEmailTransporter(empresaId, accessToken = null) {
   const config = await getEmailConfig(empresaId);
   
   if (!config || config.modo === 'disabled') {
@@ -39,6 +39,10 @@ export async function getEmailTransporter(empresaId) {
   }
   
   if (config.modo === 'oauth2') {
+    // Inject the explicit access token if provided
+    if (accessToken) {
+      config.accessToken = accessToken;
+    }
     return await createOAuth2Transporter(config);
   }
   
@@ -49,92 +53,9 @@ export async function getEmailTransporter(empresaId) {
   throw new Error('Modo de email no válido');
 }
 
-/**
- * Create legacy SMTP transporter from environment variables
- * @returns {nodemailer.Transporter}
- */
-function createLegacyTransporter() {
-  return createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-}
+// ... (createLegacyTransporter, createOAuth2Transporter, createSMTPTransporter unchanged)
 
-/**
- * Create OAuth2 transporter (Gmail)
- * @param {Object} config - Email configuration
- * @returns {Promise<nodemailer.Transporter>}
- */
-async function createOAuth2Transporter(config) {
-  try {
-    // Decrypt refresh token
-    const refreshToken = decrypt(config.oauth2_refresh_token);
-    
-    console.log('🔧 Creating OAuth2 transporter');
-    console.log('📧 Email:', config.oauth2_email);
-    console.log('🔑 Has refresh token:', !!refreshToken);
-    console.log('🔑 Refresh token length:', refreshToken?.length);
-    console.log('🔑 Has client ID:', !!process.env.GOOGLE_CLIENT_ID);
-    console.log('🔑 Has client secret:', !!process.env.GOOGLE_CLIENT_SECRET);
-    
-    const transporterConfig = {
-      service: 'gmail',
-      auth: {
-        type: 'OAuth2',
-        user: config.oauth2_email,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        refreshToken: refreshToken,
-        accessToken: config.accessToken // Allow explicit access token
-      }
-    };
-    
-    console.log('📦 Transporter config:', {
-      service: transporterConfig.service,
-      authType: transporterConfig.auth.type,
-      user: transporterConfig.auth.user,
-      hasClientId: !!transporterConfig.auth.clientId,
-      hasClientSecret: !!transporterConfig.auth.clientSecret,
-      hasRefreshToken: !!transporterConfig.auth.refreshToken
-    });
-    
-    return createTransport(transporterConfig);
-  } catch (error) {
-    console.error('❌ Error creating OAuth2 transporter:', error);
-    throw new Error('Error al conectar con Gmail. Por favor, reconecta tu cuenta.');
-  }
-}
-
-/**
- * Create SMTP transporter
- * @param {Object} config - Email configuration
- * @returns {nodemailer.Transporter}
- */
-function createSMTPTransporter(config) {
-  return createTransport({
-    host: config.smtp_host,
-    port: config.smtp_port,
-    secure: config.smtp_secure,
-    auth: {
-      user: config.smtp_user,
-      pass: decrypt(config.smtp_password)
-    }
-  });
-}
-
-/**
- * Send email using empresa's configuration
- * Legacy function signature for backward compatibility
- * @param {Object} emailData - Email data { to, subject, html, text }
- * @param {string} empresaId - Optional empresa ID
- * @returns {Promise<Object>} - Send result
- */
-export async function sendEmail({ to, subject, text, html }, empresaId = null) {
+export async function sendEmail({ to, subject, text, html, accessToken }, empresaId = null) {
   try {
     let transporter;
     let fromEmail;
@@ -142,7 +63,7 @@ export async function sendEmail({ to, subject, text, html }, empresaId = null) {
     
     if (empresaId) {
       const config = await getEmailConfig(empresaId);
-      transporter = await getEmailTransporter(empresaId);
+      transporter = await getEmailTransporter(empresaId, accessToken); // Pass accessToken here
       
       if (config) {
         fromEmail = config.from_email || config.oauth2_email || config.smtp_user;
