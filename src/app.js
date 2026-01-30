@@ -121,6 +121,7 @@ app.use("/admin", adminConfigRoutes);
 app.use("/perfil", adminProfileRoutes);
 app.use("/admin/auditoria", auditRoutes);
 app.use("/admin", emailConfigRoutes); // Email configuration routes
+app.use("/system", systemRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
