@@ -38,6 +38,7 @@ import adminConfigRoutes from "./routes/adminConfigRoutes.js";
 import adminProfileRoutes from "./routes/adminProfileRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 import emailConfigRoutes from "./routes/emailConfigRoutes.js";
+import { handleGoogleCallback } from "./controllers/emailConfigController.js";
 
 const app = express();
 
@@ -81,6 +82,9 @@ app.get("/", (req, res) => res.send("API APP180 funcionando"));
 
 app.use("/auth", authRoutes);
 app.use("/system", systemRoutes);
+
+// OAuth2 callback (must be at root level, not under /admin)
+app.get("/auth/google/callback", handleGoogleCallback);
 
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);

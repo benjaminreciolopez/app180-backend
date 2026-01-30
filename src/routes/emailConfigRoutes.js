@@ -23,7 +23,4 @@ router.post("/email-config/oauth2/disconnect", authRequired, roleRequired("admin
 // Send test email
 router.post("/email-config/test", authRequired, roleRequired("admin"), sendTestEmail);
 
-// OAuth2 callback (no auth required - handled by state parameter)
-router.get("/auth/google/callback", handleGoogleCallback);
-
 export default router;
