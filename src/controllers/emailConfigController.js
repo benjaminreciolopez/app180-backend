@@ -362,6 +362,9 @@ export async function sendTestEmail(req, res) {
     const userEmail = user[0].email;
     const empresaId = empresa[0].id;
 
+    // Capture the manually generated token to pass to sendEmail
+    let manualAccessToken = null;
+
     // DEBUG: Verify token validity explicitly before Nodemailer
     try {
       const { decrypt } = await import('../utils/encryption.js'); // Import decrypt dynamically
@@ -372,7 +375,6 @@ export async function sendTestEmail(req, res) {
         
         // DECRYPT TOKEN
         const decryptedToken = decrypt(config.oauth2_refresh_token);
-        // console.log('🔑 Decrypted token preview:', decryptedToken?.substring(0, 10) + '...');
 
         const oauth2Client = new google.auth.OAuth2(
           process.env.GOOGLE_CLIENT_ID,
@@ -388,6 +390,7 @@ export async function sendTestEmail(req, res) {
         const { token } = await oauth2Client.getAccessToken();
         console.log('✅ Manual token refresh SUCCESS. Access token generated.');
         console.log('🔑 Access Token Preview:', token?.substring(0, 10) + '...');
+        manualAccessToken = token; // Store for use in sendEmail
       } else if (config && config.modo === 'oauth2' && !config.oauth2_refresh_token) {
         console.error('❌ Config is OAuth2 but NO refresh token found in DB!');
       }
@@ -401,6 +404,7 @@ export async function sendTestEmail(req, res) {
       });
     }
 
+    // Pass the manually validated access token to avoid Nodemailer regeneration issues
     await sendEmail({
       to: userEmail,
       subject: 'Email de prueba - CONTENDO GESTIONES',
@@ -414,7 +418,8 @@ export async function sendTestEmail(req, res) {
             Si no solicitaste este email, puedes ignorarlo.
           </p>
         </div>
-      `
+      `,
+      accessToken: manualAccessToken // PASS THE TOKEN HERE
     }, empresaId);
 
     res.json({ 
