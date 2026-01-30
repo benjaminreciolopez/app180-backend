@@ -98,7 +98,9 @@ async function createOAuth2Transporter(config) {
     
     const transporterConfig = {
       service: 'gmail',
-      auth: authConfig
+      auth: authConfig,
+      debug: true, // Enable debug output
+      logger: true // Log to console
     };
     
     console.log('📦 Transporter config:', {
