@@ -755,15 +755,18 @@ export const sendInviteEmail = async (req, res) => {
     console.log(`📧 Enviando email de invitación para empleado ${empleado_id}`);
 
     // Verificar que el token existe y no ha sido usado
+    // Y necesitamos la empresa para configurar el transporte de email correcto
     const invites = await sql`
       SELECT 
         i.token,
         i.expires_at,
         i.usado,
         u.email,
-        u.nombre
+        u.nombre,
+        e.id as empresa_id
       FROM invite_180 i
       JOIN users_180 u ON u.id = i.user_id
+      LEFT JOIN empresa_180 e ON e.user_id = u.id
       WHERE i.token = ${token}
         AND i.empleado_id = ${empleado_id}
       LIMIT 1
@@ -794,13 +797,13 @@ export const sendInviteEmail = async (req, res) => {
       tipo,
     });
 
-    // Enviar email
+    // Enviar email usando la configuración de la empresa
     await sendEmail({
       to: invite.email,
       subject: emailContent.subject,
       html: emailContent.html,
       text: emailContent.text,
-    });
+    }, invite.empresa_id);
 
     console.log(`✅ Email enviado a ${invite.email}`);
 
