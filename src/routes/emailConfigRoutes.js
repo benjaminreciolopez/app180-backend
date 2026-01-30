@@ -1,5 +1,6 @@
 import express from "express";
-import { authRequired, roleRequired } from "../middleware/auth.js";
+import { authRequired } from "../middlewares/authRequired.js";
+import { roleRequired } from "../middlewares/roleRequired.js";
 import {
   getConfig,
   startOAuth2,
