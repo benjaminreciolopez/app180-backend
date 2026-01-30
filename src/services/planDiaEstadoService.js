@@ -331,26 +331,27 @@ export async function getPlanDiaEstado({
   if (asigCliente && asigCliente.length > 0 && asigCliente[0].cliente_id) {
       datosCliente = asigCliente[0];
   } else {
-      // ⚠️ FALLBACK: Si no hay cliente en jornada, buscar CLIENTE POR DEFECTO en empleado
-      const empDef = await sql`
+      // ⚠️ FALLBACK: Si no hay cliente en jornada, buscar CLIENTE ACTUAL desde asignaciones de Jornadas
+      const clienteActual = await sql`
         SELECT 
-            e.cliente_defecto_id,
+            ec.cliente_id,
             c.nombre as cliente_nombre,
             c.lat as cliente_lat,
             c.lng as cliente_lng,
             c.radio_m as cliente_radio_m,
             c.geo_policy as cliente_geo_policy,
             c.modo_defecto as cliente_modo_defecto
-        FROM employees_180 e
-        LEFT JOIN clients_180 c ON c.id = e.cliente_defecto_id
-        WHERE e.id = ${empleadoId}
+        FROM empleado_clientes_180 ec
+        JOIN clients_180 c ON c.id = ec.cliente_id
+        JOIN employees_180 e ON e.id = ec.empleado_id
+        WHERE ec.empleado_id = ${empleadoId}
+          AND ec.fecha_fin IS NULL
+          AND e.empresa_id = ec.empresa_id
+        LIMIT 1
       `;
       
-      if (empDef.length > 0 && empDef[0].cliente_defecto_id) {
-          datosCliente = {
-              cliente_id: empDef[0].cliente_defecto_id, // Homogeneizar campo
-              ...empDef[0]
-          };
+      if (clienteActual.length > 0 && clienteActual[0].cliente_id) {
+          datosCliente = clienteActual[0];
       }
   }
 

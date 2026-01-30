@@ -107,8 +107,6 @@ export const getEmployeesAdmin = async (req, res) => {
       SELECT DISTINCT ON (e.id)
         e.id,
         e.nombre,
-        e.cliente_defecto_id,
-        cdef.nombre AS cliente_defecto_nombre,
         u.email,
         e.activo,
         d.device_hash,
@@ -117,8 +115,6 @@ export const getEmployeesAdmin = async (req, res) => {
         p.nombre AS plantilla_nombre
       FROM employees_180 e
       JOIN users_180 u ON u.id = e.user_id
-
-      LEFT JOIN clients_180 cdef ON cdef.id = e.cliente_defecto_id
 
       LEFT JOIN employee_devices_180 d
         ON d.empleado_id = e.id
