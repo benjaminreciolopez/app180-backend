@@ -763,10 +763,10 @@ export const sendInviteEmail = async (req, res) => {
         i.usado,
         u.email,
         u.nombre,
-        e.id as empresa_id
+        emp.empresa_id
       FROM invite_180 i
       JOIN users_180 u ON u.id = i.user_id
-      LEFT JOIN empresa_180 e ON e.user_id = u.id
+      JOIN empleados_180 emp ON emp.id = i.empleado_id
       WHERE i.token = ${token}
         AND i.empleado_id = ${empleado_id}
       LIMIT 1
