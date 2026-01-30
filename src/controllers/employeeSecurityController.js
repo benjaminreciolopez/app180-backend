@@ -63,7 +63,7 @@ export const generateEmployeeInvite = async (req, res) => {
     const generated = invite[0];
 
     // Aquí podrías construir la URL real de la PWA de empleado
-    const installUrl = `https://app180-frontend.vercel.app/empleado/instalar?token=${generated.token}`;
+    const installUrl = `${process.env.FRONTEND_URL}/empleado/instalar?token=${generated.token}`;
 
     return res.json({
       success: true,
