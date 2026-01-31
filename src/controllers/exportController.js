@@ -124,20 +124,19 @@ export const downloadExport = async (req, res) => {
                 data = await sql`
                     SELECT p.*, c.nombre as cliente_nombre
                     FROM payments_180 p
-                    LEFT JOIN clients_180 c ON p.client_id = c.id
+                    LEFT JOIN clients_180 c ON p.cliente_id = c.id
                     WHERE p.empresa_id = ${empresaId}
-                    ${d3 ? sql`AND p.date >= ${d3}::date` : sql``}
-                    ${h3 ? sql`AND p.date <= ${h3}::date` : sql``}
-                    ORDER BY p.date DESC
+                    ${d3 ? sql`AND p.fecha_pago >= ${d3}::date` : sql``}
+                    ${h3 ? sql`AND p.fecha_pago <= ${h3}::date` : sql``}
+                    ORDER BY p.fecha_pago DESC
                     LIMIT 500
                 `;
                 htmlContent = cobrosToHtml(data);
                 csvColumns = [
-                    { key: 'date', header: 'Fecha' },
+                    { key: 'fecha_pago', header: 'Fecha' },
                     { key: 'cliente_nombre', header: 'Cliente' },
-                    { key: 'concept', header: 'Concepto' },
-                    { key: 'amount', header: 'Importe' },
-                    { key: 'status', header: 'Estado' }
+                    { key: 'metodo', header: 'Método' },
+                    { key: 'importe', header: 'Importe' }
                 ];
                 break;
             
@@ -146,7 +145,7 @@ export const downloadExport = async (req, res) => {
                  data = await sql`
                     SELECT w.*, c.nombre as cliente_nombre, e.nombre as empleado_nombre
                     FROM work_logs_180 w
-                    LEFT JOIN clients_180 c ON w.client_id = c.id
+                    LEFT JOIN clients_180 c ON w.cliente_id = c.id
                     LEFT JOIN employees_180 e ON w.employee_id = e.id
                     WHERE w.empresa_id = ${empresaId}
                     ${d4 ? sql`AND w.fecha >= ${d4}::date` : sql``}
@@ -160,7 +159,7 @@ export const downloadExport = async (req, res) => {
                      { key: 'cliente_nombre', header: 'Cliente' },
                      { key: 'empleado_nombre', header: 'Empleado' },
                      { key: 'descripcion', header: 'Descripción' },
-                     { key: 'horas', header: 'Duración' }
+                     { key: 'minutos', header: 'Minutos' }
                 ];
                 break;
 

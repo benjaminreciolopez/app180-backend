@@ -227,11 +227,11 @@ export const fichajesToHtml = (data) => {
 export const cobrosToHtml = (data) => {
      const rows = data.map(item => `
         <tr>
-            <td>${new Date(item.date).toLocaleDateString()}</td>
+            <td>${new Date(item.fecha_pago || item.created_at).toLocaleDateString()}</td>
             <td><strong>${item.cliente_nombre || '-'}</strong></td>
-            <td>${item.concept || 'Pago'}</td>
-            <td class="text-right">${Number(item.amount).toFixed(2)} €</td>
-            <td class="text-center">${item.status}</td>
+            <td>${item.referencia || item.metodo || 'Pago'}</td>
+            <td class="text-right">${Number(item.importe).toFixed(2)} €</td>
+            <td class="text-center">Completado</td>
         </tr>
     `).join('');
 
@@ -258,8 +258,8 @@ export const trabajosToHtml = (data) => {
            <td>${new Date(item.fecha || item.created_at).toLocaleDateString()}</td>
            <td><strong>${item.cliente_nombre || '-'}</strong></td>
            <td>${item.empleado_nombre || '-'}</td>
-           <td>${item.descripcion || item.titulo || '-'}</td>
-           <td class="text-center">${item.horas ? item.horas + 'h' : '-'}</td>
+           <td>${item.descripcion || '-'}</td>
+           <td class="text-center">${item.minutos ? (item.minutos/60).toFixed(2) + 'h' : '-'}</td>
        </tr>
    `).join('');
 

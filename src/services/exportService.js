@@ -4,13 +4,29 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // Intento de encontrar Chrome en Windows
+// Intento de encontrar Chrome en distintos SO
 const findChromePath = () => {
-    const paths = [
+    // Si estamos en Linux (como Render), dejamos que puppeteer lo encuentre solo 
+    // o usamos rutas comunes.
+    if (process.platform === 'linux') {
+        const linuxPaths = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium"
+        ];
+        for (const p of linuxPaths) {
+            if (fs.existsSync(p)) return p;
+        }
+        return null; // Dejar que puppeteer intente el default
+    }
+
+    const windowsPaths = [
         "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", // Fallback a Edge si es necesario
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
     ];
-    for (const p of paths) {
+    for (const p of windowsPaths) {
         if (fs.existsSync(p)) return p;
     }
     return null;
@@ -26,15 +42,15 @@ export const generatePdf = async (htmlContent, options = {}) => {
     let browser = null;
     try {
         const executablePath = findChromePath();
-        if (!executablePath) {
-            throw new Error("No se encontró instalación de Chrome/Edge para generar PDF.");
+        const launchOptions = {
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+            headless: 'new'
+        };
+        if (executablePath) {
+            launchOptions.executablePath = executablePath;
         }
 
-        browser = await puppeteer.launch({
-            executablePath,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            headless: true
-        });
+        browser = await puppeteer.launch(launchOptions);
 
         const page = await browser.newPage();
         
