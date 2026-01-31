@@ -255,7 +255,8 @@ export const downloadExport = async (req, res) => {
             } catch (pdfErr) {
                 console.error("PDF Generate Error:", pdfErr);
                 // Fallback a HTML si falla PDF (Render issue) o devolver JSON error
-                throw new Error("No se pudo generar PDF. Intenta HTML o CSV.");
+                // Importante: Devolver el mensaje real para que el frontend pueda mostrarlo
+                throw new Error("PDF Error: " + (pdfErr.message || "Error desconocido"));
             }
         } else if (format === 'csv') {
             res.setHeader('Content-Type', 'text/csv');
