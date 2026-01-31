@@ -629,7 +629,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
 
     // cliente_id ahora es OPCIONAL
-    const { empleado_id, plantilla_id, cliente_id, fecha_inicio, fecha_fin } = req.body || {};
+    const { empleado_id, plantilla_id, cliente_id, fecha_inicio, fecha_fin, alias, color, ignorar_festivos } = req.body || {};
     const inicioStr = normDateOrNull(fecha_inicio);
     const fin = normDateOrNull(fecha_fin);
 
@@ -712,7 +712,10 @@ export const asignarPlantillaEmpleado = async (req, res) => {
           cliente_id,
           fecha_inicio,
           fecha_fin,
-          empresa_id
+          empresa_id,
+          alias,
+          color,
+          ignorar_festivos
         )
         values (
           ${empleado_id || null},
@@ -720,7 +723,10 @@ export const asignarPlantillaEmpleado = async (req, res) => {
           ${cliente_id || null},
           ${finalInicio}::date,
           ${fin}::date,
-          ${empresaId}
+          ${empresaId},
+          ${alias || null},
+          ${color || null},
+          ${ignorar_festivos ? true : false}
         )
         returning *
       `;

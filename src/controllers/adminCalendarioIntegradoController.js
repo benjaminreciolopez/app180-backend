@@ -256,117 +256,154 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     // =========================
     // 4) Plan (opcional)
     // =========================
+    // =========================
+    // 4) Plan V5: Asignaciones Continuas (Gantt-like)
+    // =========================
     if (wantPlan) {
-      if (empleadoIdSafe) {
-        // Caso A: Un solo empleado (o Admin específico) -> Iterar días
-        const days = await sql`
-          SELECT d::date AS fecha
-          FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
-          ORDER BY d
-        `;
+      // a) Mapa de bloqueos (días donde NO se debería trabajar por defecto)
+      //    Prioridad: Festivo > Ausencia > No Laborable
+      //    Usamos un Set con fechas YYYY-MM-DD
+      const diasBloqueados = new Map(); // fecha -> motivo
 
-        for (const r of days) {
-          const fecha = ymd(r.fecha);
-          const plan = await resolverPlanDia({
-            empresaId,
-            empleadoId: empleadoIdSafe,
-            fecha,
-          });
+      // Festivos
+      eventos.filter(e => e.tipo === 'calendario_empresa' || e.tipo === 'no_laborable').forEach(e => {
+        let d = e.start;
+        // Asumimos festivos de 1 día (allDay). Si fueran rangos, habría que iterar.
+        // Nager devuelve fechas puntuales, calendar_empresa y no_laborable también en este controller.
+        diasBloqueados.set(d, e.tipo === 'no_laborable' ? 'no_lab' : 'festivo');
+      });
+      
+      // Ausencias (pueden ser rangos)
+      // Como ya las tenemos en 'ausencias' query, las iteramos
+      // OJO: Las ausencias son específicas por empleado.
+      // El mapa de bloqueos global solo sirve para festivos/no laborables.
+      // Para ausencias, consultaremos al procesar cada empleado.
 
-          if (!plan?.plantilla_id) continue;
-          pushPlan(plan, empleadoIdSafe, null); // Helper interno
-        }
-      } else {
-        // Caso B: TODOS los empleados (o Admin sin ID) -> Buscar asignaciones activas
-        // Recuperamos empleados con asignaciones en este rango
-        // + el admin si tiene asignaciones (empleado_id IS NULL)
-        const asignaciones = await sql`
-          SELECT DISTINCT empleado_id
-          FROM empleado_plantillas_180
-          WHERE empresa_id = ${empresaId}
-            AND fecha_inicio <= ${hasta}::date
-            AND (fecha_fin IS NULL OR fecha_fin >= ${desde}::date)
-        `;
+      // b) Consultar asignaciones que se solapan con el rango
+      const asignaciones = await sql`
+        SELECT 
+          a.id,
+          a.empleado_id,
+          e.nombre as empleado_nombre,
+          a.plantilla_id,
+          p.nombre as plantilla_nombre,
+          a.cliente_id,
+          c.nombre as cliente_nombre,
+          a.fecha_inicio,
+          a.fecha_fin,
+          a.alias,
+          a.color,
+          a.ignorar_festivos
+        FROM empleado_plantillas_180 a
+        LEFT JOIN employees_180 e ON e.id = a.empleado_id
+        JOIN plantillas_jornada_180 p ON p.id = a.plantilla_id
+        LEFT JOIN clients_180 c ON c.id = a.cliente_id
+        WHERE a.empresa_id = ${empresaId}
+          AND a.fecha_inicio <= ${hasta}::date
+          AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${desde}::date)
+          AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe}::uuid OR (a.empleado_id IS NULL AND ${empleadoIdSafe}::uuid IS NULL))
+      `;
 
-        // Añadimos null explícitamente si hay asignaciones de admin
-        const adminAsig = await sql`
-          SELECT 1 FROM empleado_plantillas_180 
-          WHERE empresa_id=${empresaId} AND empleado_id IS NULL 
-          AND fecha_inicio <= ${hasta}::date AND (fecha_fin IS NULL OR fecha_fin >= ${desde}::date)
-          LIMIT 1
-        `;
+      // Cache de ausencias por empleado para lookup rápido
+      const ausenciasPorEmpleado = new Map(); // id -> [ {start, end} ]
+      eventos.filter(e => e.tipo === 'ausencia').forEach(aus => {
+        if (!aus.empleado_id) return;
+        if (!ausenciasPorEmpleado.has(aus.empleado_id)) ausenciasPorEmpleado.set(aus.empleado_id, []);
+        ausenciasPorEmpleado.get(aus.empleado_id).push({ start: aus.start, end: aus.end });
+      });
+
+      for (const asig of asignaciones) {
+        // Rango efectivo de la asignación dentro de la vista
+        const asigInicio = ymd(asig.fecha_inicio);
+        const asigFin = asig.fecha_fin ? ymd(asig.fecha_fin) : hasta; // Acotado a vista si es infinito
         
-        let targetIds = asignaciones.map(a => a.empleado_id);
-        if (adminAsig.length) targetIds.push(null);
+        // Clamp al rango de vista [desde, hasta]
+        const rangeStart = asigInicio < desde ? desde : asigInicio;
+        const rangeEnd = (asigFin > hasta || !asig.fecha_fin) ? hasta : asigFin; 
 
-        // Iterar días para cada ID encontrado (puede ser costoso si son muchos empleados y muchos días, 
-        // pero es más seguro para reutilizar resolverPlanDia que reescribirlo todo en SQL)
-        // TODO: Optimizar a futuro con una mega-query si el rendimiento cae.
-        
-        // Pre-fetch fechas
-        const days = await sql`
-          SELECT d::date AS fecha
-          FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
-          ORDER BY d
-        `;
+        if (rangeStart > rangeEnd) continue;
 
-        for (const targetId of targetIds) {
-          // Para cada empleado con asignaciones, recuperamos sus días
-          for (const r of days) {
-            const fecha = ymd(r.fecha);
-            const plan = await resolverPlanDia({
-              empresaId,
-              empleadoId: targetId,
-              fecha,
-            });
+        const chunks = [];
+        let currentChunk = null;
 
-            if (!plan?.plantilla_id) continue;
-            pushPlan(plan, targetId, await getNombreEmpleado(targetId));
+        // Iterar día a día para "cortar" en conflictos
+        // Generamos fechas desde rangeStart hasta rangeEnd
+        const dCursor = new Date(rangeStart);
+        const dEnd = new Date(rangeEnd);
+
+        while (dCursor <= dEnd) {
+          const hoyYmd = ymd(dCursor);
+          
+          let bloqueado = false;
+          // 1. Check Global (Festivos / No Lab)
+          if (diasBloqueados.has(hoyYmd)) {
+            bloqueado = true;
           }
+
+          // 2. Check Ausencia Empleado
+          if (!bloqueado && asig.empleado_id && ausenciasPorEmpleado.has(asig.empleado_id)) {
+            // Verificar solape con alguna ausencia
+            // Ausencia events son start (YMD) -> end (YMD exclusive)
+            // Aquí dCursor es YMD. Check si start <= hoy < end
+            const ausList = ausenciasPorEmpleado.get(asig.empleado_id);
+            if (ausList.some(a => hoyYmd >= a.start && hoyYmd < a.end)) {
+              bloqueado = true;
+            }
+          }
+
+          // Si ignorar_festivos es true, NUNCA está bloqueado por festivos/ausencias
+          if (asig.ignorar_festivos) bloqueado = false;
+
+          if (!bloqueado) {
+            // Día laborable para el plan
+            if (!currentChunk) {
+              currentChunk = { start: hoyYmd, end: hoyYmd };
+            } else {
+              currentChunk.end = hoyYmd; // Extendemos
+            }
+          } else {
+            // Día bloqueado -> Cerrar chunk anterior si existe
+            if (currentChunk) {
+              chunks.push(currentChunk);
+              currentChunk = null;
+            }
+          }
+
+          dCursor.setDate(dCursor.getDate() + 1);
         }
-      }
+        
+        // Push último chunk
+        if (currentChunk) chunks.push(currentChunk);
 
-      function pushPlan(plan, eId, eNombre) {
-        const bloques = plan.bloques || [];
-        if (!bloques.length && !plan.rango) return;
+        // Crear eventos para cada chunk
+        chunks.forEach((chk, idx) => {
+          // Ajustar end param para FullCalendar (exclusive)
+          const endExclusive = addOneDayYMD(chk.end);
+          
+          const tituloPrincipal = asig.alias || asig.plantilla_nombre || "Planing";
+          const subtitle = asig.cliente_nombre ? `➜ ${asig.cliente_nombre}` : "";
 
-        const fecha = plan.fecha;
-        const start = plan.rango?.inicio
-          ? combineDateTime(fecha, plan.rango.inicio)
-          : `${fecha}T00:00:00`;
-        const end = plan.rango?.fin
-          ? combineDateTime(fecha, plan.rango.fin)
-          : null;
-
-        const label = !eId ? "Admin Plan" : "Plan";
-        const titleFinal = eNombre 
-          ? `${eNombre}: ${label} (plantilla)`
-          : plan.modo === "excepcion" ? `${label} (excep.)` : `${label} (plantilla)`;
-
-        eventos.push({
-          id: `plan-${eId || "admin"}-${fecha}`,
-          tipo: "jornada_plan",
-          title: titleFinal,
-          start,
-          end,
-          allDay: false,
-          estado: null,
-          empleado_id: eId,
-          empleado_nombre: eNombre,
-          meta: {
-            plantilla_id: plan.plantilla_id,
-            modo: plan.modo,
-            rango: plan.rango || null,
-            bloques,
-            nota: plan.nota || null,
-          },
+          eventos.push({
+            id: `plan-asig-${asig.id}-${idx}`,
+            tipo: "jornada_plan", // Mantenemos tipo para compatibilidad de color/iconos base
+            title: tituloPrincipal,
+            start: chk.start,
+            end: endExclusive,
+            allDay: true, // V5: Barras continuas son AllDay
+            empleado_id: asig.empleado_id,
+            empleado_nombre: asig.empleado_nombre || "Sin Asignar",
+            backgroundColor: asig.color || undefined, // Nuevo campo color
+            borderColor: asig.color || undefined,
+            meta: {
+              es_asignacion: true, // Flag para diferenciar en frontend
+              asignacion_id: asig.id,
+              plantilla_id: asig.plantilla_id,
+              cliente_nombre: asig.cliente_nombre,
+              alias: asig.alias,
+              bloques: [] // No tenemos detalle de horas aquí, frontend pedirá si hace click (o no)
+            }
+          });
         });
-      }
-
-      async function getNombreEmpleado(id) {
-         if(!id) return "Administrador";
-         const r = await sql`select nombre from employees_180 where id=${id}`;
-         return r[0]?.nombre || "Desconocido";
       }
     }
 
