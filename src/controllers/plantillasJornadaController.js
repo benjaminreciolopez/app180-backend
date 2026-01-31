@@ -800,28 +800,28 @@ export const listarAsignaciones = async (req, res) => {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
     const { empleado_id, desde, hasta, estado } = req.query; // estado: 'activos', 'historial'
 
-    const conditions = [sql`a.empresa_id = ${empresaId}`];
+    let filters = sql`a.empresa_id = ${empresaId}`;
 
     if (empleado_id) {
         if (empleado_id === 'null' || empleado_id === 'admin') {
-             conditions.push(sql`a.empleado_id IS NULL`);
+             filters = sql`${filters} AND a.empleado_id IS NULL`;
         } else {
-             conditions.push(sql`a.empleado_id = ${empleado_id}`);
+             filters = sql`${filters} AND a.empleado_id = ${empleado_id}`;
         }
     }
 
     if (desde) {
-      conditions.push(sql`(a.fecha_fin IS NULL OR a.fecha_fin >= ${desde}::date)`);
+      filters = sql`${filters} AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${desde}::date)`;
     }
     if (hasta) {
-      conditions.push(sql`a.fecha_inicio <= ${hasta}::date`);
+      filters = sql`${filters} AND a.fecha_inicio <= ${hasta}::date`;
     }
 
     if (estado === 'activos') {
          // Activos hoy o futuro
-         conditions.push(sql`(a.fecha_fin IS NULL OR a.fecha_fin >= current_date)`);
+         filters = sql`${filters} AND (a.fecha_fin IS NULL OR a.fecha_fin >= current_date)`;
     } else if (estado === 'historial') {
-         conditions.push(sql`a.fecha_fin < current_date`);
+         filters = sql`${filters} AND a.fecha_fin < current_date`;
     }
 
     const rows = await sql`
@@ -842,7 +842,7 @@ export const listarAsignaciones = async (req, res) => {
       LEFT JOIN employees_180 e ON e.id = a.empleado_id
       JOIN plantillas_jornada_180 p ON p.id = a.plantilla_id
       LEFT JOIN clients_180 c ON c.id = a.cliente_id
-      WHERE ${sql(conditions, ' AND ')}
+      WHERE ${filters}
       ORDER BY a.fecha_inicio DESC
     `;
 
