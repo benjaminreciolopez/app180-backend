@@ -61,12 +61,15 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     // =========================
     // 0) Festivos nacionales (Nager -> festivos_es_180)
     // =========================
+    // =========================
+    // 0) Festivos nacionales (Nager -> festivos_es_180)
+    // =========================
     const festivos = await sql`
-  SELECT fecha, nombre, ambito, comunidad
-  FROM festivos_es_180
-  WHERE fecha BETWEEN ${desde}::date AND ${hasta}::date
-  ORDER BY fecha ASC
-`;
+      SELECT fecha, nombre, ambito, comunidad
+      FROM festivos_es_180
+      WHERE fecha BETWEEN ${desde}::date AND ${hasta}::date
+      ORDER BY fecha ASC
+    `;
 
     for (const f of festivos) {
       const fecha = ymd(f.fecha);
@@ -151,7 +154,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     // =========================
     // 2) Ausencias
     // =========================
-    const ausencias = await sql`
+    let ausenciasQuery = sql`
       SELECT
         a.id,
         a.empleado_id,
@@ -165,9 +168,13 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       WHERE a.empresa_id = ${empresaId}
         AND a.fecha_fin >= ${desde}::date
         AND a.fecha_inicio <= ${hasta}::date
-        AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe}::uuid)
-      ORDER BY a.fecha_inicio ASC
     `;
+
+    if (empleadoIdSafe) {
+        ausenciasQuery = sql`${ausenciasQuery} AND a.empleado_id = ${empleadoIdSafe}`;
+    }
+
+    const ausencias = await sql`${ausenciasQuery} ORDER BY a.fecha_inicio ASC`;
 
     for (const a of ausencias) {
       const start = ymd(a.fecha_inicio);
@@ -198,7 +205,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     // 3) Jornadas reales
     // =========================
     if (wantReal) {
-      const jornadas = await sql`
+      let jornadasQuery = sql`
         SELECT
           j.id,
           j.empleado_id,
@@ -215,9 +222,13 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         JOIN employees_180 e ON e.id = j.empleado_id
         WHERE j.empresa_id = ${empresaId}
           AND j.fecha BETWEEN ${desde}::date AND ${hasta}::date
-          AND (${empleadoIdSafe}::uuid IS NULL OR j.empleado_id = ${empleadoIdSafe}::uuid)
-        ORDER BY j.fecha ASC, j.inicio ASC
       `;
+
+      if (empleadoIdSafe) {
+          jornadasQuery = sql`${jornadasQuery} AND j.empleado_id = ${empleadoIdSafe}`;
+      }
+
+      const jornadas = await sql`${jornadasQuery} ORDER BY j.fecha ASC, j.inicio ASC`;
 
       for (const j of jornadas) {
         const fecha = j.fecha ? ymd(j.fecha) : j.inicio ? ymd(j.inicio) : null;
@@ -280,7 +291,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       // Para ausencias, consultaremos al procesar cada empleado.
 
       // b) Consultar asignaciones que se solapan con el rango
-      const asignaciones = await sql`
+      let asignacionesQuery = sql`
         SELECT 
           a.id,
           a.empleado_id,
@@ -301,8 +312,17 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         WHERE a.empresa_id = ${empresaId}
           AND a.fecha_inicio <= ${hasta}::date
           AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${desde}::date)
-          AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe}::uuid)
       `;
+
+      if (empleadoIdSafe) {
+           // Si se filtra por empleado, traemos SUS asignaciones OR asignaciones vacantes (generales)
+           // SI se quiere ver las generales también.
+           // Pero si el usuario dice "no carga EL planing", probablemente quiere ver SU planing.
+           // Mantengamos la lógica estricta: solo SU ID.
+           asignacionesQuery = sql`${asignacionesQuery} AND a.empleado_id = ${empleadoIdSafe}`;
+      }
+      
+      const asignaciones = await sql`${asignacionesQuery}`;
 
       // Cache de ausencias por empleado para lookup rápido
       const ausenciasPorEmpleado = new Map(); // id -> [ {start, end} ]
