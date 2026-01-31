@@ -349,7 +349,7 @@ export const activateInstall = async (req, res) => {
     const invites = await sql`
       SELECT *
       FROM invite_180
-      WHERE token = ${token}
+      WHERE token = ${token} OR code = ${token}
       LIMIT 1
     `;
 
@@ -691,13 +691,15 @@ export const inviteEmpleado = async (req, res) => {
       console.log(`🗑️ Eliminados ${deleted.length} dispositivos anteriores`);
     }
 
-    // 3️⃣ Token
+    // 3️⃣ Token y Código
     const token = crypto.randomBytes(24).toString("hex");
+    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 6 dígitos
 
     // 4️⃣ Guardar invitación (24h)
     const invite = await sql`
       INSERT INTO invite_180 (
         token,
+        code,
         empleado_id,
         empresa_id,
         user_id,
@@ -706,13 +708,14 @@ export const inviteEmpleado = async (req, res) => {
       )
       VALUES (
         ${token},
+        ${code},
         ${empleado_id},
         ${empresa_id},
         ${user_id},
         false,
         now() + interval '24 hours'
       )
-      RETURNING token, expires_at
+      RETURNING token, code, expires_at
     `;
 
     const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
