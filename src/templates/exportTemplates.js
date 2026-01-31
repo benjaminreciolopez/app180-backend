@@ -39,7 +39,7 @@ const wrapHtml = (title, content, metaInfo = '') => `
 <body>
     <div class="header">
         <h1>${title}</h1>
-        <p>App180 - Sistema de Gestión</p>
+        <p>CONTENDO GESTIONES - Sistema de Gestión</p>
     </div>
     
     ${metaInfo ? `<div class="meta">${metaInfo}</div>` : ''}
