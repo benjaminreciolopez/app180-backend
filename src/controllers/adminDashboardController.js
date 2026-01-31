@@ -104,6 +104,55 @@ export const getAdminDashboard = async (req, res) => {
     }
 
     /* =========================
+       NUEVAS MÉTRICAS (Estadísticas)
+    ========================= */
+
+    let fichajesUltimosDias = [];
+    let fichajesPorTipoHoy = [];
+    let topClientesSemana = [];
+
+    if (modulos.fichajes !== false) {
+      // 1. Fichajes últimos 7 días
+      fichajesUltimosDias = await sql`
+        SELECT 
+          to_char(fecha, 'YYYY-MM-DD') as dia,
+          COUNT(*)::int as cantidad
+        FROM fichajes_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha >= CURRENT_DATE - INTERVAL '6 days'
+        GROUP BY dia
+        ORDER BY dia ASC
+      `;
+
+      // 2. Distribución tipos hoy
+      fichajesPorTipoHoy = await sql`
+        SELECT 
+          tipo, 
+          COUNT(*)::int as cantidad
+        FROM fichajes_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha::date = CURRENT_DATE
+        GROUP BY tipo
+      `;
+      
+      // 3. Top Clientes (últimos 7 días)
+      if (modulos.clientes !== false) {
+        topClientesSemana = await sql`
+          SELECT 
+            c.nombre, 
+            COUNT(*)::int as total
+          FROM fichajes_180 f
+          JOIN clients_180 c ON f.cliente_id = c.id
+          WHERE f.empresa_id = ${empresaId}
+            AND f.fecha >= CURRENT_DATE - INTERVAL '6 days'
+          GROUP BY c.nombre
+          ORDER BY total DESC
+          LIMIT 5
+        `;
+      }
+    }
+
+    /* =========================
        RESPONSE
     ========================= */
 
@@ -113,6 +162,11 @@ export const getAdminDashboard = async (req, res) => {
       sospechososHoy,
       trabajandoAhora,
       ultimosFichajes,
+      stats: {
+        fichajesUltimosDias,
+        fichajesPorTipoHoy,
+        topClientesSemana
+      }
     });
   } catch (err) {
     console.error("❌ getAdminDashboard:", err);
