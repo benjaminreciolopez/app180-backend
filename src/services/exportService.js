@@ -42,8 +42,29 @@ export const generatePdf = async (htmlContent, options = {}) => {
             console.warn("⚠️ Falló lanzamiento estándar, intentando detectar ejecutable...", launchError.message);
             // Fallback: intentar forzar path detectado si existe
             try {
-                const executablePath = puppeteer.executablePath();
-                console.log("👉 Executable Path detectado:", executablePath);
+                // Intentar buscar en la ruta exacta donde vimos que se instaló en los logs:
+                // /opt/render/project/src/.cache/puppeteer/chrome/linux-144.0.7559.96/chrome-linux64/chrome
+                // Como la versión puede cambiar, intentaremos usar puppeteer.executablePath() primero, 
+                // y si falla, construiremos una ruta "best guess" basada en la estructura de Render.
+                
+                let executablePath = puppeteer.executablePath();
+                console.log("👉 Executable Path detectado por Puppeteer:", executablePath);
+
+                if (!executablePath || !fs.existsSync(executablePath)) {
+                     console.log("⚠️ Ruta detectada no existe, intentando búsqueda manual en .cache...");
+                     // Buscar en .cache/puppeteer/chrome
+                     const cacheBase = join(process.cwd(), '.cache', 'puppeteer', 'chrome');
+                     if (fs.existsSync(cacheBase)) {
+                        const chromeDirs = fs.readdirSync(cacheBase);
+                        if (chromeDirs.length > 0) {
+                            // Asumimos el primer directorio (ej: linux-144.0.7559.96)
+                            const chromeDir = chromeDirs[0]; 
+                            executablePath = join(cacheBase, chromeDir, 'chrome-linux64', 'chrome');
+                            console.log("🔎 Ruta construida manualmente:", executablePath);
+                        }
+                     }
+                }
+
                 browser = await puppeteer.launch({
                     ...launchOptions,
                     executablePath
