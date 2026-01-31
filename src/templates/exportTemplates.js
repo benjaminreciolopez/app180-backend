@@ -307,3 +307,42 @@ export const sospechososToHtml = (data) => {
    `;
    return wrapHtml('Fichajes Sospechosos', content);
 };
+
+export const partesDiaToHtml = (data) => {
+     const rows = data.map(item => {
+        let estadoBadge = '';
+        switch(item.estado) {
+            case 'completo': estadoBadge = '<span class="badge badge-green">Completado</span>'; break;
+            case 'incidencia': estadoBadge = '<span class="badge badge-red">Incidencia</span>'; break;
+            default: estadoBadge = `<span class="badge badge-gray">${item.estado}</span>`;
+        }
+
+        return `
+        <tr>
+           <td><strong>${item.empleado_nombre}</strong></td>
+           <td>${item.cliente_nombre || '-'}</td>
+           <td class="text-center font-mono">${item.horas_trabajadas != null ? item.horas_trabajadas + ' h' : '-'}</td>
+           <td class="text-center">${estadoBadge}</td>
+           <td>${item.resumen || '-'}</td>
+           <td class="text-center">${item.validado ? '<span class="text-green">✓</span>' : item.validado === false ? '<span class="text-red">⚠</span>' : '-'}</td>
+       </tr>
+       `;
+     }).join('');
+
+    const content = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Empleado</th>
+                    <th>Cliente</th>
+                    <th class="text-center">Horas</th>
+                    <th class="text-center">Estado</th>
+                    <th>Resumen</th>
+                    <th class="text-center">Rev.</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+    return wrapHtml('Resumen Partes del Día', content);
+};

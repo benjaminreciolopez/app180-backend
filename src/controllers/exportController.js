@@ -10,7 +10,8 @@ import {
     fichajesToHtml,
     cobrosToHtml,
     trabajosToHtml,
-    sospechososToHtml
+    sospechososToHtml,
+    partesDiaToHtml
 } from "../templates/exportTemplates.js";
 
 /**
@@ -24,18 +25,29 @@ export const downloadExport = async (req, res) => {
         const { module } = req.params;
         const { format = 'pdf', ...queryParams } = req.query;
 
-        console.log(`⬇️ Export Request: Module=${module}, Format=${format}`);
+        console.log(`⬇️ Export Request: Module=${module}, Format=${format}, Params=`, queryParams);
 
         let data = [];
         let htmlContent = '';
         let csvColumns = [];
         let filename = `export-${module}-${Date.now()}`;
 
+        // Helper para fechas vacías
+        const fechaOrNull = (f) => (f && f !== 'undefined' && f !== '' ? f : null);
+
         // Selector de Módulo
         switch (module) {
             case 'rentabilidad':
-                const { desde: d1, hasta: h1, empleado_id: eid1 } = queryParams;
-                if (!d1 || !h1) throw new Error("Faltan fechas");
+                const d1 = fechaOrNull(queryParams.desde);
+                const h1 = fechaOrNull(queryParams.hasta);
+                const eid1 = queryParams.empleado_id;
+                
+                if (!d1 || !h1) {
+                    // Default to current month if missing
+                    const now = new Date();
+                    throw new Error("Faltan fechas para reporte de rentabilidad");
+                }
+                
                 data = await calcularReporteRentabilidad(empresaId, d1, h1, eid1);
                 htmlContent = rentabilidadToHtml(data, { desde: d1, hasta: h1 });
                 csvColumns = [
@@ -60,15 +72,18 @@ export const downloadExport = async (req, res) => {
                 break;
 
             case 'auditoria':
-                const { fecha_desde, fecha_hasta, accion } = queryParams;
+                const fe1 = fechaOrNull(queryParams.fecha_desde);
+                const fe2 = fechaOrNull(queryParams.fecha_hasta);
+                const acc = queryParams.accion;
+
                 data = await sql`
                     SELECT a.*, COALESCE(u.nombre, 'Sistema') as actor_nombre 
                     FROM audit_log_180 a
                     LEFT JOIN users_180 u ON a.actor_id = u.id
                     WHERE a.empresa_id = ${empresaId}
-                    ${fecha_desde ? sql`AND a.created_at >= ${fecha_desde}::date` : sql``}
-                    ${fecha_hasta ? sql`AND a.created_at <= ${fecha_hasta}::date + interval '1 day'` : sql``}
-                    ${accion ? sql`AND a.action = ${accion}` : sql``}
+                    ${fe1 ? sql`AND a.created_at >= ${fe1}::date` : sql``}
+                    ${fe2 ? sql`AND a.created_at <= ${fe2}::date + interval '1 day'` : sql``}
+                    ${acc ? sql`AND a.action = ${acc}` : sql``}
                     ORDER BY a.created_at DESC
                     LIMIT 500
                 `; 
@@ -94,10 +109,38 @@ export const downloadExport = async (req, res) => {
                     { key: 'contacto_nombre', header: 'Contacto' }
                 ];
                 break;
+            
+            case 'partes-dia':
+                // Partes del dia (resumen diario)
+                const pFecha = fechaOrNull(queryParams.fecha) || new Date().toISOString().slice(0, 10);
+                
+                data = await sql`
+                    SELECT pd.*, e.nombre as empleado_nombre, c.nombre as cliente_nombre
+                    FROM partes_dia_180 pd
+                    JOIN employees_180 e ON pd.empleado_id = e.id
+                    LEFT JOIN clients_180 c ON pd.cliente_id = c.id
+                    WHERE pd.empresa_id = ${empresaId}
+                    AND pd.fecha = ${pFecha}::date
+                    ORDER BY e.nombre
+                `;
+                htmlContent = partesDiaToHtml(data);
+                csvColumns = [
+                    { key: 'empleado_nombre', header: 'Empleado' },
+                    { key: 'cliente_nombre', header: 'Cliente' },
+                    { key: 'horas_trabajadas', header: 'Horas' },
+                    { key: 'estado', header: 'Estado' },
+                    { key: 'resumen', header: 'Resumen' },
+                    { key: 'validado', header: 'Validado' }
+                ];
+                filename = `partes-${pFecha}`;
+                break;
 
             case 'fichajes':
                 // Filtros opcionales
-                const { desde: d2, hasta: h2, empleado_id: eid2 } = queryParams;
+                const d2 = fechaOrNull(queryParams.desde); 
+                const h2 = fechaOrNull(queryParams.hasta);
+                const eid2 = queryParams.empleado_id;
+
                 data = await sql`
                     SELECT j.*, e.nombre as empleado_nombre
                     FROM jornadas_180 j
@@ -115,12 +158,15 @@ export const downloadExport = async (req, res) => {
                     { key: 'empleado_nombre', header: 'Empleado' },
                     { key: 'inicio', header: 'Inicio' },
                     { key: 'fin', header: 'Fin' },
-                    { key: 'estado', header: 'Estado' }
+                    { key: 'estado', header: 'Estado' },
+                    { key: 'minutos_trabajados', header: 'Minutos' }
                 ];
                 break;
 
             case 'cobros':
-                const { desde: d3, hasta: h3 } = queryParams;
+                const d3 = fechaOrNull(queryParams.desde);
+                const h3 = fechaOrNull(queryParams.hasta);
+
                 data = await sql`
                     SELECT p.*, c.nombre as cliente_nombre
                     FROM payments_180 p
@@ -141,7 +187,9 @@ export const downloadExport = async (req, res) => {
                 break;
             
             case 'trabajos':
-                 const { desde: d4, hasta: h4 } = queryParams;
+                 const d4 = fechaOrNull(queryParams.desde);
+                 const h4 = fechaOrNull(queryParams.hasta);
+
                  data = await sql`
                     SELECT w.*, c.nombre as cliente_nombre, e.nombre as empleado_nombre
                     FROM work_logs_180 w
@@ -186,12 +234,18 @@ export const downloadExport = async (req, res) => {
                 throw new Error("Módulo desconocido: " + module);
         }
 
-        // Generar
+        // Generar salida
         if (format === 'pdf') {
-            const buffer = await generatePdf(htmlContent);
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
-            return res.send(buffer);
+            try {
+                const buffer = await generatePdf(htmlContent);
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
+                return res.send(buffer);
+            } catch (pdfErr) {
+                console.error("PDF Generate Error:", pdfErr);
+                // Fallback a HTML si falla PDF (Render issue) o devolver JSON error
+                throw new Error("No se pudo generar PDF. Intenta HTML o CSV.");
+            }
         } else if (format === 'csv') {
             res.setHeader('Content-Type', 'text/csv');
             res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
@@ -205,6 +259,8 @@ export const downloadExport = async (req, res) => {
 
     } catch (err) {
         console.error("error en export:", err);
-        if (!res.headersSent) res.status(500).send(`Error export: ${err.message}`);
+        if (!res.headersSent) {
+            res.status(500).json({ error: `Error export: ${err.message}` });
+        }
     }
 };
