@@ -33,6 +33,11 @@ router.use(authRequired, roleRequired("admin"));
 
 router.get("/plantillas", listarPlantillas);
 router.post("/plantillas", crearPlantilla);
+// CRUD Gestion Planings - Mover antes de /plantillas/:id para evitar conflictos
+router.get("/plantillas/asignaciones", listarAsignaciones);
+router.put("/plantillas/asignaciones/:id", actualizarAsignacion);
+router.delete("/plantillas/asignaciones/:id", borrarAsignacion);
+
 router.get("/plantillas/:id", getPlantillaDetalle);
 router.patch("/plantillas/:id", actualizarPlantilla);
 router.delete("/plantillas/:id", borrarPlantilla);
@@ -61,10 +66,6 @@ router.post("/plantillas/asignar", asignarPlantillaEmpleado);
 router.post("/jornadas/asignar", asignarPlantillaEmpleado);
 router.post("/jornadas/asignar/renovar", renovarAsignacion);
 
-// CRUD Gestion Planings
-router.get("/plantillas/asignaciones", listarAsignaciones);
-router.put("/plantillas/asignaciones/:id", actualizarAsignacion);
-router.delete("/plantillas/asignaciones/:id", borrarAsignacion);
 
 router.get("/jornadas/asignar/:empleado_id", listarAsignacionesEmpleado);
 
