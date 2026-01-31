@@ -23,11 +23,13 @@ export const getReporteRentabilidad = async (req, res) => {
 
     // 1. Obtener empleados activos en el rango
     // (Simplificación: empleados que existen y no eliminados)
+    const empId = (empleado_id && empleado_id !== 'null' && empleado_id !== '') ? empleado_id : null;
+
     const empleadosQuery = sql`
       SELECT id, nombre
       FROM employees_180
       WHERE empresa_id = ${empresaId}
-        and (${empleado_id}::uuid IS NULL OR id = ${empleado_id})
+        and (${empId}::uuid IS NULL OR id = ${empId})
       ORDER BY nombre
     `;
     const empleados = await empleadosQuery;
@@ -71,30 +73,35 @@ export const getReporteRentabilidad = async (req, res) => {
     // Para V1 asumimos volumen moderado.
     
     for (const emp of empleados) {
+        console.time(`[rentabilidad] emp: ${emp.nombre}`);
         let minutosPlan = 0;
         
-        // Calcular plan dia a dia
-        // TODO: En el futuro, resolverPlanDia debería soportar rangos.
-        for (const fecha of fechas) {
-            // Resolver plan
-            const plan = await resolverPlanDia({
+        // Calcular plan dia a dia en paralelo para este empleado
+        const promesasDías = fechas.map(fecha => 
+            resolverPlanDia({
                 empresaId,
                 empleadoId: emp.id,
                 fecha
-            });
-
-            // Sumar bloques activos y obligatorios (o totales?)
-            // Asumimos bloques que cuentan para presupuesto (normalmente todos los activos)
+            })
+        );
+        
+        const planes = await Promise.all(promesasDías);
+        
+        for (const plan of planes) {
             if (plan && plan.bloques) {
                 for (const b of plan.bloques) {
-                    const [h1, m1] = b.inicio.split(':').map(Number);
-                    const [h2, m2] = b.fin.split(':').map(Number);
-                    const inicio = h1 * 60 + m1;
-                    const fin = h2 * 60 + m2;
-                    minutosPlan += (fin - inicio);
+                    if (!b.inicio || !b.fin) continue;
+                    try {
+                        const [h1, m1] = b.inicio.split(':').map(Number);
+                        const [h2, m2] = b.fin.split(':').map(Number);
+                        minutosPlan += (h2 * 60 + m2) - (h1 * 60 + m1);
+                    } catch (e) {
+                        // Ignorar errores de parseo individuales
+                    }
                 }
             }
         }
+        console.timeEnd(`[rentabilidad] emp: ${emp.nombre}`);
 
         const minutosReal = mapaReales.get(emp.id) || 0;
         const diferencia = minutosReal - minutosPlan;
@@ -135,6 +142,7 @@ export const getReporteRentabilidad = async (req, res) => {
     res.json(reporte);
 
   } catch (err) {
+    console.error("❌ ERROR EN REPORTE RENTABILIDAD:", err);
     handleErr(res, err, "getReporteRentabilidad");
   }
 };
