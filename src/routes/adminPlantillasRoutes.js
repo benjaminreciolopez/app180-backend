@@ -16,6 +16,9 @@ import {
   asignarPlantillaEmpleado,
   desasignarPlantillaEmpleado,
   listarAsignacionesEmpleado,
+  listarAsignaciones,
+  actualizarAsignacion,
+  borrarAsignacion,
   getPlanDiaEmpleado,
   getBloquesDia,
   getBloquesExcepcion,
@@ -57,6 +60,12 @@ router.put(
 router.post("/plantillas/asignar", asignarPlantillaEmpleado);
 router.post("/jornadas/asignar", asignarPlantillaEmpleado);
 router.post("/jornadas/asignar/renovar", renovarAsignacion);
+
+// CRUD Gestion Planings
+router.get("/plantillas/asignaciones", listarAsignaciones);
+router.put("/plantillas/asignaciones/:id", actualizarAsignacion);
+router.delete("/plantillas/asignaciones/:id", borrarAsignacion);
+
 router.get("/jornadas/asignar/:empleado_id", listarAsignacionesEmpleado);
 
 // resolver plan de un día (para debug y para UI)

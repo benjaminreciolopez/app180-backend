@@ -797,25 +797,142 @@ export const listarAsignacionesEmpleado = async (req, res) => {
     }
 
     const r = await sql`
-      select 
+      select
+        id,
+        fecha_inicio,
+        fecha_fin,
+        plantilla_id,
+        (select nombre from plantillas_jornada_180 where id = empleado_plantillas_180.plantilla_id) as plantilla_nombre,
+        cliente_id,
+        (select nombre from clients_180 where id = empleado_plantillas_180.cliente_id) as cliente_nombre,
+        alias,
+        color,
+        ignorar_festivos
+      from empleado_plantillas_180
+      where empresa_id=${empresaId}
+        and (${empleado_id}::uuid IS NULL OR empleado_id=${empleado_id})
+      order by fecha_inicio desc
+    `;
+
+    res.json(r);
+  } catch (err) {
+    handleErr(res, err, "listarAsignacionesEmpleado");
+  }
+};
+
+/**
+ * Endpoint Admin: Listado global con filtros
+ * GET /admin/plantillas/asignaciones
+ */
+export const listarAsignaciones = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { empleado_id, desde, hasta, estado } = req.query; // estado: 'activos', 'historial'
+
+    const conditions = [sql`a.empresa_id = ${empresaId}`];
+
+    if (empleado_id) {
+        if (empleado_id === 'null' || empleado_id === 'admin') {
+             conditions.push(sql`a.empleado_id IS NULL`);
+        } else {
+             conditions.push(sql`a.empleado_id = ${empleado_id}`);
+        }
+    }
+
+    if (desde) {
+      conditions.push(sql`(a.fecha_fin IS NULL OR a.fecha_fin >= ${desde}::date)`);
+    }
+    if (hasta) {
+      conditions.push(sql`a.fecha_inicio <= ${hasta}::date`);
+    }
+
+    if (estado === 'activos') {
+         // Activos hoy o futuro
+         conditions.push(sql`(a.fecha_fin IS NULL OR a.fecha_fin >= current_date)`);
+    } else if (estado === 'historial') {
+         conditions.push(sql`a.fecha_fin < current_date`);
+    }
+
+    const rows = await sql`
+      SELECT
         a.id,
+        a.empleado_id,
+        e.nombre as empleado_nombre,
         a.plantilla_id,
         p.nombre as plantilla_nombre,
         a.cliente_id,
         c.nombre as cliente_nombre,
         a.fecha_inicio,
         a.fecha_fin,
-        a.activo
-      from empleado_plantillas_180 a
-      join plantillas_jornada_180 p on p.id = a.plantilla_id
-      left join clients_180 c on c.id = a.cliente_id
-      where a.empresa_id = ${empresaId}
-        and (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
-      order by a.fecha_inicio desc
+        a.alias,
+        a.color,
+        a.ignorar_festivos
+      FROM empleado_plantillas_180 a
+      LEFT JOIN employees_180 e ON e.id = a.empleado_id
+      JOIN plantillas_jornada_180 p ON p.id = a.plantilla_id
+      LEFT JOIN clients_180 c ON c.id = a.cliente_id
+      WHERE ${sql(conditions, ' AND ')}
+      ORDER BY a.fecha_inicio DESC
     `;
-    res.json(r);
+
+    res.json(rows);
   } catch (err) {
-    handleErr(res, err, "listarAsignacionesEmpleado");
+    handleErr(res, err, "listarAsignaciones");
+  }
+};
+
+/**
+ * Endpoint Admin: Actualizar asignación
+ * PUT /admin/plantillas/asignaciones/:id
+ */
+export const actualizarAsignacion = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
+    const { fecha_fin, alias, color, ignorar_festivos } = req.body;
+
+    const r = await sql`
+      UPDATE empleado_plantillas_180
+      SET
+        fecha_fin = ${normDateOrNull(fecha_fin)}::date,
+        alias = ${alias || null},
+        color = ${color || null},
+        ignorar_festivos = ${boolOrNull(ignorar_festivos) ?? false}
+      WHERE id = ${id} AND empresa_id = ${empresaId}
+      RETURNING *
+    `;
+
+    if (!r.length) return res.status(404).json({ error: "Asignación no encontrada" });
+
+    // TODO: Si cambiamos fecha_fin, deberíamos recalcular turnos si la lógica auto lo requiere,
+    // pero por ahora es visual/planing.
+
+    res.json(r[0]);
+  } catch (err) {
+    handleErr(res, err, "actualizarAsignacion");
+  }
+};
+
+/**
+ * Endpoint Admin: Borrar asignación
+ * DELETE /admin/plantillas/asignaciones/:id
+ */
+export const borrarAsignacion = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
+
+    const r = await sql`
+      DELETE FROM empleado_plantillas_180
+      WHERE id = ${id} AND empresa_id = ${empresaId}
+      RETURNING id
+    `;
+
+    if (!r.length) return res.status(404).json({ error: "Asignación no encontrada" });
+
+    res.json({ ok: true });
+  } catch (err) {
+    handleErr(res, err, "borrarAsignacion");
   }
 };
 
