@@ -1124,7 +1124,6 @@ export async function resetDiaPlantilla(req, res, next) {
     next(err);
   }
 }
-
 export const desasignarPlantillaEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
@@ -1165,6 +1164,7 @@ export const desasignarPlantillaEmpleado = async (req, res) => {
     handleErr(res, err, "desasignarPlantillaEmpleado");
   }
 };
+
 
 export const renovarAsignacion = async (req, res) => {
   try {

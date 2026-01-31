@@ -38,6 +38,7 @@ import adminConfigRoutes from "./routes/adminConfigRoutes.js";
 import adminProfileRoutes from "./routes/adminProfileRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 import emailConfigRoutes from "./routes/emailConfigRoutes.js";
+import adminReportesRoutes from "./routes/adminReportesRoutes.js";
 import { handleGoogleCallback } from "./controllers/emailConfigController.js";
 
 const app = express();
@@ -121,6 +122,7 @@ app.use("/admin", adminConfigRoutes);
 app.use("/perfil", adminProfileRoutes);
 app.use("/admin/auditoria", auditRoutes);
 app.use("/admin", emailConfigRoutes); // Email configuration routes
+app.use("/admin/reportes", adminReportesRoutes);
 app.use("/system", systemRoutes);
 
 app.use((err, req, res, next) => {

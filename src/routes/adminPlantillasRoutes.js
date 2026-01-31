@@ -63,6 +63,7 @@ router.put(
 
 // asignaciones
 router.post("/plantillas/asignar", asignarPlantillaEmpleado);
+router.post("/plantillas/desasignar", desasignarPlantillaEmpleado);
 router.post("/jornadas/asignar", asignarPlantillaEmpleado);
 router.post("/jornadas/asignar/renovar", renovarAsignacion);
 
