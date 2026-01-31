@@ -84,7 +84,7 @@ export const generatePdf = async (htmlContent, options = {}) => {
         });
 
         // Generate PDF
-        const pdfBuffer = await page.pdf({
+        const uint8Array = await page.pdf({
             format: 'A4',
             printBackground: true,
             margin: {
@@ -95,6 +95,9 @@ export const generatePdf = async (htmlContent, options = {}) => {
             },
             ...options
         });
+
+        const pdfBuffer = Buffer.from(uint8Array);
+        console.log(`✅ PDF generado con éxito. Tamaño: ${pdfBuffer.length} bytes`);
 
         return pdfBuffer;
 

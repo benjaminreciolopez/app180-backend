@@ -251,7 +251,8 @@ export const downloadExport = async (req, res) => {
                 const buffer = await generatePdf(htmlContent);
                 res.setHeader('Content-Type', 'application/pdf');
                 res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
-                return res.send(buffer);
+                res.setHeader('Content-Length', buffer.length);
+                return res.end(buffer);
             } catch (pdfErr) {
                 console.error("PDF Generate Error:", pdfErr);
                 // Fallback a HTML si falla PDF (Render issue) o devolver JSON error
