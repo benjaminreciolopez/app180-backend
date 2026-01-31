@@ -24,7 +24,7 @@ export const getReporteRentabilidad = async (req, res) => {
     // 1. Obtener empleados activos en el rango
     // (Simplificación: empleados que existen y no eliminados)
     const empleadosQuery = sql`
-      SELECT id, nombre, apellidos
+      SELECT id, nombre
       FROM employees_180
       WHERE empresa_id = ${empresaId}
         and (${empleado_id}::uuid IS NULL OR id = ${empleado_id})
@@ -119,7 +119,7 @@ export const getReporteRentabilidad = async (req, res) => {
         }
 
         reporte.push({
-            empleado: { id: emp.id, nombre: emp.nombre, apellidos: emp.apellidos },
+            empleado: { id: emp.id, nombre: emp.nombre },
             minutos_plan: minutosPlan,
             minutos_real: minutosReal,
             diferencia: diferencia,
