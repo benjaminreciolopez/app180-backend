@@ -26,7 +26,7 @@
     "nodemailer": "^7.0.13",
     "pg": "^8.11.3",
     "postgres": "^3.4.7",
-    "puppeteer-core": "^24.36.1",
+    "puppeteer": "^24.36.1",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0"
   },
