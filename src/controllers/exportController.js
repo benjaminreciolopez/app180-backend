@@ -66,9 +66,8 @@ export const downloadExport = async (req, res) => {
                         e.id,
                         e.nombre,
                         u.email,
-                        u.telefono,
                         e.activo,
-                        e.pin_acceso as pin
+                        e.tipo_trabajo
                     FROM employees_180 e
                     JOIN users_180 u ON u.id = e.user_id
                     WHERE e.empresa_id = ${empresaId}
@@ -78,7 +77,7 @@ export const downloadExport = async (req, res) => {
                 csvColumns = [
                     { key: 'nombre', header: 'Nombre' },
                     { key: 'email', header: 'Email' },
-                    { key: 'telefono', header: 'Tel' },
+                    { key: 'tipo_trabajo', header: 'Tipo' },
                     { key: 'activo', header: 'Activo' }
                 ];
                 break;
