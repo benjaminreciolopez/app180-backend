@@ -169,26 +169,6 @@ async function getExcepcionAndAssertEmpresa(tx, excepcionId, empresaId) {
   return rows[0];
 }
 
-function handleErr(res, err, context = "") {
-  const status = err?.status && Number.isInteger(err.status) ? err.status : 500;
-
-  // Log enriquecido
-  console.error(`[plantillasJornadaController] ${context}`, {
-    message: err?.message,
-    status,
-    code: err?.code,
-    detail: err?.detail,
-    hint: err?.hint,
-    stack: err?.stack,
-  });
-
-  // Para Postgres (driver postgres), algunos errores vienen con code (por ejemplo 23505 unique_violation)
-  if (status === 500 && err?.code === "23505") {
-    return res.status(409).json({ error: "Conflicto: registro duplicado" });
-  }
-
-  return res.status(status).json({ error: err?.message || "Error interno" });
-}
 
 /**
  * =========================
