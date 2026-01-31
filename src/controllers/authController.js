@@ -311,7 +311,7 @@ export const login = async (req, res) => {
         password_forced: user.password_forced === true, // 👈 CLAVE
       },
       config.jwtSecret,
-      { expiresIn: "1d" },
+      { expiresIn: "10h" },
     );
 
     // 👈 MUY IMPORTANTE: responder exactamente esto
@@ -444,7 +444,7 @@ export const activateInstall = async (req, res) => {
         password_forced: true,
       },
       config.jwtSecret,
-      { expiresIn: "1d" },
+      { expiresIn: "10h" },
     );
 
     return res.json({
@@ -527,7 +527,7 @@ export const changePassword = async (req, res) => {
         password_forced: false,
       },
       config.jwtSecret,
-      { expiresIn: "1d" },
+      { expiresIn: "10h" },
     );
 
     return res.json({
