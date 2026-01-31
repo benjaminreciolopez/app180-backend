@@ -257,25 +257,80 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     // 4) Plan (opcional)
     // =========================
     if (wantPlan) {
-      const days = await sql`
-        SELECT d::date AS fecha
-        FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
-        ORDER BY d
-      `;
+      if (empleadoIdSafe) {
+        // Caso A: Un solo empleado (o Admin específico) -> Iterar días
+        const days = await sql`
+          SELECT d::date AS fecha
+          FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
+          ORDER BY d
+        `;
 
-      for (const r of days) {
-        const fecha = ymd(r.fecha);
-        const plan = await resolverPlanDia({
-          empresaId,
-          empleadoId: empleadoIdSafe,
-          fecha,
-        });
+        for (const r of days) {
+          const fecha = ymd(r.fecha);
+          const plan = await resolverPlanDia({
+            empresaId,
+            empleadoId: empleadoIdSafe,
+            fecha,
+          });
 
-        if (!plan?.plantilla_id) continue;
+          if (!plan?.plantilla_id) continue;
+          pushPlan(plan, empleadoIdSafe, null); // Helper interno
+        }
+      } else {
+        // Caso B: TODOS los empleados (o Admin sin ID) -> Buscar asignaciones activas
+        // Recuperamos empleados con asignaciones en este rango
+        // + el admin si tiene asignaciones (empleado_id IS NULL)
+        const asignaciones = await sql`
+          SELECT DISTINCT empleado_id
+          FROM empleado_plantillas_180
+          WHERE empresa_id = ${empresaId}
+            AND fecha_inicio <= ${hasta}::date
+            AND (fecha_fin IS NULL OR fecha_fin >= ${desde}::date)
+        `;
 
+        // Añadimos null explícitamente si hay asignaciones de admin
+        const adminAsig = await sql`
+          SELECT 1 FROM empleado_plantillas_180 
+          WHERE empresa_id=${empresaId} AND empleado_id IS NULL 
+          AND fecha_inicio <= ${hasta}::date AND (fecha_fin IS NULL OR fecha_fin >= ${desde}::date)
+          LIMIT 1
+        `;
+        
+        let targetIds = asignaciones.map(a => a.empleado_id);
+        if (adminAsig.length) targetIds.push(null);
+
+        // Iterar días para cada ID encontrado (puede ser costoso si son muchos empleados y muchos días, 
+        // pero es más seguro para reutilizar resolverPlanDia que reescribirlo todo en SQL)
+        // TODO: Optimizar a futuro con una mega-query si el rendimiento cae.
+        
+        // Pre-fetch fechas
+        const days = await sql`
+          SELECT d::date AS fecha
+          FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
+          ORDER BY d
+        `;
+
+        for (const targetId of targetIds) {
+          // Para cada empleado con asignaciones, recuperamos sus días
+          for (const r of days) {
+            const fecha = ymd(r.fecha);
+            const plan = await resolverPlanDia({
+              empresaId,
+              empleadoId: targetId,
+              fecha,
+            });
+
+            if (!plan?.plantilla_id) continue;
+            pushPlan(plan, targetId, await getNombreEmpleado(targetId));
+          }
+        }
+      }
+
+      function pushPlan(plan, eId, eNombre) {
         const bloques = plan.bloques || [];
-        if (!bloques.length && !plan.rango) continue;
+        if (!bloques.length && !plan.rango) return;
 
+        const fecha = plan.fecha;
         const start = plan.rango?.inicio
           ? combineDateTime(fecha, plan.rango.inicio)
           : `${fecha}T00:00:00`;
@@ -283,18 +338,21 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
           ? combineDateTime(fecha, plan.rango.fin)
           : null;
 
-        const label = !empleadoIdSafe ? "Mi Plan" : "Plan";
+        const label = !eId ? "Admin Plan" : "Plan";
+        const titleFinal = eNombre 
+          ? `${eNombre}: ${label} (plantilla)`
+          : plan.modo === "excepcion" ? `${label} (excep.)` : `${label} (plantilla)`;
 
         eventos.push({
-          id: `plan-${empleadoIdSafe || "admin"}-${fecha}`,
+          id: `plan-${eId || "admin"}-${fecha}`,
           tipo: "jornada_plan",
-          title: plan.modo === "excepcion" ? `${label} (excep.)` : `${label} (plantilla)`,
+          title: titleFinal,
           start,
           end,
           allDay: false,
           estado: null,
-          empleado_id: empleadoIdSafe,
-          empleado_nombre: null,
+          empleado_id: eId,
+          empleado_nombre: eNombre,
           meta: {
             plantilla_id: plan.plantilla_id,
             modo: plan.modo,
@@ -303,6 +361,12 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             nota: plan.nota || null,
           },
         });
+      }
+
+      async function getNombreEmpleado(id) {
+         if(!id) return "Administrador";
+         const r = await sql`select nombre from employees_180 where id=${id}`;
+         return r[0]?.nombre || "Desconocido";
       }
     }
 

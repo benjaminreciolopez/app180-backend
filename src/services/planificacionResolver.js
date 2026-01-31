@@ -138,8 +138,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
         inicio: b.hora_inicio,
         fin: b.hora_fin,
         obligatorio: b.obligatorio,
-        cliente_id: b.cliente_id,
-        cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : null),
+        cliente_id: b.cliente_id || cliente?.id || null,
+        cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : (cliente?.nombre || null)),
       })),
     };
   }
@@ -231,8 +231,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       inicio: b.hora_inicio,
       fin: b.hora_fin,
       obligatorio: b.obligatorio,
-      cliente_id: b.cliente_id,
-      cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : null),
+      cliente_id: b.cliente_id || cliente?.id || null,
+      cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : (cliente?.nombre || null)),
     })),
   };
 }
