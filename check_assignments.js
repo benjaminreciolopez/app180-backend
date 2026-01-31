@@ -22,7 +22,7 @@ async function checkRecentAssignments() {
         
         console.log("Last 5 assignments (by start date):");
         rows.forEach(r => {
-             console.log(`- Emp: ${r.emp_nombre || 'NULL (Admin/Vacante)'} | Plan: ${r.plantilla} | ${r.fecha_inicio} -> ${r.fecha_fin || 'Indefinido'}`);
+             console.log(`ID: ${r.id} | EmpID: ${r.empleado_id} | Name: ${r.emp_nombre} | Start: ${r.fecha_inicio} | End: ${r.fecha_fin}`);
         });
     } catch (e) {
         console.error('Error:', e);

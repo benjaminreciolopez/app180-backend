@@ -604,6 +604,8 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     const inicioStr = normDateOrNull(fecha_inicio);
     const fin = normDateOrNull(fecha_fin);
 
+    console.log("[DEBUG] Asignar:", { empleado_id, plantilla_id, inicioStr, fin });
+
     if (fin && inicioStr && fin < inicioStr) {
         return res.status(400).json({ error: "La fecha de fin no puede ser anterior a la de inicio" });
     }
@@ -668,41 +670,41 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // =========================
       // 1. Cerrar asignación activa si existe (starts before, intersects)
       // =========================
+      
+      // Construir filtro de empleado dinámicamente para evitar bug de "Optional param"
+      const filtroEmpleado = empleado_id 
+           ? sql`and empleado_id = ${empleado_id}`
+           : sql`and empleado_id IS NULL`;
+
       await tx`
         update empleado_plantillas_180
         set fecha_fin = greatest(fecha_inicio, ${finalInicio}::date - interval '1 day')
         where empresa_id = ${empresaId}
-          and (${empleado_id}::uuid IS NULL OR empleado_id = ${empleado_id})
+          ${filtroEmpleado}
           and (fecha_fin is null OR fecha_fin >= ${finalInicio}::date)
           and fecha_inicio < ${finalInicio}::date
       `;
 
       // =========================
       // 2. Eliminar/Acortar asignaciones FUTURAS que solapen totalmente
-      //    Si la nueva es indefinida (fin=null), borra TODO lo futuro.
-      //    Si la nueva tiene fin, borra lo que esté totalmente dentro.
       // =========================
       if (!fin) {
           // Nueva es indefinida -> Borrar todo lo que empiece >= hoy
           await tx`
             delete from empleado_plantillas_180
             where empresa_id = ${empresaId}
-              and (${empleado_id}::uuid IS NULL OR empleado_id = ${empleado_id})
+              ${filtroEmpleado}
               and fecha_inicio >= ${finalInicio}::date
           `;
       } else {
           // Nueva tiene fin -> Borrar lo que solape en el rango [inicio, fin]
-          // A) Starts inside range
           await tx`
             delete from empleado_plantillas_180
             where empresa_id = ${empresaId}
-              and (${empleado_id}::uuid IS NULL OR empleado_id = ${empleado_id})
+               ${filtroEmpleado}
               and fecha_inicio >= ${finalInicio}::date
               and fecha_inicio <= ${fin}::date
           `;
-          // B) Logica compleja de intersección parcial se puede omitir si asumimos
-          // que el usuario raramente pone "huecos" y luego rellena. 
-          // Para "Gestión", el override es lo más común.
       }
 
       // =========================
