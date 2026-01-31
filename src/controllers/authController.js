@@ -666,14 +666,14 @@ export const inviteEmpleado = async (req, res) => {
 
     const { email, nombre, user_id, empresa_id } = rows[0];
 
-    // 1️⃣ Invalidar invitaciones anteriores
+    // 1️⃣ Invalidar invitaciones anteriores (pendientes y expiradas)
     const invalidated = await sql`
       UPDATE invite_180
       SET usado = true,
           usado_en = now(),
           used_at = now()
       WHERE empleado_id = ${empleado_id}
-        AND (usado IS DISTINCT FROM true)
+        AND (usado = false OR usado IS NULL)
       RETURNING id
     `;
 
