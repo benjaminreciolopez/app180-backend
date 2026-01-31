@@ -256,7 +256,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     // =========================
     // 4) Plan (opcional)
     // =========================
-    if (wantPlan && empleadoIdSafe) {
+    if (wantPlan) {
       const days = await sql`
         SELECT d::date AS fecha
         FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
@@ -283,11 +283,12 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
           ? combineDateTime(fecha, plan.rango.fin)
           : null;
 
+        const label = !empleadoIdSafe ? "Mi Plan" : "Plan";
+
         eventos.push({
-          id: `plan-${empleadoIdSafe}-${fecha}`,
+          id: `plan-${empleadoIdSafe || "admin"}-${fecha}`,
           tipo: "jornada_plan",
-          title:
-            plan.modo === "excepcion" ? "Plan (excepción)" : "Plan (plantilla)",
+          title: plan.modo === "excepcion" ? `${label} (excep.)` : `${label} (plantilla)`,
           start,
           end,
           allDay: false,

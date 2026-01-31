@@ -27,13 +27,14 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     LEFT JOIN clients_180 c
       ON c.id = a.cliente_id
 
-    WHERE a.empleado_id = ${empleadoId}
+    WHERE (${empleadoId}::uuid IS NULL OR a.empleado_id = ${empleadoId})
       AND a.empresa_id = ${empresaId}
       AND p.activo = true
       AND a.fecha_inicio <= ${fecha}::date
       AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${fecha}::date)
 
     ORDER BY 
+      a.empleado_id NULLS FIRST,
       a.fecha_inicio DESC
     LIMIT 1
   `;
@@ -86,7 +87,7 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       limit 1
     `;
 
-    if (cliRow.length) {
+    if (cliRow.length && empleadoId) {
       clienteInfo = cliRow[0];
     }
   }
@@ -110,10 +111,12 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
     const exId = ex[0].id;
 
     const bloquesEx = await sql`
-      SELECT tipo, hora_inicio, hora_fin, obligatorio
-      FROM plantilla_excepcion_bloques_180
-      WHERE excepcion_id = ${exId}
-      ORDER BY hora_inicio ASC
+      SELECT b.tipo, b.hora_inicio, b.hora_fin, b.obligatorio, b.cliente_id,
+             c.nombre AS cliente_nombre
+      FROM plantilla_excepcion_bloques_180 b
+      LEFT JOIN clients_180 c ON c.id = b.cliente_id
+      WHERE b.excepcion_id = ${exId}
+      ORDER BY b.hora_inicio ASC
     `;
 
     return {
@@ -135,6 +138,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
         inicio: b.hora_inicio,
         fin: b.hora_fin,
         obligatorio: b.obligatorio,
+        cliente_id: b.cliente_id,
+        cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : null),
       })),
     };
   }
@@ -201,10 +206,12 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   ========================= */
 
   const bloques = await sql`
-    SELECT tipo, hora_inicio, hora_fin, obligatorio
-    FROM plantilla_bloques_180
-    WHERE plantilla_dia_id = ${dia[0].id}
-    ORDER BY hora_inicio ASC
+    SELECT b.tipo, b.hora_inicio, b.hora_fin, b.obligatorio, b.cliente_id,
+           c.nombre AS cliente_nombre
+    FROM plantilla_bloques_180 b
+    LEFT JOIN clients_180 c ON c.id = b.cliente_id
+    WHERE b.plantilla_dia_id = ${dia[0].id}
+    ORDER BY b.hora_inicio ASC
   `;
 
   return {
@@ -224,6 +231,8 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
       inicio: b.hora_inicio,
       fin: b.hora_fin,
       obligatorio: b.obligatorio,
+      cliente_id: b.cliente_id,
+      cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : null),
     })),
   };
 }

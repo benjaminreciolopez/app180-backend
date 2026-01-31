@@ -21,6 +21,7 @@ import {
   getBloquesExcepcion,
   replicarDiaSemana,
   resetDiaPlantilla,
+  renovarAsignacion,
 } from "../controllers/plantillasJornadaController.js";
 
 const router = Router();
@@ -54,8 +55,9 @@ router.put(
 
 // asignaciones
 router.post("/plantillas/asignar", asignarPlantillaEmpleado);
-router.post("/plantillas/desasignar", desasignarPlantillaEmpleado);
-router.get("/plantillas/asignaciones/:empleado_id", listarAsignacionesEmpleado);
+router.post("/jornadas/asignar", asignarPlantillaEmpleado);
+router.post("/jornadas/asignar/renovar", renovarAsignacion);
+router.get("/jornadas/asignar/:empleado_id", listarAsignacionesEmpleado);
 
 // resolver plan de un día (para debug y para UI)
 router.get("/plan-dia/:empleado_id", getPlanDiaEmpleado); // ?fecha=YYYY-MM-DD

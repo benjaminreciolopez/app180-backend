@@ -438,13 +438,14 @@ export const upsertBloquesDia = async (req, res) => {
         }
 
         await tx`
-          insert into plantilla_bloques_180 (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio)
+          insert into plantilla_bloques_180 (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id)
           values (
             ${plantilla_dia_id},
             ${b.tipo},
             ${b.hora_inicio},
             ${b.hora_fin},
-            coalesce(${obligatorioParsed}, true)
+            coalesce(${obligatorioParsed}, true),
+            ${b.cliente_id || null}
           )
         `;
         // 🔁 Recalcular turnos de empleados con esta plantilla
@@ -578,13 +579,14 @@ export const upsertBloquesExcepcion = async (req, res) => {
         }
 
         await tx`
-          insert into plantilla_excepcion_bloques_180 (excepcion_id, tipo, hora_inicio, hora_fin, obligatorio)
+          insert into plantilla_excepcion_bloques_180 (excepcion_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id)
           values (
             ${excepcion_id},
             ${b.tipo},
             ${b.hora_inicio},
             ${b.hora_fin},
-            coalesce(${obligatorioParsed}, true)
+            coalesce(${obligatorioParsed}, true),
+            ${b.cliente_id || null}
           )
         `;
 
@@ -630,26 +632,22 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     const { empleado_id, plantilla_id, cliente_id, fecha_fin } = req.body || {};
     const fin = normDateOrNull(fecha_fin);
 
-    if (!empleado_id || !plantilla_id) {
-      return res.status(400).json({
-        error: "empleado_id y plantilla_id son obligatorios",
-      });
-    }
-
     const out = await sql.begin(async (tx) => {
       // =========================
-      // Validar empleado y plantilla (multiempresa)
+      // Validar empleado (si viene) y plantilla (multiempresa)
       // =========================
-      const e = await tx`
-        select 1
-        from employees_180
-        where id=${empleado_id} and empresa_id=${empresaId}
-        limit 1
-      `;
-      if (!e.length) {
-        const err = new Error("Empleado no válido");
-        err.status = 404;
-        throw err;
+      if (empleado_id) {
+        const e = await tx`
+          select 1
+          from employees_180
+          where id=${empleado_id} and empresa_id=${empresaId}
+          limit 1
+        `;
+        if (!e.length) {
+          const err = new Error("Empleado no válido");
+          err.status = 404;
+          throw err;
+        }
       }
 
       const p = await tx`
@@ -692,11 +690,11 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // =========================
       // Cerrar asignación activa si existe
       // =========================
-      // Cerrar TODAS las asignaciones abiertas
       await tx`
         update empleado_plantillas_180
         set fecha_fin = greatest(fecha_inicio, ${hoy}::date - interval '1 day')
-        where empleado_id = ${empleado_id}
+        where empresa_id = ${empresaId}
+          and (${empleado_id}::uuid IS NULL OR empleado_id = ${empleado_id})
           and fecha_fin is null
       `;
 
@@ -713,7 +711,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
           empresa_id
         )
         values (
-          ${empleado_id},
+          ${empleado_id || null},
           ${plantilla_id},
           ${cliente_id || null},
           ${hoy}::date,
@@ -724,43 +722,47 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       `;
       const asignacion = r[0];
 
-      // =========================
-      // Resolver plan del día y deducir tipo de turno
-      // =========================
-      const plan = await resolverPlanDia({
-        empresaId,
-        empleadoId: empleado_id,
-        fecha: hoy.toISOString().slice(0, 10),
-      });
+      if (empleado_id) {
+        // =========================
+        // Resolver plan del día y deducir tipo de turno
+        // =========================
+        const plan = await resolverPlanDia({
+          empresaId,
+          empleadoId: empleado_id,
+          fecha: hoy.toISOString().slice(0, 10),
+        });
 
-      const tipo_turno = inferirTipoTurnoDesdePlan(plan);
+        const tipo_turno = inferirTipoTurnoDesdePlan(plan);
 
-      // =========================
-      // Obtener o crear turno catálogo
-      // =========================
-      const turno = await getOrCreateTurnoCatalogo(
-        { empresaId, tipo: tipo_turno },
-        tx,
-      );
+        // =========================
+        // Obtener o crear turno catálogo
+        // =========================
+        const turno = await getOrCreateTurnoCatalogo(
+          { empresaId, tipo: tipo_turno },
+          tx,
+        );
 
-      // =========================
-      // Asignar turno al empleado
-      // =========================
-      await tx`
-        update employees_180
-        set turno_id = ${turno.id}
-        where id = ${empleado_id}
-          and empresa_id = ${empresaId}
-      `;
+        // =========================
+        // Asignar turno al empleado
+        // =========================
+        await tx`
+          update employees_180
+          set turno_id = ${turno.id}
+          where id = ${empleado_id}
+            and empresa_id = ${empresaId}
+        `;
 
-      return {
-        asignacion,
-        turno_auto: {
-          tipo_turno,
-          turno_id: turno.id,
-          turno_nombre: turno.nombre,
-        },
-      };
+        return {
+          asignacion,
+          turno_auto: {
+            tipo_turno,
+            turno_id: turno.id,
+            turno_nombre: turno.nombre,
+          },
+        };
+      }
+
+      return { asignacion };
     });
 
     res.json(out);
@@ -778,20 +780,30 @@ export const asignarPlantillaEmpleado = async (req, res) => {
 export const listarAsignacionesEmpleado = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
-    const { empleado_id } = req.params;
+    let { empleado_id } = req.params;
 
-    const rows = await sql`
-      select ep.*, p.nombre as plantilla_nombre, c.nombre as cliente_nombre
-      from empleado_plantillas_180 ep
-      join plantillas_jornada_180 p on p.id = ep.plantilla_id
-      left join clients_180 c on c.id = ep.cliente_id
-      join employees_180 e on e.id = ep.empleado_id
-      where ep.empleado_id=${empleado_id}
-        and e.empresa_id=${empresaId}
-      order by ep.fecha_inicio desc
+    if (empleado_id === "null" || empleado_id === "undefined") {
+      empleado_id = null;
+    }
+
+    const r = await sql`
+      select 
+        a.id,
+        a.plantilla_id,
+        p.nombre as plantilla_nombre,
+        a.cliente_id,
+        c.nombre as cliente_nombre,
+        a.fecha_inicio,
+        a.fecha_fin,
+        a.activo
+      from empleado_plantillas_180 a
+      join plantillas_jornada_180 p on p.id = a.plantilla_id
+      left join clients_180 c on c.id = a.cliente_id
+      where a.empresa_id = ${empresaId}
+        and (${empleado_id}::uuid IS NULL OR a.empleado_id = ${empleado_id})
+      order by a.fecha_inicio desc
     `;
-
-    res.json(rows);
+    res.json(r);
   } catch (err) {
     handleErr(res, err, "listarAsignacionesEmpleado");
   }
