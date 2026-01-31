@@ -15,7 +15,7 @@ import { resolverPlanDia } from "../services/planificacionResolver.js";
 export const getReporteRentabilidad = async (req, res) => {
   try {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
-    const { desde, hasta, empleado_id } = req.query;
+    const { desde, hasta, empleado_id = null } = req.query;
 
     if (!desde || !hasta) {
       return res.status(400).json({ error: "Se requieren parámetros desde y hasta" });
