@@ -87,8 +87,8 @@ export const getReporteRentabilidad = async (req, res) => {
             // Asumimos bloques que cuentan para presupuesto (normalmente todos los activos)
             if (plan && plan.bloques) {
                 for (const b of plan.bloques) {
-                    const [h1, m1] = b.hora_inicio.split(':').map(Number);
-                    const [h2, m2] = b.hora_fin.split(':').map(Number);
+                    const [h1, m1] = b.inicio.split(':').map(Number);
+                    const [h2, m2] = b.fin.split(':').map(Number);
                     const inicio = h1 * 60 + m1;
                     const fin = h2 * 60 + m2;
                     minutosPlan += (fin - inicio);
