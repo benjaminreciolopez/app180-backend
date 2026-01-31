@@ -919,6 +919,44 @@ export const actualizarAsignacion = async (req, res) => {
 };
 
 /**
+ * Endpoint Admin: Obtener asignación por ID
+ * GET /admin/plantillas/asignaciones/:id
+ */
+export const getAsignacion = async (req, res) => {
+  try {
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { id } = req.params;
+
+    const r = await sql`
+      SELECT
+        a.id,
+        a.empleado_id,
+        e.nombre as empleado_nombre,
+        a.plantilla_id,
+        p.nombre as plantilla_nombre,
+        a.cliente_id,
+        c.nombre as cliente_nombre,
+        a.fecha_inicio,
+        a.fecha_fin,
+        a.alias,
+        a.color,
+        a.ignorar_festivos
+      FROM empleado_plantillas_180 a
+      LEFT JOIN employees_180 e ON e.id = a.empleado_id
+      JOIN plantillas_jornada_180 p ON p.id = a.plantilla_id
+      LEFT JOIN clients_180 c ON c.id = a.cliente_id
+      WHERE a.id = ${id} AND a.empresa_id = ${empresaId}
+    `;
+
+    if (!r.length) return res.status(404).json({ error: "Asignación no encontrada" });
+
+    res.json(r[0]);
+  } catch (err) {
+    handleErr(res, err, "getAsignacion");
+  }
+};
+
+/**
  * Endpoint Admin: Borrar asignación
  * DELETE /admin/plantillas/asignaciones/:id
  */

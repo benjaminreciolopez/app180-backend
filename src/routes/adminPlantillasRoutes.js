@@ -17,6 +17,7 @@ import {
   desasignarPlantillaEmpleado,
   listarAsignacionesEmpleado,
   listarAsignaciones,
+  getAsignacion,
   actualizarAsignacion,
   borrarAsignacion,
   getPlanDiaEmpleado,
@@ -35,6 +36,7 @@ router.get("/plantillas", listarPlantillas);
 router.post("/plantillas", crearPlantilla);
 // CRUD Gestion Planings - Mover antes de /plantillas/:id para evitar conflictos
 router.get("/plantillas/asignaciones", listarAsignaciones);
+router.get("/plantillas/asignaciones/:id", getAsignacion);
 router.put("/plantillas/asignaciones/:id", actualizarAsignacion);
 router.delete("/plantillas/asignaciones/:id", borrarAsignacion);
 
