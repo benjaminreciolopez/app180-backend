@@ -301,7 +301,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         WHERE a.empresa_id = ${empresaId}
           AND a.fecha_inicio <= ${hasta}::date
           AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${desde}::date)
-          AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe}::uuid OR (a.empleado_id IS NULL AND ${empleadoIdSafe}::uuid IS NULL))
+          AND (${empleadoIdSafe}::uuid IS NULL OR a.empleado_id = ${empleadoIdSafe}::uuid)
       `;
 
       // Cache de ausencias por empleado para lookup rápido
