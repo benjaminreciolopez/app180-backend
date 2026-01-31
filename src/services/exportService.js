@@ -5,65 +5,8 @@ import { execSync } from 'child_process';
 // Con 'puppeteer' (full) no necesitamos buscar paths manualmente para Linux/Windows
 // ya que descarga su propio Chrome/Chromium compatible.
 
-/**
- * Encuentra el ejecutable de Chrome en el sistema
- */
-const findChrome = () => {
-    console.log('🔍 Buscando Chrome...');
-
-    // 1. Variables de entorno configuradas manualmente
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        console.log('✅ Chrome encontrado vía PUPPETEER_EXECUTABLE_PATH:', process.env.PUPPETEER_EXECUTABLE_PATH);
-        return process.env.PUPPETEER_EXECUTABLE_PATH;
-    }
-    if (process.env.CHROME_BIN) {
-        console.log('✅ Chrome encontrado vía CHROME_BIN:', process.env.CHROME_BIN);
-        return process.env.CHROME_BIN;
-    }
-
-    // 2. Buscar en caché de Puppeteer en Render
-    const renderCachePaths = [
-        '/opt/render/.cache/puppeteer/chrome',
-        `${process.env.HOME}/.cache/puppeteer/chrome`
-    ];
-
-    for (const cacheDir of renderCachePaths) {
-        try {
-            if (fs.existsSync(cacheDir)) {
-                // Buscar chrome ejecutable dentro del directorio de caché
-                const result = execSync(
-                    `find "${cacheDir}" -name chrome -type f -executable 2>/dev/null | grep "chrome-linux64/chrome" | head -n 1`,
-                    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
-                ).trim();
-
-                if (result && fs.existsSync(result)) {
-                    console.log('✅ Chrome encontrado en caché Puppeteer:', result);
-                    return result;
-                }
-            }
-        } catch (e) {
-            console.log('⚠️  Error buscando en', cacheDir, ':', e.message);
-        }
-    }
-
-    // 3. Buscar Chrome del sistema
-    const systemPaths = [
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium'
-    ];
-
-    for (const systemPath of systemPaths) {
-        if (fs.existsSync(systemPath)) {
-            console.log('✅ Chrome del sistema encontrado:', systemPath);
-            return systemPath;
-        }
-    }
-
-    // 4. Dejar que Puppeteer use su propio Chrome bundled
-    console.log('⚠️  No se encontró Chrome manualmente, usando Chrome bundled de Puppeteer');
-    return undefined;
-};
+// La función findChrome ya no es necesaria gracias a .puppeteerrc.cjs
+// que asegura la instalación en una ruta conocida y persistente.
 
 /**
  * Genera un PDF a partir de contenido HTML
@@ -74,32 +17,45 @@ const findChrome = () => {
 export const generatePdf = async (htmlContent, options = {}) => {
     let browser = null;
     try {
-        const chromePath = findChrome();
-
+        // Opciones optimizadas para Render / Docker
         const launchOptions = {
             args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--disable-features=IsolateOrigins,site-per-process'
+                '--no-zygote',
+                '--single-process', // A veces ayuda en entornos con recursos limitados
             ],
-            headless: 'new',
-            executablePath: chromePath
+            headless: 'new'
         };
 
-        console.log('🚀 Intentando lanzar Chrome con opciones:', JSON.stringify({
-            ...launchOptions,
-            executablePath: launchOptions.executablePath || 'bundled'
-        }, null, 2));
-
-        browser = await puppeteer.launch(launchOptions);
+        // Intentar lanzar (usará la confi de .puppeteerrc.cjs automáticamente)
+        try {
+            console.log('🚀 Intentando lanzar Puppeteer (configuración estándar)...');
+            browser = await puppeteer.launch(launchOptions);
+        } catch (launchError) {
+            console.warn("⚠️ Falló lanzamiento estándar, intentando detectar ejecutable...", launchError.message);
+            // Fallback: intentar forzar path detectado si existe
+            try {
+                const executablePath = puppeteer.executablePath();
+                console.log("👉 Executable Path detectado:", executablePath);
+                browser = await puppeteer.launch({
+                    ...launchOptions,
+                    executablePath
+                });
+            } catch (fallbackError) {
+                console.error("❌ Falló también el fallback de executablePath:", fallbackError.message);
+                throw launchError; // Lanzar el error original si todo falla
+            }
+        }
 
         const page = await browser.newPage();
         
         // Set content
         await page.setContent(htmlContent, {
-            waitUntil: 'networkidle0'
+            waitUntil: 'networkidle0',
+            timeout: 60000 // Aumentar timeout a 60s
         });
 
         // Generate PDF
@@ -118,7 +74,7 @@ export const generatePdf = async (htmlContent, options = {}) => {
         return pdfBuffer;
 
     } catch (error) {
-        console.error("Error generando PDF:", error);
+        console.error("❌ Error generando PDF:", error);
         throw error;
     } finally {
         if (browser) await browser.close();
