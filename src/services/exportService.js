@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs';
 import { execSync } from 'child_process';
+import { join } from 'path';
 
 // Con 'puppeteer' (full) no necesitamos buscar paths manualmente para Linux/Windows
 // ya que descarga su propio Chrome/Chromium compatible.
@@ -17,6 +18,9 @@ import { execSync } from 'child_process';
 export const generatePdf = async (htmlContent, options = {}) => {
     let browser = null;
     try {
+        console.log("📂 Current PWD:", process.cwd());
+        console.log("📂 Puppeteer Cache Directory (Configured):", join(process.cwd(), '.cache', 'puppeteer'));
+        
         // Opciones optimizadas para Render / Docker
         const launchOptions = {
             args: [
