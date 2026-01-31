@@ -6,21 +6,12 @@ import { resolverPlanDia } from "../services/planificacionResolver.js";
 import { inferirTipoTurnoDesdePlan } from "../helpers/turnosInferenciaHelper.js";
 import { getOrCreateTurnoCatalogo } from "../services/turnoAutoService.js";
 import { recalcularTurnosDesdePlantilla } from "../services/recalcularTurnosDesdePlantilla.js";
+import { getEmpresaIdAdminOrThrow } from "../services/authService.js";
+import { handleErr } from "../utils/errorHandler.js";
 
 /**
  * Helpers
  */
-async function getEmpresaIdAdminOrThrow(userId) {
-  const r =
-    await sql`select id from empresa_180 where user_id=${userId} limit 1`;
-  const empresaId = r[0]?.id ?? null;
-  if (!empresaId) {
-    const err = new Error("Empresa no asociada al usuario");
-    err.status = 403;
-    throw err;
-  }
-  return empresaId;
-}
 
 function toIntOrThrow(v, name) {
   const n = Number(v);
