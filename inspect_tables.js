@@ -2,12 +2,12 @@ import { sql } from "./src/db.js";
 
 async function run() {
   try {
-    const cols = await sql`
-      SELECT column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_name = 'empleado_plantillas_180'
+    const tabs = await sql`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
     `;
-    console.log("Columns:", cols);
+    console.log("Tables:", tabs.map(t => t.table_name));
     process.exit(0);
   } catch (e) {
     console.error(e);
