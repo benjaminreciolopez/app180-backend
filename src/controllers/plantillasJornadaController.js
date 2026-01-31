@@ -629,10 +629,12 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
 
     // cliente_id ahora es OPCIONAL
-    const { empleado_id, plantilla_id, cliente_id, fecha_fin } = req.body || {};
+    const { empleado_id, plantilla_id, cliente_id, fecha_inicio, fecha_fin } = req.body || {};
+    const inicioStr = normDateOrNull(fecha_inicio);
     const fin = normDateOrNull(fecha_fin);
 
     const out = await sql.begin(async (tx) => {
+      // ... (validaciones iguales)
       // =========================
       // Validar empleado (si viene) y plantilla (multiempresa)
       // =========================
@@ -683,23 +685,25 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       }
 
       // =========================
-      // Fecha HOY desde Postgres
+      // Fecha HOY desde Postgres (fallback)
       // =========================
       const [{ hoy }] = await tx`select current_date as hoy`;
+      const finalInicio = inicioStr || hoy;
 
       // =========================
-      // Cerrar asignación activa si existe
+      // Cerrar asignación activa si existe (antes de la nueva fecha)
       // =========================
       await tx`
         update empleado_plantillas_180
-        set fecha_fin = greatest(fecha_inicio, ${hoy}::date - interval '1 day')
+        set fecha_fin = greatest(fecha_inicio, ${finalInicio}::date - interval '1 day')
         where empresa_id = ${empresaId}
           and (${empleado_id}::uuid IS NULL OR empleado_id = ${empleado_id})
           and fecha_fin is null
+          and fecha_inicio < ${finalInicio}::date
       `;
 
       // =========================
-      // Insertar nueva asignación (empieza HOY)
+      // Insertar nueva asignación
       // =========================
       const r = await tx`
         insert into empleado_plantillas_180 (
@@ -714,7 +718,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
           ${empleado_id || null},
           ${plantilla_id},
           ${cliente_id || null},
-          ${hoy}::date,
+          ${finalInicio}::date,
           ${fin}::date,
           ${empresaId}
         )
@@ -729,7 +733,7 @@ export const asignarPlantillaEmpleado = async (req, res) => {
         const plan = await resolverPlanDia({
           empresaId,
           empleadoId: empleado_id,
-          fecha: hoy.toISOString().slice(0, 10),
+          fecha: new Date(finalInicio).toISOString().slice(0, 10),
         });
 
         const tipo_turno = inferirTipoTurnoDesdePlan(plan);
