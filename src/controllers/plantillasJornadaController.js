@@ -604,6 +604,10 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     const inicioStr = normDateOrNull(fecha_inicio);
     const fin = normDateOrNull(fecha_fin);
 
+    if (fin && inicioStr && fin < inicioStr) {
+        return res.status(400).json({ error: "La fecha de fin no puede ser anterior a la de inicio" });
+    }
+
     const out = await sql.begin(async (tx) => {
       // ... (validaciones iguales)
       // =========================
