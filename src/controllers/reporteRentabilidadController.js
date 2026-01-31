@@ -49,13 +49,12 @@ export const getReporteRentabilidad = async (req, res) => {
     const fichajesTotales = await sql`
       SELECT 
         empleado_id, 
-        SUM(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60)::int as minutos_reales
-      FROM time_registrations_180
+        SUM(minutos_trabajados)::int as minutos_reales
+      FROM jornadas_180
       WHERE empresa_id = ${empresaId}
         AND fecha >= ${desde}::date
         AND fecha <= ${hasta}::date
-        AND validado = true
-        AND hora_fin IS NOT NULL
+        AND estado = 'completa'
       GROUP BY empleado_id
     `;
     
