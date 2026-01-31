@@ -1,4 +1,5 @@
 import { sql } from "../db.js";
+import { resolverPlanDia } from "../services/planificacionResolver.js";
 
 function ymd(v) {
   return String(v || "").slice(0, 10);
@@ -123,10 +124,57 @@ export async function getCalendarioIntegradoEmpleado(req, res) {
         and c.fecha between ${desde}::date and ${hasta}::date
     `;
 
-    // 4) Unificar
+    // 4) JORNADA PLAN (Planificación teórica)
+    const planEvents = [];
+    const days = await sql`
+      SELECT d::date AS fecha
+      FROM generate_series(${desde}::date, ${hasta}::date, interval '1 day') AS d
+      ORDER BY d
+    `;
+
+    for (const r of days) {
+      const fechaStr = ymd(r.fecha);
+      const plan = await resolverPlanDia({
+        empresaId,
+        empleadoId,
+        fecha: fechaStr,
+      });
+
+      if (!plan?.plantilla_id) continue;
+      if (!plan.bloques?.length && !plan.rango) continue;
+
+      const combineDT = (f, t) => `${f}T${String(t).slice(0, 8)}`;
+
+      const start = plan.rango?.inicio
+        ? combineDT(fechaStr, plan.rango.inicio)
+        : `${fechaStr}T00:00:00`;
+      const end = plan.rango?.fin
+        ? combineDT(fechaStr, plan.rango.fin)
+        : null;
+
+      planEvents.push({
+        id: `plan-${empleadoId}-${fechaStr}`,
+        tipo: "jornada_plan",
+        title: plan.modo === "excepcion" ? "Turno (Excepción)" : "Turno (Planing)",
+        start,
+        end: end || undefined,
+        allDay: false,
+        estado: null,
+        meta: {
+          plantilla_id: plan.plantilla_id,
+          modo: plan.modo,
+          rango: plan.rango || null,
+          bloques: plan.bloques,
+          nota: plan.nota || null,
+        },
+      });
+    }
+
+    // 5) Unificar
     const merged = [
       ...(Array.isArray(aus) ? aus : []),
       ...(Array.isArray(cal) ? cal : []),
+      ...planEvents,
     ].map((e) => {
       const tipo = String(e.tipo || "").toLowerCase();
       const title = e.title || titleForTipo(tipo);
