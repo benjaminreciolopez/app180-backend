@@ -61,7 +61,19 @@ export const downloadExport = async (req, res) => {
                 break;
 
             case 'empleados':
-                data = await sql`SELECT id, nombre, email, telefono, activo, pin_acceso as pin FROM employees_180 WHERE empresa_id = ${empresaId} ORDER BY nombre`;
+                data = await sql`
+                    SELECT
+                        e.id,
+                        e.nombre,
+                        u.email,
+                        u.telefono,
+                        e.activo,
+                        e.pin_acceso as pin
+                    FROM employees_180 e
+                    JOIN users_180 u ON u.id = e.user_id
+                    WHERE e.empresa_id = ${empresaId}
+                    ORDER BY e.nombre
+                `;
                 htmlContent = empleadosToHtml(data);
                 csvColumns = [
                     { key: 'nombre', header: 'Nombre' },
