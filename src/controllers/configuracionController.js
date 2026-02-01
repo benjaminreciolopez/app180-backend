@@ -216,10 +216,10 @@ export async function updateSistemaConfig(req, res) {
         } else {
             [result] = await sql`
                 insert into configuracionsistema_180 (
-                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, created_at
+                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo
                 ) values (
                     ${empresaId}, ${data.verifactu_activo ?? false}, ${data.verifactu_modo || 'OFF'}, 
-                    ${data.ticket_bai_activo ?? false}, ${data.numeracion_tipo || 'STANDARD'}, now()
+                    ${data.ticket_bai_activo ?? false}, ${data.numeracion_tipo || 'STANDARD'}
                 )
                 returning *
             `;
