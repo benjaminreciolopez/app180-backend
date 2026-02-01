@@ -1,0 +1,279 @@
+import { sql } from "../db.js";
+import { getEmpresaIdAdminOrThrow } from "../services/authService.js";
+import { generatePdf, generateCsv } from "../services/exportService.js";
+import { calcularReporteRentabilidad } from "../services/reportesService.js";
+import { 
+    rentabilidadToHtml, 
+    empleadosToHtml, 
+    auditoriaToHtml,
+    clientesToHtml,
+    fichajesToHtml,
+    cobrosToHtml,
+    trabajosToHtml,
+    sospechososToHtml,
+    partesDiaToHtml
+} from "../templates/exportTemplates.js";
+
+/**
+ * Universal Export Controller
+ * GET /admin/export/:module
+ * Query: format=pdf|csv|html, ...module_params
+ */
+export const downloadExport = async (req, res) => {
+    try {
+        const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+        const { module } = req.params;
+        const { format = 'pdf', ...queryParams } = req.query;
+
+        console.log(`⬇️ Export Request: Module=${module}, Format=${format}, Params=`, queryParams);
+
+        let data = [];
+        let htmlContent = '';
+        let csvColumns = [];
+        let filename = `export-${module}-${Date.now()}`;
+
+        // Helper para fechas vacías
+        const fechaOrNull = (f) => (f && f !== 'undefined' && f !== '' ? f : null);
+
+        // Selector de Módulo
+        switch (module) {
+            case 'rentabilidad':
+                const d1 = fechaOrNull(queryParams.desde);
+                const h1 = fechaOrNull(queryParams.hasta);
+                const eid1 = queryParams.empleado_id;
+                
+                if (!d1 || !h1) {
+                    // Default to current month if missing
+                    const now = new Date();
+                    throw new Error("Faltan fechas para reporte de rentabilidad");
+                }
+                
+                data = await calcularReporteRentabilidad(empresaId, d1, h1, eid1);
+                htmlContent = rentabilidadToHtml(data, { desde: d1, hasta: h1 });
+                csvColumns = [
+                    { key: 'empleado.nombre', header: 'Empleado' },
+                    { key: 'horas_plan', header: 'H. Plan' },
+                    { key: 'horas_real', header: 'H. Real' },
+                    { key: 'diferencia', header: 'Diferencia' },
+                    { key: 'estado', header: 'Estado' }
+                ];
+                filename = `rentabilidad-${d1}-${h1}`;
+                break;
+
+            case 'empleados':
+                data = await sql`
+                    SELECT
+                        e.id,
+                        e.nombre,
+                        u.email,
+                        e.activo,
+                        e.tipo_trabajo
+                    FROM employees_180 e
+                    JOIN users_180 u ON u.id = e.user_id
+                    WHERE e.empresa_id = ${empresaId}
+                    ORDER BY e.nombre
+                `;
+                htmlContent = empleadosToHtml(data);
+                csvColumns = [
+                    { key: 'nombre', header: 'Nombre' },
+                    { key: 'email', header: 'Email' },
+                    { key: 'tipo_trabajo', header: 'Tipo' },
+                    { key: 'activo', header: 'Activo' }
+                ];
+                break;
+
+            case 'auditoria':
+                const fe1 = fechaOrNull(queryParams.fecha_desde);
+                const fe2 = fechaOrNull(queryParams.fecha_hasta);
+                const acc = queryParams.accion;
+
+                data = await sql`
+                    SELECT a.*, COALESCE(u.nombre, 'Sistema') as actor_nombre 
+                    FROM audit_log_180 a
+                    LEFT JOIN users_180 u ON a.actor_id = u.id
+                    WHERE a.empresa_id = ${empresaId}
+                    ${fe1 ? sql`AND a.created_at >= ${fe1}::date` : sql``}
+                    ${fe2 ? sql`AND a.created_at <= ${fe2}::date + interval '1 day'` : sql``}
+                    ${acc ? sql`AND a.action = ${acc}` : sql``}
+                    ORDER BY a.created_at DESC
+                    LIMIT 500
+                `; 
+                htmlContent = auditoriaToHtml(data);
+                csvColumns = [
+                    { key: 'created_at', header: 'Fecha' },
+                    { key: 'actor_nombre', header: 'Usuario' },
+                    { key: 'action', header: 'Acción' },
+                    { key: 'entity', header: 'Entidad' },
+                    { key: 'details', header: 'Detalles' }
+                ];
+                break;
+
+            case 'clientes':
+                data = await sql`
+                    SELECT * FROM clients_180 WHERE empresa_id = ${empresaId} ORDER BY nombre
+                `;
+                htmlContent = clientesToHtml(data);
+                csvColumns = [
+                    { key: 'nombre', header: 'Cliente' },
+                    { key: 'codigo', header: 'Código' },
+                    { key: 'cif', header: 'CIF' },
+                    { key: 'contacto_nombre', header: 'Contacto' }
+                ];
+                break;
+            
+            case 'partes-dia':
+                // Partes del dia (resumen diario)
+                const pFecha = fechaOrNull(queryParams.fecha) || new Date().toISOString().slice(0, 10);
+                
+                data = await sql`
+                    SELECT pd.*, e.nombre as empleado_nombre, c.nombre as cliente_nombre
+                    FROM partes_dia_180 pd
+                    JOIN employees_180 e ON pd.empleado_id = e.id
+                    LEFT JOIN clients_180 c ON pd.cliente_id = c.id
+                    WHERE pd.empresa_id = ${empresaId}
+                    AND pd.fecha = ${pFecha}::date
+                    ORDER BY e.nombre
+                `;
+                htmlContent = partesDiaToHtml(data);
+                csvColumns = [
+                    { key: 'empleado_nombre', header: 'Empleado' },
+                    { key: 'cliente_nombre', header: 'Cliente' },
+                    { key: 'horas_trabajadas', header: 'Horas' },
+                    { key: 'estado', header: 'Estado' },
+                    { key: 'resumen', header: 'Resumen' },
+                    { key: 'validado', header: 'Validado' }
+                ];
+                filename = `partes-${pFecha}`;
+                break;
+
+            case 'fichajes':
+                // Filtros opcionales
+                const d2 = fechaOrNull(queryParams.desde); 
+                const h2 = fechaOrNull(queryParams.hasta);
+                const eid2 = queryParams.empleado_id;
+
+                data = await sql`
+                    SELECT j.*, e.nombre as empleado_nombre
+                    FROM jornadas_180 j
+                    JOIN employees_180 e ON j.empleado_id = e.id
+                    WHERE j.empresa_id = ${empresaId}
+                    ${d2 ? sql`AND j.fecha >= ${d2}::date` : sql``}
+                    ${h2 ? sql`AND j.fecha <= ${h2}::date` : sql``}
+                    ${(eid2 && eid2!=='null' && eid2!=='undefined') ? sql`AND j.empleado_id = ${eid2}` : sql``}
+                    ORDER BY j.fecha DESC, e.nombre
+                    LIMIT 500
+                `;
+                htmlContent = fichajesToHtml(data);
+                csvColumns = [
+                    { key: 'fecha', header: 'Fecha' },
+                    { key: 'empleado_nombre', header: 'Empleado' },
+                    { key: 'inicio', header: 'Inicio' },
+                    { key: 'fin', header: 'Fin' },
+                    { key: 'estado', header: 'Estado' },
+                    { key: 'minutos_trabajados', header: 'Minutos' }
+                ];
+                break;
+
+            case 'cobros':
+                const d3 = fechaOrNull(queryParams.desde);
+                const h3 = fechaOrNull(queryParams.hasta);
+
+                data = await sql`
+                    SELECT p.*, c.nombre as cliente_nombre
+                    FROM payments_180 p
+                    LEFT JOIN clients_180 c ON p.cliente_id = c.id
+                    WHERE p.empresa_id = ${empresaId}
+                    ${d3 ? sql`AND p.fecha_pago >= ${d3}::date` : sql``}
+                    ${h3 ? sql`AND p.fecha_pago <= ${h3}::date` : sql``}
+                    ORDER BY p.fecha_pago DESC
+                    LIMIT 500
+                `;
+                htmlContent = cobrosToHtml(data);
+                csvColumns = [
+                    { key: 'fecha_pago', header: 'Fecha' },
+                    { key: 'cliente_nombre', header: 'Cliente' },
+                    { key: 'metodo', header: 'Método' },
+                    { key: 'importe', header: 'Importe' }
+                ];
+                break;
+            
+            case 'trabajos':
+                 const d4 = fechaOrNull(queryParams.desde);
+                 const h4 = fechaOrNull(queryParams.hasta);
+
+                 data = await sql`
+                    SELECT w.*, c.nombre as cliente_nombre, e.nombre as empleado_nombre
+                    FROM work_logs_180 w
+                    LEFT JOIN clients_180 c ON w.cliente_id = c.id
+                    LEFT JOIN employees_180 e ON w.employee_id = e.id
+                    WHERE w.empresa_id = ${empresaId}
+                    ${d4 ? sql`AND w.fecha >= ${d4}::date` : sql``}
+                    ${h4 ? sql`AND w.fecha <= ${h4}::date` : sql``}
+                    ORDER BY w.fecha DESC
+                    LIMIT 500
+                `;
+                htmlContent = trabajosToHtml(data);
+                csvColumns = [
+                     { key: 'fecha', header: 'Fecha' },
+                     { key: 'cliente_nombre', header: 'Cliente' },
+                     { key: 'empleado_nombre', header: 'Empleado' },
+                     { key: 'descripcion', header: 'Descripción' },
+                     { key: 'minutos', header: 'Minutos' }
+                ];
+                break;
+
+            case 'sospechosos':
+                 data = await sql`
+                    SELECT f.*, e.nombre as nombre_empleado
+                    FROM fichajes_180 f
+                    JOIN employees_180 e ON f.empleado_id = e.id
+                    WHERE f.empresa_id = ${empresaId}
+                    AND f.sospechoso = true
+                    AND (f.estado IS NULL OR f.estado = 'pendiente') -- Solo pendientes
+                    ORDER BY f.fecha DESC
+                `;
+                htmlContent = sospechososToHtml(data);
+                csvColumns = [
+                     { key: 'fecha', header: 'Fecha' },
+                     { key: 'nombre_empleado', header: 'Empleado' },
+                     { key: 'tipo', header: 'Tipo' },
+                     { key: 'sospecha_motivo', header: 'Motivo' }
+                ];
+                break;
+
+            default:
+                throw new Error("Módulo desconocido: " + module);
+        }
+
+        // Generar salida
+        if (format === 'pdf') {
+            try {
+                const buffer = await generatePdf(htmlContent);
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
+                res.setHeader('Content-Length', buffer.length);
+                return res.end(buffer);
+            } catch (pdfErr) {
+                console.error("PDF Generate Error:", pdfErr);
+                // Fallback a HTML si falla PDF (Render issue) o devolver JSON error
+                // Importante: Devolver el mensaje real para que el frontend pueda mostrarlo
+                throw new Error("PDF Error: " + (pdfErr.message || "Error desconocido"));
+            }
+        } else if (format === 'csv') {
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+            return res.send('\ufeff' + generateCsv(data, csvColumns));
+        } else if (format === 'html') {
+            res.setHeader('Content-Type', 'text/html');
+            return res.send(htmlContent);
+        } else {
+            throw new Error("Formato no soportado");
+        }
+
+    } catch (err) {
+        console.error("error en export:", err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: `Error export: ${err.message}` });
+        }
+    }
+};
