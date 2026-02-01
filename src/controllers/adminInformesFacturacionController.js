@@ -49,7 +49,7 @@ export async function getIvaTrimestral(req, res) {
                 };
             });
 
-            return res.json(result);
+            return res.json({ success: true, data: result });
         }
 
         const mapTrimestre = {
