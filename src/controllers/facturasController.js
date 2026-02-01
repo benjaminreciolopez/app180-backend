@@ -47,8 +47,11 @@ function getStoragePath(fecha, baseFolder = 'Facturas emitidas') {
 async function getInvoiceStorageFolder(empresaId) {
   try {
     const [config] = await sql`select storage_facturas_folder from configuracionsistema_180 where empresa_id=${empresaId}`;
-    return config?.storage_facturas_folder || 'Facturas emitidas';
+    const folder = config?.storage_facturas_folder || 'Facturas emitidas';
+    console.log(`📂 [getInvoiceStorageFolder] Empresa: ${empresaId}, Config: ${config?.storage_facturas_folder} -> Final: ${folder}`);
+    return folder;
   } catch (e) {
+    console.error(`⚠️ [getInvoiceStorageFolder] Error: ${e.message}, usando default`);
     return 'Facturas emitidas';
   }
 }
@@ -784,6 +787,7 @@ export async function generarPdf(req, res) {
     // --- AUTO-ARCHIVAR Y ACTUALIZAR DB ---
     let savedPath = null;
     try {
+      console.log(`📄 [generarPdf] Auto-archivando PDF. ID: ${id}, Num: ${numToUse}`);
       const baseFolder = await getInvoiceStorageFolder(empresaId);
       const savedFile = await saveToStorage({
         empresaId,
@@ -793,17 +797,22 @@ export async function generarPdf(req, res) {
         mimeType: 'application/pdf',
         useTimestamp: false
       });
+      console.log(`💾 [generarPdf] Resultado saveToStorage:`, savedFile);
 
       if (savedFile && savedFile.storage_path) {
         savedPath = savedFile.storage_path;
         await sql`update factura_180 set pdf_path = ${savedPath} where id = ${id}`;
+        console.log(`✅ [generarPdf] DB actualizada con pdf_path: ${savedPath}`);
+      } else {
+        console.warn(`⚠️ [generarPdf] saveToStorage no retornó file object o path`);
       }
     } catch (archiveErr) {
-      console.error("⚠️ No se pudo auto-archivar el PDF en generarPdf:", archiveErr);
+      console.error("⚠️ [generarPdf] No se pudo auto-archivar el PDF en generarPdf:", archiveErr);
     }
 
     // SI LA ACCION ES SOLO GUARDAR (desde botón "Crear PDF")
     if (req.query.action === 'save') {
+      console.log(`🔄 [generarPdf] Action=save. Retornando JSON.`);
       return res.json({
         success: true,
         message: "PDF Generado y guardado correctamente",

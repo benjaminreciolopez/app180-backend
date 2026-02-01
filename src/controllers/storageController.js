@@ -144,6 +144,7 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
     try {
         const finalName = useTimestamp ? `${Date.now()}_${nombre}` : nombre;
         const fileName = `${empresaId}/${folder}/${finalName}`;
+        console.log(`💾 [saveToStorage] Intentando subir a: ${fileName}, Bytes: ${buffer.length}`);
 
         if (supabase) {
             const { data, error } = await supabase.storage
@@ -153,7 +154,11 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                     upsert: true
                 });
 
-            if (error) throw error;
+            if (error) {
+                console.error(`❌ [saveToStorage] Error subida Supabase:`, error);
+                throw error;
+            }
+            console.log(`✅ [saveToStorage] Subida OK. Path: ${data?.path}, FullPath: ${data?.fullPath}`);
 
             // Evitar duplicados en DB si no usamos timestamp
             if (!useTimestamp) {
@@ -163,6 +168,7 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                     LIMIT 1
                 `;
                 if (existing) {
+                    console.log(`🔄 [saveToStorage] Actualizando registro existente ID: ${existing.id}`);
                     const [updated] = await sql`
                         UPDATE storage_180 
                         SET size_bytes = ${buffer.length}, created_at = NOW()
