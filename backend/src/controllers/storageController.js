@@ -13,6 +13,29 @@ if (supabaseUrl && supabaseKey) {
 
 export const storageController = {
     /**
+     * Listar carpetas disponibles
+     */
+    async listFolders(req, res) {
+        try {
+            const empresaId = req.user.empresa_id;
+            const folders = await sql`
+                SELECT DISTINCT folder 
+                FROM storage_180 
+                WHERE empresa_id = ${empresaId}
+                ORDER BY folder ASC
+            `;
+            // Return array of strings
+            return res.json({
+                success: true,
+                data: folders.map(f => f.folder)
+            });
+        } catch (err) {
+            console.error('Error listFolders:', err);
+            res.status(500).json({ success: false, error: err.message });
+        }
+    },
+
+    /**
      * Listar archivos de la empresa
      */
     async listFiles(req, res) {
@@ -140,10 +163,11 @@ export const storageController = {
 /**
  * Helper para guardar archivo (usado por otros controladores)
  */
-export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeType, useTimestamp = true }) {
+export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeType, useTimestamp = true, dbFolder = null }) {
     try {
         const finalName = useTimestamp ? `${Date.now()}_${nombre}` : nombre;
         const fileName = `${empresaId}/${folder}/${finalName}`;
+        console.log(`💾 [saveToStorage] Intentando subir a: ${fileName}, Bytes: ${buffer.length}`);
 
         if (supabase) {
             const { data, error } = await supabase.storage
@@ -153,7 +177,11 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                     upsert: true
                 });
 
-            if (error) throw error;
+            if (error) {
+                console.error(`❌ [saveToStorage] Error subida Supabase:`, error);
+                throw error;
+            }
+            console.log(`✅ [saveToStorage] Subida OK. Path: ${data?.path}, FullPath: ${data?.fullPath}`);
 
             // Evitar duplicados en DB si no usamos timestamp
             if (!useTimestamp) {
@@ -163,6 +191,7 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                     LIMIT 1
                 `;
                 if (existing) {
+                    console.log(`🔄 [saveToStorage] Actualizando registro existente ID: ${existing.id}`);
                     const [updated] = await sql`
                         UPDATE storage_180 
                         SET size_bytes = ${buffer.length}, created_at = NOW()
@@ -173,17 +202,19 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                 }
             }
 
+            const folderToSave = dbFolder || folder;
             const [record] = await sql`
                 INSERT INTO storage_180 (empresa_id, nombre, storage_path, folder, mime_type, size_bytes)
-                VALUES (${empresaId}, ${nombre}, ${fileName}, ${folder}, ${mimeType}, ${buffer.length})
+                VALUES (${empresaId}, ${nombre}, ${fileName}, ${folderToSave}, ${mimeType}, ${buffer.length})
                 RETURNING *
             `;
             return record;
         } else {
             console.warn('⚠️ Supabase Storage no configurado. Solo guardando metadatos localmente (simulado).');
+            const folderToSave = dbFolder || folder;
             const [record] = await sql`
         INSERT INTO storage_180 (empresa_id, nombre, storage_path, folder, mime_type, size_bytes)
-        VALUES (${empresaId}, ${nombre}, 'local_placeholder/' + ${fileName}, ${folder}, ${mimeType}, ${buffer.length})
+        VALUES (${empresaId}, ${nombre}, ${'local_placeholder/' + fileName}, ${folderToSave}, ${mimeType}, ${buffer.length})
         RETURNING *
       `;
             return record;

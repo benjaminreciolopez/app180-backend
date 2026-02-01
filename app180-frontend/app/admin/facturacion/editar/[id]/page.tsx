@@ -304,7 +304,11 @@ export default function EditarFacturaPage() {
     }
   }
 
-  if (loading) return <EditSkeleton />
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen pb-20 pt-10">
+         <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+    </div>
+  )
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">

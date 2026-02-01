@@ -340,18 +340,19 @@ export async function updateSistemaConfig(req, res) {
                     verifactu_modo=${data.verifactu_modo || 'OFF'},
                     ticket_bai_activo=${Boolean(data.ticket_bai_activo)},
                     numeracion_tipo=${data.numeracion_tipo || 'STANDARD'},
-                    numeracion_formato=${data.numeracion_formato || null}
+                    numeracion_formato=${data.numeracion_formato || null},
+                    storage_facturas_folder=${data.storage_facturas_folder || 'Facturas emitidas'}
                 where empresa_id=${empresaId}
                 returning *
             `;
         } else {
             [result] = await sql`
                 insert into configuracionsistema_180 (
-                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, numeracion_formato
+                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, numeracion_formato, storage_facturas_folder
                 ) values (
                     ${empresaId}, ${Boolean(data.verifactu_activo)}, ${data.verifactu_modo || 'OFF'}, 
                     ${Boolean(data.ticket_bai_activo)}, ${data.numeracion_tipo || 'STANDARD'},
-                    ${data.numeracion_formato || null}
+                    ${data.numeracion_formato || null}, ${data.storage_facturas_folder || 'Facturas emitidas'}
                 )
                 returning *
             `;

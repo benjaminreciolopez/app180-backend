@@ -31,6 +31,31 @@ function n(v) {
   return v === undefined || v === null ? null : v;
 }
 
+function getTrimestre(fecha) {
+  const f = new Date(fecha);
+  const mes = f.getUTCMonth(); // 0-11
+  return Math.floor(mes / 3) + 1;
+}
+
+function getStoragePath(fecha, baseFolder = 'Facturas emitidas') {
+  const f = new Date(fecha);
+  const year = f.getUTCFullYear();
+  const trim = getTrimestre(fecha);
+  return `${baseFolder}/${year}/T${trim}`;
+}
+
+async function getInvoiceStorageFolder(empresaId) {
+  try {
+    const [config] = await sql`select storage_facturas_folder from configuracionsistema_180 where empresa_id=${empresaId}`;
+    const folder = config?.storage_facturas_folder || 'Facturas emitidas';
+    console.log(`📂 [getInvoiceStorageFolder] Empresa: ${empresaId}, Config: ${config?.storage_facturas_folder} -> Final: ${folder}`);
+    return folder;
+  } catch (e) {
+    console.error(`⚠️ [getInvoiceStorageFolder] Error: ${e.message}, usando default`);
+    return 'Facturas emitidas';
+  }
+}
+
 // Parse número de factura para ordenación
 function parseNumeroFactura(numero) {
   if (!numero) return { year: 0, correlativo: 0, esRect: 0 };
@@ -499,14 +524,23 @@ export async function validarFactura(req, res) {
     try {
       console.log(`📑 Generando PDF para auto-almacenamiento: ${numero}`);
       const pdfBuffer = await generarPdfFactura(id);
-      await saveToStorage({
+      const baseFolder = await getInvoiceStorageFolder(empresaId);
+
+      const savedFile = await saveToStorage({
         empresaId,
         nombre: `Factura_${numero.replace(/\//g, '-')}.pdf`,
         buffer: pdfBuffer,
-        folder: 'facturas',
+        folder: getStoragePath(fecha, baseFolder),
+        dbFolder: 'facturas', // Para que aparezca en la pestaña "facturas" del frontend
         mimeType: 'application/pdf',
         useTimestamp: false
       });
+
+      // Actualizar path en la factura
+      if (savedFile && savedFile.storage_path) {
+        await sql`update factura_180 set pdf_path = ${savedFile.storage_path} where id = ${id}`;
+      }
+
       console.log(`✅ PDF guardado en Storage para: ${numero}`);
     } catch (storageErr) {
       console.error("⚠️ No se pudo auto-almacenar el PDF:", storageErr);
@@ -744,24 +778,48 @@ export async function generarPdf(req, res) {
     const { modo } = req.query; // TEST or PROD
 
     const [facturaData] = await sql`
-      select numero from factura_180 where id=${id} limit 1
+      select numero, fecha from factura_180 where id=${id} limit 1
     `;
     const numToUse = facturaData?.numero || id;
+    const fechaToUse = facturaData?.fecha || new Date();
 
     const pdfBuffer = await generarPdfFactura(id, { modo });
 
-    // --- AUTO-ARCHIVAR ---
+    // --- AUTO-ARCHIVAR Y ACTUALIZAR DB ---
+    let savedPath = null;
     try {
-      await saveToStorage({
+      console.log(`📄 [generarPdf] Auto-archivando PDF. ID: ${id}, Num: ${numToUse}`);
+      const baseFolder = await getInvoiceStorageFolder(empresaId);
+      const savedFile = await saveToStorage({
         empresaId,
         nombre: `Factura_${String(numToUse).replace(/\//g, '-')}.pdf`,
         buffer: pdfBuffer,
-        folder: 'facturas',
+        folder: getStoragePath(fechaToUse, baseFolder),
+        dbFolder: baseFolder, // Usamos el nombre configurado como carpeta raíz
         mimeType: 'application/pdf',
         useTimestamp: false
       });
+      console.log(`💾 [generarPdf] Resultado saveToStorage:`, savedFile);
+
+      if (savedFile && savedFile.storage_path) {
+        savedPath = savedFile.storage_path;
+        await sql`update factura_180 set pdf_path = ${savedPath} where id = ${id}`;
+        console.log(`✅ [generarPdf] DB actualizada con pdf_path: ${savedPath}`);
+      } else {
+        console.warn(`⚠️ [generarPdf] saveToStorage no retornó file object o path`);
+      }
     } catch (archiveErr) {
-      console.error("⚠️ No se pudo auto-archivar el PDF en generarPdf:", archiveErr);
+      console.error("⚠️ [generarPdf] No se pudo auto-archivar el PDF en generarPdf:", archiveErr);
+    }
+
+    // SI LA ACCION ES SOLO GUARDAR (desde botón "Crear PDF")
+    if (req.query.action === 'save') {
+      console.log(`🔄 [generarPdf] Action=save. Retornando JSON.`);
+      return res.json({
+        success: true,
+        message: "PDF Generado y guardado correctamente",
+        pdf_path: savedPath
+      });
     }
 
     res.setHeader("Content-Type", "application/pdf");
@@ -808,11 +866,12 @@ export async function enviarEmail(req, res) {
 
       // --- AUTO-ARCHIVAR ---
       try {
+        const baseFolder = await getInvoiceStorageFolder(empresaId);
         await saveToStorage({
           empresaId,
           nombre: `Factura_${String(factura.numero || id).replace(/\//g, '-')}.pdf`,
           buffer: pdfBuffer,
-          folder: 'facturas',
+          folder: getStoragePath(factura.fecha, baseFolder),
           mimeType: 'application/pdf',
           useTimestamp: false
         });

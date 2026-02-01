@@ -14,7 +14,8 @@ import {
   Phone,
   Sparkles,
   Hash,
-  Plus
+  Plus,
+  Loader2
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -82,7 +83,11 @@ export default function ConfiguracionPage() {
     verifactu_activo: false,
     verifactu_modo: "TEST",
     numeracion_tipo: "STANDARD", // 'STANDARD', 'BY_YEAR', 'PREFIXED'
+    numeracion_formato: "FAC-{YEAR}-",
+    numeracion_locked: false,
     
+    storage_facturas_folder: "Facturas emitidas",
+
     logo_path: "",
     certificado_path: "",
     certificado_upload_date: "",
@@ -92,6 +97,7 @@ export default function ConfiguracionPage() {
   const [passModalOpen, setPassModalOpen] = useState(false)
   const [certPassword, setCertPassword] = useState("")
   const [pendingCert, setPendingCert] = useState<any>(null)
+  const [generatingAiField, setGeneratingAiField] = useState<string | null>(null)
 
   // REFS para subida de archivos
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -115,7 +121,8 @@ export default function ConfiguracionPage() {
         verifactu_modo: sistemaRes.data.data?.verifactu_modo || "TEST",
         numeracion_tipo: sistemaRes.data.data?.numeracion_tipo || "STANDARD",
         numeracion_formato: sistemaRes.data.data?.numeracion_formato || "FAC-{YEAR}-",
-        numeracion_locked: sistemaRes.data.data?.numeracion_locked || false
+        numeracion_locked: sistemaRes.data.data?.numeracion_locked || false,
+        storage_facturas_folder: sistemaRes.data.data?.storage_facturas_folder || "Facturas emitidas"
       }))
     } catch (err) {
       console.error(err)
@@ -140,7 +147,8 @@ export default function ConfiguracionPage() {
         verifactu_activo: formData.verifactu_activo,
         verifactu_modo: formData.verifactu_modo,
         numeracion_tipo: formData.numeracion_tipo,
-        numeracion_formato: formData.numeracion_formato
+        numeracion_formato: formData.numeracion_formato,
+        storage_facturas_folder: formData.storage_facturas_folder
       })
 
       toast.success("Configuración guardada correctamente")
@@ -292,6 +300,8 @@ export default function ConfiguracionPage() {
   }
 
   const handleMagicAI = async (type: string) => {
+    if (generatingAiField) return
+    setGeneratingAiField(type)
     try {
       const res = await api.post("/admin/facturacion/configuracion/generar-texto", { type })
       if (res.data.success) {
@@ -305,10 +315,16 @@ export default function ConfiguracionPage() {
       }
     } catch (err) {
       toast.error("Error al generar texto")
+    } finally {
+      setGeneratingAiField(null)
     }
   }
 
-  if (loading) return <ConfigSkeleton />
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+    </div>
+  )
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -323,7 +339,7 @@ export default function ConfiguracionPage() {
             disabled={saving}
             className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
         >
-            {saving ? "Guardando..." : <><Save className="w-4 h-4 mr-2" /> Guardar Todo</>}
+            {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Guardando...</> : <><Save className="w-4 h-4 mr-2" /> Guardar Todo</>}
         </Button>
       </div>
 
@@ -471,8 +487,15 @@ export default function ConfiguracionPage() {
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
                                 <Label>Términos y Condiciones (Pie de PDF)</Label>
-                                <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => handleMagicAI('pie')}>
-                                    <Sparkles className="w-3 h-3 mr-1" /> Generar con IA
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50" 
+                                    onClick={() => handleMagicAI('pie')}
+                                    disabled={!!generatingAiField}
+                                >
+                                    {generatingAiField === 'pie' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                                    {generatingAiField === 'pie' ? "Generando..." : "Generar con IA"}
                                 </Button>
                             </div>
                             <Textarea rows={3} value={formData.texto_pie} onChange={e => handleChange('texto_pie', e.target.value)} placeholder="Ej: Inscrita en el Registro Mercantil..." />
@@ -484,8 +507,15 @@ export default function ConfiguracionPage() {
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <Label>Texto para Operaciones Exentas</Label>
-                                    <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => handleMagicAI('exento')}>
-                                        <Sparkles className="w-3 h-3 mr-1" /> IA
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50" 
+                                        onClick={() => handleMagicAI('exento')}
+                                        disabled={!!generatingAiField}
+                                    >
+                                        {generatingAiField === 'exento' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                                        IA
                                     </Button>
                                 </div>
                                 <Textarea rows={3} value={formData.texto_exento} onChange={e => handleChange('texto_exento', e.target.value)} placeholder="Texto que aparecerá si el IVA es 0%" />
@@ -493,8 +523,15 @@ export default function ConfiguracionPage() {
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <Label>Texto para Rectificativas</Label>
-                                    <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => handleMagicAI('rectificativa')}>
-                                        <Sparkles className="w-3 h-3 mr-1" /> IA
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50" 
+                                        onClick={() => handleMagicAI('rectificativa')}
+                                        disabled={!!generatingAiField}
+                                    >
+                                        {generatingAiField === 'rectificativa' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                                        IA
                                     </Button>
                                 </div>
                                 <Textarea rows={3} value={formData.texto_rectificativa} onChange={e => handleChange('texto_rectificativa', e.target.value)} placeholder="Referencia a la factura original..." />
@@ -571,6 +608,33 @@ export default function ConfiguracionPage() {
                         </div>
                     )}
                   </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Almacenamiento de Facturas</CardTitle>
+                        <CardDescription>Organización automática de tus archivos PDF.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-3">
+                             <Label>Nombre de Carpeta Raíz</Label>
+                             <Input 
+                                value={formData.storage_facturas_folder} 
+                                onChange={e => handleChange('storage_facturas_folder', e.target.value)} 
+                                placeholder="Ej: Facturas emitidas" 
+                             />
+                             <p className="text-xs text-slate-500">
+                                Las facturas se guardarán en: 
+                                <span className="font-mono bg-slate-100 px-1 rounded ml-1">
+                                    {(formData.storage_facturas_folder || 'Facturas emitidas').trim()}/{new Date().getFullYear()}/T{Math.floor(new Date().getMonth() / 3) + 1}
+                                </span>
+                             </p>
+                             <div className="p-3 bg-blue-50 border border-blue-100 rounded text-sm text-blue-800 flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                <p>Revisa el espacio disponible en la sección de "Almacenamiento" para evitar interrupciones al generar PDFs.</p>
+                             </div>
+                        </div>
+                    </CardContent>
                 </Card>
 
                 <Card>
@@ -754,7 +818,7 @@ export default function ConfiguracionPage() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setPassModalOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={saving}>
-                {saving ? "Subiendo..." : "Validar y Subir"}
+                {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Subiendo...</> : "Validar y Subir"}
               </Button>
             </DialogFooter>
           </form>

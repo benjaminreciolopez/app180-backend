@@ -24,7 +24,9 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts'
+import { toast } from "sonner"
 import { formatCurrency } from "@/lib/utils"
+import { Loader2 } from "lucide-react"
 
 export default function FacturacionDashboard() {
   const [data, setData] = useState<any>(null)
@@ -43,12 +45,17 @@ export default function FacturacionDashboard() {
     } catch (err) {
       console.error(err)
       setError("Error cargando datos del dashboard")
+      toast.error("Error al cargar el dashboard")
     } finally {
       setLoading(false)
     }
   }
 
-  if (loading) return <DashboardSkeleton />
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+    </div>
+  )
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>
 
   const { kpis, grafico, alertas } = data
@@ -100,7 +107,7 @@ export default function FacturacionDashboard() {
           <CardContent className="h-[300px]">
              <div className="w-full h-full min-h-[300px]">
              {chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+                <ResponsiveContainer width="100%" height={300}>
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">

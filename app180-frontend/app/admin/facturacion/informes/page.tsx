@@ -19,6 +19,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
+import { toast } from "sonner"
 import { 
   BarChart, 
   Bar, 
@@ -66,6 +67,7 @@ export default function InformesPage() {
       }
     } catch (error) {
       console.error("Error loading report:", error)
+      toast.error("Error al cargar los datos del informe")
     } finally {
       setLoading(false)
     }

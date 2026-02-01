@@ -16,7 +16,8 @@ import {
   FileIcon,
   Clock,
   LayoutGrid,
-  List
+  List,
+  Loader2
 } from "lucide-react"
 import { api } from "@/services/api"
 import { Button } from "@/components/ui/button"
@@ -42,19 +43,21 @@ interface StorageStats {
   total_limit_bytes: number
 }
 
-const DEFAULT_FOLDERS = ["facturas", "logos", "general"]
+// Removed DEFAULT_FOLDERS constant
 
 export default function AlmacenamientoPage() {
   const [loading, setLoading] = useState(true)
   const [files, setFiles] = useState<FileInfo[]>([])
+  const [folders, setFolders] = useState<string[]>([])
   const [stats, setStats] = useState<StorageStats | null>(null)
-  const [currentFolder, setCurrentFolder] = useState("facturas")
+  const [currentFolder, setCurrentFolder] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [uploading, setUploading] = useState(false)
 
   const fetchFiles = async () => {
     try {
+      if (!currentFolder) return
       setLoading(true)
       const res = await api.get(`/admin/storage/files?folder=${currentFolder}`)
       if (res.data.success) {
@@ -68,8 +71,37 @@ export default function AlmacenamientoPage() {
     }
   }
 
+  const fetchFolders = async () => {
+      try {
+          const res = await api.get('/admin/storage/folders')
+          if (res.data.success) {
+              const fetchedFolders = res.data.data
+              setFolders(fetchedFolders)
+              
+              // Set default folder if not set
+              if (!currentFolder && fetchedFolders.length > 0) {
+                  // Prefer 'facturas' or the first one available
+                  // Or better: the one that includes 'Factura'
+                  const defaultFolder = fetchedFolders.find((f: string) => f.toLowerCase().includes('facturas')) || fetchedFolders[0]
+                  setCurrentFolder(defaultFolder)
+              } else if (!currentFolder) {
+                   // Fallback if no folders at all
+                  setFolders([])
+              }
+          }
+      } catch (err) {
+          console.error("Error fetching folders", err)
+      }
+  }
+
   useEffect(() => {
-    fetchFiles()
+    fetchFolders()
+  }, [])
+
+  useEffect(() => {
+    if (currentFolder) {
+        fetchFiles()
+    }
   }, [currentFolder])
 
   const handleDelete = async (id: string) => {
@@ -83,9 +115,25 @@ export default function AlmacenamientoPage() {
     }
   }
 
-  const handleDownload = (id: string) => {
-    // Redirigir directamente al endpoint de descarga
-    window.open(`${process.env.NEXT_PUBLIC_API_URL}/admin/storage/files/${id}/download`, '_blank')
+  const handleDownload = async (id: string, nombre: string) => {
+    try {
+      const response = await api.get(`/admin/storage/files/${id}/download`, {
+        responseType: 'blob',
+      })
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', nombre)
+      document.body.appendChild(link)
+      link.click()
+      
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error(err)
+      toast.error("Error al descargar el archivo")
+    }
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,7 +224,7 @@ export default function AlmacenamientoPage() {
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-slate-900 px-2">Carpetas</h3>
             <div className="space-y-1">
-              {DEFAULT_FOLDERS.map(folder => (
+              {folders.map(folder => (
                 <button
                   key={folder}
                   onClick={() => setCurrentFolder(folder)}
@@ -189,11 +237,14 @@ export default function AlmacenamientoPage() {
                 >
                   <div className="flex items-center gap-3">
                     <Folder className={cn("w-4 h-4", currentFolder === folder ? "text-blue-600" : "text-slate-400")} />
-                    <span className="capitalize">{folder}</span>
+                    <span className="truncate max-w-[150px] text-left" title={folder}>{folder}</span>
                   </div>
-                  {currentFolder === folder && <ChevronRight className="w-4 h-4" />}
+                  {currentFolder === folder && <ChevronRight className="w-4 h-4 flex-shrink-0" />}
                 </button>
               ))}
+              {folders.length === 0 && (
+                  <div className="text-xs text-slate-400 italic px-2">No hay carpetas</div>
+              )}
             </div>
           </div>
         </div>
@@ -235,10 +286,8 @@ export default function AlmacenamientoPage() {
 
           <div className="min-h-[500px]">
             {loading ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                  <div key={i} className="h-40 bg-slate-50 animate-pulse rounded-xl border border-slate-100" />
-                ))}
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
               </div>
             ) : filteredFiles.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
@@ -279,7 +328,7 @@ export default function AlmacenamientoPage() {
                            <Button 
                               variant="link" 
                               className="h-auto p-0 text-blue-600 text-xs font-semibold"
-                              onClick={() => handleDownload(file.id)}
+                              onClick={() => handleDownload(file.id, file.nombre)}
                             >
                              <Download className="w-3.5 h-3.5 mr-1" /> Descargar
                            </Button>
@@ -310,7 +359,7 @@ export default function AlmacenamientoPage() {
                           <td className="p-4 text-slate-500">{formatSize(file.size_bytes)}</td>
                           <td className="p-4 text-slate-500">{format(new Date(file.created_at), "dd/MM/yyyy HH:mm", { locale: es })}</td>
                           <td className="p-4 text-right space-x-2">
-                             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleDownload(file.id)}>
+                             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleDownload(file.id, file.nombre)}>
                                <Download className="w-4 h-4 text-blue-600" />
                              </Button>
                              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleDelete(file.id)}>
