@@ -62,6 +62,8 @@ export default function ConceptosPage() {
   const [conceptos, setConceptos] = useState<Concepto[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("TODOS")
 
@@ -136,6 +138,7 @@ export default function ConceptosPage() {
       iva_default: formData.iva_default || 21
     }
 
+    setSaving(true)
     try {
       if (editingId) {
         await api.put(`/admin/facturacion/conceptos/${editingId}`, payload)
@@ -148,17 +151,22 @@ export default function ConceptosPage() {
       fetchData()
     } catch (err) {
       toast.error("Error al guardar")
+    } finally {
+      setSaving(false)
     }
   }
 
   const handleDelete = async (id: number) => {
     if (!confirm("¿Seguro que quieres eliminar este concepto?")) return
+    setDeletingId(id)
     try {
       await api.delete(`/admin/facturacion/conceptos/${id}`)
       toast.success("Concepto eliminado")
       fetchData()
     } catch (err) {
       toast.error("Error al eliminar")
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -217,10 +225,8 @@ export default function ConceptosPage() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-48 bg-white border rounded-xl animate-pulse" />
-          ))}
+        <div className="flex items-center justify-center py-20">
+           <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
         </div>
       ) : filteredItems.length === 0 ? (
         <Card className="border-dashed border-2 py-12 text-center">
@@ -286,8 +292,10 @@ export default function ConceptosPage() {
                       variant="ghost" 
                       className="text-slate-500 hover:text-red-600 hover:bg-red-100/50"
                       onClick={() => handleDelete(c.id)}
+                      disabled={deletingId === c.id}
                     >
-                      <Trash2 className="w-4 h-4 mr-2" /> Eliminar
+                      {deletingId === c.id ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                      Eliminar
                     </Button>
                   </div>
                 </Card>
@@ -388,8 +396,9 @@ export default function ConceptosPage() {
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
-             <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700">
+             <Button variant="outline" onClick={() => setIsModalOpen(false)} disabled={saving}>Cancelar</Button>
+             <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700" disabled={saving}>
+               {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                {editingId ? "Actualizar" : "Crear Concepto"}
              </Button>
           </DialogFooter>
