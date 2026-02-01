@@ -6,6 +6,7 @@ import multer from 'multer';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+router.get('/folders', authRequired, storageController.listFolders);
 router.get('/files', authRequired, storageController.listFiles);
 router.post('/files/upload', authRequired, upload.single('file'), storageController.uploadFile);
 router.get('/files/:id/download', authRequired, storageController.downloadFile);
