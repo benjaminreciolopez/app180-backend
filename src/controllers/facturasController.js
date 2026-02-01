@@ -75,39 +75,39 @@ export async function listFacturas(req, res) {
       empresaId = await getEmpresaId(req.user.id);
     }
 
-    const { estado, cliente_id, fecha_desde, fecha_hasta } = req.query;
+    const { estado, cliente_id, fecha_desde, fecha_hasta, year } = req.query;
 
-    let conditions = [sql`f.empresa_id = ${empresaId}`];
-
-    if (estado) {
-      conditions.push(sql`f.estado = ${estado}`);
-    }
-
-    if (cliente_id) {
-      conditions.push(sql`f.cliente_id = ${parseInt(cliente_id)}`);
-    }
-
-    if (fecha_desde) {
-      conditions.push(sql`f.fecha >= ${fecha_desde}::date`);
-    }
-
-    if (fecha_hasta) {
-      conditions.push(sql`f.fecha <= ${fecha_hasta}::date`);
-    }
-
-    const facturas = await sql`
+    let query = sql`
       select
         f.*,
         c.nombre as cliente_nombre,
         c.codigo as cliente_codigo
       from factura_180 f
       left join clients_180 c on c.id = f.cliente_id
-      where ${sql.unsafe(
-      conditions.map((c, i) => `__condition_${i}__`).join(" AND "),
-      ...conditions
-    )}
-      order by f.created_at desc
+      where f.empresa_id = ${empresaId}
     `;
+
+    if (estado && estado !== 'TODOS') {
+      query = sql`${query} AND f.estado = ${estado}`;
+    }
+
+    if (cliente_id) {
+      query = sql`${query} AND f.cliente_id = ${parseInt(cliente_id)}`;
+    }
+
+    if (fecha_desde) {
+      query = sql`${query} AND f.fecha >= ${fecha_desde}::date`;
+    }
+
+    if (fecha_hasta) {
+      query = sql`${query} AND f.fecha <= ${fecha_hasta}::date`;
+    }
+
+    if (year) {
+      query = sql`${query} AND EXTRACT(YEAR FROM f.fecha) = ${parseInt(year)}`;
+    }
+
+    const facturas = await sql`${query} order by f.created_at desc`;
 
     // Ordenar por número de factura (lógica compleja)
     const facturasOrdenadas = facturas.sort((a, b) => {
