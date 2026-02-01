@@ -22,8 +22,34 @@ export async function getIvaTrimestral(req, res) {
         const empresaId = await getEmpresaId(req.user.id);
         const { year, trimestre } = req.query;
 
-        if (!year || !trimestre) {
-            return res.status(400).json({ error: "Año y Trimestre requeridos" });
+        // Si no hay trimestre, devolvemos resumen anual por trimestres
+        if (!trimestre) {
+            const data = await sql`
+                SELECT 
+                    EXTRACT(QUARTER FROM fecha) as trimestre,
+                    SUM(subtotal) as base_imponible,
+                    SUM(iva_total) as cuota_iva,
+                    SUM(total) as total_facturado
+                FROM factura_180
+                WHERE empresa_id = ${empresaId}
+                    AND estado IN ('VALIDADA', 'ANULADA')
+                    AND EXTRACT(YEAR FROM fecha) = ${year}
+                GROUP BY trimestre
+                ORDER BY trimestre ASC
+             `;
+
+            // Formatear respuesta: { "1T": {...}, "2T": {...} }
+            const result = {};
+            ['1', '2', '3', '4'].forEach(t => {
+                const row = data.find(d => d.trimestre == t) || { base_imponible: 0, cuota_iva: 0, total_facturado: 0 };
+                result[`${t}T`] = {
+                    base: parseFloat(row.base_imponible || 0),
+                    iva: parseFloat(row.cuota_iva || 0),
+                    total: parseFloat(row.total_facturado || 0)
+                };
+            });
+
+            return res.json(result);
         }
 
         const mapTrimestre = {
@@ -37,11 +63,6 @@ export async function getIvaTrimestral(req, res) {
         if (!range) {
             return res.status(400).json({ error: "Trimestre inválido (1-4)" });
         }
-
-        // Consulta agregada por tipo de IVA global de la factura
-        // Nota: Si hay facturas con múltiples tipos de IVA por línea, esta lógica debería
-        // agrupar por `lineafactura_180.iva_percent` en lugar de `factura_180.iva_global`.
-        // Asumiendo modelo simple `iva_global` por ahora según `factura_180`.
 
         const data = await sql`
       SELECT 
