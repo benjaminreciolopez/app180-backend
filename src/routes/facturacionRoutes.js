@@ -54,6 +54,7 @@ router.post("/configuracion/emisor/certificado", configuracionController.uploadC
 // Sistema
 router.get("/configuracion/sistema", configuracionController.getSistemaConfig);
 router.put("/configuracion/sistema", configuracionController.updateSistemaConfig);
+router.post("/configuracion/generar-texto", configuracionController.generateLegalText);
 
 /* ================= DASHBOARD & INFORMES ================= */
 

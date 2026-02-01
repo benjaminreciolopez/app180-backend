@@ -143,17 +143,43 @@ export async function uploadCertificado(req, res) {
             return res.status(400).json({ success: false, error: "No se proporcionó certificado" });
         }
 
+        // Mock de extracción de datos del certificado
+        // En producción usaríamos node-forge o similar
+        const certInfo = {
+            subject: "CERTIFICADO DE PRUEBA SL",
+            issuer: "FNMT-RCM",
+            validTo: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            serial: "123456789ABCDEF"
+        };
+
         await sql`
             update emisor_180 
             set certificado_path = ${fileName}, 
-                certificado_upload_date = now()
+                certificado_upload_date = now(),
+                certificado_info = ${JSON.stringify(certInfo)}
             where empresa_id = ${empresaId}
         `;
 
-        res.json({ success: true, message: "Certificado registrado" });
+        res.json({ success: true, message: "Certificado registrado", data: certInfo });
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, error: "Error al registrar certificado" });
+    }
+}
+
+export async function generateLegalText(req, res) {
+    try {
+        const { type } = req.body; // 'pie', 'exento', 'rectificativa'
+
+        const texts = {
+            'pie': "Factura emitida bajo el sistema Veri*Factu de la AEAT. Gracias por su confianza.",
+            'exento': "Factura exenta de IVA según el artículo 20 de la Ley 37/1992 del Impuesto sobre el Valor Añadido.",
+            'rectificativa': "Esta factura rectifica a la factura número [ORIGEN] por [MOTIVO], según el Art. 80 de la Ley del IVA."
+        };
+
+        res.json({ success: true, text: texts[type] || "" });
+    } catch (err) {
+        res.status(500).json({ success: false, error: "Error de IA" });
     }
 }
 
@@ -181,17 +207,18 @@ export async function updateSistemaConfig(req, res) {
                 update configuracionsistema_180 set 
                     verifactu_activo=${data.verifactu_activo ?? false},
                     verifactu_modo=${data.verifactu_modo || 'OFF'},
-                    ticket_bai_activo=${data.ticket_bai_activo ?? false}
+                    ticket_bai_activo=${data.ticket_bai_activo ?? false},
+                    numeracion_tipo=${data.numeracion_tipo || 'STANDARD'}
                 where empresa_id=${empresaId}
                 returning *
             `;
         } else {
             [result] = await sql`
                 insert into configuracionsistema_180 (
-                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, created_at
+                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, created_at
                 ) values (
                     ${empresaId}, ${data.verifactu_activo ?? false}, ${data.verifactu_modo || 'OFF'}, 
-                    ${data.ticket_bai_activo ?? false}, now()
+                    ${data.ticket_bai_activo ?? false}, ${data.numeracion_tipo || 'STANDARD'}, now()
                 )
                 returning *
             `;
