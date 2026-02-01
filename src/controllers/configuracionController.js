@@ -129,8 +129,8 @@ export async function uploadLogo(req, res) {
 
         res.json({ success: true, message: "Logo actualizado" });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, error: "Error al subir logo" });
+        console.error("❌ Error en uploadLogo:", err.message, err.stack);
+        res.status(500).json({ success: false, error: "Error al subir logo: " + err.message });
     }
 }
 
