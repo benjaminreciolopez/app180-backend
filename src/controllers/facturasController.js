@@ -795,7 +795,7 @@ export async function generarPdf(req, res) {
         nombre: `Factura_${String(numToUse).replace(/\//g, '-')}.pdf`,
         buffer: pdfBuffer,
         folder: getStoragePath(fechaToUse, baseFolder),
-        dbFolder: 'facturas', // Para que aparezca en la pestaña "facturas" del frontend
+        dbFolder: baseFolder, // Usamos el nombre configurado como carpeta raíz
         mimeType: 'application/pdf',
         useTimestamp: false
       });

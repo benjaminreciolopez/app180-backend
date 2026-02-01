@@ -13,6 +13,29 @@ if (supabaseUrl && supabaseKey) {
 
 export const storageController = {
     /**
+     * Listar carpetas disponibles
+     */
+    async listFolders(req, res) {
+        try {
+            const empresaId = req.user.empresa_id;
+            const folders = await sql`
+                SELECT DISTINCT folder 
+                FROM storage_180 
+                WHERE empresa_id = ${empresaId}
+                ORDER BY folder ASC
+            `;
+            // Return array of strings
+            return res.json({
+                success: true,
+                data: folders.map(f => f.folder)
+            });
+        } catch (err) {
+            console.error('Error listFolders:', err);
+            res.status(500).json({ success: false, error: err.message });
+        }
+    },
+
+    /**
      * Listar archivos de la empresa
      */
     async listFiles(req, res) {
