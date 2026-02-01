@@ -137,7 +137,7 @@ export async function uploadLogo(req, res) {
 export async function uploadCertificado(req, res) {
     try {
         const empresaId = await getEmpresaId(req.user.id);
-        const { file, fileName } = req.body;
+        const { file, fileName, password } = req.body;
 
         if (!file) {
             return res.status(400).json({ success: false, error: "No se proporcionó certificado" });
@@ -156,7 +156,8 @@ export async function uploadCertificado(req, res) {
             update emisor_180 
             set certificado_path = ${fileName}, 
                 certificado_upload_date = now(),
-                certificado_info = ${JSON.stringify(certInfo)}
+                certificado_info = ${JSON.stringify(certInfo)},
+                certificado_password = ${password || null}
             where empresa_id = ${empresaId}
         `;
 
