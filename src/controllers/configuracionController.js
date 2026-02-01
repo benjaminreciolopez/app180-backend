@@ -162,8 +162,8 @@ export async function uploadCertificado(req, res) {
 
         res.json({ success: true, message: "Certificado registrado", data: certInfo });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, error: "Error al registrar certificado" });
+        console.error("❌ Error en uploadCertificado:", err.message, err.stack);
+        res.status(500).json({ success: false, error: "Error al registrar certificado: " + err.message });
     }
 }
 
