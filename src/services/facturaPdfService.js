@@ -302,7 +302,7 @@ export const generarHtmlFactura = (factura, emisor, cliente, lineas, options = {
 export const generarPdfFactura = async (facturaId, options = {}) => {
   // 1. Obtener datos de la factura
   const [factura] = await sql`
-    SELECT * FROM facturas_180
+    SELECT * FROM factura_180
     WHERE id = ${facturaId}
   `;
 
@@ -312,7 +312,7 @@ export const generarPdfFactura = async (facturaId, options = {}) => {
 
   // 2. Obtener emisor
   const [emisor] = await sql`
-    SELECT * FROM emisores_180
+    SELECT * FROM emisor_180
     WHERE empresa_id = ${factura.empresa_id}
     LIMIT 1
   `;
@@ -323,7 +323,7 @@ export const generarPdfFactura = async (facturaId, options = {}) => {
 
   // 3. Obtener cliente
   const [cliente] = await sql`
-    SELECT * FROM clientes_180
+    SELECT * FROM clients_180
     WHERE id = ${factura.cliente_id}
   `;
 
@@ -333,7 +333,7 @@ export const generarPdfFactura = async (facturaId, options = {}) => {
 
   // 4. Obtener líneas de factura
   const lineas = await sql`
-    SELECT * FROM lineas_factura_180
+    SELECT * FROM lineafactura_180
     WHERE factura_id = ${facturaId}
     ORDER BY id ASC
   `;

@@ -6,6 +6,8 @@ import * as facturasController from "../controllers/facturasController.js";
 import * as conceptosController from "../controllers/conceptosController.js";
 import * as ivaController from "../controllers/ivaController.js";
 import * as configuracionController from "../controllers/configuracionController.js";
+import * as dashboardController from "../controllers/adminDashboardFacturacionController.js";
+import * as informesController from "../controllers/adminInformesFacturacionController.js";
 
 const router = Router();
 
@@ -15,7 +17,7 @@ router.use(authRequired, roleRequired("admin"));
 /* ================= FACTURAS ================= */
 
 router.get("/facturas", facturasController.listFacturas);
-router.get("/facturas/:id", facturasController.getFacturaDetalle);
+router.get("/facturas/:id", facturasController.getFactura);
 router.post("/facturas", facturasController.createFactura);
 router.put("/facturas/:id", facturasController.updateFactura);
 router.delete("/facturas/:id", facturasController.deleteFactura);
@@ -23,9 +25,8 @@ router.delete("/facturas/:id", facturasController.deleteFactura);
 // Acciones sobre facturas
 router.post("/facturas/:id/validar", facturasController.validarFactura);
 router.post("/facturas/:id/anular", facturasController.anularFactura);
-router.post("/facturas/:id/pdf", facturasController.generarPDF);
+router.get("/facturas/:id/pdf", facturasController.generarPdf); // changed to GET for download
 router.post("/facturas/:id/email", facturasController.enviarEmail);
-router.get("/facturas/:id/pdf/download", facturasController.descargarPDF);
 
 /* ================= CONCEPTOS ================= */
 
@@ -52,5 +53,13 @@ router.post("/configuracion/emisor/logo", configuracionController.uploadLogo);
 // Sistema
 router.get("/configuracion/sistema", configuracionController.getSistemaConfig);
 router.put("/configuracion/sistema", configuracionController.updateSistemaConfig);
+
+/* ================= DASHBOARD & INFORMES ================= */
+
+router.get("/dashboard", dashboardController.getDashboardData);
+
+router.get("/informes/iva-trimestral", informesController.getIvaTrimestral);
+router.get("/informes/anual", informesController.getFacturacionAnual);
+router.get("/informes/ranking-clientes", informesController.getRankingClientes);
 
 export default router;

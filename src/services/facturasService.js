@@ -18,7 +18,7 @@ export const generarNumeroFactura = async (empresaId, fecha) => {
       ultimo_anio_numerado,
       numeracion_plantilla,
       serie_facturacion
-    FROM emisores_180
+    FROM emisor_180
     WHERE empresa_id = ${empresaId}
     LIMIT 1
   `;
@@ -32,7 +32,7 @@ export const generarNumeroFactura = async (empresaId, fecha) => {
   if (emisor.ultimo_anio_numerado !== year) {
     correlativo = 1;
     await sql`
-      UPDATE emisores_180
+      UPDATE emisor_180
       SET siguiente_numero = 1, ultimo_anio_numerado = ${year}
       WHERE empresa_id = ${empresaId}
     `;
@@ -56,7 +56,7 @@ export const generarNumeroFactura = async (empresaId, fecha) => {
 
   // Incrementar correlativo
   await sql`
-    UPDATE emisores_180
+     UPDATE emisor_180
     SET siguiente_numero = ${correlativo + 1}
     WHERE empresa_id = ${empresaId}
   `;
@@ -102,7 +102,7 @@ export const validarFecha = async (empresaId, fecha) => {
 
   const [ultima] = await sql`
     SELECT fecha, numero
-    FROM facturas_180
+    FROM factura_180
     WHERE empresa_id = ${empresaId}
       AND estado = 'VALIDADA'
     ORDER BY fecha DESC, created_at DESC
@@ -132,7 +132,7 @@ export const validarFecha = async (empresaId, fecha) => {
 export const bloquearNumeracion = async (empresaId, anio) => {
   const [emisor] = await sql`
     SELECT numeracion_bloqueada, anio_numeracion_bloqueada
-    FROM emisores_180
+    FROM emisor_180
     WHERE empresa_id = ${empresaId}
     LIMIT 1
   `;
@@ -147,7 +147,7 @@ export const bloquearNumeracion = async (empresaId, anio) => {
   }
 
   await sql`
-    UPDATE emisores_180
+    UPDATE emisor_180
     SET
       numeracion_bloqueada = true,
       anio_numeracion_bloqueada = ${anio}
@@ -169,7 +169,7 @@ export const obtenerUltimaFactura = async (empresaId) => {
       estado,
       total,
       created_at
-    FROM facturas_180
+    FROM factura_180
     WHERE empresa_id = ${empresaId}
     ORDER BY fecha DESC, created_at DESC
     LIMIT 1

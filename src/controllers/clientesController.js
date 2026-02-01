@@ -114,11 +114,19 @@ export async function crearCliente(req, res) {
     codigo,
     tipo = "cliente",
 
-    // Datos generales
+    // Datos Generales
     direccion,
     telefono,
     contacto_nombre,
     contacto_email,
+
+    // Datos Fiscales (Nuevos campos en tabla principal clients_180)
+    nif,
+    poblacion,
+    provincia,
+    cp,
+    pais = 'España',
+    email, // Email específico para facturación o duplicado del de contacto
 
     modo_defecto = "mixto",
 
@@ -132,14 +140,10 @@ export async function crearCliente(req, res) {
 
     notas,
 
-    // Datos Fiscales
+    // Datos Fiscales Adicionales (Tabla satélite client_fiscal_data_180)
     razon_social,
-    nif_cif,
+    nif_cif, // Legacy o alternativo
     tipo_fiscal,
-    pais,
-    provincia,
-    municipio,
-    codigo_postal,
     direccion_fiscal,
     email_factura,
     telefono_factura,
@@ -206,6 +210,13 @@ export async function crearCliente(req, res) {
       contacto_nombre,
       contacto_email,
 
+      nif,
+      poblacion,
+      provincia,
+      cp,
+      pais,
+      email,
+
       modo_defecto,
 
       lat,
@@ -228,6 +239,13 @@ export async function crearCliente(req, res) {
       ${n(telefono)},
       ${n(contacto_nombre)},
       ${n(contacto_email)},
+
+      ${n(nif)},
+      ${n(poblacion)},
+      ${n(provincia)},
+      ${n(cp)},
+      ${n(pais)},
+      ${n(email)},
 
       ${modo_defecto},
 
@@ -316,7 +334,13 @@ export async function actualizarCliente(req, res) {
     "fecha_fin",
     "notas",
     "activo",
-    "geo_policy"
+    "geo_policy",
+    "nif",
+    "poblacion",
+    "provincia",
+    "cp",
+    "pais",
+    "email"
   ];
 
   // Campos de client_fiscal_data_180
@@ -380,7 +404,7 @@ export async function actualizarCliente(req, res) {
 
   // Respuesta final
   if (clientUpdated) {
-    res.json(clientUpdated); 
+    res.json(clientUpdated);
   } else {
     // Si solo actualizamos fiscal, devolvemos success genérico o fetch del cliente
     res.json({ ok: true, id });

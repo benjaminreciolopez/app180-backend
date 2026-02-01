@@ -1,6 +1,10 @@
 // backend/src/controllers/facturasController.js
 
 import { sql } from "../db.js";
+import { generarPdfFactura } from "../services/facturaPdfService.js";
+import * as emailService from "../services/emailService.js";
+import { verificarVerifactu } from "../services/verifactuService.js";
+import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 
 /* =========================
    Helpers
@@ -91,21 +95,17 @@ export async function listFacturas(req, res) {
       conditions.push(sql`f.fecha <= ${fecha_hasta}::date`);
     }
 
-    const whereClause = sql.unsafe(
-      conditions.map((_, i) => `__condition_${i}__`).join(" AND ")
-    );
-
     const facturas = await sql`
       select
         f.*,
         c.nombre as cliente_nombre,
         c.codigo as cliente_codigo
-      from facturas_180 f
+      from factura_180 f
       left join clients_180 c on c.id = f.cliente_id
       where ${sql.unsafe(
-        conditions.map((c, i) => `__condition_${i}__`).join(" AND "),
-        ...conditions
-      )}
+      conditions.map((c, i) => `__condition_${i}__`).join(" AND "),
+      ...conditions
+    )}
       order by f.created_at desc
     `;
 
@@ -148,7 +148,7 @@ export async function getFactura(req, res) {
         fd.municipio,
         fd.provincia,
         fd.pais
-      from facturas_180 f
+      from factura_180 f
       left join clients_180 c on c.id = f.cliente_id
       left join client_fiscal_data_180 fd on fd.cliente_id = f.cliente_id
       where f.id = ${id}
@@ -165,8 +165,8 @@ export async function getFactura(req, res) {
       select
         lf.*,
         co.nombre as concepto_nombre
-      from lineas_factura_180 lf
-      left join conceptos_facturables_180 co on co.id = lf.concepto_id
+      from lineafactura_180 lf
+      left join concepto_180 co on co.id = lf.concepto_id
       where lf.factura_id = ${id}
       order by lf.id
     `;
@@ -215,13 +215,15 @@ export async function createFactura(req, res) {
       return res.status(400).json({ success: false, error: "Cliente inválido" });
     }
 
+    let createdFactura;
+
     await sql.begin(async (tx) => {
       let subtotal = 0;
       let iva_total = 0;
 
       // Crear factura
       const [factura] = await tx`
-        insert into facturas_180 (
+        insert into factura_180 (
           empresa_id, cliente_id, fecha, estado, iva_global,
           subtotal, iva_total, total, created_at
         ) values (
@@ -250,7 +252,7 @@ export async function createFactura(req, res) {
         iva_total += importe_iva;
 
         await tx`
-          insert into lineas_factura_180 (
+          insert into lineafactura_180 (
             factura_id, descripcion, cantidad, precio_unitario, total, concepto_id
           ) values (
             ${factura.id},
@@ -264,15 +266,26 @@ export async function createFactura(req, res) {
       }
 
       // Actualizar totales
-      await tx`
-        update facturas_180
+      const [updated] = await tx`
+        update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
             total = ${Math.round((subtotal + iva_total) * 100) / 100}
         where id = ${factura.id}
+        returning *
       `;
+      createdFactura = updated;
+    });
 
-      return factura;
+    // Auditoría
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      accion: 'factura_creada',
+      entidadTipo: 'factura',
+      entidadId: createdFactura.id,
+      req,
+      datosNuevos: createdFactura
     });
 
     res.status(201).json({ success: true, message: "Factura creada en borrador" });
@@ -294,7 +307,7 @@ export async function updateFactura(req, res) {
 
     // Validar que la factura existe y es borrador
     const [factura] = await sql`
-      select * from facturas_180
+      select * from factura_180
       where id=${id} and empresa_id=${empresaId}
       limit 1
     `;
@@ -317,7 +330,7 @@ export async function updateFactura(req, res) {
     await sql.begin(async (tx) => {
       // Actualizar datos básicos
       await tx`
-        update facturas_180
+        update factura_180
         set cliente_id = ${n(cliente_id) || factura.cliente_id},
             fecha = ${n(fecha) || factura.fecha}::date,
             iva_global = ${n(iva_global) || factura.iva_global}
@@ -325,7 +338,7 @@ export async function updateFactura(req, res) {
       `;
 
       // Eliminar líneas anteriores
-      await tx`delete from lineas_factura_180 where factura_id=${id}`;
+      await tx`delete from lineafactura_180 where factura_id=${id}`;
 
       let subtotal = 0;
       let iva_total = 0;
@@ -344,7 +357,7 @@ export async function updateFactura(req, res) {
         iva_total += importe_iva;
 
         await tx`
-          insert into lineas_factura_180 (
+          insert into lineafactura_180 (
             factura_id, descripcion, cantidad, precio_unitario, total, concepto_id
           ) values (
             ${id},
@@ -359,12 +372,23 @@ export async function updateFactura(req, res) {
 
       // Actualizar totales
       await tx`
-        update facturas_180
+        update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
             total = ${Math.round((subtotal + iva_total) * 100) / 100}
         where id = ${id}
       `;
+    });
+
+    // Auditoría
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      accion: 'factura_actualizada',
+      entidadTipo: 'factura',
+      entidadId: id,
+      req,
+      datosAnteriores: factura
     });
 
     res.json({ success: true, message: "Factura actualizada" });
@@ -389,7 +413,7 @@ export async function validarFactura(req, res) {
     }
 
     const [factura] = await sql`
-      select * from facturas_180
+      select * from factura_180
       where id=${id} and empresa_id=${empresaId}
       limit 1
     `;
@@ -404,7 +428,7 @@ export async function validarFactura(req, res) {
 
     // Validar orden cronológico
     const [ultima] = await sql`
-      select fecha from facturas_180
+      select fecha from factura_180
       where empresa_id=${empresaId}
         and estado='VALIDADA'
       order by fecha desc
@@ -424,7 +448,7 @@ export async function validarFactura(req, res) {
     await sql.begin(async (tx) => {
       // Actualizar factura
       await tx`
-        update facturas_180
+        update factura_180
         set estado = 'VALIDADA',
             numero = ${numero},
             fecha = ${fecha}::date,
@@ -433,6 +457,19 @@ export async function validarFactura(req, res) {
         where id = ${id}
       `;
 
+      // Preparar objeto para VeriFactu
+      const facturaActualizada = {
+        ...factura,
+        numero,
+        fecha,
+        estado: 'VALIDADA',
+        fecha_validacion: new Date(),
+        mensaje_iva: n(mensaje_iva)
+      };
+
+      // Verificar Veri*Factu (si aplica)
+      await verificarVerifactu(facturaActualizada, tx);
+
       // Bloquear numeración (actualizar emisor)
       const year = new Date(fecha).getFullYear();
       await tx`
@@ -440,6 +477,17 @@ export async function validarFactura(req, res) {
         set ultimo_anio_numerado = ${year}
         where empresa_id = ${empresaId}
       `;
+    });
+
+    // Auditoría
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      accion: 'factura_validada',
+      entidadTipo: 'factura',
+      entidadId: id,
+      req,
+      datosNuevos: { numero, fecha, estado: 'VALIDADA' }
     });
 
     res.json({
@@ -479,7 +527,7 @@ async function generarNumeroFactura(empresaId, fecha) {
   } else {
     // Buscar último número del año
     const [ultimaFactura] = await sql`
-      select numero from facturas_180
+      select numero from factura_180
       where empresa_id=${empresaId}
         and estado='VALIDADA'
         and numero like ${`%${year}-%`}
@@ -521,7 +569,7 @@ export async function anularFactura(req, res) {
     const { id } = req.params;
 
     const [factura] = await sql`
-      select * from facturas_180
+      select * from factura_180
       where id=${id} and empresa_id=${empresaId}
       limit 1
     `;
@@ -540,7 +588,7 @@ export async function anularFactura(req, res) {
     // Verificar si ya existe rectificativa
     const numeroRect = `${factura.numero}R`;
     const [existe] = await sql`
-      select 1 from facturas_180
+      select 1 from factura_180
       where numero=${numeroRect} and empresa_id=${empresaId}
     `;
 
@@ -554,20 +602,20 @@ export async function anularFactura(req, res) {
     await sql.begin(async (tx) => {
       // Marcar original como anulada
       await tx`
-        update facturas_180
+        update factura_180
         set estado = 'ANULADA'
         where id = ${id}
       `;
 
       // Obtener líneas originales
       const lineasOriginales = await tx`
-        select * from lineas_factura_180
+        select * from lineafactura_180
         where factura_id=${id}
       `;
 
       // Crear factura rectificativa
       const [rect] = await tx`
-        insert into facturas_180 (
+        insert into factura_180 (
           empresa_id, cliente_id, fecha, numero, estado,
           subtotal, iva_total, total, iva_global, mensaje_iva, created_at
         ) values (
@@ -589,7 +637,7 @@ export async function anularFactura(req, res) {
       // Crear líneas negativas
       for (const linea of lineasOriginales) {
         await tx`
-          insert into lineas_factura_180 (
+          insert into lineafactura_180 (
             factura_id, descripcion, cantidad, precio_unitario, total, concepto_id
           ) values (
             ${rect.id},
@@ -601,6 +649,17 @@ export async function anularFactura(req, res) {
           )
         `;
       }
+    });
+
+    // Auditoría: Factura original anulada
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      accion: 'factura_anulada',
+      entidadTipo: 'factura',
+      entidadId: id,
+      req,
+      motivo: `Generada rectificativa ${numeroRect}`
     });
 
     res.json({
@@ -615,32 +674,31 @@ export async function anularFactura(req, res) {
 }
 
 /* =========================
-   GENERAR PDF (Placeholder)
+   GENERAR PDF
 ========================= */
 
 export async function generarPdf(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
     const { id } = req.params;
+    const { modo } = req.query; // TEST or PROD
 
+    // Check ownership
     const [factura] = await sql`
-      select * from facturas_180
+      select 1 from factura_180
       where id=${id} and empresa_id=${empresaId}
-      limit 1
     `;
 
     if (!factura) {
       return res.status(404).json({ success: false, error: "Factura no encontrada" });
     }
 
-    // TODO: Implementar generación de PDF (pdfkit, puppeteer, etc.)
-    // Por ahora retornamos un placeholder
+    const pdfBuffer = await generarPdfFactura(id, { modo });
 
-    res.json({
-      success: true,
-      message: "Función de generación PDF pendiente de implementar",
-      ruta_pdf: null,
-    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="factura-${id}.pdf"`);
+    res.send(pdfBuffer);
+
   } catch (err) {
     console.error("❌ generarPdf:", err);
     res.status(500).json({ success: false, error: "Error generando PDF" });
@@ -648,7 +706,7 @@ export async function generarPdf(req, res) {
 }
 
 /* =========================
-   ENVIAR EMAIL (Placeholder)
+   ENVIAR EMAIL
 ========================= */
 
 export async function enviarEmail(req, res) {
@@ -662,7 +720,7 @@ export async function enviarEmail(req, res) {
     }
 
     const [factura] = await sql`
-      select * from facturas_180
+      select * from factura_180
       where id=${id} and empresa_id=${empresaId}
       limit 1
     `;
@@ -670,6 +728,24 @@ export async function enviarEmail(req, res) {
     if (!factura) {
       return res.status(404).json({ success: false, error: "Factura no encontrada" });
     }
+
+    let attachments = [];
+    if (adjuntar_pdf) {
+      const pdfBuffer = await generarPdfFactura(id);
+      attachments.push({
+        filename: `factura-${factura.numero || 'borrador'}.pdf`,
+        content: pdfBuffer,
+      });
+    }
+
+    // Send email
+    await emailService.sendEmail({
+      to: para,
+      cc,
+      subject: asunto,
+      html: cuerpo ? cuerpo.replace(/\n/g, "<br>") : "Se adjunta factura.",
+      attachments
+    }, empresaId);
 
     // Registrar envío
     await sql`
@@ -681,26 +757,23 @@ export async function enviarEmail(req, res) {
         ${n(cc)},
         ${asunto},
         ${n(cuerpo)},
-        false,
+        true,
         now()
       )
     `;
 
-    // TODO: Implementar envío real con nodemailer
-    // Por ahora retornamos un placeholder
-
     res.json({
       success: true,
-      message: "Email registrado (envío pendiente de implementar)",
+      message: "Email enviado correctamente",
     });
   } catch (err) {
     console.error("❌ enviarEmail:", err);
-    res.status(500).json({ success: false, error: "Error enviando email" });
+    res.status(500).json({ success: false, error: "Error enviando email: " + err.message });
   }
 }
 
 /* =========================
-   ELIMINAR FACTURA (solo borrador)
+   ELIMINAR FACTURA
 ========================= */
 
 export async function deleteFactura(req, res) {
@@ -709,7 +782,7 @@ export async function deleteFactura(req, res) {
     const { id } = req.params;
 
     const [factura] = await sql`
-      select * from facturas_180
+      select * from factura_180
       where id=${id} and empresa_id=${empresaId}
       limit 1
     `;
@@ -726,8 +799,19 @@ export async function deleteFactura(req, res) {
     }
 
     await sql.begin(async (tx) => {
-      await tx`delete from lineas_factura_180 where factura_id=${id}`;
-      await tx`delete from facturas_180 where id=${id}`;
+      await tx`delete from lineafactura_180 where factura_id=${id}`;
+      await tx`delete from factura_180 where id=${id}`;
+    });
+
+    // Auditoría
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      accion: 'factura_eliminada',
+      entidadTipo: 'factura',
+      entidadId: id,
+      req,
+      datosAnteriores: factura
     });
 
     res.json({ success: true, message: "Factura eliminada" });

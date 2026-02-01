@@ -135,7 +135,7 @@ function createSMTPTransporter(config) {
   });
 }
 
-export async function sendEmail({ to, subject, text, html, accessToken }, empresaId = null) {
+export async function sendEmail({ to, subject, text, html, accessToken, attachments = [] }, empresaId = null) {
   try {
     let transporter;
     let fromEmail;
@@ -162,7 +162,8 @@ export async function sendEmail({ to, subject, text, html, accessToken }, empres
       to,
       subject,
       html,
-      text: text || (html ? html.replace(/<[^>]*>/g, '') : '') // Strip HTML for text version
+      text: text || (html ? html.replace(/<[^>]*>/g, '') : ''), // Strip HTML for text version
+      attachments
     };
     
     const result = await transporter.sendMail(mailOptions);
