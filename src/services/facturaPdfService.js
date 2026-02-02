@@ -160,17 +160,22 @@ const FACTURA_STYLES = `
   /* En CSS 'bottom' se ajusta mejor a la lógica ReportLab de y-coordinada 0 en el suelo */
   .qr-block {
     position: absolute;
-    bottom: 210pt; /* Movido hacia arriba para evitar solapamientos */
-    right: 30pt;
-    text-align: right;
+    top: 100pt;
+    left: 280pt; /* Posicionado entre emisor y cliente */
+    width: 120pt;
+    text-align: center;
   }
   .qr-img {
-    width: 35mm;
-    height: 35mm;
+    width: 28mm;
+    height: 28mm;
+    display: block;
+    margin: 0 auto;
   }
   .verifactu-label {
-    font-size: 8pt;
-    margin-top: 5pt;
+    font-size: 7pt;
+    margin-top: 4pt;
+    color: #444;
+    line-height: 1.1;
   }
 
   /* TOTALES - y_totales = 140pts desde abajo */
