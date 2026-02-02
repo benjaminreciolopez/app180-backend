@@ -223,6 +223,16 @@ const FACTURA_STYLES = `
     font-weight: bold;
     color: #000;
   }
+  .verifactu-notice {
+    position: absolute;
+    bottom: 75pt;
+    left: 30pt;
+    right: 30pt;
+    font-size: 8.5pt;
+    color: #555;
+    text-align: left;
+    font-style: italic;
+  }
 
 </style>
 `;
@@ -248,20 +258,26 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
     logoHtml = `<img src="${src}" class="logo-img" />`;
   }
 
-  // 2. QR Code
+  // 2. QR Code y Aviso Veri*Factu
   let qrHtml = '';
-  if (config && config.verifactu_activo && factura.verifactu_hash) {
-    try {
-      const urlQr = construirUrlQr(factura, emisor, config, (config.verifactu_modo === 'TEST' ? 'PRUEBAS' : 'PRODUCCION'));
-      const qrDataUrl = await QRCode.toDataURL(urlQr, { margin: 0, errorCorrectionLevel: 'M' });
-      qrHtml = `
-            <div class="qr-block">
-                <img src="${qrDataUrl}" class="qr-img" />
-                <div class="verifactu-label">Sistema de Facturación Verificable (Veri*Factu)</div>
-            </div>
-        `;
-    } catch (err) {
-      console.error("Error generando QR:", err);
+  let verifactuNoticeHtml = '';
+  const verifactuText = "Factura emitida bajo el sistema Veri*Factu de la AEAT. Gracias por su confianza.";
+
+  if (config && config.verifactu_activo) {
+    verifactuNoticeHtml = `<div class="verifactu-notice">${verifactuText}</div>`;
+
+    if (factura.verifactu_hash) {
+      try {
+        const urlQr = construirUrlQr(factura, emisor, config, (config.verifactu_modo === 'TEST' ? 'PRUEBAS' : 'PRODUCCION'));
+        const qrDataUrl = await QRCode.toDataURL(urlQr, { margin: 0, errorCorrectionLevel: 'M' });
+        qrHtml = `
+              <div class="qr-block">
+                  <img src="${qrDataUrl}" class="qr-img" />
+              </div>
+          `;
+      } catch (err) {
+        console.error("Error generando QR:", err);
+      }
     }
   }
 
@@ -321,10 +337,18 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
     pagoHtml = 'Forma de pago: Transferencia bancaria';
   }
 
+  // Limpiar texto de VeriFactu del pie si ya está ahí para evitar duplicados o que aparezca cuando está desactivado
+  let cleanTextoPie = emisor.texto_pie || '';
+  if (cleanTextoPie.includes("Veri*Factu")) {
+    // Si el sistema está desactivado o si vamos a poner el aviso automático, lo quitamos del pie guardado
+    cleanTextoPie = cleanTextoPie.replace(/Factura emitida bajo el sistema Veri\*Factu de la AEAT\.\s*/g, '');
+    cleanTextoPie = cleanTextoPie.replace(/Gracias por su confianza\./g, ''); // Limpiamos el gracias si venía con el combo de Verifactu
+  }
+
   const pieContent = `
     <div class="thanks-msg">¡Gracias por su confianza!</div>
     ${pagoHtml}<br>
-    ${emisor.texto_pie || ''}
+    ${cleanTextoPie.trim()}
   `;
 
   return `
@@ -384,6 +408,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
     </div>
 
     ${qrHtml}
+    ${verifactuNoticeHtml}
 
     <div class="totals-block">
         <div class="total-row">Subtotal: ${subtotal.toFixed(2)} €</div>
