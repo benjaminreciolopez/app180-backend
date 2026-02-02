@@ -54,3 +54,42 @@ export async function registrarAuditoria({
     // No lanzar error para no bloquear la operación principal
   }
 }
+
+/**
+ * Registra un evento de seguridad específico para Veri*Factu (Ley Antifraude)
+ * @param {Object} params - Parámetros del evento
+ */
+export async function registrarEventoSeguridad({
+  empresaId,
+  userId,
+  entidad,
+  entidadId,
+  accion,
+  resultado = 'EXITO',
+  motivo = null,
+  errorCodigo = null,
+  origen = 'SISTEMA',
+  payload = null,
+  req = null
+}) {
+  try {
+    const ip = req ? getClientIp(req) : null;
+    const userAgent = req ? req.headers['user-agent'] : null;
+
+    await sql`
+            INSERT INTO auditoria_180 (
+                empresa_id, user_id, entidad, entidad_id,
+                accion, resultado, motivo, error_codigo,
+                origen, ip, user_agent, payload, created_at
+            ) VALUES (
+                ${empresaId}, ${userId}, ${entidad}, ${entidadId},
+                ${accion}, ${resultado}, ${motivo}, ${errorCodigo},
+                ${origen}, ${ip}, ${userAgent}, ${payload ? JSON.stringify(payload) : null},
+                now()
+            )
+        `;
+    console.log(`🛡️ Evento Seguridad: ${accion} registrado en auditoria_180`);
+  } catch (error) {
+    console.error('❌ Error registrando evento seguridad:', error);
+  }
+}

@@ -8,9 +8,9 @@ async function check() {
       WHERE table_name = 'factura_180'
       ORDER BY ordinal_position
     `;
-        console.log("Columns of factura_180 (first 10):", JSON.stringify(cols.slice(0, 10), null, 2));
+        console.log("Columns of factura_180:", JSON.stringify(cols.map(c => c.column_name), null, 2));
     } catch (err) {
-        console.error("Error checking columns:", err);
+        console.error("Error:", err);
     } finally {
         process.exit();
     }

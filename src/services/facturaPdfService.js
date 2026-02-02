@@ -173,10 +173,7 @@ const FACTURA_STYLES = `
     margin: 0 auto;
   }
   .verifactu-label {
-    font-size: 7pt;
-    margin-top: 4pt;
-    color: #444;
-    line-height: 1.1;
+    display: none; /* Eliminado por petición del usuario */
   }
 
   /* TOTALES - y_totales = 140pts desde abajo */
@@ -213,11 +210,18 @@ const FACTURA_STYLES = `
   /* LEGAL / PIE - y_legal = 50pts */
   .legal-block {
     position: absolute;
-    bottom: 40pt;
+    bottom: 30pt;
     left: 30pt;
     right: 30pt;
     font-size: 9pt;
-    color: #333;
+    color: #444;
+    border-top: 0.5pt solid #eee;
+    padding-top: 5pt;
+  }
+  .thanks-msg {
+    margin-bottom: 5pt;
+    font-weight: bold;
+    color: #000;
   }
 
 </style>
@@ -304,11 +308,24 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
       </tr>
   `).join('');
 
-  // 6. Bank/PIE
-  const pieContent = [
-    emisor.texto_pie,
-    (emisor.cuenta_bancaria || emisor.iban) ? `Cuenta Bancaria: ${emisor.cuenta_bancaria || emisor.iban}` : ''
-  ].filter(Boolean).join('<br>');
+  // 6. Pie de Página Personalizado y Pago
+  const ibanEmisor = emisor.cuenta_bancaria || emisor.iban || '';
+  const metodoPago = factura.metodo_pago || 'TRANSFERENCIA'; // Default o desde factura
+
+  let pagoHtml = '';
+  if (metodoPago === 'CONTADO') {
+    pagoHtml = 'Forma de pago: Al contado / Efectivo';
+  } else if (ibanEmisor) {
+    pagoHtml = `Forma de pago: Transferencia bancaria<br>IBAN: ${ibanEmisor}`;
+  } else {
+    pagoHtml = 'Forma de pago: Transferencia bancaria';
+  }
+
+  const pieContent = `
+    <div class="thanks-msg">¡Gracias por su confianza!</div>
+    ${pagoHtml}<br>
+    ${emisor.texto_pie || ''}
+  `;
 
   return `
 <!DOCTYPE html>

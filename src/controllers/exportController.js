@@ -89,16 +89,19 @@ export const downloadExport = async (req, res) => {
                 const fe2 = fechaOrNull(queryParams.fecha_hasta);
                 const acc = queryParams.accion;
                 const ent = queryParams.entidad_tipo;
+                const isFactura = ent === 'factura';
+                const tableExport = isFactura ? sql`auditoria_180` : sql`audit_log_180`;
 
                 data = await sql`
                     SELECT a.*, COALESCE(u.email, 'Sistema') as user_email 
-                    FROM audit_log_180 a
+                    FROM ${tableExport} a
                     LEFT JOIN users_180 u ON a.user_id = u.id
                     WHERE a.empresa_id = ${empresaId}
                     ${fe1 ? sql`AND a.created_at >= ${fe1}::date` : sql``}
                     ${fe2 ? sql`AND a.created_at <= ${fe2}::date + interval '1 day'` : sql``}
                     ${acc ? sql`AND a.accion = ${acc}` : sql``}
-                    ${ent ? sql`AND a.entidad_tipo = ${ent}` : sql``}
+                    ${ent && !isFactura ? sql`AND a.entidad_tipo = ${ent}` : sql``}
+                    ${isFactura ? sql`AND a.entidad = 'factura'` : sql``}
                     ORDER BY a.created_at DESC
                     LIMIT 2000
                 `;
@@ -106,11 +109,19 @@ export const downloadExport = async (req, res) => {
                 csvColumns = [
                     { key: 'created_at', header: 'Fecha' },
                     { key: 'user_email', header: 'Usuario' },
-                    { key: 'accion', header: 'Acción' },
-                    { key: 'entidad_tipo', header: 'Entidad' },
-                    { key: 'entidad_id', header: 'ID' },
+                    { key: 'accion', header: 'Evento' },
+                    { key: 'entidad_tipo', header: 'Módulo' },
                     { key: 'ip_address', header: 'IP' }
                 ];
+                if (isFactura) {
+                    csvColumns = [
+                        { key: 'created_at', header: 'Fecha' },
+                        { key: 'accion', header: 'Acción' },
+                        { key: 'user_email', header: 'Usuario' },
+                        { key: 'ip', header: 'IP' },
+                        { key: 'resultado', header: 'Resultado' }
+                    ];
+                }
                 filename = `auditoria-${Date.now()}`;
                 break;
 

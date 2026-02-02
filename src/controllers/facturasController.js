@@ -57,10 +57,23 @@ async function getInvoiceStorageFolder(empresaId) {
 }
 
 async function auditFactura(params) {
-  const { empresaId } = params;
-  // No condicionamos la auditoría a verifactu_activo para eventos de factura
-  // Queremos trazabilidad siempre para auditoría interna/inspecciones.
+  const { empresaId, userId, entidadTipo, entidadId, accion, motivo, req, datosNuevos } = params;
+
+  // 1. Log General (audit_log_180)
   await registrarAuditoria(params);
+
+  // 2. Log de Seguridad Veri*Factu (auditoria_180)
+  const { registrarEventoSeguridad } = await import('../middlewares/auditMiddleware.js');
+  await registrarEventoSeguridad({
+    empresaId,
+    userId,
+    entidad: entidadTipo || 'factura',
+    entidadId,
+    accion,
+    motivo,
+    req,
+    payload: datosNuevos
+  });
 }
 
 // Parse número de factura para ordenación
@@ -228,7 +241,7 @@ export async function getFactura(req, res) {
 export async function createFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago } = req.body;
 
     if (!cliente_id) {
       return res.status(400).json({ success: false, error: "Cliente requerido" });
@@ -261,7 +274,7 @@ export async function createFactura(req, res) {
       // Crear factura
       const [factura] = await tx`
         insert into factura_180 (
-          empresa_id, cliente_id, fecha, estado, iva_global, mensaje_iva,
+          empresa_id, cliente_id, fecha, estado, iva_global, mensaje_iva, metodo_pago,
           subtotal, iva_total, total, created_at
         ) values (
           ${empresaId},
@@ -270,6 +283,7 @@ export async function createFactura(req, res) {
           'BORRADOR',
           ${n(iva_global) || 0},
           ${n(mensaje_iva)},
+          ${n(metodo_pago) || 'TRANSFERENCIA'},
           0, 0, 0,
           now()
         )
@@ -344,7 +358,7 @@ export async function updateFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
     const { id } = req.params;
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago } = req.body;
 
     // Validar que la factura existe y es borrador
     const [factura] = await sql`
@@ -375,7 +389,8 @@ export async function updateFactura(req, res) {
         set cliente_id = ${n(cliente_id) || factura.cliente_id},
             fecha = ${n(fecha) || factura.fecha}::date,
             iva_global = ${n(iva_global) || factura.iva_global},
-            mensaje_iva = ${n(mensaje_iva) || factura.mensaje_iva}
+            mensaje_iva = ${n(mensaje_iva) || factura.mensaje_iva},
+            metodo_pago = ${n(metodo_pago) || factura.metodo_pago}
         where id = ${id}
       `;
 
@@ -714,7 +729,7 @@ export async function anularFactura(req, res) {
       const [rect] = await tx`
         insert into factura_180 (
           empresa_id, cliente_id, fecha, numero, estado,
-          subtotal, iva_total, total, iva_global, mensaje_iva, created_at
+          subtotal, iva_total, total, iva_global, mensaje_iva, metodo_pago, created_at
         ) values (
           ${empresaId},
           ${factura.cliente_id},
@@ -726,6 +741,7 @@ export async function anularFactura(req, res) {
           ${-factura.total},
           ${factura.iva_global},
           ${`Factura rectificativa de ${factura.numero}`},
+          ${factura.metodo_pago},
           now()
         )
         returning *
