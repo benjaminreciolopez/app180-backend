@@ -58,19 +58,9 @@ async function getInvoiceStorageFolder(empresaId) {
 
 async function auditFactura(params) {
   const { empresaId } = params;
-  try {
-    const [config] = await sql`
-      select verifactu_activo from configuracionsistema_180 
-      where empresa_id=${empresaId}
-    `;
-    if (config?.verifactu_activo) {
-      await registrarAuditoria(params);
-    } else {
-      console.log(`ℹ️ [auditFactura] Skipping audit: VeriFactu is OFF for empresa ${empresaId}`);
-    }
-  } catch (err) {
-    console.error("❌ [auditFactura] Error checking verifactu_activo:", err);
-  }
+  // No condicionamos la auditoría a verifactu_activo para eventos de factura
+  // Queremos trazabilidad siempre para auditoría interna/inspecciones.
+  await registrarAuditoria(params);
 }
 
 // Parse número de factura para ordenación

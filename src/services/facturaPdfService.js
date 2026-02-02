@@ -160,9 +160,10 @@ const FACTURA_STYLES = `
   /* En CSS 'bottom' se ajusta mejor a la lógica ReportLab de y-coordinada 0 en el suelo */
   .qr-block {
     position: absolute;
-    top: 100pt;
-    left: 280pt; /* Posicionado entre emisor y cliente */
-    width: 120pt;
+    top: 130pt; /* Bajado un poco */
+    left: 50%;
+    transform: translateX(-50%); /* Centrado exacto horizontal */
+    width: 140pt;
     text-align: center;
   }
   .qr-img {
@@ -374,7 +375,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
         <div class="total-row total-final">TOTAL FACTURA: ${total.toFixed(2)} €</div>
     </div>
 
-    ${(incluirMensajeIva && factura.mensaje_iva) ? `
+    ${factura.mensaje_iva ? `
     <div class="mensaje-iva-block">
         ${factura.mensaje_iva}
     </div>` : ''}
