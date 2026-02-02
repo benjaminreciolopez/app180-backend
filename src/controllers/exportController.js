@@ -88,26 +88,30 @@ export const downloadExport = async (req, res) => {
                 const fe1 = fechaOrNull(queryParams.fecha_desde);
                 const fe2 = fechaOrNull(queryParams.fecha_hasta);
                 const acc = queryParams.accion;
+                const ent = queryParams.entidad_tipo;
 
                 data = await sql`
-                    SELECT a.*, COALESCE(u.nombre, 'Sistema') as actor_nombre 
+                    SELECT a.*, COALESCE(u.email, 'Sistema') as user_email 
                     FROM audit_log_180 a
-                    LEFT JOIN users_180 u ON a.actor_id = u.id
+                    LEFT JOIN users_180 u ON a.user_id = u.id
                     WHERE a.empresa_id = ${empresaId}
                     ${fe1 ? sql`AND a.created_at >= ${fe1}::date` : sql``}
                     ${fe2 ? sql`AND a.created_at <= ${fe2}::date + interval '1 day'` : sql``}
-                    ${acc ? sql`AND a.action = ${acc}` : sql``}
+                    ${acc ? sql`AND a.accion = ${acc}` : sql``}
+                    ${ent ? sql`AND a.entidad_tipo = ${ent}` : sql``}
                     ORDER BY a.created_at DESC
-                    LIMIT 500
+                    LIMIT 2000
                 `;
                 htmlContent = auditoriaToHtml(data);
                 csvColumns = [
                     { key: 'created_at', header: 'Fecha' },
-                    { key: 'actor_nombre', header: 'Usuario' },
-                    { key: 'action', header: 'Acción' },
-                    { key: 'entity', header: 'Entidad' },
-                    { key: 'details', header: 'Detalles' }
+                    { key: 'user_email', header: 'Usuario' },
+                    { key: 'accion', header: 'Acción' },
+                    { key: 'entidad_tipo', header: 'Entidad' },
+                    { key: 'entidad_id', header: 'ID' },
+                    { key: 'ip_address', header: 'IP' }
                 ];
+                filename = `auditoria-${Date.now()}`;
                 break;
 
             case 'clientes':
