@@ -56,6 +56,23 @@ async function getInvoiceStorageFolder(empresaId) {
   }
 }
 
+async function auditFactura(params) {
+  const { empresaId } = params;
+  try {
+    const [config] = await sql`
+      select verifactu_activo from configuracionsistema_180 
+      where empresa_id=${empresaId}
+    `;
+    if (config?.verifactu_activo) {
+      await registrarAuditoria(params);
+    } else {
+      console.log(`ℹ️ [auditFactura] Skipping audit: VeriFactu is OFF for empresa ${empresaId}`);
+    }
+  } catch (err) {
+    console.error("❌ [auditFactura] Error checking verifactu_activo:", err);
+  }
+}
+
 // Parse número de factura para ordenación
 function parseNumeroFactura(numero) {
   if (!numero) return { year: 0, correlativo: 0, esRect: 0 };
@@ -221,7 +238,7 @@ export async function getFactura(req, res) {
 export async function createFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
-    const { cliente_id, fecha, iva_global, lineas = [] } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva } = req.body;
 
     if (!cliente_id) {
       return res.status(400).json({ success: false, error: "Cliente requerido" });
@@ -254,7 +271,7 @@ export async function createFactura(req, res) {
       // Crear factura
       const [factura] = await tx`
         insert into factura_180 (
-          empresa_id, cliente_id, fecha, estado, iva_global,
+          empresa_id, cliente_id, fecha, estado, iva_global, mensaje_iva,
           subtotal, iva_total, total, created_at
         ) values (
           ${empresaId},
@@ -262,11 +279,13 @@ export async function createFactura(req, res) {
           ${fecha}::date,
           'BORRADOR',
           ${n(iva_global) || 0},
+          ${n(mensaje_iva)},
           0, 0, 0,
           now()
         )
         returning *
       `;
+      createdFactura = factura; // Assign to createdFactura for audit log
 
       // Crear líneas
       for (const linea of lineas) {
@@ -307,17 +326,17 @@ export async function createFactura(req, res) {
         returning *
       `;
       createdFactura = updated;
-    });
 
-    // Auditoría
-    await registrarAuditoria({
-      empresaId,
-      userId: req.user.id,
-      accion: 'factura_creada',
-      entidadTipo: 'factura',
-      entidadId: createdFactura.id,
-      req,
-      datosNuevos: createdFactura
+      // Auditoría
+      await auditFactura({
+        empresaId,
+        userId: req.user.id,
+        accion: 'factura_creada',
+        entidadTipo: 'factura',
+        entidadId: createdFactura.id,
+        req,
+        datosNuevos: { cliente_id, fecha, total: createdFactura.total }
+      });
     });
 
     res.status(201).json({ success: true, message: "Factura creada en borrador" });
@@ -335,7 +354,7 @@ export async function updateFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
     const { id } = req.params;
-    const { cliente_id, fecha, iva_global, lineas = [] } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva } = req.body;
 
     // Validar que la factura existe y es borrador
     const [factura] = await sql`
@@ -365,7 +384,8 @@ export async function updateFactura(req, res) {
         update factura_180
         set cliente_id = ${n(cliente_id) || factura.cliente_id},
             fecha = ${n(fecha) || factura.fecha}::date,
-            iva_global = ${n(iva_global) || factura.iva_global}
+            iva_global = ${n(iva_global) || factura.iva_global},
+            mensaje_iva = ${n(mensaje_iva) || factura.mensaje_iva}
         where id = ${id}
       `;
 
@@ -405,6 +425,7 @@ export async function updateFactura(req, res) {
       }
 
       // Actualizar totales
+      // Actualizar totales
       await tx`
         update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
@@ -412,17 +433,16 @@ export async function updateFactura(req, res) {
             total = ${Math.round((subtotal + iva_total) * 100) / 100}
         where id = ${id}
       `;
-    });
-
-    // Auditoría
-    await registrarAuditoria({
-      empresaId,
-      userId: req.user.id,
-      accion: 'factura_actualizada',
-      entidadTipo: 'factura',
-      entidadId: id,
-      req,
-      datosAnteriores: factura
+      await auditFactura({
+        empresaId,
+        userId: req.user.id,
+        req,
+        accion: 'factura_actualizada',
+        entidadTipo: 'factura',
+        entidadId: id,
+        datosAnteriores: factura,
+        datosNuevos: { cliente_id, total: subtotal + iva_total }
+      });
     });
 
     res.json({ success: true, message: "Factura actualizada" });
@@ -520,7 +540,7 @@ export async function validarFactura(req, res) {
     });
 
     // Auditoría
-    await registrarAuditoria({
+    await auditFactura({
       empresaId,
       userId: req.user.id,
       accion: 'factura_validada',
@@ -593,38 +613,30 @@ async function generarNumeroFactura(empresaId, fecha) {
   if (tipo === 'STANDARD') {
     // Numeración continua global: F-0001, F-0002...
     // Buscamos la última factura global válida
-    const [ultima] = await sql`
-        select numero from factura_180 
-        where empresa_id=${empresaId} 
-        and estado in ('VALIDADA', 'ENVIADA')
-        and numero like 'F-%'
-        order by created_at desc 
-        limit 1
+    // Numeración continua global: F-0001, F-0002...
+    const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180 
+        WHERE empresa_id = ${empresaId} 
+        AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND numero LIKE 'F-%'
     `;
-    if (ultima && ultima.numero) {
-      const parts = ultima.numero.split('-');
-      const lastNum = parseInt(parts[parts.length - 1]);
-      if (!isNaN(lastNum)) correlativo = lastNum + 1;
-    }
+    if (max && max.ultimo) correlativo = max.ultimo + 1;
     numeroFinal = `F-${String(correlativo).padStart(4, '0')}`;
 
   } else if (tipo === 'BY_YEAR') {
     // Numeración por año: F-2026-0001
     // Buscamos la última de ESTE año
+    // Numeración por año: F-2026-0001
     const prefix = `F-${year}-`;
-    const [ultima] = await sql`
-        select numero from factura_180 
-        where empresa_id=${empresaId} 
-        and estado in ('VALIDADA', 'ENVIADA')
-        and numero like ${prefix + '%'}
-        order by created_at desc 
-        limit 1
+    const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180 
+        WHERE empresa_id = ${empresaId} 
+        AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND numero LIKE ${prefix + '%'}
     `;
-    if (ultima && ultima.numero) {
-      const parts = ultima.numero.split('-');
-      const lastNum = parseInt(parts[parts.length - 1]);
-      if (!isNaN(lastNum)) correlativo = lastNum + 1;
-    }
+    if (max && max.ultimo) correlativo = max.ultimo + 1;
     numeroFinal = `${prefix}${String(correlativo).padStart(4, '0')}`;
 
   } else if (tipo === 'PREFIXED') {
@@ -635,26 +647,18 @@ async function generarNumeroFactura(empresaId, fecha) {
       .replace('{MONTH}', month.toString().padStart(2, '0'))
       .replace('{DAY}', day.toString().padStart(2, '0'));
 
-    // 2. Buscar si hay facturas con ese mismo prefijo resuelto
-    // Nota: Es importante escapar caracteres especiales de SQL LIKE si fuera necesario, 
-    // pero para uso normal asumimos prefijo limpio.
-    const [ultima] = await sql`
-        select numero from factura_180 
-        where empresa_id=${empresaId} 
-        and estado in ('VALIDADA', 'ENVIADA')
-        and numero like ${resolvedPrefix + '%'}
-        order by created_at desc 
-        limit 1
+    // Buscamos el mayor número que coincida con el prefijo
+    // Intentamos extraer la parte numérica final
+    const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180 
+        WHERE empresa_id = ${empresaId} 
+        AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND numero LIKE ${resolvedPrefix + '%'}
     `;
 
-    if (ultima && ultima.numero) {
-      // Intentar extraer el número final. Asumimos que lo último es el correlativo.
-      // Si el formato termina en guion (ej FAC-2026-), el numero será FAC-2026-0001. split('-') funciona.
-      // Si no hay separador claro, intentamos match regex al final.
-      const match = ultima.numero.match(/(\d+)$/);
-      if (match) {
-        correlativo = parseInt(match[1]) + 1;
-      }
+    if (max && max.ultimo) {
+      correlativo = max.ultimo + 1;
     }
     numeroFinal = `${resolvedPrefix}${String(correlativo).padStart(4, '0')}`;
   }
@@ -784,7 +788,7 @@ export async function anularFactura(req, res) {
     }
 
     // Auditoría: Factura original anulada
-    await registrarAuditoria({
+    await auditFactura({
       empresaId,
       userId: req.user.id,
       accion: 'factura_anulada',

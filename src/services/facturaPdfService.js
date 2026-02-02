@@ -160,7 +160,7 @@ const FACTURA_STYLES = `
   /* En CSS 'bottom' se ajusta mejor a la lógica ReportLab de y-coordinada 0 en el suelo */
   .qr-block {
     position: absolute;
-    bottom: 160pt; /* Aproximado para estar encima de totales */
+    bottom: 210pt; /* Movido hacia arriba para evitar solapamientos */
     right: 30pt;
     text-align: right;
   }
@@ -260,6 +260,20 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   const ivaGlobal = Number(factura.iva_global || 0);
   const ivaTotal = Number(factura.iva_total || 0);
 
+  // Desglose de IVA por tipos
+  const desgloseIva = lineas.reduce((acc, l) => {
+    const pct = Number(l.iva_percent || ivaGlobal);
+    const base = Number(l.cantidad) * Number(l.precio_unitario);
+    const cuota = base * (pct / 100);
+
+    if (!acc[pct]) {
+      acc[pct] = { base: 0, cuota: 0 };
+    }
+    acc[pct].base += base;
+    acc[pct].cuota += cuota;
+    return acc;
+  }, {});
+
   // 4. Address Formats
   const fmtDir = (obj, pfx = '') => {
     const p1 = obj[`${pfx}direccion`] || '';
@@ -349,7 +363,9 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
 
     <div class="totals-block">
         <div class="total-row">Subtotal: ${subtotal.toFixed(2)} €</div>
-        <div class="total-row">IVA (${ivaGlobal.toFixed(2)}%): ${ivaTotal.toFixed(2)} €</div>
+        ${Object.entries(desgloseIva).map(([pct, data]) => `
+            <div class="total-row">IVA (${pct}%): ${data.cuota.toFixed(2)} €</div>
+        `).join('')}
         <div class="total-row total-final">TOTAL FACTURA: ${total.toFixed(2)} €</div>
     </div>
 
