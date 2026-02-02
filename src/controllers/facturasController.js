@@ -509,7 +509,7 @@ export async function validarFactura(req, res) {
             numero = ${numero},
             fecha = ${fecha}::date,
             fecha_validacion = current_date,
-            mensaje_iva = ${n(mensaje_iva)},
+            mensaje_iva = ${mensaje_iva !== undefined ? n(mensaje_iva) : sql`mensaje_iva`},
             subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
             total = ${total}

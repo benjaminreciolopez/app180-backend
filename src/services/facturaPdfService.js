@@ -160,9 +160,9 @@ const FACTURA_STYLES = `
   /* En CSS 'bottom' se ajusta mejor a la lógica ReportLab de y-coordinada 0 en el suelo */
   .qr-block {
     position: absolute;
-    top: 130pt; /* Bajado un poco */
+    top: 178pt; /* Alineado exacto con la línea de 'Nº FACTURA' */
     left: 50%;
-    transform: translateX(-50%); /* Centrado exacto horizontal */
+    transform: translateX(-50%);
     width: 140pt;
     text-align: center;
   }
@@ -201,12 +201,13 @@ const FACTURA_STYLES = `
   /* MENSAJE IVA - y_iva_msg = 80pts */
   .mensaje-iva-block {
     position: absolute;
-    bottom: 80pt;
+    bottom: 90pt; /* Ajustado para estar entre los totales y el pie legal */
     left: 30pt;
     right: 30pt;
     font-style: italic;
     font-size: 10pt;
     line-height: 1.2;
+    z-index: 10;
   }
 
   /* LEGAL / PIE - y_legal = 50pts */
