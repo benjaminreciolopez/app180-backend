@@ -480,29 +480,35 @@ export async function validarFactura(req, res) {
     const numero = await generarNumeroFactura(empresaId, fecha);
 
     await sql.begin(async (tx) => {
+      // Obtener líneas para recalcular
+      const lineas = await tx`select * from lineafactura_180 where factura_id=${id}`;
+
+      let subtotal = 0;
+      let iva_total = 0;
+      for (const l of lineas) {
+        const base = l.cantidad * l.precio_unitario;
+        subtotal += base;
+        iva_total += (base * (l.iva_percent || factura.iva_global || 0) / 100);
+      }
+      const total = Math.round((subtotal + iva_total) * 100) / 100;
+
       // Actualizar factura
-      await tx`
+      const [updatedRecord] = await tx`
         update factura_180
         set estado = 'VALIDADA',
             numero = ${numero},
             fecha = ${fecha}::date,
             fecha_validacion = current_date,
-            mensaje_iva = ${n(mensaje_iva)}
+            mensaje_iva = ${n(mensaje_iva)},
+            subtotal = ${Math.round(subtotal * 100) / 100},
+            iva_total = ${Math.round(iva_total * 100) / 100},
+            total = ${total}
         where id = ${id}
+        returning *
       `;
 
-      // Preparar objeto para VeriFactu
-      const facturaActualizada = {
-        ...factura,
-        numero,
-        fecha,
-        estado: 'VALIDADA',
-        fecha_validacion: new Date(),
-        mensaje_iva: n(mensaje_iva)
-      };
-
-      // Verificar Veri*Factu (si aplica)
-      await verificarVerifactu(facturaActualizada, tx);
+      // Verificar Veri*Factu (si aplica) con el registro actualizado
+      await verificarVerifactu(updatedRecord, tx);
 
       // Bloquear numeración (actualizar emisor)
       const year = new Date(fecha).getFullYear();
@@ -746,7 +752,36 @@ export async function anularFactura(req, res) {
           )
         `;
       }
+
+      // REGISTRAR EN VERIFACTU la rectificativa
+      await verificarVerifactu(rect, tx);
     });
+
+    // --- AUTO-GENERAR PDF RECTIFICATIVA ---
+    try {
+      // Necesitamos el ID de la rectificativa que acabamos de crear
+      const [rectData] = await sql`select id, numero, fecha from factura_180 where numero=${numeroRect} and empresa_id=${empresaId} limit 1`;
+      if (rectData) {
+        console.log(`📑 Generando PDF para rectificativa: ${numeroRect}`);
+        const pdfBuffer = await generarPdfFactura(rectData.id);
+        const baseFolder = await getInvoiceStorageFolder(empresaId);
+
+        const savedFile = await saveToStorage({
+          empresaId,
+          nombre: `Factura_${numeroRect.replace(/\//g, '-')}.pdf`,
+          buffer: pdfBuffer,
+          folder: getStoragePath(rectData.fecha, baseFolder),
+          mimeType: 'application/pdf',
+          useTimestamp: false
+        });
+
+        if (savedFile && savedFile.storage_path) {
+          await sql`update factura_180 set pdf_path = ${savedFile.storage_path} where id = ${rectData.id}`;
+        }
+      }
+    } catch (err) {
+      console.error("⚠️ Error auto-generando PDF rectificativa:", err);
+    }
 
     // Auditoría: Factura original anulada
     await registrarAuditoria({
