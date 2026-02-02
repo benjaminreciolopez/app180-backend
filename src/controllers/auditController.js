@@ -64,9 +64,9 @@ export const getAuditLogs = async (req, res) => {
       LEFT JOIN users_180 u ON u.id = a.user_id
       ${isVerifactu ? sql`` : sql`LEFT JOIN employees_180 e ON e.id = a.empleado_id`}
       WHERE a.empresa_id = ${empresaId}
-        ${empleado_id ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
+        ${empleado_id && !isVerifactu ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
         ${accion ? sql`AND a.accion = ${accion}` : sql``}
-        ${entidad_tipo ? sql`AND a.entidad_tipo = ${entidad_tipo}` : sql``}
+        ${entidad_tipo ? (isVerifactu ? sql`AND a.entidad = ${entidad_tipo}` : sql`AND a.entidad_tipo = ${entidad_tipo}`) : sql``}
         ${fecha_desde ? sql`AND a.created_at >= ${fecha_desde}::timestamptz` : sql``}
         ${fecha_hasta ? sql`AND a.created_at <= ${fecha_hasta}::timestamptz` : sql``}
       ORDER BY a.created_at DESC
@@ -80,7 +80,7 @@ export const getAuditLogs = async (req, res) => {
       WHERE a.empresa_id = ${empresaId}
         ${empleado_id && !isVerifactu ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
         ${accion ? sql`AND a.accion = ${accion}` : sql``}
-        ${entidad_tipo && !isVerifactu ? sql`AND a.entidad_tipo = ${entidad_tipo}` : sql``}
+        ${entidad_tipo ? (isVerifactu ? sql`AND a.entidad = ${entidad_tipo}` : sql`AND a.entidad_tipo = ${entidad_tipo}`) : sql``}
         ${fecha_desde ? sql`AND a.created_at >= ${fecha_desde}::timestamptz` : sql``}
         ${fecha_hasta ? sql`AND a.created_at <= ${fecha_hasta}::timestamptz` : sql``}
     `;

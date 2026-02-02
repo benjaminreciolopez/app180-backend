@@ -173,7 +173,12 @@ const FACTURA_STYLES = `
     margin: 0 auto;
   }
   .verifactu-label {
-    display: none; /* Eliminado por petición del usuario */
+    font-size: 8pt;
+    margin-top: 5pt;
+    color: #000;
+    line-height: 1.1;
+    font-weight: bold;
+    text-transform: uppercase;
   }
 
   /* TOTALES - y_totales = 140pts desde abajo */
@@ -273,6 +278,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
         qrHtml = `
               <div class="qr-block">
                   <img src="${qrDataUrl}" class="qr-img" />
+                  <div class="verifactu-label">SISTEMA DE FACTURACIÓN VERIFICABLE</div>
               </div>
           `;
       } catch (err) {
