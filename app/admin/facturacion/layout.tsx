@@ -39,6 +39,12 @@ export default function FacturacionLayout({
       active: pathname.includes("/listado") || pathname === "/admin/facturacion",
     },
     {
+      label: "Cobros y Pagos",
+      icon: CreditCard,
+      href: "/admin/facturacion/pagos",
+      active: pathname.includes("/pagos"),
+    },
+    {
       label: "Conceptos",
       icon: BookOpen,
       href: "/admin/facturacion/conceptos",
@@ -98,21 +104,24 @@ export default function FacturacionLayout({
       {/* Sub-navegación estilo pestañas */}
       <div className="px-6 pt-4 border-b bg-white">
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-          {tabs.map((tab) => (
-            <button
-              key={tab.href}
-              onClick={() => router.push(tab.href)}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
-                tab.active
-                  ? "border-blue-600 text-blue-600 bg-blue-50/50"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"
-              )}
-            >
-              <tab.icon className={cn("w-4 h-4", tab.active ? "text-blue-600" : "text-slate-400")} />
-              {tab.label}
-            </button>
-          ))}
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.href}
+                onClick={() => router.push(tab.href)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+                  tab.active
+                    ? "border-blue-600 text-blue-600 bg-blue-50/50"
+                    : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                )}
+              >
+                {Icon && <Icon className={cn("w-4 h-4", tab.active ? "text-blue-600" : "text-slate-400")} />}
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
