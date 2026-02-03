@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -116,6 +117,9 @@ export default function CrearFacturaPage() {
   const [clienteOpen, setClienteOpen] = useState(false)
   const [conceptos, setConceptos] = useState<Concepto[]>([])
   const [loadingConceptos, setLoadingConceptos] = useState(false)
+  const [trabajosPendientes, setTrabajosPendientes] = useState<any[]>([])
+  const [loadingTrabajos, setLoadingTrabajos] = useState(false)
+  const [selectedTrabajos, setSelectedTrabajos] = useState<string[]>([])
 
   // Column Resizing State
   const [colWidths, setColWidths] = useState<Record<string, number>>({
@@ -214,7 +218,49 @@ export default function CrearFacturaPage() {
 
   useEffect(() => {
     fetchConceptos(clienteId)
+    if (clienteId) {
+        fetchTrabajosPendientes(clienteId)
+    } else {
+        setTrabajosPendientes([])
+        setSelectedTrabajos([])
+    }
   }, [clienteId])
+
+  const fetchTrabajosPendientes = async (cId: number | string) => {
+    setLoadingTrabajos(true)
+    try {
+        // Usamos el listado que unifica deudas pero filtrando solo trabajos
+        const res = await api.get(`/admin/clientes/${cId}/trabajos-pendientes`)
+        const data = Array.isArray(res.data) ? res.data : []
+        setTrabajosPendientes(data.filter((d: any) => d.tipo === 'trabajo'))
+    } catch (err) {
+        console.error("Error cargando trabajos", err)
+    } finally {
+        setLoadingTrabajos(false)
+    }
+  }
+
+  const handleImportTrabajos = () => {
+    const selectedData = trabajosPendientes.filter(t => selectedTrabajos.includes(t.id))
+    
+    const nuevasLineas: Linea[] = selectedData.map(t => ({
+        id: Date.now() + Math.random(),
+        descripcion: t.descripcion || `Trabajo realizado el ${format(new Date(t.fecha), 'dd/MM/yyyy')}`,
+        cantidad: 1,
+        precio_unitario: Number(t.valor),
+        iva: ivaGlobal || 21,
+        work_log_id: t.id // Para tracking interno opcional
+    }))
+
+    // Si la única línea está vacía, la reemplazamos
+    if (lineas.length === 1 && !lineas[0].descripcion && lineas[0].precio_unitario === 0) {
+        setLineas(nuevasLineas)
+    } else {
+        setLineas([...lineas, ...nuevasLineas])
+    }
+    
+    toast.success(`${nuevasLineas.length} trabajos importados`)
+  }
 
   // --- LOGIC ---
 
@@ -355,7 +401,8 @@ export default function CrearFacturaPage() {
         iva_global: ivaGlobal,
         mensaje_iva: mensajeIva,
         metodo_pago: metodoPago,
-        lineas: lineas.map(({ id, ...rest }) => rest) // Remove temp ID
+        lineas: lineas.map(({ id, ...rest }) => rest), // Remove temp ID
+        work_log_ids: selectedTrabajos 
       }
 
       const res = await api.post('/admin/facturacion/facturas', payload) // Guardar borrador
@@ -477,6 +524,62 @@ export default function CrearFacturaPage() {
 
             </CardContent>
           </Card>
+
+          {/* Selector de Trabajos Pendientes (God Level) */}
+          {clienteId && trabajosPendientes.length > 0 && (
+            <Card className="border-blue-200 bg-blue-50/30 overflow-hidden">
+                <CardHeader className="py-4 bg-blue-50/50">
+                    <CardTitle className="text-sm font-bold flex items-center justify-between text-blue-900">
+                        <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            Trabajos Pendientes de Facturar
+                        </div>
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                            {trabajosPendientes.length} encontrados
+                        </Badge>
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {trabajosPendientes.map(t => {
+                            const isSel = selectedTrabajos.includes(t.id)
+                            return (
+                                <div 
+                                    key={t.id}
+                                    onClick={() => {
+                                        if (isSel) setSelectedTrabajos(prev => prev.filter(id => id !== t.id))
+                                        else setSelectedTrabajos(prev => [...prev, t.id])
+                                    }}
+                                    className={`
+                                        p-3 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3
+                                        ${isSel ? "bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20" : "bg-white/50 border-slate-200 hover:border-blue-300"}
+                                    `}
+                                >
+                                    <div className={`w-4 h-4 rounded mt-0.5 border flex items-center justify-center ${isSel ? "bg-blue-600 border-blue-600" : "border-slate-300"}`}>
+                                        {isSel && <Check className="w-3 h-3 text-white" />}
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                        <div className="font-semibold text-slate-800 line-clamp-1">{t.descripcion}</div>
+                                        <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                                            <span>{format(new Date(t.fecha), 'd MMM')}</span>
+                                            <span className="text-blue-700 font-bold">{formatCurrency(t.valor)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    {selectedTrabajos.length > 0 && (
+                        <div className="mt-4 flex justify-end">
+                            <Button size="sm" onClick={handleImportTrabajos} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6">
+                                <Plus className="w-4 h-4 mr-2" /> 
+                                IMPORTAR {selectedTrabajos.length} SELECCIONADOS
+                            </Button>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+          )}
 
           {/* Card: Líneas */}
           <Card className="border-slate-200 shadow-sm overflow-hidden">

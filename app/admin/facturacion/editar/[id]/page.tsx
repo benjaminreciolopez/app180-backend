@@ -13,7 +13,9 @@ import {
   Search,
   Check,
   AlertTriangle,
-  Loader2
+  Loader2,
+  FileText,
+  Badge
 } from "lucide-react"
 import { toast } from "sonner"
 import { format } from "date-fns"
@@ -93,6 +95,9 @@ export default function EditarFacturaPage() {
   const [clienteOpen, setClienteOpen] = useState(false)
   const [conceptos, setConceptos] = useState<Concepto[]>([])
   const [loadingConceptos, setLoadingConceptos] = useState(false)
+  const [trabajosPendientes, setTrabajosPendientes] = useState<any[]>([])
+  const [loadingTrabajos, setLoadingTrabajos] = useState(false)
+  const [selectedTrabajos, setSelectedTrabajos] = useState<string[]>([])
 
   // Cargar datos factura y clientes
   useEffect(() => {
@@ -145,6 +150,7 @@ export default function EditarFacturaPage() {
 
         console.info("Factura loaded:", f)
         console.info("Processed lines for state:", processedLines)
+        setSelectedTrabajos(f.work_log_ids || [])
         setLineas(processedLines)
 
       } catch (err) {
@@ -171,7 +177,46 @@ export default function EditarFacturaPage() {
 
   useEffect(() => {
     fetchConceptos(clienteId)
+    if (clienteId) {
+        fetchTrabajosPendientes(clienteId)
+    }
   }, [clienteId])
+
+  const fetchTrabajosPendientes = async (cId: number | string) => {
+    setLoadingTrabajos(true)
+    try {
+        const res = await api.get(`/admin/clientes/${cId}/trabajos-pendientes`)
+        const data = Array.isArray(res.data) ? res.data : []
+        
+        // Incluir los trabajos que YA están seleccionados para esta factura
+        // pero que no aparecen en pendientes porque ya tienen factura_id
+        setTrabajosPendientes(data.filter((d: any) => d.tipo === 'trabajo'))
+    } catch (err) {
+        console.error("Error cargando trabajos", err)
+    } finally {
+        setLoadingTrabajos(false)
+    }
+  }
+
+  const handleImportTrabajos = () => {
+    const selectedData = trabajosPendientes.filter(t => selectedTrabajos.includes(t.id))
+    
+    const nuevasLineas: Linea[] = selectedData.map(t => ({
+        id: Date.now() + Math.random(),
+        descripcion: t.descripcion || `Trabajo realizado el ${format(new Date(t.fecha), 'dd/MM/yyyy')}`,
+        cantidad: 1,
+        precio_unitario: Number(t.valor),
+        iva: 21
+    }))
+
+    if (lineas.length === 1 && !lineas[0].descripcion && lineas[0].precio_unitario === 0) {
+        setLineas(nuevasLineas)
+    } else {
+        setLineas([...lineas, ...nuevasLineas])
+    }
+    
+    toast.success(`${nuevasLineas.length} trabajos importados`)
+  }
 
   // --- LOGIC ---
 
@@ -290,7 +335,8 @@ export default function EditarFacturaPage() {
       const payload = {
         cliente_id: clienteId,
         fecha: fecha,
-        lineas: lineas.map(({ id, ...rest }) => rest)
+        lineas: lineas.map(({ id, ...rest }) => rest),
+        work_log_ids: selectedTrabajos
       }
 
       await api.put(`/admin/facturacion/facturas/${id}`, payload)
@@ -399,6 +445,56 @@ export default function EditarFacturaPage() {
 
             </CardContent>
           </Card>
+
+          {/* Selector de Trabajos Pendientes (God Level) */}
+          {clienteId && trabajosPendientes.length > 0 && (
+            <Card className="border-blue-200 bg-blue-50/30 overflow-hidden">
+                <div className="py-4 px-6 bg-blue-50/50 flex items-center justify-between">
+                    <div className="text-sm font-bold flex items-center gap-2 text-blue-900">
+                        <FileText className="w-4 h-4" />
+                        Trabajos Pendientes de Facturar
+                    </div>
+                </div>
+                <CardContent className="p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {trabajosPendientes.map(t => {
+                            const isSel = selectedTrabajos.includes(t.id)
+                            return (
+                                <div 
+                                    key={t.id}
+                                    onClick={() => {
+                                        if (isSel) setSelectedTrabajos(prev => prev.filter(id => id !== t.id))
+                                        else setSelectedTrabajos(prev => [...prev, t.id])
+                                    }}
+                                    className={`
+                                        p-3 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3
+                                        ${isSel ? "bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20" : "bg-white/50 border-slate-200 hover:border-blue-300"}
+                                    `}
+                                >
+                                    <div className={`w-4 h-4 rounded mt-0.5 border flex items-center justify-center ${isSel ? "bg-blue-600 border-blue-600" : "border-slate-300"}`}>
+                                        {isSel && <Check className="w-3 h-3 text-white" />}
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                        <div className="font-semibold text-slate-800 line-clamp-1">{t.descripcion}</div>
+                                        <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                                            <span>{format(new Date(t.fecha), 'd MMM')}</span>
+                                            <span className="text-blue-700 font-bold">{formatCurrency(t.valor)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    {/* Botón de importación solo si hay nuevos seleccionados que NO están en lineas */}
+                    <div className="mt-4 flex justify-end">
+                        <Button size="sm" onClick={handleImportTrabajos} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6">
+                            <Plus className="w-4 h-4 mr-2" /> 
+                            IMPORTAR SELECCIONADOS
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+          )}
 
           {/* Card: Líneas */}
           <Card className="border-slate-200 shadow-sm overflow-hidden">

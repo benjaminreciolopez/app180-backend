@@ -39,13 +39,15 @@ import {
 import { api as apiService } from "@/services/api";
 import { UniversalExportButton } from "@/components/shared/UniversalExportButton";
 
-type TrabajoPendiente = {
+type DeudaPendiente = {
     id: string;
+    tipo: 'factura' | 'trabajo';
     fecha: string;
     descripcion: string;
     valor: number;
     pagado: number;
     estado_pago: string;
+    numero?: string;
 };
 
 type Payment = {
@@ -82,9 +84,9 @@ export default function GlobalPagosPage() {
 
   // Data for form
   const [clients, setClients] = useState<any[]>([]);
-  const [pendientes, setPendientes] = useState<TrabajoPendiente[]>([]);
+  const [pendientes, setPendientes] = useState<DeudaPendiente[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<Record<string, number>>({}); 
+  const [selectedItems, setSelectedItems] = useState<Record<string, { importe: number, tipo: 'factura' | 'trabajo' }>>({}); 
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -141,7 +143,7 @@ export default function GlobalPagosPage() {
       if(!totalAmount) return;
 
       let remaining = totalAmount;
-      const newSelection: Record<string, number> = {};
+      const newSelection: Record<string, { importe: number, tipo: 'factura' | 'trabajo' }> = {};
 
       for(const item of pendientes) {
           if(remaining <= 0.01) break;
@@ -150,23 +152,23 @@ export default function GlobalPagosPage() {
           const pay = Math.min(remaining, debt);
           
           if (pay > 0) {
-              newSelection[item.id] = Number(pay.toFixed(2));
+              newSelection[item.id] = { importe: Number(pay.toFixed(2)), tipo: item.tipo };
               remaining -= pay;
           }
       }
       setSelectedItems(newSelection);
   };
 
-  const currentAllocated = Object.values(selectedItems).reduce((a,b) => a+b, 0);
+  const currentAllocated = Object.values(selectedItems).reduce((acc, curr) => acc + curr.importe, 0);
 
   async function handleCreatePayment() {
     if(!newPay.cliente_id) return toast.error("Selecciona un cliente");
     if(!newPay.importe || Number(newPay.importe) <= 0) return toast.error("Indica un importe válido");
     
     // Prepare Allocations
-    const asignaciones = Object.entries(selectedItems).map(([work_log_id, importe]) => ({
-        work_log_id,
-        importe
+    const asignaciones = Object.entries(selectedItems).map(([id, data]) => ({
+        [data.tipo === 'factura' ? 'factura_id' : 'work_log_id']: id,
+        importe: data.importe
     })).filter(x => x.importe > 0);
 
     const totalAllocated = asignaciones.reduce((a,b) => a + b.importe, 0);
@@ -529,23 +531,37 @@ export default function GlobalPagosPage() {
                                                     setSelectedItems(copy);
                                                 } else {
                                                     const totalPay = Number(newPay.importe);
-                                                    const alreadyAllocated = Object.values(selectedItems).reduce((a,b) => a+b, 0);
+                                                    const alreadyAllocated = Object.values(selectedItems).reduce((acc, curr) => acc + curr.importe, 0);
                                                     const remainingCapacity = Math.max(0, totalPay - alreadyAllocated);
                                                     const amountToAssign = Math.min(debt, remainingCapacity);
-                                                    setSelectedItems(prev => ({ ...prev, [item.id]: Number(amountToAssign.toFixed(2)) }))
+                                                    setSelectedItems(prev => ({ 
+                                                        ...prev, 
+                                                        [item.id]: { 
+                                                            importe: Number(amountToAssign.toFixed(2)), 
+                                                            tipo: item.tipo 
+                                                        } 
+                                                    }));
                                                 }
                                             }}
                                         >
                                             <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${isSelected ? "bg-blue-600 border-blue-600" : "bg-slate-50 border-slate-300"}`}>
                                                 {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
                                             </div>
-                                            <div className="flex-1">
-                                                <div className="font-semibold text-slate-800">{item.descripcion}</div>
+                                                <div className="flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-semibold text-slate-800">{item.descripcion}</span>
+                                                    <Badge variant="outline" className={`text-[9px] uppercase font-bold py-0 h-4 ${item.tipo === 'factura' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
+                                                        {item.tipo}
+                                                    </Badge>
+                                                </div>
                                                 <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
                                                     <CalendarIcon className="w-3 h-3" />
                                                     {format(new Date(item.fecha), "d MMM yyyy", { locale: es })}
                                                     <span className="text-slate-200">|</span>
-                                                    <span className="text-red-500 font-bold uppercase tracking-tight">Deuda: {formatCurrency(debt)}</span>
+                                                    <span className={`${item.tipo === 'factura' ? 'text-purple-600' : 'text-red-500'} font-bold uppercase tracking-tight`}>
+                                                        {item.tipo === 'factura' ? 'Cobro Fra: ' : 'Pendiente: '} 
+                                                        {formatCurrency(debt)}
+                                                    </span>
                                                 </div>
                                             </div>
                                             {isSelected && (
@@ -553,10 +569,10 @@ export default function GlobalPagosPage() {
                                                     <Input 
                                                         type="number" 
                                                         className="h-8 text-right bg-blue-50/50 border-blue-200 text-xs font-bold text-blue-600"
-                                                        value={selectedItems[item.id]}
+                                                        value={selectedItems[item.id].importe}
                                                         onChange={e => {
                                                             const val = Number(e.target.value);
-                                                            setSelectedItems(prev => ({...prev, [item.id]: val}));
+                                                            setSelectedItems(prev => ({...prev, [item.id]: { ...prev[item.id], importe: val }}));
                                                         }}
                                                     />
                                                 </div>
