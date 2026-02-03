@@ -72,16 +72,36 @@ export async function crearPago(req, res) {
       for (const item of asignaciones) {
         if (item.importe <= 0) continue;
 
-        if (item.work_log_id) {
-          // Asignación a Trabajo
-          await sql`
-            insert into payment_allocations_180 (
-                empresa_id, payment_id, work_log_id, importe
-            ) values (
-                ${empresaId}, ${payment.id}, ${item.work_log_id}, ${item.importe}
-            )
-          `;
+        const invId = item.invoice_id || item.work_log_id || item.factura_id;
+        if (!invId) continue;
 
+        // Insertar en allocations usando todas las columnas disponibles por seguridad legacy
+        await sql`
+          insert into payment_allocations_180 (
+              empresa_id, payment_id, invoice_id, work_log_id, factura_id, importe
+          ) values (
+              ${empresaId}, ${payment.id}, ${invId}, 
+              ${item.work_log_id || null}, 
+              ${item.factura_id || null}, 
+              ${item.importe}
+          )
+        `;
+
+        // Actualizar tabla de consolidación (invoices_180)
+        await sql`
+          UPDATE invoices_180
+          SET 
+            importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
+            saldo = GREATEST(0, saldo - ${item.importe}),
+            estado = CASE 
+                WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total THEN 'pagada'
+                ELSE 'parcial'
+            END
+          WHERE id = ${invId} AND empresa_id = ${empresaId}
+        `;
+
+        // Actualización Legacy (Opcional pero recomendada si hay otras partes del app usándolas)
+        if (item.work_log_id) {
           await sql`
             UPDATE work_logs_180
             SET 
@@ -93,15 +113,6 @@ export async function crearPago(req, res) {
             WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
           `;
         } else if (item.factura_id) {
-          // Asignación a Factura
-          await sql`
-            insert into payment_allocations_180 (
-                empresa_id, payment_id, factura_id, importe
-            ) values (
-                ${empresaId}, ${payment.id}, ${item.factura_id}, ${item.importe}
-            )
-          `;
-
           await sql`
             UPDATE factura_180
             SET 
@@ -327,6 +338,23 @@ export async function eliminarPago(req, res) {
       `;
 
       for (const a of asignaciones) {
+        // 1. Revertir en tabla de consolidación (invoices_180)
+        const invId = a.invoice_id || a.work_log_id || a.factura_id;
+        if (invId) {
+          await sql`
+            UPDATE invoices_180
+            SET
+                importe_pagado = GREATEST(0, COALESCE(importe_pagado, 0) - ${a.importe}),
+                saldo = saldo + ${a.importe},
+                estado = CASE
+                    WHEN (COALESCE(importe_pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
+                    ELSE 'parcial'
+                END
+            WHERE id = ${invId} AND empresa_id = ${empresaId}
+          `;
+        }
+
+        // 2. Revertir en tablas Legacy
         if (a.work_log_id) {
           await sql`
             UPDATE work_logs_180
@@ -338,7 +366,9 @@ export async function eliminarPago(req, res) {
               END
             WHERE id = ${a.work_log_id} AND empresa_id = ${empresaId}
           `;
-        } else if (a.factura_id) {
+        }
+
+        if (a.factura_id) {
           await sql`
             UPDATE factura_180
             SET 
@@ -349,18 +379,6 @@ export async function eliminarPago(req, res) {
               END
             WHERE id = ${a.factura_id} AND empresa_id = ${empresaId}
           `;
-        } else if (a.invoice_id) {
-          await sql`
-                UPDATE invoices_180
-                SET
-                    importe_pagado = GREATEST(0, COALESCE(importe_pagado, 0) - ${a.importe}),
-                    saldo = saldo + ${a.importe},
-                    estado = CASE
-                        WHEN (COALESCE(importe_pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
-                        ELSE 'parcial'
-                    END
-                WHERE id = ${a.invoice_id} AND empresa_id = ${empresaId}
-             `;
         }
       }
 
