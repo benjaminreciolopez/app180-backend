@@ -277,3 +277,103 @@ export async function getTrabajosPendientes(req, res) {
     res.status(500).json({ error: e.message });
   }
 }
+
+export async function getPagoDetalle(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { id } = req.params;
+
+    const pago = await sql`
+      select p.*, c.nombre as cliente_nombre
+      from payments_180 p
+      left join clients_180 c on p.cliente_id = c.id
+      where p.id=${id} and p.empresa_id=${empresaId}
+    `;
+
+    if (!pago[0]) return res.status(404).json({ error: "Pago no existe" });
+
+    const asignaciones = await sql`
+      select a.*, 
+             f.numero as factura_numero,
+             w.descripcion as trabajo_descripcion,
+             i.referencia as invoice_referencia
+      from payment_allocations_180 a
+      left join factura_180 f on a.factura_id = f.id
+      left join work_logs_180 w on a.work_log_id = w.id
+      left join invoices_180 i on a.invoice_id = i.id
+      where a.payment_id=${id} and a.empresa_id=${empresaId}
+    `;
+
+    res.json({
+      pago: pago[0],
+      asignaciones
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function eliminarPago(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { id } = req.params;
+
+    await sql.begin(async (sql) => {
+      // 1. Obtener asignaciones para revertirlas
+      const asignaciones = await sql`
+        select * from payment_allocations_180 
+        where payment_id = ${id} and empresa_id = ${empresaId}
+      `;
+
+      for (const a of asignaciones) {
+        if (a.work_log_id) {
+          await sql`
+            UPDATE work_logs_180
+            SET 
+              pagado = GREATEST(0, COALESCE(pagado, 0) - ${a.importe}),
+              estado_pago = CASE 
+                  WHEN (COALESCE(pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
+                  ELSE 'parcial'
+              END
+            WHERE id = ${a.work_log_id} AND empresa_id = ${empresaId}
+          `;
+        } else if (a.factura_id) {
+          await sql`
+            UPDATE factura_180
+            SET 
+              pagado = GREATEST(0, COALESCE(pagado, 0) - ${a.importe}),
+              estado_pago = CASE 
+                  WHEN (COALESCE(pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
+                  ELSE 'parcial'
+              END
+            WHERE id = ${a.factura_id} AND empresa_id = ${empresaId}
+          `;
+        } else if (a.invoice_id) {
+          await sql`
+                UPDATE invoices_180
+                SET
+                    importe_pagado = GREATEST(0, COALESCE(importe_pagado, 0) - ${a.importe}),
+                    saldo = saldo + ${a.importe},
+                    estado = CASE
+                        WHEN (COALESCE(importe_pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
+                        ELSE 'parcial'
+                    END
+                WHERE id = ${a.invoice_id} AND empresa_id = ${empresaId}
+             `;
+        }
+      }
+
+      // 2. Borrar asignaciones
+      await sql`delete from payment_allocations_180 where payment_id = ${id} and empresa_id = ${empresaId}`;
+
+      // 3. Borrar el pago
+      await sql`delete from payments_180 where id = ${id} and empresa_id = ${empresaId}`;
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Error eliminando pago: " + e.message });
+  }
+}
