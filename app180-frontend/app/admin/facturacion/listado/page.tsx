@@ -85,6 +85,7 @@ export default function FacturasListadoPage() {
   const [facturaToDelete, setFacturaToDelete] = useState<any>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [facturaToAnular, setFacturaToAnular] = useState<any>(null)
 
   // Cargar datos
   const loadFacturas = useCallback(async () => {
@@ -188,19 +189,16 @@ export default function FacturasListadoPage() {
          .catch(() => toast.error("Error al descargar PDF"))
   }
 
-  const handleAnular = async (id: number) => {
-    // Redirigir a pantalla de anulación o modal
-    // Por simplicidad, un prompt o confirmación podría bastar, pero anular suele requerir motivo.
-    // Aquí solo marcaremos la intencionalidad y llamaremos la API directa si es simple, 
-    // o redirigiríamos. Asumiremos anulación simple (rectificativa automática completa).
-    
-    if(!confirm("¿Estás seguro de emitir una factura rectificativa para anular esta factura? Esta acción es irreversible.")) return;
+  const handleAnular = async () => {
+    if (!facturaToAnular) return
+    const id = facturaToAnular.id
 
     if (procesandoId) return
     setProcesandoId(id)
     try {
       await api.post(`/admin/facturacion/facturas/${id}/anular`, { motivo: "Anulación solicitada desde listado" })
       toast.success("Factura anulada y rectificativa generada")
+      setFacturaToAnular(null)
       loadFacturas()
     } catch (error: any) {
       toast.error(error.response?.data?.error || "Error al anular")
@@ -308,7 +306,7 @@ export default function FacturasListadoPage() {
                             key={factura.id} 
                             factura={factura} 
                             onValidar={() => handleValidar(factura.id)}
-                            onAnular={() => handleAnular(factura.id)}
+                            onAnular={() => setFacturaToAnular(factura)}
                             onDelete={() => setFacturaToDelete(factura)}
                             onEdit={() => router.push(`/admin/facturacion/editar/${factura.id}`)}
                             isProcessing={procesandoId === factura.id}
@@ -335,8 +333,39 @@ export default function FacturasListadoPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction 
+                onClick={handleDelete} 
+                className="bg-red-600 hover:bg-red-700"
+                disabled={!!procesandoId}
+            >
+              {procesandoId ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Diálogo Confirmar Anulación */}
+      <AlertDialog open={!!facturaToAnular} onOpenChange={() => setFacturaToAnular(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+               <FileX className="w-5 h-5" />
+               ¿Anular Factura?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se emitirá una factura rectificativa para anular la factura <strong>{facturaToAnular?.numero}</strong>. Esta acción es irreversible y cumplirá con la normativa Veri*Factu.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+                onClick={handleAnular} 
+                className="bg-red-600 hover:bg-red-700"
+                disabled={!!procesandoId}
+            >
+              {procesandoId ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Confirmar Anulación
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -366,7 +395,6 @@ export default function FacturasListadoPage() {
               </div>
           </DialogContent>
       </Dialog>
-
     </div>
   )
 }

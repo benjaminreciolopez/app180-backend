@@ -615,7 +615,7 @@ export default function EditarFacturaPage() {
                                             <span className="font-medium">{linea.iva}%</span>
                                             <div className="hidden"><SelectValue /></div>
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SelectContent className="min-w-[140px]">
                                             <SelectItem value="21">21%</SelectItem>
                                             <SelectItem value="10">10%</SelectItem>
                                             <SelectItem value="4">4%</SelectItem>

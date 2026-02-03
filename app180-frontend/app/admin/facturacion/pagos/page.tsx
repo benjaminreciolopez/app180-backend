@@ -16,6 +16,9 @@ import {
   Banknote,
   Smartphone,
   MoreHorizontal,
+  MoreVertical,
+  RefreshCcw,
+  Eye,
   ArrowUpDown,
   Calendar as CalendarIcon,
   User,
@@ -36,6 +39,14 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { api as apiService } from "@/services/api";
 import { UniversalExportButton } from "@/components/shared/UniversalExportButton";
 
@@ -89,6 +100,9 @@ export default function GlobalPagosPage() {
   const [selectedItems, setSelectedItems] = useState<Record<string, { importe: number, tipo: 'factura' | 'trabajo' }>>({}); 
 
   const [submitting, setSubmitting] = useState(false);
+  const [procesandoId, setProcesandoId] = useState<string | null>(null);
+
+  const isGlobalBusy = loading || submitting || !!procesandoId;
 
   const loadPagos = useCallback(async () => {
     try {
@@ -252,12 +266,23 @@ export default function GlobalPagosPage() {
         </div>
         
         <div className="flex items-center gap-3 w-full md:w-auto">
+            <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={loadPagos} 
+                disabled={isGlobalBusy}
+                className="bg-white border-slate-200"
+            >
+                <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
             <UniversalExportButton 
                 module="cobros" 
                 queryParams={{}}
+                disabled={isGlobalBusy}
             />
             <Button 
                 onClick={() => setDrawerOpen(true)}
+                disabled={isGlobalBusy}
                 className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20 px-6"
             >
                 <Plus className="w-4 h-4 mr-2" />
@@ -318,8 +343,9 @@ export default function GlobalPagosPage() {
             <div className="col-span-3">Cliente</div>
             <div className="col-span-2">Fecha</div>
             <div className="col-span-2">Método</div>
-            <div className="col-span-3 text-right">Importe</div>
+            <div className="col-span-2 text-right">Importe</div>
             <div className="col-span-2 text-right">Referencia</div>
+            <div className="col-span-1 text-right">Acciones</div>
         </div>
 
         {loading ? (
@@ -369,12 +395,39 @@ export default function GlobalPagosPage() {
                                 </Badge>
                             </div>
 
-                            <div className="col-span-3 text-right">
+                            <div className="col-span-2 text-right">
                                 <span className="font-bold text-slate-900 text-base">{formatCurrency(pago.importe)}</span>
                             </div>
 
                             <div className="col-span-2 text-right text-xs text-slate-400 font-mono truncate">
                                 {pago.referencia || "—"}
+                            </div>
+
+                            <div className="col-span-1 flex justify-end">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={isGlobalBusy}>
+                                            <MoreVertical className="w-4 h-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                                        <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
+                                            <Eye className="w-4 h-4 mr-2" /> Ver Detalle
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem 
+                                            className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                                            onClick={() => {
+                                                toast("Anulación no disponible", { 
+                                                    description: "La anulación de pagos debe realizarse desde el módulo de soporte en esta versión."
+                                                })
+                                            }}
+                                        >
+                                            <X className="w-4 h-4 mr-2" /> Anular Cobro
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                             </div>
                         </motion.div>
                     ))}

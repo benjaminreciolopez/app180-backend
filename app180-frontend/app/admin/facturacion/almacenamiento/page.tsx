@@ -79,6 +79,8 @@ export default function AlmacenamientoPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [uploading, setUploading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   // Selección
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -194,8 +196,9 @@ export default function AlmacenamientoPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (isDownloading) return
+    if (isDownloading || deletingId) return
     if (!confirm("¿Seguro que quieres eliminar este archivo?")) return
+    setDeletingId(id)
     try {
       await api.delete(`/admin/storage/files/${id}`)
       toast.success("Archivo eliminado")
@@ -203,15 +206,16 @@ export default function AlmacenamientoPage() {
       fetchStructure() 
     } catch (err) {
       toast.error("Error al eliminar")
+    } finally {
+      setDeletingId(null)
     }
   }
 
   const handleDeleteBulk = async () => {
-    if (isDownloading) return
+    if (isDownloading || isDeletingBulk) return
     if (!confirm(`¿Seguro que quieres eliminar ${selectedItems.size} archivos?`)) return
     
-    // Eliminar uno a uno (simple) o endpoint bulk (ideal)
-    // Usaremos promises paralelas simple
+    setIsDeletingBulk(true)
     try {
         const promises = Array.from(selectedItems).map(id => api.delete(`/admin/storage/files/${id}`))
         await Promise.all(promises)
@@ -221,6 +225,8 @@ export default function AlmacenamientoPage() {
         fetchStructure()
     } catch(err) {
         toast.error("Error eliminando algunos archivos")
+    } finally {
+        setIsDeletingBulk(false)
     }
   }
 
@@ -361,9 +367,9 @@ export default function AlmacenamientoPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-[1600px] mx-auto h-[calc(100vh-80px)] flex flex-col relative">
       
-      {/* Overlay de Bloqueo / Descarga */}
+      {/* Overlay de Bloqueo / Descarga / Borrado */}
       <AnimatePresence>
-          {(isDownloading || uploading) && (
+          {(isDownloading || uploading || isDeletingBulk) && (
               <motion.div 
                  initial={{ opacity: 0 }}
                  animate={{ opacity: 1 }}
@@ -372,7 +378,7 @@ export default function AlmacenamientoPage() {
               >
                   <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
                   <h3 className="text-xl font-semibold text-slate-800">
-                      {isDownloading ? "Descargando archivos..." : "Subiendo archivo..."}
+                      {isDownloading ? "Descargando archivos..." : uploading ? "Subiendo archivo..." : "Eliminando archivos..."}
                   </h3>
                   <p className="text-slate-500">Por favor espere, no cierre la ventana.</p>
               </motion.div>
@@ -536,7 +542,7 @@ export default function AlmacenamientoPage() {
                             variant="ghost" 
                             className="h-7 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
                             onClick={handleDeleteBulk}
-                            disabled={isDownloading}
+                            disabled={isDownloading || isDeletingBulk}
                         >
                             <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                             Eliminar ({selectedItems.size})

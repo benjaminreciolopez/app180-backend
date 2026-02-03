@@ -271,6 +271,8 @@ export default function ConfiguracionFacturacionPage() {
   const [ivas, setIvas] = useState<any[]>([])
   const [newIvaPct, setNewIvaPct] = useState("")
   const [newIvaDesc, setNewIvaDesc] = useState("")
+  const [addingIva, setAddingIva] = useState(false)
+  const [deletingIvaId, setDeletingIvaId] = useState<number | null>(null)
 
   useEffect(() => {
     loadIvas()
@@ -294,6 +296,7 @@ export default function ConfiguracionFacturacionPage() {
        desc = LEGAL_IVA_TEXTS[pct] || `IVA ${newIvaPct}%`;
     }
 
+    setAddingIva(true)
     try {
       await api.post('/admin/facturacion/iva', { 
           porcentaje: newIvaPct, 
@@ -301,20 +304,25 @@ export default function ConfiguracionFacturacionPage() {
       })
       setNewIvaPct("")
       setNewIvaDesc("")
-      loadIvas()
       toast.success("Tipo de IVA añadido con texto legal sugerido")
+      loadIvas()
     } catch (err) {
       toast.error("Error al añadir IVA")
+    } finally {
+      setAddingIva(false)
     }
   }
 
   const handleDeleteIva = async (id: number) => {
+    setDeletingIvaId(id)
     try {
       await api.delete(`/admin/facturacion/iva/${id}`)
-      loadIvas()
       toast.success("Tipo de IVA eliminado")
+      loadIvas()
     } catch (err) {
        toast.error("Error al eliminar IVA")
+    } finally {
+      setDeletingIvaId(null)
     }
   }
 
@@ -681,8 +689,8 @@ export default function ConfiguracionFacturacionPage() {
                                     value={newIvaDesc} 
                                     onChange={(e) => setNewIvaDesc(e.target.value)} 
                                 />
-                                <Button variant="outline" onClick={handleAddIva}>
-                                    <Plus className="w-4 h-4 mr-2" /> Añadir
+                                <Button variant="outline" onClick={handleAddIva} disabled={addingIva}>
+                                    {addingIva ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-2" /> Añadir</>}
                                 </Button>
                              </div>
                              <p className="text-[10px] text-slate-400 italic">
@@ -699,8 +707,8 @@ export default function ConfiguracionFacturacionPage() {
                                             {iva.descripcion || 'Sin descripción'}
                                         </span>
                                     </div>
-                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteIva(iva.id)} className="h-8 w-8 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50">
-                                        <Trash2 className="w-4 h-4" />
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteIva(iva.id)} disabled={deletingIvaId === iva.id} className="h-8 w-8 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50">
+                                        {deletingIvaId === iva.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                     </Button>
                                 </div>
                             ))}

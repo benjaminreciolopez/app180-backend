@@ -17,13 +17,15 @@ interface UniversalExportButtonProps {
     queryParams: Record<string, any>;
     label?: string;
     className?: string;
+    disabled?: boolean;
 }
 
 export const UniversalExportButton = ({
     module,
     queryParams,
     label = "Exportar",
-    className = ""
+    className = "",
+    disabled = false
 }: UniversalExportButtonProps) => {
     const [loading, setLoading] = useState(false);
     const [value, setValue] = useState<string>("");
@@ -113,7 +115,7 @@ export const UniversalExportButton = ({
                     // Reset después de un momento para permitir re-selección
                     setTimeout(() => setValue(""), 1000);
                 }}
-                disabled={loading}
+                disabled={loading || disabled}
             >
                 <SelectTrigger className="w-[180px] h-9 bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-900 cursor-pointer shadow-sm ring-offset-white focus:ring-2 focus:ring-slate-400 focus:ring-offset-2">
                     <div className="flex items-center gap-2 flex-1">
