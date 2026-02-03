@@ -300,8 +300,9 @@ export async function actualizarCliente(req, res) {
   const fieldsFiscal = {};
 
   for (const k of Object.keys(body)) {
-    if (allowedGeneral.includes(k)) fieldsGeneral[k] = body[k];
-    if (allowedFiscal.includes(k)) fieldsFiscal[k] = body[k];
+    const val = body[k] === undefined ? null : body[k];
+    if (allowedGeneral.includes(k)) fieldsGeneral[k] = val;
+    if (allowedFiscal.includes(k)) fieldsFiscal[k] = val;
   }
 
   // Actualizar tabla general
