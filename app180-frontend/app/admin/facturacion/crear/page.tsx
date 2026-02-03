@@ -732,18 +732,18 @@ export default function CrearFacturaPage() {
                                             <span className="font-medium">{linea.iva}%</span>
                                             <div className="hidden"><SelectValue /></div>
                                         </SelectTrigger>
-                                        <SelectContent className="min-w-[140px]">
+                                        <SelectContent className="w-[140px] min-w-[140px]" align="center">
                                             {ivas.map((iva) => (
-                                                <SelectItem key={iva.id || iva.porcentaje} value={iva.porcentaje.toString()}>
+                                                <SelectItem key={iva.id || iva.porcentaje} value={iva.porcentaje.toString()} className="cursor-pointer justify-center text-center">
                                                     {iva.porcentaje}%
                                                 </SelectItem>
                                             ))}
                                             {ivas.length === 0 && (
                                                 <>
-                                                    <SelectItem value="21">21%</SelectItem>
-                                                    <SelectItem value="10">10%</SelectItem>
-                                                    <SelectItem value="4">4%</SelectItem>
-                                                    <SelectItem value="0">0%</SelectItem>
+                                                    <SelectItem value="21" className="cursor-pointer">21%</SelectItem>
+                                                    <SelectItem value="10" className="cursor-pointer">10%</SelectItem>
+                                                    <SelectItem value="4" className="cursor-pointer">4%</SelectItem>
+                                                    <SelectItem value="0" className="cursor-pointer">0%</SelectItem>
                                                 </>
                                             )}
                                         </SelectContent>
