@@ -70,29 +70,48 @@ export async function crearPago(req, res) {
 
       // 2. Procesar Asignaciones
       for (const item of asignaciones) {
-        if (item.work_log_id && item.importe > 0) {
-          // Crear registro allocation
-          await sql`
-                      insert into payment_allocations_180 (
-                          empresa_id, payment_id, work_log_id, importe
-                      ) values (
-                          ${empresaId}, ${payment.id}, ${item.work_log_id}, ${item.importe}
-                      )
-                   `;
+        if (item.importe <= 0) continue;
 
-          // Actualizar work_log
-          // pagado = pagado + importe
-          // estado = check si pagado >= valor
+        if (item.work_log_id) {
+          // Asignación a Trabajo
           await sql`
-                      UPDATE work_logs_180
-                      SET 
-                        pagado = COALESCE(pagado, 0) + ${item.importe},
-                        estado_pago = CASE 
-                            WHEN (COALESCE(pagado, 0) + ${item.importe}) >= valor THEN 'pagado'
-                            ELSE 'parcial'
-                        END
-                      WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
-                   `;
+            insert into payment_allocations_180 (
+                empresa_id, payment_id, work_log_id, importe
+            ) values (
+                ${empresaId}, ${payment.id}, ${item.work_log_id}, ${item.importe}
+            )
+          `;
+
+          await sql`
+            UPDATE work_logs_180
+            SET 
+              pagado = COALESCE(pagado, 0) + ${item.importe},
+              estado_pago = CASE 
+                  WHEN (COALESCE(pagado, 0) + ${item.importe}) >= valor THEN 'pagado'
+                  ELSE 'parcial'
+              END
+            WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
+          `;
+        } else if (item.factura_id) {
+          // Asignación a Factura
+          await sql`
+            insert into payment_allocations_180 (
+                empresa_id, payment_id, factura_id, importe
+            ) values (
+                ${empresaId}, ${payment.id}, ${item.factura_id}, ${item.importe}
+            )
+          `;
+
+          await sql`
+            UPDATE factura_180
+            SET 
+              pagado = COALESCE(pagado, 0) + ${item.importe},
+              estado_pago = CASE 
+                  WHEN (COALESCE(pagado, 0) + ${item.importe}) >= total THEN 'pagado'
+                  ELSE 'parcial'
+              END
+            WHERE id = ${item.factura_id} AND empresa_id = ${empresaId}
+          `;
         }
       }
 
@@ -202,20 +221,59 @@ export async function imputarPago(req, res) {
 }
 
 /**
- * GET /admin/clientes/:id/trabajos-pendientes
- * Devuelve worklogs con deuda (val - pagado > 0)
+ * GET /admin/clientes/:id/deudas-pendientes
+ * Devuelve un mix de facturas y trabajos sin facturar que tienen deuda pendiente
  */
 export async function getTrabajosPendientes(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
-  const { id } = req.params; // clienteId
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { id } = req.params; // clienteId
 
-  const rows = await sql`
-        SELECT * 
-        FROM work_logs_180
-        WHERE empresa_id = ${empresaId}
-          AND cliente_id = ${id}
-          AND (valor > COALESCE(pagado, 0))
-        ORDER BY fecha ASC
+    const deudas = [];
+
+    // 1. Facturas Validadas con Saldo
+    const facturas = await sql`
+      SELECT 
+        id, 
+        numero, 
+        fecha, 
+        total as valor, 
+        pagado, 
+        estado_pago,
+        'factura' as tipo,
+        'Factura ' || numero as descripcion
+      FROM factura_180
+      WHERE empresa_id = ${empresaId}
+        AND cliente_id = ${id}
+        AND estado = 'VALIDADA'
+        AND (total > COALESCE(pagado, 0))
     `;
-  res.json(rows);
+    deudas.push(...facturas);
+
+    // 2. Trabajos sin Factura con Saldo
+    const trabajos = await sql`
+      SELECT 
+        id,
+        fecha,
+        valor,
+        pagado,
+        estado_pago,
+        'trabajo' as tipo,
+        descripcion
+      FROM work_logs_180
+      WHERE empresa_id = ${empresaId}
+        AND cliente_id = ${id}
+        AND factura_id IS NULL
+        AND (valor > COALESCE(pagado, 0))
+    `;
+    deudas.push(...trabajos);
+
+    // Ordenar por fecha
+    deudas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+    res.json(deudas);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
 }
