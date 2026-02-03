@@ -113,22 +113,36 @@ export async function crearPago(req, res) {
             WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
           `;
         } else if (item.factura_id) {
-          // Actualizar Factura
+          // 1. Actualizar Factura Legacy
           await sql`
             UPDATE factura_180
             SET 
               pagado = COALESCE(pagado, 0) + ${item.importe},
               estado_pago = CASE 
-                  WHEN (COALESCE(pagado, 0) + ${item.importe}) >= total THEN 'pagado'
+                  WHEN (COALESCE(pagado, 0) + ${item.importe}) >= total - 0.01 THEN 'pagado'
                   ELSE 'parcial'
               END
             WHERE id = ${item.factura_id} AND empresa_id = ${empresaId}
           `;
 
-          // Sincronizar todos los trabajos de esta factura
-          // Si la factura está pagada al 100%, todos los trabajos se marcan como pagados
+          // 2. Sincronizar invoices_180 (Consolidación)
+          // Buscamos por work_item_id si es una factura
+          await sql`
+            UPDATE invoices_180
+            SET 
+              importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
+              saldo = GREATEST(0, saldo - ${item.importe}),
+              estado = CASE 
+                  WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
+                  ELSE 'parcial'
+              END
+            WHERE ((work_item_id::text = ${item.factura_id}::text AND tipo = 'factura') OR id::text = ${item.factura_id}::text)
+              AND empresa_id = ${empresaId}
+          `;
+
+          // 3. Sincronizar Trabajos vinculados (si la factura se pagó completa)
           const f = await sql`select pagado, total from factura_180 where id=${item.factura_id} and empresa_id=${empresaId}`;
-          if (f[0] && f[0].pagado >= f[0].total) {
+          if (f[0] && Number(f[0].pagado) >= Number(f[0].total) - 0.01) {
             await sql`
                UPDATE work_logs_180 
                SET pagado = valor, estado_pago = 'pagado'
@@ -386,7 +400,7 @@ export async function eliminarPago(req, res) {
             SET 
               pagado = GREATEST(0, COALESCE(pagado, 0) - ${a.importe}),
               estado_pago = CASE 
-                  WHEN (COALESCE(pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
+                  WHEN (COALESCE(pagado, 0) - ${a.importe}) <= 0.01 THEN 'pendiente'
                   ELSE 'parcial'
               END
             WHERE id = ${a.factura_id} AND empresa_id = ${empresaId}
@@ -394,7 +408,7 @@ export async function eliminarPago(req, res) {
 
           // Revertir trabajos de la factura si el pago ya no es total
           const f = await sql`select pagado, total from factura_180 where id=${a.factura_id} and empresa_id=${empresaId}`;
-          if (!f[0] || f[0].pagado < f[0].total) {
+          if (!f[0] || Number(f[0].pagado) < Number(f[0].total) - 0.01) {
             await sql`
               UPDATE work_logs_180 
               SET pagado = 0, estado_pago = 'pendiente'

@@ -76,6 +76,8 @@ type DeudaPendiente = {
     pagado: number;
     estado_pago: string;
     numero?: string;
+    work_item_id?: string;
+    saldo?: number;
 };
 
 type Payment = {
@@ -114,7 +116,7 @@ export default function GlobalPagosPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [pendientes, setPendientes] = useState<DeudaPendiente[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<Record<string, { importe: number, tipo: 'factura' | 'trabajo' }>>({}); 
+  const [selectedItems, setSelectedItems] = useState<Record<string, { importe: number, tipo: string, originalId: string|null }>>({}); 
 
   const [submitting, setSubmitting] = useState(false);
   const [procesandoId, setProcesandoId] = useState<string | null>(null);
@@ -216,7 +218,7 @@ export default function GlobalPagosPage() {
       if(!totalAmount) return;
 
       let remaining = totalAmount;
-      const newSelection: Record<string, { importe: number, tipo: 'factura' | 'trabajo' }> = {};
+      const newSelection: Record<string, { importe: number, tipo: 'factura' | 'trabajo', originalId: string|null }> = {};
 
       for(const item of pendientes) {
           if(remaining <= 0.01) break;
@@ -225,7 +227,11 @@ export default function GlobalPagosPage() {
           const pay = Math.min(remaining, debt);
           
           if (pay > 0) {
-              newSelection[item.id] = { importe: Number(pay.toFixed(2)), tipo: item.tipo };
+              newSelection[item.id] = { 
+                importe: Number(pay.toFixed(2)), 
+                tipo: item.tipo, 
+                originalId: item.work_item_id || item.id 
+              };
               remaining -= pay;
           }
       }
@@ -240,8 +246,8 @@ export default function GlobalPagosPage() {
     
     // Prepare Allocations
     const asignaciones = Object.entries(selectedItems).map(([id, data]) => ({
-        invoice_id: id,
-        [data.tipo === 'factura' ? 'factura_id' : 'work_log_id']: id,
+        invoice_id: id, // This might be the invoice ID or work_log ID depending on the item
+        work_item_id: data.originalId, // Use the originalId for the backend
         importe: data.importe
     })).filter(x => x.importe > 0);
 
@@ -634,23 +640,28 @@ export default function GlobalPagosPage() {
                                                 ${isSelected ? "bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/10" : "bg-white border-slate-200 opacity-70 hover:opacity-100"}
                                             `}
                                             onClick={() => {
-                                                if(isSelected) {
-                                                    const copy = {...selectedItems};
-                                                    delete copy[item.id];
-                                                    setSelectedItems(copy);
-                                                } else {
-                                                    const totalPay = Number(newPay.importe);
-                                                    const alreadyAllocated = Object.values(selectedItems).reduce((acc, curr) => acc + curr.importe, 0);
-                                                    const remainingCapacity = Math.max(0, totalPay - alreadyAllocated);
-                                                    const amountToAssign = Math.min(debt, remainingCapacity);
-                                                    setSelectedItems(prev => ({ 
-                                                        ...prev, 
-                                                        [item.id]: { 
-                                                            importe: Number(amountToAssign.toFixed(2)), 
-                                                            tipo: item.tipo 
-                                                        } 
-                                                    }));
-                                                }
+                                                setSelectedItems(prev => {
+                                                    const copy = { ...prev };
+                                                    if (copy[item.id]) {
+                                                        delete copy[item.id];
+                                                    } else {
+                                                        const totalPay = Number(newPay.importe);
+                                                        const alreadyAllocated = Object.values(selectedItems).reduce((acc, curr) => acc + curr.importe, 0);
+                                                        const remainingCapacity = Math.max(0, totalPay - alreadyAllocated);
+                                                        const debt = Number(item.saldo || (Number(item.valor) - Number(item.pagado)));
+                                                        const amountToAssign = Math.min(debt, remainingCapacity);
+
+                                                        setSelectedItems(prev => ({ 
+                                                            ...prev, 
+                                                            [item.id]: { 
+                                                                importe: Number(amountToAssign.toFixed(2)), 
+                                                                tipo: item.tipo,
+                                                                originalId: item.work_item_id || item.id
+                                                            } 
+                                                        }));
+                                                    }
+                                                    return copy;
+                                                });
                                             }}
                                         >
                                             <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${isSelected ? "bg-blue-600 border-blue-600" : "bg-slate-50 border-slate-300"}`}>
