@@ -4,6 +4,7 @@ import { roleRequired } from "../middlewares/roleRequired.js";
 import {
   crearPago,
   listarPagosCliente,
+  listarTodosLosPagos,
   getPendientesParaPago,
   imputarPago,
 } from "../controllers/paymentsController.js";
@@ -12,6 +13,7 @@ const router = Router();
 
 router.use(authRequired, roleRequired("admin"));
 
+router.get("/payments", listarTodosLosPagos);
 router.post("/payments", crearPago);
 router.get("/clientes/:clienteId/payments", listarPagosCliente);
 
