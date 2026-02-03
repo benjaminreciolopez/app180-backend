@@ -7,6 +7,8 @@ import {
   listarTodosLosPagos,
   getPendientesParaPago,
   imputarPago,
+  getPagoDetalle,
+  eliminarPago,
 } from "../controllers/paymentsController.js";
 
 const router = Router();
@@ -19,5 +21,7 @@ router.get("/clientes/:clienteId/payments", listarPagosCliente);
 
 router.get("/payments/:paymentId/pendientes", getPendientesParaPago);
 router.post("/payments/:paymentId/imputar", imputarPago);
+router.get("/payments/:id", getPagoDetalle);
+router.delete("/payments/:id", eliminarPago);
 
 export default router;
