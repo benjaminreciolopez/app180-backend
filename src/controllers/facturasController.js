@@ -486,13 +486,36 @@ export async function updateFactura(req, res) {
 
       // 2. Enlazar nuevos trabajos
       if (Array.isArray(work_log_ids) && work_log_ids.length > 0) {
-        await tx`
-          UPDATE work_logs_180
-          SET factura_id = ${id}
-          WHERE id IN ${tx(work_log_ids)}
-            AND empresa_id = ${empresaId}
-            AND cliente_id = ${cliente_id}
-        `;
+
+        // Limpiar IDs (quitar prefijo 'trabajo_' si viene del frontend nuevo)
+        const cleanIds = work_log_ids
+          .map(id => String(id).replace('trabajo_', ''))
+          .filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
+        if (cleanIds.length > 0) {
+          // A. Link Reverso (Lista)
+          await tx`
+              UPDATE work_logs_180
+              SET factura_id = ${id}
+              WHERE id IN ${tx(cleanIds)}
+                AND empresa_id = ${empresaId}
+                AND cliente_id = ${cliente_id}
+            `;
+
+          // B. Link Directo (Único) - Tomamos el primero o único
+          const mainWorkLogId = cleanIds[0];
+          await tx`
+                UPDATE factura_180 
+                SET work_log_id = ${mainWorkLogId}
+                WHERE id = ${id} AND empresa_id = ${empresaId}
+            `;
+        } else {
+          // Si no hay trabajos validos, limpiamos referencia directa tambien
+          await tx`UPDATE factura_180 SET work_log_id = NULL WHERE id = ${id}`;
+        }
+      } else {
+        // Si lista vacia, limpiamos referencia directa
+        await tx`UPDATE factura_180 SET work_log_id = NULL WHERE id = ${id}`;
       }
       await auditFactura({
         empresaId,
