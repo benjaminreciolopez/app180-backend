@@ -267,7 +267,6 @@ export async function actualizarCliente(req, res) {
   const { id } = req.params;
 
   const body = req.body;
-  console.log("ACTUALIZAR CLIENTE [ID:", id, "] BODY:", JSON.stringify(body));
 
   // Campos de clients_180
   const allowedGeneral = [
@@ -336,19 +335,15 @@ export async function actualizarCliente(req, res) {
         where cliente_id=${id}
       `;
     } else {
-      // Create if missing - Sintaxis más segura para insert
-      const columns = Object.keys(fieldsFiscal);
+      // Create if missing - Usamos el helper de objeto que es más seguro y limpio
+      const row = {
+        empresa_id: empresaId ?? null,
+        cliente_id: id ?? null,
+        ...fieldsFiscal
+      };
+
       await sql`
-        insert into client_fiscal_data_180 (
-          empresa_id, 
-          cliente_id, 
-          ${sql(columns)}
-        )
-        values (
-          ${empresaId ?? null}, 
-          ${id ?? null}, 
-          ${sql(Object.values(fieldsFiscal))}
-        )
+        insert into client_fiscal_data_180 ${sql(row)}
       `;
     }
   }
