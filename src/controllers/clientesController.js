@@ -27,19 +27,22 @@ function n(v) {
 ========================= */
 
 export async function listarClientes(req, res) {
-  // Si viene con req.user.empresa_id (middleware auth), lo usamos
   let empresaId = req.user.empresa_id;
-
-  // Si no está (caso raro o admin sin contexto), intentamos buscarlo
   if (!empresaId) {
     empresaId = await getEmpresaId(req.user.id);
   }
 
+  // Unimos con datos fiscales para que el frontend tenga la información completa al listar y editar
   const rows = await sql`
-    select *
-    from clients_180
-    where empresa_id = ${empresaId}
-    order by activo desc, nombre
+    select c.*,
+           f.razon_social, f.nif_cif, f.tipo_fiscal,
+           f.municipio, f.codigo_postal, f.direccion_fiscal,
+           f.email_factura, f.telefono_factura, f.persona_contacto,
+           f.iva_defecto, f.exento_iva, f.forma_pago, f.iban
+    from clients_180 c
+    left join client_fiscal_data_180 f on f.cliente_id = c.id
+    where c.empresa_id = ${empresaId}
+    order by c.activo desc, c.nombre
   `;
 
   res.json(rows);
@@ -197,107 +200,55 @@ export async function crearCliente(req, res) {
     return res.status(400).json({ error: "Código duplicado" });
   }
 
-  // 1. Insertar Cliente General
+  // 1. Insertar Cliente General (con campos sincronizados)
   const r = await sql`
     insert into clients_180 (
-      empresa_id,
-      nombre,
-      codigo,
-      tipo,
-
-      direccion,
-      telefono,
-      contacto_nombre,
-      contacto_email,
-
-      nif,
-      poblacion,
-      provincia,
-      cp,
-      pais,
-      email,
-
-      modo_defecto,
-
-      lat,
-      lng,
-      radio_m,
-      requiere_geo,
-
-      fecha_inicio,
-      fecha_fin,
-
-      notas
+      empresa_id, nombre, codigo, tipo,
+      direccion, telefono, contacto_nombre, contacto_email,
+      nif, nif_cif, poblacion, municipio, provincia, cp, codigo_postal, pais, email,
+      modo_defecto, lat, lng, radio_m, requiere_geo,
+      fecha_inicio, fecha_fin, notas,
+      razon_social, iban, iva_defecto, exento_iva
     )
     values (
-      ${empresaId},
-      ${nombre},
-      ${finalCodigo},
-      ${tipo},
-
-      ${n(direccion)},
-      ${n(telefono)},
-      ${n(contacto_nombre)},
-      ${n(contacto_email)},
-
-      ${n(nif)},
-      ${n(poblacion)},
-      ${n(provincia)},
-      ${n(cp)},
-      ${n(pais)},
-      ${n(email)},
-
+      ${empresaId}, ${nombre}, ${finalCodigo}, ${tipo},
+      ${n(direccion)}, ${n(telefono)}, ${n(contacto_nombre)}, ${n(contacto_email)},
+      ${n(nif || nif_cif)}, ${n(nif_cif || nif)}, 
+      ${n(poblacion || municipio)}, ${n(municipio || poblacion)}, 
+      ${n(provincia)}, 
+      ${n(cp || codigo_postal)}, ${n(codigo_postal || cp)},
+      ${n(pais)}, ${n(email)},
       ${modo_defecto},
-
-      ${n(lat)},
-      ${n(lng)},
-      ${n(radio_m)},
-      ${requiere_geo},
-
-      ${n(fecha_inicio)},
-      ${n(fecha_fin)},
-
-      ${n(notas)}
+      ${n(lat)}, ${n(lng)}, ${n(radio_m)}, ${requiere_geo},
+      ${n(fecha_inicio)}, ${n(fecha_fin)}, ${n(notas)},
+      ${n(razon_social)}, ${n(iban)}, ${n(iva_defecto)}, ${exento_iva === true}
     )
     returning *
   `;
 
   const newClient = r[0];
 
-  // 2. Insertar Datos Fiscales (incluso si vacíos, para tener la fila)
+  // 2. Insertar Datos Fiscales (Tabla satélite para compatibilidad con facturación)
   await sql`
     insert into client_fiscal_data_180 (
-      empresa_id,
-      cliente_id,
-      razon_social,
-      nif_cif,
-      tipo_fiscal,
-      pais,
-      provincia,
-      municipio,
-      codigo_postal,
-      direccion_fiscal,
-      email_factura,
-      telefono_factura,
-      persona_contacto,
-      iva_defecto,
-      exento_iva,
-      forma_pago,
-      iban
+      empresa_id, cliente_id, razon_social, nif_cif, tipo_fiscal,
+      pais, provincia, municipio, codigo_postal, direccion_fiscal,
+      email_factura, telefono_factura, persona_contacto,
+      iva_defecto, exento_iva, forma_pago, iban
     ) values (
       ${empresaId},
       ${newClient.id},
       ${n(razon_social)},
-      ${n(nif_cif)},
+      ${n(nif_cif || nif)},
       ${n(tipo_fiscal)},
       ${n(pais) || 'España'},
       ${n(provincia)},
-      ${n(municipio)},
-      ${n(codigo_postal)},
-      ${n(direccion_fiscal)},
-      ${n(email_factura)},
-      ${n(telefono_factura)},
-      ${n(persona_contacto)},
+      ${n(municipio || poblacion)},
+      ${n(codigo_postal || cp)},
+      ${n(direccion_fiscal || direccion)},
+      ${n(email_factura || email)},
+      ${n(telefono_factura || telefono)},
+      ${n(persona_contacto || contacto_nombre)},
       ${n(iva_defecto)},
       ${exento_iva === true},
       ${n(forma_pago)},
@@ -319,28 +270,11 @@ export async function actualizarCliente(req, res) {
 
   // Campos de clients_180
   const allowedGeneral = [
-    "nombre",
-    "tipo",
-    "direccion",
-    "telefono",
-    "contacto_nombre",
-    "contacto_email",
-    "modo_defecto",
-    "lat",
-    "lng",
-    "radio_m",
-    "requiere_geo",
-    "fecha_inicio",
-    "fecha_fin",
-    "notas",
-    "activo",
-    "geo_policy",
-    "nif",
-    "poblacion",
-    "provincia",
-    "cp",
-    "pais",
-    "email"
+    "nombre", "tipo", "direccion", "telefono", "contacto_nombre", "contacto_email",
+    "modo_defecto", "lat", "lng", "radio_m", "requiere_geo", "fecha_inicio", "fecha_fin",
+    "notas", "activo", "geo_policy",
+    "nif", "nif_cif", "poblacion", "municipio", "provincia", "cp", "codigo_postal", "pais", "email",
+    "razon_social", "iban", "iva_defecto", "exento_iva", "forma_pago"
   ];
 
   // Campos de client_fiscal_data_180
