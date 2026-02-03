@@ -75,29 +75,33 @@ export async function crearPago(req, res) {
         const invId = item.invoice_id || item.work_log_id || item.factura_id;
         if (!invId) continue;
 
+        const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+        const uuidForAllocation = isUuid(invId) ? invId : null;
+
         // Insertar en allocations usando todas las columnas disponibles por seguridad legacy
         await sql`
           insert into payment_allocations_180 (
               empresa_id, payment_id, invoice_id, work_log_id, factura_id, importe
           ) values (
-              ${empresaId}, ${payment.id}, ${invId}, 
-              ${item.work_log_id || null}, 
-              ${item.factura_id || null}, 
+              ${empresaId}, ${payment.id}, ${uuidForAllocation}, 
+              ${isUuid(item.work_log_id) ? item.work_log_id : null}, 
+              ${!isUuid(item.factura_id) ? item.factura_id : null}, 
               ${item.importe}
           )
         `;
 
-        // Actualizar tabla de consolidación (invoices_180)
+        // Actualizar tabla de consolidación (invoices_180) - Buscamos por ID real o por ID de item de trabajo
         await sql`
           UPDATE invoices_180
           SET 
             importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
             saldo = GREATEST(0, saldo - ${item.importe}),
             estado = CASE 
-                WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total THEN 'pagada'
+                WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
                 ELSE 'parcial'
             END
-          WHERE id = ${invId} AND empresa_id = ${empresaId}
+          WHERE (id::text = ${invId}::text OR work_item_id::text = ${invId}::text)
+            AND empresa_id = ${empresaId}
         `;
 
         // Actualización Legacy (Opcional pero recomendada si hay otras partes del app usándolas)
@@ -271,37 +275,41 @@ export async function getTrabajosPendientes(req, res) {
     // 1. Facturas Validadas con Saldo
     const facturas = await sql`
       SELECT 
-        id, 
+        'factura_' || id::text as id, 
         numero, 
         fecha, 
-        total as valor, 
-        pagado, 
+        total::numeric as valor, 
+        COALESCE(pagado, 0)::numeric as pagado,
+        (total - COALESCE(pagado, 0))::numeric as saldo,
         estado_pago,
         'factura' as tipo,
-        'Factura ' || numero as descripcion
+        'Factura ' || numero as descripcion,
+        id::text as original_id
       FROM factura_180
       WHERE empresa_id = ${empresaId}
         AND cliente_id = ${id}
         AND estado = 'VALIDADA'
-        AND (total > COALESCE(pagado, 0))
+        AND (total > COALESCE(pagado, 0) + 0.01)
     `;
     deudas.push(...facturas);
 
     // 2. Trabajos sin Factura con Saldo
     const trabajos = await sql`
       SELECT 
-        id,
+        'trabajo_' || id::text as id,
         fecha,
-        valor,
-        pagado,
+        valor::numeric as valor,
+        COALESCE(pagado, 0)::numeric as pagado,
+        (valor - COALESCE(pagado, 0))::numeric as saldo,
         estado_pago,
         'trabajo' as tipo,
-        descripcion
+        descripcion,
+        id::text as original_id
       FROM work_logs_180
       WHERE empresa_id = ${empresaId}
         AND cliente_id = ${id}
         AND factura_id IS NULL
-        AND (valor > COALESCE(pagado, 0))
+        AND (valor > COALESCE(pagado, 0) + 0.01)
     `;
     deudas.push(...trabajos);
 
