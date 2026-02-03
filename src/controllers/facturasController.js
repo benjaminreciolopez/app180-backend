@@ -221,11 +221,18 @@ export async function getFactura(req, res) {
       order by lf.id
     `;
 
+    // Obtener trabajos enlazados
+    const work_logs = await sql`
+      select id from work_logs_180 where factura_id = ${id}
+    `;
+    const work_log_ids = work_logs.map(w => w.id);
+
     res.json({
       success: true,
       data: {
         ...factura,
         lineas,
+        work_log_ids
       },
     });
   } catch (err) {
@@ -241,7 +248,7 @@ export async function getFactura(req, res) {
 export async function createFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [] } = req.body;
 
     if (!cliente_id) {
       return res.status(400).json({ success: false, error: "Cliente requerido" });
@@ -331,6 +338,17 @@ export async function createFactura(req, res) {
       `;
       createdFactura = updated;
 
+      // Enlazar trabajos (God Level)
+      if (Array.isArray(work_log_ids) && work_log_ids.length > 0) {
+        await tx`
+          UPDATE work_logs_180
+          SET factura_id = ${factura.id}
+          WHERE id IN ${tx(work_log_ids)}
+            AND empresa_id = ${empresaId}
+            AND cliente_id = ${cliente_id}
+        `;
+      }
+
       // Auditoría
       await auditFactura({
         empresaId,
@@ -358,7 +376,7 @@ export async function updateFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
     const { id } = req.params;
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [] } = req.body;
 
     // Validar que la factura existe y es borrador
     const [factura] = await sql`
@@ -438,6 +456,26 @@ export async function updateFactura(req, res) {
             total = ${Math.round((subtotal + iva_total) * 100) / 100}
         where id = ${id}
       `;
+
+      // Gestión de enlaces de trabajos (God Level)
+      // 1. Liberar trabajos previos de esta factura
+      await tx`
+        UPDATE work_logs_180
+        SET factura_id = NULL
+        WHERE factura_id = ${id}
+          AND empresa_id = ${empresaId}
+      `;
+
+      // 2. Enlazar nuevos trabajos
+      if (Array.isArray(work_log_ids) && work_log_ids.length > 0) {
+        await tx`
+          UPDATE work_logs_180
+          SET factura_id = ${id}
+          WHERE id IN ${tx(work_log_ids)}
+            AND empresa_id = ${empresaId}
+            AND cliente_id = ${cliente_id}
+        `;
+      }
       await auditFactura({
         empresaId,
         userId: req.user.id,
