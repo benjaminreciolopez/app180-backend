@@ -113,6 +113,7 @@ export async function crearPago(req, res) {
             WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
           `;
         } else if (item.factura_id) {
+          // Actualizar Factura
           await sql`
             UPDATE factura_180
             SET 
@@ -123,6 +124,17 @@ export async function crearPago(req, res) {
               END
             WHERE id = ${item.factura_id} AND empresa_id = ${empresaId}
           `;
+
+          // Sincronizar todos los trabajos de esta factura
+          // Si la factura está pagada al 100%, todos los trabajos se marcan como pagados
+          const f = await sql`select pagado, total from factura_180 where id=${item.factura_id} and empresa_id=${empresaId}`;
+          if (f[0] && f[0].pagado >= f[0].total) {
+            await sql`
+               UPDATE work_logs_180 
+               SET pagado = valor, estado_pago = 'pagado'
+               WHERE factura_id = ${item.factura_id} AND empresa_id = ${empresaId}
+             `;
+          }
         }
       }
 
@@ -379,6 +391,16 @@ export async function eliminarPago(req, res) {
               END
             WHERE id = ${a.factura_id} AND empresa_id = ${empresaId}
           `;
+
+          // Revertir trabajos de la factura si el pago ya no es total
+          const f = await sql`select pagado, total from factura_180 where id=${a.factura_id} and empresa_id=${empresaId}`;
+          if (!f[0] || f[0].pagado < f[0].total) {
+            await sql`
+              UPDATE work_logs_180 
+              SET pagado = 0, estado_pago = 'pendiente'
+              WHERE factura_id = ${a.factura_id} AND empresa_id = ${empresaId}
+            `;
+          }
         }
       }
 
