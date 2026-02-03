@@ -40,6 +40,23 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -102,6 +119,12 @@ export default function GlobalPagosPage() {
   const [submitting, setSubmitting] = useState(false);
   const [procesandoId, setProcesandoId] = useState<string | null>(null);
 
+  // Estados para detalle y borrado
+  const [pagoDetalleId, setPagoDetalleId] = useState<string | null>(null);
+  const [pagoToDelete, setPagoToDelete] = useState<Payment | null>(null);
+  const [detalleData, setDetalleData] = useState<any>(null);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
+
   const isGlobalBusy = loading || submitting || !!procesandoId;
 
   const loadPagos = useCallback(async () => {
@@ -116,6 +139,42 @@ export default function GlobalPagosPage() {
         setLoading(false);
     }
   }, []);
+
+  const fetchDetalle = async (id: string) => {
+    setLoadingDetalle(true);
+    try {
+        const res = await apiService.get(`/admin/payments/${id}`);
+        setDetalleData(res.data);
+    } catch(e) {
+        toast.error("Error al cargar detalle del pago");
+        setPagoDetalleId(null);
+    } finally {
+        setLoadingDetalle(false);
+    }
+  };
+
+  useEffect(() => {
+    if(pagoDetalleId) {
+        fetchDetalle(pagoDetalleId);
+    } else {
+        setDetalleData(null);
+    }
+  }, [pagoDetalleId]);
+
+  const handleAnularPago = async () => {
+    if(!pagoToDelete) return;
+    setProcesandoId(pagoToDelete.id);
+    try {
+        await apiService.delete(`/admin/payments/${pagoToDelete.id}`);
+        toast.success("Pago anulado y saldos revertidos");
+        setPagoToDelete(null);
+        loadPagos();
+    } catch(e: any) {
+        toast.error(e.response?.data?.error || "Error al anular el pago");
+    } finally {
+        setProcesandoId(null);
+    }
+  };
 
   const loadClients = useCallback(async () => {
     try {
@@ -412,17 +471,13 @@ export default function GlobalPagosPage() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
                                         <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                                        <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
+                                        <DropdownMenuItem onClick={() => setPagoDetalleId(pago.id)}>
                                             <Eye className="w-4 h-4 mr-2" /> Ver Detalle
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
                                         <DropdownMenuItem 
                                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                                            onClick={() => {
-                                                toast("Anulación no disponible", { 
-                                                    description: "La anulación de pagos debe realizarse desde el módulo de soporte en esta versión."
-                                                })
-                                            }}
+                                            onClick={() => setPagoToDelete(pago)}
                                         >
                                             <X className="w-4 h-4 mr-2" /> Anular Cobro
                                         </DropdownMenuItem>
@@ -677,6 +732,103 @@ export default function GlobalPagosPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* --- DETALLE DIALOG --- */}
+      <Dialog open={!!pagoDetalleId} onOpenChange={(open: boolean) => !open && setPagoDetalleId(null)}>
+        <DialogContent className="max-w-2xl bg-white">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <Eye className="w-5 h-5 text-blue-600" />
+                    Detalle del Cobro
+                </DialogTitle>
+                <DialogDescription>
+                    Información detallada de la transacción e imputaciones.
+                </DialogDescription>
+            </DialogHeader>
+
+            {loadingDetalle ? (
+                <div className="py-20 flex flex-col items-center justify-center gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                    <p className="text-sm text-slate-500">Cargando datos...</p>
+                </div>
+            ) : detalleData && (
+                <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                        <div>
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Cliente</p>
+                            <p className="font-bold text-slate-800">{detalleData.pago.cliente_nombre}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Fecha</p>
+                            <p className="font-medium text-slate-700">{format(new Date(detalleData.pago.fecha_pago), "d 'de' MMMM, yyyy", { locale: es })}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Importe Total</p>
+                            <p className="font-black text-blue-600 text-lg">{formatCurrency(detalleData.pago.importe)}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Método</p>
+                            <Badge variant="outline" className="capitalize bg-white">{detalleData.pago.metodo}</Badge>
+                        </div>
+                        {detalleData.pago.referencia && (
+                            <div className="col-span-2">
+                                <p className="text-[10px] uppercase font-bold text-slate-400">Referencia</p>
+                                <p className="font-mono text-xs">{detalleData.pago.referencia}</p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-bold text-slate-900 border-b pb-2">Imputaciones a Facturas/Trabajos</h4>
+                        <div className="space-y-2">
+                            {detalleData.asignaciones.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic py-4 text-center">Este pago no ha sido imputado a ningún documento.</p>
+                            ) : detalleData.asignaciones.map((asig: any) => (
+                                <div key={asig.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-lg text-sm">
+                                    <div className="flex flex-col">
+                                        <span className="font-medium text-slate-800">
+                                            {asig.factura_numero ? `Factura ${asig.factura_numero}` : 
+                                             asig.trabajo_descripcion || asig.invoice_referencia || "Trabajo"}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 uppercase font-bold">
+                                            {asig.factura_id ? "Saldado" : "Pago parcial"}
+                                        </span>
+                                    </div>
+                                    <span className="font-bold text-blue-600">{formatCurrency(asig.importe)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </DialogContent>
+      </Dialog>
+
+      {/* --- ALERT CANCELAR --- */}
+      <AlertDialog open={!!pagoToDelete} onOpenChange={(open: boolean) => !open && setPagoToDelete(null)}>
+        <AlertDialogContent className="bg-white">
+            <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+                    <X className="w-5 h-5" />
+                    ¿Anular Cobro?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                    Esta acción elminará el registro del pago de <strong>{formatCurrency(pagoToDelete?.importe || 0)}</strong> y revertirá los saldos pendientes de los trabajos o facturas asociados. Esta acción no se puede deshacer.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction 
+                    onClick={handleAnularPago} 
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    disabled={!!procesandoId}
+                >
+                    {procesandoId ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    Confirmar Anulación
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
