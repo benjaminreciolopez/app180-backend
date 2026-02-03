@@ -177,3 +177,45 @@ export async function verificarVerifactu(factura, tx = sql) {
         throw error;
     }
 }
+
+/**
+ * Construye la URL para el código QR de Veri*Factu
+ * @param {object} factura
+ * @param {object} emisor
+ * @param {object} config
+ * @param {string} entorno - 'PRUEBAS' | 'PRODUCCION'
+ * @returns {string} URL completa
+ */
+export function construirUrlQr(factura, emisor, config, entorno = 'PRODUCCION') {
+    const isTest = entorno === 'PRUEBAS' || config.verifactu_modo === 'TEST';
+
+    // URLs base provisionales (AEAT)
+    const baseUrl = isTest
+        ? 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ValidarTike'
+        : 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarTike';
+
+    const fechaObj = new Date(factura.fecha);
+    const day = String(fechaObj.getDate()).padStart(2, '0');
+    const month = String(fechaObj.getMonth() + 1).padStart(2, '0');
+    const year = fechaObj.getFullYear();
+    const fechaStr = `${day}-${month}-${year}`;
+
+    const params = new URLSearchParams();
+    params.append('nif', (emisor.nif || '').toUpperCase());
+    params.append('num', (factura.numero || '').toUpperCase());
+    params.append('fecha', fechaStr);
+    params.append('importe', Number(factura.total || 0).toFixed(2));
+
+    // Añadir huella si existe (normalmente los primeros caracteres o completa)
+    // Se suele pedir que el QR lleve datos para verificar, a veces no la huella completa en la URL pública
+    // pero incluiremos lo que tengamos.
+    // Dependiendo de la especificación final, esto podría cambiar.
+    /* 
+       Según borrador Veri*Factu:
+       URL + ?nif=...&num=...&fecha=...&importe=...
+       
+       Si hay que incluir hash, se añade.
+    */
+
+    return `${baseUrl}?${params.toString()}`;
+}
