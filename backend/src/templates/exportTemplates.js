@@ -192,16 +192,16 @@ export const clientesToHtml = (data) => {
 export const fichajesToHtml = (data) => {
     const rows = data.map(item => {
         let estadoLabel = `<span class="badge badge-gray">${item.estado}</span>`;
-        if(item.estado === 'completa') estadoLabel = `<span class="badge badge-green">Completa</span>`;
-        if(item.estado === 'abierta') estadoLabel = `<span class="badge badge-gray">En curso</span>`;
-        
+        if (item.estado === 'completa') estadoLabel = `<span class="badge badge-green">Completa</span>`;
+        if (item.estado === 'abierta') estadoLabel = `<span class="badge badge-gray">En curso</span>`;
+
         return `
         <tr>
             <td>${new Date(item.fecha).toLocaleDateString('es-ES')}</td>
             <td><strong>${item.empleado_nombre}</strong></td>
             <td class="text-center">${item.inicio || '-'}</td>
             <td class="text-center">${item.fin || '-'}</td>
-            <td class="text-center">${item.minutos_trabajados ? (item.minutos_trabajados/60).toFixed(2) + 'h' : '-'}</td>
+            <td class="text-center">${item.minutos_trabajados ? (item.minutos_trabajados / 60).toFixed(2) + 'h' : '-'}</td>
             <td class="text-center">${estadoLabel}</td>
         </tr>
     `}).join('');
@@ -225,7 +225,7 @@ export const fichajesToHtml = (data) => {
 };
 
 export const cobrosToHtml = (data) => {
-     const rows = data.map(item => `
+    const rows = data.map(item => `
         <tr>
             <td>${new Date(item.fecha_pago || item.created_at).toLocaleDateString()}</td>
             <td><strong>${item.cliente_nombre || '-'}</strong></td>
@@ -259,11 +259,11 @@ export const trabajosToHtml = (data) => {
            <td><strong>${item.cliente_nombre || '-'}</strong></td>
            <td>${item.empleado_nombre || '-'}</td>
            <td>${item.descripcion || '-'}</td>
-           <td class="text-center">${item.minutos ? (item.minutos/60).toFixed(2) + 'h' : '-'}</td>
+           <td class="text-center">${item.minutos ? (item.minutos / 60).toFixed(2) + 'h' : '-'}</td>
        </tr>
    `).join('');
 
-   const content = `
+    const content = `
        <table>
            <thead>
                <tr>
@@ -277,7 +277,7 @@ export const trabajosToHtml = (data) => {
            <tbody>${rows}</tbody>
        </table>
    `;
-   return wrapHtml('Partes de Trabajo', content);
+    return wrapHtml('Partes de Trabajo', content);
 };
 
 export const sospechososToHtml = (data) => {
@@ -291,7 +291,7 @@ export const sospechososToHtml = (data) => {
        </tr>
    `).join('');
 
-   const content = `
+    const content = `
        <table>
            <thead>
                <tr>
@@ -305,13 +305,13 @@ export const sospechososToHtml = (data) => {
            <tbody>${rows}</tbody>
        </table>
    `;
-   return wrapHtml('Fichajes Sospechosos', content);
+    return wrapHtml('Fichajes Sospechosos', content);
 };
 
 export const partesDiaToHtml = (data) => {
-     const rows = data.map(item => {
+    const rows = data.map(item => {
         let estadoBadge = '';
-        switch(item.estado) {
+        switch (item.estado) {
             case 'completo': estadoBadge = '<span class="badge badge-green">Completado</span>'; break;
             case 'incidencia': estadoBadge = '<span class="badge badge-red">Incidencia</span>'; break;
             default: estadoBadge = `<span class="badge badge-gray">${item.estado}</span>`;
@@ -327,7 +327,7 @@ export const partesDiaToHtml = (data) => {
            <td class="text-center">${item.validado ? '<span class="text-green">✓</span>' : item.validado === false ? '<span class="text-red">⚠</span>' : '-'}</td>
        </tr>
        `;
-     }).join('');
+    }).join('');
 
     const content = `
         <table>
@@ -345,4 +345,98 @@ export const partesDiaToHtml = (data) => {
         </table>
     `;
     return wrapHtml('Resumen Partes del Día', content);
+};
+
+export const facturasToHtml = (data) => {
+    const rows = data.map(item => `
+        <tr>
+            <td>${item.numero || 'Borrador'}</td>
+            <td>${new Date(item.fecha).toLocaleDateString('es-ES')}</td>
+            <td><strong>${item.cliente_nombre || '-'}</strong></td>
+            <td class="text-right">${Number(item.subtotal).toFixed(2)} €</td>
+            <td class="text-right">${Number(item.iva_total).toFixed(2)} €</td>
+            <td class="text-right font-bold">${Number(item.total).toFixed(2)} €</td>
+            <td class="text-center">${item.estado}</td>
+        </tr>
+    `).join('');
+
+    const totales = data.reduce((acc, f) => ({
+        base: acc.base + Number(f.subtotal),
+        iva: acc.iva + Number(f.iva_total),
+        total: acc.total + Number(f.total)
+    }), { base: 0, iva: 0, total: 0 });
+
+    const content = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Nº Factura</th>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th class="text-right">Base Imponible</th>
+                    <th class="text-right">IVA</th>
+                    <th class="text-right">Total</th>
+                    <th class="text-center">Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+            <tfoot>
+                <tr style="background-color: #f9fafb; font-weight: bold;">
+                    <td colspan="3" class="text-right">TOTALES:</td>
+                    <td class="text-right">${totales.base.toFixed(2)} €</td>
+                    <td class="text-right">${totales.iva.toFixed(2)} €</td>
+                    <td class="text-right">${totales.total.toFixed(2)} €</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    `;
+    return wrapHtml('Listado de Facturas', content, `<span>Total facturas: ${data.length}</span>`);
+};
+
+export const ivaTrimestralToHtml = (data, { year, trimestre }) => {
+    const rows = data.map(item => `
+        <tr>
+            <td class="text-center">${item.tipo_iva}%</td>
+            <td class="text-center">${item.num_facturas}</td>
+            <td class="text-right">${Number(item.base_imponible).toFixed(2)} €</td>
+            <td class="text-right">${Number(item.cuota_iva).toFixed(2)} €</td>
+            <td class="text-right font-bold">${Number(item.total_facturado).toFixed(2)} €</td>
+        </tr>
+    `).join('');
+
+    const totales = data.reduce((acc, row) => ({
+        base: acc.base + parseFloat(row.base_imponible || 0),
+        cuota: acc.cuota + parseFloat(row.cuota_iva || 0),
+        total: acc.total + parseFloat(row.total_facturado || 0)
+    }), { base: 0, cuota: 0, total: 0 });
+
+    const content = `
+        <table>
+            <thead>
+                <tr>
+                    <th class="text-center">Tipo IVA</th>
+                    <th class="text-center">Nº Operaciones</th>
+                    <th class="text-right">Base Imponible</th>
+                    <th class="text-right">Cuota IVA</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+            <tfoot>
+                <tr style="background-color: #f9fafb; font-weight: bold;">
+                    <td colspan="2" class="text-right">TOTALES:</td>
+                    <td class="text-right">${totales.base.toFixed(2)} €</td>
+                    <td class="text-right">${totales.cuota.toFixed(2)} €</td>
+                    <td class="text-right">${totales.total.toFixed(2)} €</td>
+                </tr>
+            </tfoot>
+        </table>
+    `;
+
+    return wrapHtml(`Informe IVA ${trimestre ? 'T' + trimestre : 'Anual'} - ${year}`, content);
 };

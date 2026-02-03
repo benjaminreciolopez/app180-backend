@@ -13,7 +13,10 @@ import {
   Calculator,
   Search,
   Check,
-  Loader2
+  Loader2,
+  CreditCard,
+  MessageSquare,
+  FileText
 } from "lucide-react"
 import { toast } from "sonner"
 import { format } from "date-fns"
@@ -44,7 +47,15 @@ import {
   CommandItem,
 } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 // --- TYPES ---
 interface Linea {
@@ -72,6 +83,13 @@ interface Concepto {
   categoria?: string
 }
 
+const LEGAL_IVA_TEXTS: Record<number, string> = {
+  0: "FACTURA EXENTA DE IVA POR INVERSIÓN DEL SUJETO PASIVO (ART. 84 UNO 2º F LEY IVA 37/1992).",
+  10: "IVA reducido según normativa vigente",
+  4: "IVA superreducido según normativa vigente",
+  21: ""
+}
+
 export default function CrearFacturaPage() {
   const router = useRouter()
   
@@ -86,6 +104,12 @@ export default function CrearFacturaPage() {
   const [lineas, setLineas] = useState<Linea[]>([
     { id: Date.now(), descripcion: "", cantidad: 1, precio_unitario: 0, iva: 21 }
   ])
+  const [mensajeIva, setMensajeIva] = useState("")
+  const [metodoPago, setMetodoPago] = useState<"TRANSFERENCIA" | "CONTADO">("TRANSFERENCIA")
+  const [emisorIban, setEmisorIban] = useState("")
+  const [isIbanModalOpen, setIsIbanModalOpen] = useState(false)
+  const [newIban, setNewIban] = useState("")
+  const [ivaGlobal, setIvaGlobal] = useState(21)
   const [saving, setSaving] = useState(false)
   
   // UI State
@@ -93,15 +117,61 @@ export default function CrearFacturaPage() {
   const [conceptos, setConceptos] = useState<Concepto[]>([])
   const [loadingConceptos, setLoadingConceptos] = useState(false)
 
-  // Cargar clientes al inicio
+  // Column Resizing State
+  const [colWidths, setColWidths] = useState<Record<string, number>>({
+    cant: 112,
+    precio: 176,
+    iva: 150, // Aumentado por defecto
+    subtotal: 144
+  })
+
+  // Cargar anchos de columna guardados
+  useEffect(() => {
+    const saved = localStorage.getItem('factura_col_widths')
+    if (saved) {
+      try {
+        setColWidths(JSON.parse(saved))
+      } catch (e) {
+        console.error("Error parsing col widths", e)
+      }
+    }
+  }, [])
+
+  const saveWidths = (newWidths: Record<string, number>) => {
+    setColWidths(newWidths)
+    localStorage.setItem('factura_col_widths', JSON.stringify(newWidths))
+  }
+
+  const handleResize = (id: string, startX: number, startWidth: number) => {
+    const onMove = (clientX: number) => {
+      const delta = clientX - startX
+      const newWidth = Math.max(80, startWidth + delta)
+      saveWidths({ ...colWidths, [id]: newWidth })
+    }
+
+    const onMouseMove = (e: MouseEvent) => onMove(e.clientX)
+    const onTouchMove = (e: TouchEvent) => onMove(e.touches[0].clientX)
+
+    const onEnd = () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onEnd)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('touchend', onEnd)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onEnd)
+    document.addEventListener('touchmove', onTouchMove)
+    document.addEventListener('touchend', onEnd)
+  }
+
   useEffect(() => {
     const fetchClientes = async () => {
       setLoadingClientes(true)
       try {
-        // Asumiendo endpoint existente. Si no, ajustar a /admin/clientes o similar
-        const res = await api.get('/admin/clientes?') 
-        // Manejar tanto formato estándar {success, data} como array plano legacy
-        setClientes(res.data.data || (Array.isArray(res.data) ? res.data : []))
+        const res = await api.get('/admin/clientes') 
+        const data = res.data.data || (Array.isArray(res.data) ? res.data : [])
+        setClientes(data)
       } catch (err) {
         toast.error("Error cargando clientes")
       } finally {
@@ -128,6 +198,11 @@ export default function CrearFacturaPage() {
   const fetchConceptos = async (cId: number | null) => {
     setLoadingConceptos(true)
     try {
+      const configRes = await api.get('/admin/facturacion/configuracion/emisor')
+      if (configRes.data.success) {
+        setIvaGlobal(configRes.data.data.iva_global || 0)
+        setEmisorIban(configRes.data.data.iban || "")
+      }
       const res = await api.get(`/admin/facturacion/conceptos?cliente_id=${cId || ''}`)
       setConceptos(res.data.data || [])
     } catch (err) {
@@ -156,9 +231,25 @@ export default function CrearFacturaPage() {
   }
 
   const updateLine = (id: number, field: keyof Linea, value: any) => {
-    setLineas(lineas.map(l => 
-      l.id === id ? { ...l, [field]: value } : l
-    ))
+    setLineas(lineas.map(l => {
+      if (l.id === id) {
+        // Si el campo es IVA y el nuevo valor tiene una descripción en la lista de IVAs,
+        // y el mensaje_iva actual está vacío, lo sugerimos/ponemos.
+        if (field === 'iva') {
+            const selectedIva = ivas.find(i => i.porcentaje === value);
+            // Si el IVA configurado tiene descripción, prevalece
+            if (selectedIva?.descripcion && (!mensajeIva || mensajeIva.trim() === "")) {
+                setMensajeIva(selectedIva.descripcion);
+            } 
+            // Si no tiene descripción pero hay un texto legal estándar, lo sugerimos
+            else if (LEGAL_IVA_TEXTS[value as number] && (!mensajeIva || mensajeIva.trim() === "")) {
+                setMensajeIva(LEGAL_IVA_TEXTS[value as number]);
+            }
+        }
+        return { ...l, [field]: value };
+      }
+      return l;
+    }));
   }
 
   const handleSelectConcepto = (lineaId: number, concepto: Concepto) => {
@@ -261,6 +352,9 @@ export default function CrearFacturaPage() {
       const payload = {
         cliente_id: clienteId,
         fecha: fecha,
+        iva_global: ivaGlobal,
+        mensaje_iva: mensajeIva,
+        metodo_pago: metodoPago,
         lineas: lineas.map(({ id, ...rest }) => rest) // Remove temp ID
       }
 
@@ -319,7 +413,7 @@ export default function CrearFacturaPage() {
                       variant="outline"
                       role="combobox"
                       aria-expanded={clienteOpen}
-                      className="w-full justify-between bg-white h-12"
+                      className="w-full justify-between bg-white h-12 cursor-pointer"
                     >
                       {clienteId
                         ? clientes.find((c) => c.id === clienteId)?.nombre
@@ -331,16 +425,24 @@ export default function CrearFacturaPage() {
                     <Command>
                       <CommandInput placeholder="Buscar cliente..." />
                       <CommandEmpty>No encontrado.</CommandEmpty>
-                      <CommandGroup className="max-h-[300px] overflow-auto">
-                        {clientes.map((cliente) => (
-                          <CommandItem
-                            key={cliente.id}
-                            value={cliente.nombre}
-                            onSelect={() => {
-                              setClienteId(cliente.id)
-                              setClienteOpen(false)
-                            }}
-                          >
+                          <CommandGroup className="max-h-[300px] overflow-auto">
+                            {clientes.map((cliente: any) => (
+                              <CommandItem
+                                key={cliente.id}
+                                value={cliente.nombre}
+                                onSelect={() => {
+                                  setClienteId(cliente.id)
+                                  setClienteOpen(false)
+                                  // Si el cliente tiene IVA defecto o exención, sugerir mensaje
+                                  if (cliente.exento_iva && cliente.texto_exento) {
+                                    setMensajeIva(cliente.texto_exento)
+                                  } else if (cliente.iva_defecto) {
+                                      // Buscar si el IVA tiene descripción
+                                      const ivaObj = ivas.find(i => i.porcentaje === cliente.iva_defecto)
+                                      if (ivaObj?.descripcion) setMensajeIva(ivaObj.descripcion)
+                                  }
+                                }}
+                              >
                             <Check
                               className={cn(
                                 "mr-2 h-4 w-4",
@@ -393,10 +495,43 @@ export default function CrearFacturaPage() {
                     <thead className="bg-white text-slate-500 font-medium">
                         <tr className="border-b border-slate-100">
                             <th className="p-4 text-left">Descripción / Servicio</th>
-                            <th className="p-4 w-28 text-center">Cant.</th>
-                            <th className="p-4 w-44 text-center">Precio Unit.</th>
-                            <th className="p-4 w-32 text-center">IVA %</th>
-                            <th className="p-4 w-36 text-right">Subtotal</th>
+                            
+                            <th className="p-4 text-center relative" style={{ width: colWidths.cant }}>
+                                Cant.
+                                <div 
+                                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-300 transition-colors z-10"
+                                    onMouseDown={(e) => handleResize('cant', e.clientX, colWidths.cant)}
+                                    onTouchStart={(e) => handleResize('cant', e.touches[0].clientX, colWidths.cant)}
+                                />
+                            </th>
+                            
+                            <th className="p-4 text-center relative" style={{ width: colWidths.precio }}>
+                                Precio Unit.
+                                <div 
+                                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-300 transition-colors z-10"
+                                    onMouseDown={(e) => handleResize('precio', e.clientX, colWidths.precio)}
+                                    onTouchStart={(e) => handleResize('precio', e.touches[0].clientX, colWidths.precio)}
+                                />
+                            </th>
+                            
+                            <th className="p-4 text-center relative" style={{ width: colWidths.iva }}>
+                                IVA %
+                                <div 
+                                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-300 transition-colors z-10"
+                                    onMouseDown={(e) => handleResize('iva', e.clientX, colWidths.iva)}
+                                    onTouchStart={(e) => handleResize('iva', e.touches[0].clientX, colWidths.iva)}
+                                />
+                            </th>
+                            
+                            <th className="p-4 text-right relative" style={{ width: colWidths.subtotal }}>
+                                Subtotal
+                                <div 
+                                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-300 transition-colors z-10"
+                                    onMouseDown={(e) => handleResize('subtotal', e.clientX, colWidths.subtotal)}
+                                    onTouchStart={(e) => handleResize('subtotal', e.touches[0].clientX, colWidths.subtotal)}
+                                />
+                            </th>
+
                             <th className="p-4 w-12"></th>
                         </tr>
                     </thead>
@@ -517,7 +652,7 @@ export default function CrearFacturaPage() {
                                     {lineas.length > 1 && (
                                         <button 
                                             onClick={() => handleRemoveLine(linea.id)}
-                                            className="text-slate-300 hover:text-red-500 transition-colors"
+                                            className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -559,6 +694,70 @@ export default function CrearFacturaPage() {
                         <div className="bg-blue-600 text-white rounded-xl p-4 flex justify-between items-center shadow-lg shadow-blue-200">
                             <span className="font-bold text-lg">TOTAL FACTURA</span>
                             <span className="font-black text-2xl">{formatCurrency(total)}</span>
+                        </div>
+
+                        <div className="space-y-3">
+                            <Label className="text-slate-700 font-semibold flex items-center gap-2">
+                                <CreditCard className="w-4 h-4 text-emerald-600" />
+                                Método de Pago
+                            </Label>
+                            <Select 
+                                value={metodoPago} 
+                                onValueChange={(val: any) => {
+                                    setMetodoPago(val)
+                                    if (val === 'TRANSFERENCIA' && !emisorIban) {
+                                        setIsIbanModalOpen(true)
+                                    }
+                                }}
+                            >
+                                <SelectTrigger className="w-full bg-white border-slate-200">
+                                    <SelectValue placeholder="Seleccionar método" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="TRANSFERENCIA" className="cursor-pointer">Transferencia Bancaria</SelectItem>
+                                    <SelectItem value="CONTADO" className="cursor-pointer">Al Contado / Efectivo</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-3">
+                            <Label htmlFor="mensaje_iva" className="text-slate-700 font-semibold flex items-center gap-2">
+                                <MessageSquare className="w-4 h-4 text-blue-600" />
+                                Observaciones de IVA / Textos Legales
+                            </Label>
+                            <div className="flex flex-wrap gap-1 mb-2">
+                                {Object.entries(LEGAL_IVA_TEXTS).map(([pct, text]) => (
+                                    text && (
+                                        <button
+                                            key={pct}
+                                            type="button"
+                                            onClick={() => setMensajeIva(text)}
+                                            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-0.5 rounded transition-colors"
+                                            title={text}
+                                        >
+                                            Legal {pct}%
+                                        </button>
+                                    )
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => setMensajeIva("Operación exenta según Art. 20 de la Ley 37/1992.")}
+                                    className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-0.5 rounded transition-colors"
+                                >
+                                    Exento Art. 20
+                                </button>
+                            </div>
+
+                            <Textarea 
+                                id="mensaje_iva"
+                                placeholder="Ej: Operación exenta de IVA según Art. 20..."
+                                value={mensajeIva}
+                                onChange={(e) => setMensajeIva(e.target.value)}
+                                className="resize-none h-24 border-slate-200 focus:ring-blue-500 text-xs"
+                            />
+                            <p className="text-[10px] text-slate-400 italic">
+                                * Este texto aparecerá en el PDF de la factura.
+                            </p>
                         </div>
                     </div>
 

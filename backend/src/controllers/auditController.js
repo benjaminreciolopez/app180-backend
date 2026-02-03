@@ -6,11 +6,12 @@ import { sql } from '../db.js';
  */
 export const getAuditLogs = async (req, res) => {
   try {
-    const { 
-      empleado_id, 
-      accion, 
-      fecha_desde, 
+    const {
+      empleado_id,
+      accion,
+      fecha_desde,
       fecha_hasta,
+      entidad_tipo,
       limit = 100,
       offset = 0
     } = req.query;
@@ -28,22 +29,22 @@ export const getAuditLogs = async (req, res) => {
     // Construir condiciones WHERE dinámicamente
     let conditions = [`a.empresa_id = ${empresaId}`];
     let params = [];
-    
+
     if (empleado_id) {
       conditions.push(`a.empleado_id = $${params.length + 1}`);
       params.push(empleado_id);
     }
-    
+
     if (accion) {
       conditions.push(`a.accion = $${params.length + 1}`);
       params.push(accion);
     }
-    
+
     if (fecha_desde) {
       conditions.push(`a.created_at >= $${params.length + 1}::timestamptz`);
       params.push(fecha_desde);
     }
-    
+
     if (fecha_hasta) {
       conditions.push(`a.created_at <= $${params.length + 1}::timestamptz`);
       params.push(fecha_hasta);
@@ -51,17 +52,21 @@ export const getAuditLogs = async (req, res) => {
 
     const whereClause = conditions.join(' AND ');
 
+    const isVerifactu = entidad_tipo === 'factura';
+    const tableName = isVerifactu ? sql`auditoria_180` : sql`audit_log_180`;
+
     const logs = await sql`
       SELECT 
         a.*,
         u.email as user_email,
-        e.nombre as empleado_nombre
-      FROM audit_log_180 a
+        ${isVerifactu ? sql`null as empleado_nombre` : sql`e.nombre as empleado_nombre`}
+      FROM ${tableName} a
       LEFT JOIN users_180 u ON u.id = a.user_id
-      LEFT JOIN employees_180 e ON e.id = a.empleado_id
+      ${isVerifactu ? sql`` : sql`LEFT JOIN employees_180 e ON e.id = a.empleado_id`}
       WHERE a.empresa_id = ${empresaId}
-        ${empleado_id ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
+        ${empleado_id && !isVerifactu ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
         ${accion ? sql`AND a.accion = ${accion}` : sql``}
+        ${entidad_tipo ? (isVerifactu ? sql`AND a.entidad = ${entidad_tipo}` : sql`AND a.entidad_tipo = ${entidad_tipo}`) : sql``}
         ${fecha_desde ? sql`AND a.created_at >= ${fecha_desde}::timestamptz` : sql``}
         ${fecha_hasta ? sql`AND a.created_at <= ${fecha_hasta}::timestamptz` : sql``}
       ORDER BY a.created_at DESC
@@ -71,10 +76,11 @@ export const getAuditLogs = async (req, res) => {
 
     const [countResult] = await sql`
       SELECT COUNT(*) as count
-      FROM audit_log_180 a
+      FROM ${tableName} a
       WHERE a.empresa_id = ${empresaId}
-        ${empleado_id ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
+        ${empleado_id && !isVerifactu ? sql`AND a.empleado_id = ${empleado_id}` : sql``}
         ${accion ? sql`AND a.accion = ${accion}` : sql``}
+        ${entidad_tipo ? (isVerifactu ? sql`AND a.entidad = ${entidad_tipo}` : sql`AND a.entidad_tipo = ${entidad_tipo}`) : sql``}
         ${fecha_desde ? sql`AND a.created_at >= ${fecha_desde}::timestamptz` : sql``}
         ${fecha_hasta ? sql`AND a.created_at <= ${fecha_hasta}::timestamptz` : sql``}
     `;

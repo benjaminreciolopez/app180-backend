@@ -40,7 +40,14 @@ import {
 } from "@/components/ui/dialog"
 
 
-export default function ConfiguracionPage() {
+const LEGAL_IVA_TEXTS: Record<number, string> = {
+  0: "FACTURA EXENTA DE IVA POR INVERSIÓN DEL SUJETO PASIVO (ART. 84 UNO 2º F LEY IVA 37/1992).",
+  10: "IVA reducido según normativa vigente",
+  4: "IVA superreducido según normativa vigente",
+  21: ""
+}
+
+export default function ConfiguracionFacturacionPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState("empresa")
@@ -75,7 +82,7 @@ export default function ConfiguracionPage() {
     
     // Configuración Factura
     terminos_legales: "",
-    texto_pie: "", // pie_factura
+    texto_pie: "", 
     texto_exento: "",
     texto_rectificativa: "",
 
@@ -263,6 +270,7 @@ export default function ConfiguracionPage() {
     // --- IVA LOGIC ---
   const [ivas, setIvas] = useState<any[]>([])
   const [newIvaPct, setNewIvaPct] = useState("")
+  const [newIvaDesc, setNewIvaDesc] = useState("")
 
   useEffect(() => {
     loadIvas()
@@ -279,11 +287,22 @@ export default function ConfiguracionPage() {
 
   const handleAddIva = async () => {
     if (!newIvaPct) return
+    
+    let desc = newIvaDesc;
+    if (!desc) {
+       const pct = parseInt(newIvaPct);
+       desc = LEGAL_IVA_TEXTS[pct] || `IVA ${newIvaPct}%`;
+    }
+
     try {
-      await api.post('/admin/facturacion/iva', { porcentaje: newIvaPct, descripcion: `IVA ${newIvaPct}%` })
+      await api.post('/admin/facturacion/iva', { 
+          porcentaje: newIvaPct, 
+          descripcion: desc 
+      })
       setNewIvaPct("")
+      setNewIvaDesc("")
       loadIvas()
-      toast.success("Tipo de IVA añadido")
+      toast.success("Tipo de IVA añadido con texto legal sugerido")
     } catch (err) {
       toast.error("Error al añadir IVA")
     }
@@ -345,13 +364,13 @@ export default function ConfiguracionPage() {
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList className="bg-white p-1 border">
-          <TabsTrigger value="empresa" className="data-[state=active]:bg-slate-100 data-[state=active]:text-blue-700">
+          <TabsTrigger value="empresa" className="data-[state=active]:bg-slate-100 data-[state=active]:text-blue-700 cursor-pointer">
             <Building2 className="w-4 h-4 mr-2" /> Datos Empresa
           </TabsTrigger>
-          <TabsTrigger value="factura" className="data-[state=active]:bg-slate-100 data-[state=active]:text-blue-700">
+          <TabsTrigger value="factura" className="data-[state=active]:bg-slate-100 data-[state=active]:text-blue-700 cursor-pointer">
             <FileText className="w-4 h-4 mr-2" /> Personalización
           </TabsTrigger>
-          <TabsTrigger value="verifactu" className="data-[state=active]:bg-slate-100 data-[state=active]:text-blue-700">
+          <TabsTrigger value="verifactu" className="data-[state=active]:bg-slate-100 data-[state=active]:text-blue-700 cursor-pointer">
             <ShieldCheck className="w-4 h-4 mr-2" /> Veri*Factu
           </TabsTrigger>
         </TabsList>
@@ -388,6 +407,10 @@ export default function ConfiguracionPage() {
                         <div className="space-y-2">
                             <Label className="flex items-center gap-2"><Globe className="w-3 h-3" /> Web</Label>
                             <Input value={formData.web} onChange={e => handleChange('web', e.target.value)} placeholder="www.tuempresa.com" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="flex items-center gap-2">IBAN Principal</Label>
+                            <Input value={formData.iban} onChange={e => handleChange('iban', e.target.value)} placeholder="ES00 0000 ..." />
                         </div>
                     </div>
                     
@@ -643,24 +666,41 @@ export default function ConfiguracionPage() {
                         <CardDescription>Define los tipos de IVA aplicables.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="flex gap-2">
-                             <Input 
-                                placeholder="%" 
-                                type="number" 
-                                className="w-20" 
-                                value={newIvaPct} 
-                                onChange={(e) => setNewIvaPct(e.target.value)} 
-                             />
-                             <Button variant="outline" onClick={handleAddIva}>
-                                <Plus className="w-4 h-4 mr-2" /> Añadir
-                             </Button>
+                        <div className="flex flex-col gap-3">
+                             <div className="flex gap-2">
+                                <Input 
+                                    placeholder="%" 
+                                    type="number" 
+                                    className="w-24" 
+                                    value={newIvaPct} 
+                                    onChange={(e) => setNewIvaPct(e.target.value)} 
+                                />
+                                <Input 
+                                    placeholder="Descripción o texto exención..." 
+                                    className="flex-1" 
+                                    value={newIvaDesc} 
+                                    onChange={(e) => setNewIvaDesc(e.target.value)} 
+                                />
+                                <Button variant="outline" onClick={handleAddIva}>
+                                    <Plus className="w-4 h-4 mr-2" /> Añadir
+                                </Button>
+                             </div>
+                             <p className="text-[10px] text-slate-400 italic">
+                                * La descripción se sugerirá como nota de IVA al crear facturas con este porcentaje.
+                             </p>
                         </div>
+                        <Separator />
                         <div className="space-y-2">
                             {ivas.map((iva: any) => (
-                                <div key={iva.id} className="flex items-center justify-between p-2 border rounded bg-slate-50">
-                                    <span className="font-medium">{iva.porcentaje}%</span>
-                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteIva(iva.id)} className="h-6 w-6 p-0 text-red-400 hover:text-red-600">
-                                        <Trash2 className="w-3 h-3" />
+                                <div key={iva.id} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-slate-900">{iva.porcentaje}%</span>
+                                        <span className="text-xs text-slate-500 italic truncate max-w-[200px] md:max-w-xs" title={iva.descripcion}>
+                                            {iva.descripcion || 'Sin descripción'}
+                                        </span>
+                                    </div>
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteIva(iva.id)} className="h-8 w-8 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50">
+                                        <Trash2 className="w-4 h-4" />
                                     </Button>
                                 </div>
                             ))}

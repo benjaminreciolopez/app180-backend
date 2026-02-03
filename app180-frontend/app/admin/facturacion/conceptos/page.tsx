@@ -352,13 +352,13 @@ export default function ConceptosPage() {
                 </div>
                 <div className="flex bg-white border rounded-md p-1">
                     <button 
-                        className={cn("px-3 py-1 text-xs rounded-sm transition-all", formData.cliente_id === "null" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50")}
+                        className={cn("px-3 py-1 text-xs rounded-sm transition-all cursor-pointer", formData.cliente_id === "null" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50")}
                         onClick={() => setFormData({...formData, cliente_id: "null"})}
                     >
                         Genérico
                     </button>
                     <button 
-                        className={cn("px-3 py-1 text-xs rounded-sm transition-all", formData.cliente_id !== "null" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50")}
+                        className={cn("px-3 py-1 text-xs rounded-sm transition-all cursor-pointer", formData.cliente_id !== "null" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50")}
                         onClick={() => {
                             if (formData.cliente_id === "null" && clientes.length > 0) {
                                 setFormData({...formData, cliente_id: String(clientes[0].id)})
@@ -380,12 +380,12 @@ export default function ConceptosPage() {
                         value={formData.cliente_id} 
                         onValueChange={(val) => setFormData({...formData, cliente_id: val})}
                     >
-                        <SelectTrigger className="bg-white border-slate-200">
+                        <SelectTrigger className="bg-white border-slate-200 cursor-pointer">
                         <SelectValue placeholder="Busca un cliente..." />
                         </SelectTrigger>
                         <SelectContent>
                         {clientes.map(c => (
-                            <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>
+                            <SelectItem key={c.id} value={String(c.id)} className="cursor-pointer">{c.nombre}</SelectItem>
                         ))}
                         </SelectContent>
                     </Select>

@@ -11,7 +11,8 @@ import {
   PieChart,
   Tag,
   BookOpen,
-  HardDrive
+  HardDrive,
+  ShieldCheck
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -48,6 +49,12 @@ export default function FacturacionLayout({
       icon: PieChart,
       href: "/admin/facturacion/informes",
       active: pathname.includes("/informes"),
+    },
+    {
+      label: "Auditoría Veri*Factu",
+      icon: ShieldCheck,
+      href: "/admin/facturacion/auditoria",
+      active: pathname.includes("/auditoria"),
     },
     {
       label: "Configuración",

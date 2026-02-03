@@ -2,16 +2,18 @@ import { sql } from "../db.js";
 import { getEmpresaIdAdminOrThrow } from "../services/authService.js";
 import { generatePdf, generateCsv } from "../services/exportService.js";
 import { calcularReporteRentabilidad } from "../services/reportesService.js";
-import { 
-    rentabilidadToHtml, 
-    empleadosToHtml, 
+import {
+    rentabilidadToHtml,
+    empleadosToHtml,
     auditoriaToHtml,
     clientesToHtml,
     fichajesToHtml,
     cobrosToHtml,
     trabajosToHtml,
     sospechososToHtml,
-    partesDiaToHtml
+    partesDiaToHtml,
+    facturasToHtml,
+    ivaTrimestralToHtml
 } from "../templates/exportTemplates.js";
 
 /**
@@ -41,13 +43,13 @@ export const downloadExport = async (req, res) => {
                 const d1 = fechaOrNull(queryParams.desde);
                 const h1 = fechaOrNull(queryParams.hasta);
                 const eid1 = queryParams.empleado_id;
-                
+
                 if (!d1 || !h1) {
                     // Default to current month if missing
                     const now = new Date();
                     throw new Error("Faltan fechas para reporte de rentabilidad");
                 }
-                
+
                 data = await calcularReporteRentabilidad(empresaId, d1, h1, eid1);
                 htmlContent = rentabilidadToHtml(data, { desde: d1, hasta: h1 });
                 csvColumns = [
@@ -86,26 +88,41 @@ export const downloadExport = async (req, res) => {
                 const fe1 = fechaOrNull(queryParams.fecha_desde);
                 const fe2 = fechaOrNull(queryParams.fecha_hasta);
                 const acc = queryParams.accion;
+                const ent = queryParams.entidad_tipo;
+                const isFactura = ent === 'factura';
+                const tableExport = isFactura ? sql`auditoria_180` : sql`audit_log_180`;
 
                 data = await sql`
-                    SELECT a.*, COALESCE(u.nombre, 'Sistema') as actor_nombre 
-                    FROM audit_log_180 a
-                    LEFT JOIN users_180 u ON a.actor_id = u.id
+                    SELECT a.*, COALESCE(u.email, 'Sistema') as user_email 
+                    FROM ${tableExport} a
+                    LEFT JOIN users_180 u ON a.user_id = u.id
                     WHERE a.empresa_id = ${empresaId}
                     ${fe1 ? sql`AND a.created_at >= ${fe1}::date` : sql``}
                     ${fe2 ? sql`AND a.created_at <= ${fe2}::date + interval '1 day'` : sql``}
-                    ${acc ? sql`AND a.action = ${acc}` : sql``}
+                    ${acc ? sql`AND a.accion = ${acc}` : sql``}
+                    ${ent && !isFactura ? sql`AND a.entidad_tipo = ${ent}` : sql``}
+                    ${isFactura ? sql`AND a.entidad = 'factura'` : sql``}
                     ORDER BY a.created_at DESC
-                    LIMIT 500
-                `; 
+                    LIMIT 2000
+                `;
                 htmlContent = auditoriaToHtml(data);
                 csvColumns = [
                     { key: 'created_at', header: 'Fecha' },
-                    { key: 'actor_nombre', header: 'Usuario' },
-                    { key: 'action', header: 'Acción' },
-                    { key: 'entity', header: 'Entidad' },
-                    { key: 'details', header: 'Detalles' }
+                    { key: 'user_email', header: 'Usuario' },
+                    { key: 'accion', header: 'Evento' },
+                    { key: 'entidad_tipo', header: 'Módulo' },
+                    { key: 'ip_address', header: 'IP' }
                 ];
+                if (isFactura) {
+                    csvColumns = [
+                        { key: 'created_at', header: 'Fecha' },
+                        { key: 'accion', header: 'Acción' },
+                        { key: 'user_email', header: 'Usuario' },
+                        { key: 'ip', header: 'IP' },
+                        { key: 'resultado', header: 'Resultado' }
+                    ];
+                }
+                filename = `auditoria-${Date.now()}`;
                 break;
 
             case 'clientes':
@@ -120,11 +137,11 @@ export const downloadExport = async (req, res) => {
                     { key: 'contacto_nombre', header: 'Contacto' }
                 ];
                 break;
-            
+
             case 'partes-dia':
                 // Partes del dia (resumen diario)
                 const pFecha = fechaOrNull(queryParams.fecha) || new Date().toISOString().slice(0, 10);
-                
+
                 data = await sql`
                     SELECT pd.*, e.nombre as empleado_nombre, c.nombre as cliente_nombre
                     FROM partes_dia_180 pd
@@ -148,7 +165,7 @@ export const downloadExport = async (req, res) => {
 
             case 'fichajes':
                 // Filtros opcionales
-                const d2 = fechaOrNull(queryParams.desde); 
+                const d2 = fechaOrNull(queryParams.desde);
                 const h2 = fechaOrNull(queryParams.hasta);
                 const eid2 = queryParams.empleado_id;
 
@@ -159,7 +176,7 @@ export const downloadExport = async (req, res) => {
                     WHERE j.empresa_id = ${empresaId}
                     ${d2 ? sql`AND j.fecha >= ${d2}::date` : sql``}
                     ${h2 ? sql`AND j.fecha <= ${h2}::date` : sql``}
-                    ${(eid2 && eid2!=='null' && eid2!=='undefined') ? sql`AND j.empleado_id = ${eid2}` : sql``}
+                    ${(eid2 && eid2 !== 'null' && eid2 !== 'undefined') ? sql`AND j.empleado_id = ${eid2}` : sql``}
                     ORDER BY j.fecha DESC, e.nombre
                     LIMIT 500
                 `;
@@ -196,12 +213,12 @@ export const downloadExport = async (req, res) => {
                     { key: 'importe', header: 'Importe' }
                 ];
                 break;
-            
-            case 'trabajos':
-                 const d4 = fechaOrNull(queryParams.desde);
-                 const h4 = fechaOrNull(queryParams.hasta);
 
-                 data = await sql`
+            case 'trabajos':
+                const d4 = fechaOrNull(queryParams.desde);
+                const h4 = fechaOrNull(queryParams.hasta);
+
+                data = await sql`
                     SELECT w.*, c.nombre as cliente_nombre, e.nombre as empleado_nombre
                     FROM work_logs_180 w
                     LEFT JOIN clients_180 c ON w.cliente_id = c.id
@@ -214,16 +231,16 @@ export const downloadExport = async (req, res) => {
                 `;
                 htmlContent = trabajosToHtml(data);
                 csvColumns = [
-                     { key: 'fecha', header: 'Fecha' },
-                     { key: 'cliente_nombre', header: 'Cliente' },
-                     { key: 'empleado_nombre', header: 'Empleado' },
-                     { key: 'descripcion', header: 'Descripción' },
-                     { key: 'minutos', header: 'Minutos' }
+                    { key: 'fecha', header: 'Fecha' },
+                    { key: 'cliente_nombre', header: 'Cliente' },
+                    { key: 'empleado_nombre', header: 'Empleado' },
+                    { key: 'descripcion', header: 'Descripción' },
+                    { key: 'minutos', header: 'Minutos' }
                 ];
                 break;
 
             case 'sospechosos':
-                 data = await sql`
+                data = await sql`
                     SELECT f.*, e.nombre as nombre_empleado
                     FROM fichajes_180 f
                     JOIN employees_180 e ON f.empleado_id = e.id
@@ -234,11 +251,75 @@ export const downloadExport = async (req, res) => {
                 `;
                 htmlContent = sospechososToHtml(data);
                 csvColumns = [
-                     { key: 'fecha', header: 'Fecha' },
-                     { key: 'nombre_empleado', header: 'Empleado' },
-                     { key: 'tipo', header: 'Tipo' },
-                     { key: 'sospecha_motivo', header: 'Motivo' }
+                    { key: 'fecha', header: 'Fecha' },
+                    { key: 'nombre_empleado', header: 'Empleado' },
+                    { key: 'tipo', header: 'Tipo' },
+                    { key: 'sospecha_motivo', header: 'Motivo' }
                 ];
+                break;
+
+            case 'facturas':
+                const fYear = queryParams.year || new Date().getFullYear();
+                const fEstado = queryParams.estado; // Opcional
+
+                data = await sql`
+                    SELECT f.*, c.nombre as cliente_nombre
+                    FROM factura_180 f
+                    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+                    WHERE f.empresa_id = ${empresaId}
+                    AND EXTRACT(YEAR FROM f.fecha) = ${fYear}
+                    ${fEstado && fEstado !== 'TODOS' ? sql`AND f.estado = ${fEstado}` : sql``}
+                    ORDER BY f.fecha DESC, f.numero DESC
+                `;
+                htmlContent = facturasToHtml(data);
+                csvColumns = [
+                    { key: 'numero', header: 'Nº Factura' },
+                    { key: 'fecha', header: 'Fecha' },
+                    { key: 'cliente_nombre', header: 'Cliente' },
+                    { key: 'subtotal', header: 'Base Imponible' },
+                    { key: 'iva_total', header: 'IVA' },
+                    { key: 'total', header: 'Total' },
+                    { key: 'estado', header: 'Estado' }
+                ];
+                filename = `facturas-${fYear}${fEstado ? '-' + fEstado : ''}`;
+                break;
+
+            case 'iva-trimestral':
+                const iYear = queryParams.year || new Date().getFullYear();
+                const iTrim = queryParams.trimestre;
+
+                if (!iTrim) throw new Error("Trimestre requerido para exportar IVA");
+
+                const mapTrimestre = {
+                    1: [1, 3], 2: [4, 6], 3: [7, 9], 4: [10, 12]
+                };
+                const range = mapTrimestre[parseInt(iTrim)];
+
+                data = await sql`
+                    SELECT 
+                        iva_global as tipo_iva,
+                        COUNT(id) as num_facturas,
+                        SUM(subtotal) as base_imponible,
+                        SUM(iva_total) as cuota_iva,
+                        SUM(total) as total_facturado
+                    FROM factura_180
+                    WHERE empresa_id = ${empresaId}
+                        AND estado IN ('VALIDADA', 'ANULADA')
+                        AND EXTRACT(YEAR FROM fecha) = ${iYear}
+                        AND EXTRACT(MONTH FROM fecha) >= ${range[0]}
+                        AND EXTRACT(MONTH FROM fecha) <= ${range[1]}
+                    GROUP BY iva_global
+                    ORDER BY iva_global ASC
+                `;
+                htmlContent = ivaTrimestralToHtml(data, { year: iYear, trimestre: iTrim });
+                csvColumns = [
+                    { key: 'tipo_iva', header: 'Tipo IVA' },
+                    { key: 'num_facturas', header: 'Nº Operaciones' },
+                    { key: 'base_imponible', header: 'Base' },
+                    { key: 'cuota_iva', header: 'Cuota' },
+                    { key: 'total_facturado', header: 'Total' }
+                ];
+                filename = `iva-${iYear}-T${iTrim}`;
                 break;
 
             default:

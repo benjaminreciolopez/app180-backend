@@ -29,7 +29,8 @@ export async function getEmisorConfig(req, res) {
                     pais: perfil.pais || emisor?.pais || "España",
                     telefono: perfil.telefono || emisor?.telefono,
                     email: perfil.email || emisor?.email,
-                    web: perfil.web || emisor?.web
+                    web: perfil.web || emisor?.web,
+                    iban: emisor?.iban
                 };
             }
         }
@@ -73,6 +74,7 @@ export async function updateEmisorConfig(req, res) {
                     telefono=${data.telefono || null},
                     email=${data.email || null},
                     web=${data.web || null},
+                    iban=${data.iban || null},
                     texto_pie=${data.texto_pie || null},
                     texto_exento=${data.texto_exento || null},
                     texto_rectificativa=${data.texto_rectificativa || null}
@@ -81,12 +83,11 @@ export async function updateEmisorConfig(req, res) {
             `;
         } else {
             [result] = await sql`
-                insert into emisor_180 (
-                    empresa_id, nombre, nif, direccion, poblacion, provincia, cp, pais, telefono, email, web,
+                    empresa_id, nombre, nif, direccion, poblacion, provincia, cp, pais, telefono, email, web, iban,
                     texto_pie, texto_exento, texto_rectificativa
                 ) values (
                     ${empresaId}, ${data.nombre}, ${data.nif}, ${data.direccion}, ${data.poblacion}, ${data.provincia},
-                    ${data.cp}, ${data.pais || "España"}, ${data.telefono}, ${data.email}, ${data.web},
+                    ${data.cp}, ${data.pais || "España"}, ${data.telefono}, ${data.email}, ${data.web}, ${data.iban},
                     ${data.texto_pie}, ${data.texto_exento}, ${data.texto_rectificativa}
                 )
                 returning *

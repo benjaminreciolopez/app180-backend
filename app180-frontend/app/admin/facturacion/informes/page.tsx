@@ -20,6 +20,7 @@ import {
   TableRow 
 } from "@/components/ui/table"
 import { toast } from "sonner"
+import { UniversalExportButton } from "@/components/shared/UniversalExportButton"
 import { 
   BarChart, 
   Bar, 
@@ -102,8 +103,14 @@ export default function InformesPage() {
                     const datosT = ivaData?.[t] || { base: 0, iva: 0, total: 0 }
                     return (
                         <Card key={t}>
-                            <CardHeader className="pb-2">
+                            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                                 <CardTitle className="text-sm font-medium text-slate-500">Trimestre {t}</CardTitle>
+                                <UniversalExportButton 
+                                    module="iva-trimestral"
+                                    queryParams={{ year: currentYear, trimestre: t.substring(0, 1) }}
+                                    label="Bajar"
+                                    className="scale-75 origin-right"
+                                />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">{formatCurrency(datosT.iva)}</div>

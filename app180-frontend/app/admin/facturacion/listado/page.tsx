@@ -24,6 +24,7 @@ import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
+import { UniversalExportButton } from "@/components/shared/UniversalExportButton"
 
 import { api } from "@/services/api"
 import { formatCurrency } from "@/lib/utils"
@@ -56,6 +57,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 // --- COMPONENTS ---
 
@@ -76,6 +83,8 @@ export default function FacturasListadoPage() {
   const [procesandoId, setProcesandoId] = useState<number | null>(null)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
   const [facturaToDelete, setFacturaToDelete] = useState<any>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
 
   // Cargar datos
   const loadFacturas = useCallback(async () => {
@@ -153,11 +162,30 @@ export default function FacturasListadoPage() {
     }
   }
 
+  const handleOpenPreview = async (id: number) => {
+      try {
+          setProcesandoId(id)
+          const res = await api.get(`/admin/facturacion/facturas/${id}/pdf`, { responseType: 'blob' })
+          const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+          setPreviewUrl(url)
+          setIsPreviewOpen(true)
+          toast.success("Vista previa generada")
+      } catch (e) {
+          toast.error("No se pudo cargar la vista previa")
+      } finally {
+          setProcesandoId(null)
+      }
+  }
+
   const handleOpenPDF = (id: number) => {
-      // Abrir en nueva pestaña para ver/descargar
-      // Construimos la URL manualmente para window.open
-      const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/admin/facturacion/facturas/${id}/pdf`
-      window.open(url, '_blank')
+      // Usamos el token para descargar a través del API para que sea seguro
+      api.get(`/admin/facturacion/facturas/${id}/pdf`, { responseType: 'blob' })
+         .then(res => {
+             const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+             window.open(url, '_blank')
+             toast.success("Descarga iniciada")
+         })
+         .catch(() => toast.error("Error al descargar PDF"))
   }
 
   const handleAnular = async (id: number) => {
@@ -213,30 +241,39 @@ export default function FacturasListadoPage() {
         
         <div className="flex items-center gap-2 w-full md:w-auto">
           <Select value={yearFilter} onValueChange={setYearFilter}>
-            <SelectTrigger className="w-[100px] bg-white">
+            <SelectTrigger className="w-[100px] bg-white cursor-pointer">
               <SelectValue placeholder="Año" />
             </SelectTrigger>
             <SelectContent>
                 {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                    <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                    <SelectItem key={year} value={year.toString()} className="cursor-pointer">{year}</SelectItem>
                 ))}
             </SelectContent>
           </Select>
 
           <Select value={estadoFilter} onValueChange={setEstadoFilter}>
-            <SelectTrigger className="w-[140px] bg-white">
+            <SelectTrigger className="w-[140px] bg-white cursor-pointer">
               <div className="flex items-center gap-2">
                 <Filter className="w-3.5 h-3.5" />
                 <SelectValue placeholder="Estado" />
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="TODOS">Todos</SelectItem>
-              <SelectItem value="VALIDADA">Validadas</SelectItem>
-              <SelectItem value="BORRADOR">Borradores</SelectItem>
-              <SelectItem value="ANULADA">Anuladas</SelectItem>
+              <SelectItem value="TODOS" className="cursor-pointer">Todos</SelectItem>
+              <SelectItem value="VALIDADA" className="cursor-pointer">Validadas</SelectItem>
+              <SelectItem value="BORRADOR" className="cursor-pointer">Borradores</SelectItem>
+              <SelectItem value="ANULADA" className="cursor-pointer">Anuladas</SelectItem>
             </SelectContent>
           </Select>
+
+          <UniversalExportButton 
+            module="facturas"
+            queryParams={{
+                year: yearFilter,
+                estado: estadoFilter
+            }}
+            label="Exportar Listado"
+          />
         </div>
       </div>
 
@@ -276,9 +313,10 @@ export default function FacturasListadoPage() {
                             onEdit={() => router.push(`/admin/facturacion/editar/${factura.id}`)}
                             isProcessing={procesandoId === factura.id}
                             isDownloading={downloadingId === factura.id}
-                            isAnyDownloading={!!downloadingId}
+                            isGlobalBusy={!!procesandoId || !!downloadingId}
                             onGenerar={() => handleGenerarPDF(factura.id)}
                             onOpen={() => handleOpenPDF(factura.id)}
+                            onPreview={() => handleOpenPreview(factura.id)}
                         />
                     ))}
                 </AnimatePresence>
@@ -304,11 +342,36 @@ export default function FacturasListadoPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Visor de PDF Rápido */}
+      <Dialog open={isPreviewOpen} onOpenChange={(open) => {
+          if(!open) {
+              if(previewUrl) window.URL.revokeObjectURL(previewUrl)
+              setPreviewUrl(null)
+          }
+          setIsPreviewOpen(open)
+      }}>
+          <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+              <DialogHeader className="p-4 border-b bg-slate-50 flex-shrink-0">
+                  <DialogTitle className="flex items-center gap-2">
+                       <FileText className="w-5 h-5 text-blue-600" />
+                       Vista Previa de Factura
+                  </DialogTitle>
+              </DialogHeader>
+              <div className="flex-1 bg-slate-100 flex items-center justify-center p-4">
+                  {previewUrl ? (
+                      <iframe src={previewUrl} className="w-full h-full rounded shadow-sm bg-white" />
+                  ) : (
+                      <Loader2 className="w-10 h-10 animate-spin text-blue-400" />
+                  )}
+              </div>
+          </DialogContent>
+      </Dialog>
+
     </div>
   )
 }
 
-function FacturaRow({ factura, onValidar, onGenerar, onOpen, onAnular, onDelete, onEdit, isProcessing, isDownloading, isAnyDownloading }: any) {
+function FacturaRow({ factura, onValidar, onGenerar, onOpen, onPreview, onAnular, onDelete, onEdit, isProcessing, isDownloading, isGlobalBusy }: any) {
     const isBorrador = factura.estado === "BORRADOR"
     const isValidada = factura.estado === "VALIDADA"
     const isAnulada = factura.estado === "ANULADA"
@@ -364,7 +427,7 @@ function FacturaRow({ factura, onValidar, onGenerar, onOpen, onAnular, onDelete,
                 {/* BORRADOR: Editar / Validar / Borrar */}
                 {isBorrador && (
                     <>
-                         <Button size="sm" variant="ghost" onClick={onEdit} disabled={isProcessing} title="Editar borrador" className="flex items-center gap-2">
+                         <Button size="sm" variant="ghost" onClick={onEdit} disabled={isGlobalBusy} title="Editar borrador" className="flex items-center gap-2">
                             <Eye className="w-4 h-4 text-slate-500" />
                             <span className="text-xs">Editar</span>
                         </Button>
@@ -372,11 +435,11 @@ function FacturaRow({ factura, onValidar, onGenerar, onOpen, onAnular, onDelete,
                             size="sm" 
                             className="bg-green-600 hover:bg-green-700 text-white h-8"
                             onClick={onValidar}
-                            disabled={isProcessing}
+                            disabled={isGlobalBusy}
                         >
                             {isProcessing ? <RefreshCcw className="w-3 h-3 animate-spin" /> : "Validar"}
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={onDelete}>
+                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={onDelete} disabled={isGlobalBusy}>
                             <Trash2 className="w-4 h-4" />
                         </Button>
                     </>
@@ -385,40 +448,55 @@ function FacturaRow({ factura, onValidar, onGenerar, onOpen, onAnular, onDelete,
                 {/* VALIDADA: PDF / Email / Anular */}
                 {isValidada && (
                     <>
-                        {factura.pdf_path ? (
-                             <Button 
-                                size="sm" 
-                                variant="outline" 
-                                className="h-8 hover:bg-slate-100 text-slate-700 transition-colors" 
-                                onClick={onOpen}
-                            >
-                                <Download className="w-4 h-4 mr-1" /> VER PDF
-                            </Button>
+                        {factura.storage_record_id ? (
+                            <div className="flex gap-1">
+                                <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="h-8 hover:bg-blue-50 text-blue-600 border-blue-200 shadow-sm transition-all active:scale-95" 
+                                    onClick={onPreview}
+                                    title="Vista Previa Rápida"
+                                    disabled={isGlobalBusy}
+                                >
+                                    {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4 mr-1" />}
+                                    VER 
+                                </Button>
+                                <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-8 w-8 p-0 text-slate-500" 
+                                    onClick={onOpen}
+                                    title="Descargar PDF"
+                                    disabled={isGlobalBusy}
+                                >
+                                    <Download className="w-4 h-4" />
+                                </Button>
+                            </div>
                         ) : (
                             <Button 
                                 size="sm" 
                                 variant="outline" 
-                                className="h-8 hover:bg-blue-600 hover:text-white transition-colors" 
+                                className="h-8 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white border-blue-200 shadow-sm transition-all active:scale-95" 
                                 onClick={onGenerar}
-                                disabled={isAnyDownloading}
+                                disabled={isGlobalBusy}
                             >
-                                {isDownloading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />}
+                                {isDownloading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
                                 {isDownloading ? "CREANDO..." : "CREAR PDF"}
                             </Button>
                         )}
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
+                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" disabled={isGlobalBusy}>
                                     <MoreVertical className="w-4 h-4" />
                                 </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
+                            <DropdownMenuContent align="end" className="w-48 shadow-xl">
                                 <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                                <DropdownMenuItem onClick={() => {}} disabled>
+                                <DropdownMenuItem onClick={() => {}} disabled className="cursor-not-allowed opacity-50">
                                     <Mail className="w-4 h-4 mr-2" /> Enviar por Email
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={onAnular}>
+                                <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer" onClick={onAnular}>
                                     <FileX className="w-4 h-4 mr-2" /> Anular Factura
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
