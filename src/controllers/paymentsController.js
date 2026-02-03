@@ -117,8 +117,8 @@ export async function crearPago(req, res) {
             WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
           `;
         } else if (item.factura_id) {
-          // 1. Actualizar Factura Legacy
-          await sql`
+          // 1. Actualizar Factura Legacy Y OBTENER RESULTADO ACTUALIZADO
+          const [facturaActualizada] = await sql`
             UPDATE factura_180
             SET 
               pagado = COALESCE(pagado, 0) + ${item.importe},
@@ -127,10 +127,10 @@ export async function crearPago(req, res) {
                   ELSE 'parcial'
               END
             WHERE id = ${item.factura_id} AND empresa_id = ${empresaId}
+            RETURNING pagado, total, work_log_id
           `;
 
           // 2. Sincronizar invoices_180 (Consolidación)
-          // Buscamos por work_item_id si es una factura
           await sql`
             UPDATE invoices_180
             SET 
@@ -144,13 +144,10 @@ export async function crearPago(req, res) {
               AND empresa_id = ${empresaId}
           `;
 
-          // 3. Sincronizar Trabajos vinculados (si la factura se pagó completa)
-          // 3. Sincronizar Trabajos vinculados (si la factura se pagó completa)
-          const f = await sql`select pagado, total, work_log_id from factura_180 where id=${item.factura_id} and empresa_id=${empresaId}`;
+          // 3. Sincronizar Trabajos vinculados (USANDO EL DATO ACTUALIZADO)
+          console.log(`[DEBUG] Factura ${item.factura_id}: Pagado=${facturaActualizada?.pagado}, Total=${facturaActualizada?.total}, WorkLogID=${facturaActualizada?.work_log_id}`);
 
-          console.log(`[DEBUG] Factura ${item.factura_id}: Pagado=${f[0]?.pagado}, Total=${f[0]?.total}, WorkLogID=${f[0]?.work_log_id}`);
-
-          if (f[0] && Number(f[0].pagado) >= Number(f[0].total) - 0.01) {
+          if (facturaActualizada && Number(facturaActualizada.pagado) >= Number(facturaActualizada.total) - 0.01) {
             console.log(`[DEBUG] Factura ${item.factura_id} completada. Actualizando trabajos...`);
 
             // A. Por link reverso (work_logs.factura_id) - Modo Lista
@@ -162,16 +159,16 @@ export async function crearPago(req, res) {
             console.log(`[DEBUG] Trabajos actualizados por factura_id: ${r1.count}`);
 
             // B. Por link directo (factura.work_log_id) - Modo Único
-            if (f[0].work_log_id) {
+            if (facturaActualizada.work_log_id) {
               const r2 = await sql`
                  UPDATE work_logs_180 
                  SET pagado = valor, estado_pago = 'pagado'
-                 WHERE id = ${f[0].work_log_id} AND empresa_id = ${empresaId}
+                 WHERE id = ${facturaActualizada.work_log_id} AND empresa_id = ${empresaId}
                `;
               console.log(`[DEBUG] Trabajo actualizado por work_log_id: ${r2.count}`);
             }
           } else {
-            console.log(`[DEBUG] Factura no pagada completamente (Diff: ${Number(f[0]?.total || 0) - Number(f[0]?.pagado || 0)})`);
+            console.log(`[DEBUG] Factura no pagada completamente (Diff: ${Number(facturaActualizada?.total || 0) - Number(facturaActualizada?.pagado || 0)})`);
           }
         }
       }
