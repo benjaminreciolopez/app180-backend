@@ -340,6 +340,8 @@ export async function createFactura(req, res) {
 
       // Enlazar trabajos (God Level)
       if (Array.isArray(work_log_ids) && work_log_ids.length > 0) {
+
+        // 1. Vincular los trabajos a la factura
         await tx`
           UPDATE work_logs_180
           SET factura_id = ${factura.id}
@@ -347,6 +349,18 @@ export async function createFactura(req, res) {
             AND empresa_id = ${empresaId}
             AND cliente_id = ${cliente_id}
         `;
+
+        // 2. Si hay al menos un trabajo, guardamos referencia en la factura (Útil si es 1:1 o para trazabilidad rápida)
+        // Tomamos el primero si hay varios, o el único.
+        const mainWorkLogId = work_log_ids[0];
+        if (mainWorkLogId) {
+          await tx`
+                UPDATE factura_180 
+                SET work_log_id = ${mainWorkLogId}
+                WHERE id = ${factura.id} AND empresa_id = ${empresaId}
+             `;
+          createdFactura.work_log_id = mainWorkLogId;
+        }
       }
 
       // Auditoría

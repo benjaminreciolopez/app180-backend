@@ -145,13 +145,25 @@ export async function crearPago(req, res) {
           `;
 
           // 3. Sincronizar Trabajos vinculados (si la factura se pagó completa)
-          const f = await sql`select pagado, total from factura_180 where id=${item.factura_id} and empresa_id=${empresaId}`;
+          // 3. Sincronizar Trabajos vinculados (si la factura se pagó completa)
+          const f = await sql`select pagado, total, work_log_id from factura_180 where id=${item.factura_id} and empresa_id=${empresaId}`;
+
           if (f[0] && Number(f[0].pagado) >= Number(f[0].total) - 0.01) {
+            // A. Por link reverso (work_logs.factura_id) - Modo Lista
             await sql`
                UPDATE work_logs_180 
                SET pagado = valor, estado_pago = 'pagado'
                WHERE factura_id = ${item.factura_id} AND empresa_id = ${empresaId}
              `;
+
+            // B. Por link directo (factura.work_log_id) - Modo Único
+            if (f[0].work_log_id) {
+              await sql`
+                 UPDATE work_logs_180 
+                 SET pagado = valor, estado_pago = 'pagado'
+                 WHERE id = ${f[0].work_log_id} AND empresa_id = ${empresaId}
+               `;
+            }
           }
         }
       }
