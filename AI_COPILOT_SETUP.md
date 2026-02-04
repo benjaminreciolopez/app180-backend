@@ -1,6 +1,6 @@
-# 🤖 APP180 Copilot - Configuración del Agente IA
+# 🤖 CONTENDO - Asistente IA de APP180
 
-## ¿Qué es APP180 Copilot?
+## ¿Qué es CONTENDO?
 
 Un asistente inteligente integrado en tu aplicación que puede:
 - 📊 Consultar facturas y estadísticas de facturación

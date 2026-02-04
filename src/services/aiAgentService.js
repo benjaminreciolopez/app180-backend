@@ -14,14 +14,19 @@ const TOOLS = [
     type: "function",
     function: {
       name: "consultar_facturas",
-      description: "Obtiene información sobre facturas de la empresa. Puede filtrar por estado, cliente, rango de fechas.",
+      description: "Obtiene información sobre facturas de la empresa. Puede filtrar por estado de factura (validada/borrador/anulada) y estado de pago (pendiente/parcial/pagado).",
       parameters: {
         type: "object",
         properties: {
           estado: {
             type: "string",
             enum: ["VALIDADA", "BORRADOR", "ANULADA", "TODOS"],
-            description: "Estado de las facturas a consultar"
+            description: "Estado de emisión de la factura: VALIDADA (confirmada), BORRADOR (en edición), ANULADA (cancelada), o TODOS"
+          },
+          estado_pago: {
+            type: "string",
+            enum: ["pendiente", "parcial", "pagado", "todos"],
+            description: "Estado de cobro: pendiente (sin cobrar), parcial (parcialmente cobrada), pagado (totalmente cobrada), o todos"
           },
           cliente_id: {
             type: "string",
@@ -135,7 +140,7 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
 /**
  * Herramienta: Consultar facturas
  */
-async function consultarFacturas({ estado = "TODOS", cliente_id, limite = 10 }, empresaId) {
+async function consultarFacturas({ estado = "TODOS", estado_pago = "todos", cliente_id, limite = 10 }, empresaId) {
   try {
     let query = sql`
       SELECT
@@ -149,6 +154,10 @@ async function consultarFacturas({ estado = "TODOS", cliente_id, limite = 10 }, 
 
     if (estado !== "TODOS") {
       query = sql`${query} AND f.estado = ${estado}`;
+    }
+
+    if (estado_pago !== "todos") {
+      query = sql`${query} AND COALESCE(f.estado_pago, 'pendiente') = ${estado_pago}`;
     }
 
     if (cliente_id) {
@@ -350,7 +359,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const mensajes = [
       {
         role: "system",
-        content: `Eres APP180 Copilot, el asistente inteligente de gestión empresarial.
+        content: `Eres CONTENDO, el asistente inteligente de gestión empresarial de APP180.
 
 Tu función es ayudar a los usuarios a:
 - Consultar información sobre facturas, empleados, clientes y pagos
@@ -358,7 +367,21 @@ Tu función es ayudar a los usuarios a:
 - Responder preguntas sobre el estado del negocio
 - Dar recomendaciones basadas en datos
 
-IMPORTANTE:
+IMPORTANTE - Diferencia entre estados:
+1. **Estado de factura** (emisión):
+   - VALIDADA: Factura confirmada y emitida
+   - BORRADOR: Factura en edición
+   - ANULADA: Factura cancelada
+
+2. **Estado de pago** (cobro):
+   - pendiente: Sin cobrar
+   - parcial: Parcialmente cobrada
+   - pagado: Totalmente cobrada
+
+Cuando el usuario pregunte por facturas "pendientes" o "por cobrar", usa el filtro estado_pago="pendiente".
+Cuando pregunte por facturas "emitidas" o "validadas", usa el filtro estado="VALIDADA".
+
+FORMATO:
 - Siempre responde en español
 - Sé conciso pero completo
 - Usa formato markdown para mejorar la legibilidad

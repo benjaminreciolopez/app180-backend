@@ -6,9 +6,9 @@ const DEFAULT_MODULOS = {
   calendario: true,
   calendario_import: true,
   worklogs: true,
-  ausencias: true,
   empleados: true,
   facturacion: false,
+  pagos: false,  // Cobros y Pagos independiente de Facturación
 };
 
 /**
@@ -88,9 +88,9 @@ export async function updateEmpresaConfig(req, res) {
       calendario: !!input.calendario,
       calendario_import: !!input.calendario_import,
       worklogs: !!input.worklogs,
-      ausencias: !!input.ausencias,
       empleados: !!input.empleados,
       facturacion: !!input.facturacion,
+      pagos: !!input.pagos,
     };
 
     await sql`
