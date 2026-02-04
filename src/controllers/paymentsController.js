@@ -72,89 +72,124 @@ export async function crearPago(req, res) {
       for (const item of asignaciones) {
         if (item.importe <= 0) continue;
 
-        const invId = item.invoice_id || item.work_log_id || item.factura_id;
-        if (!invId) continue;
+        // Determinar qué ID usar basándose en qué campo viene en el item
+        let invoiceIdForAllocation = null;
+        let workLogIdForAllocation = null;
+        let facturaIdForAllocation = null;
 
-        const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
-        const uuidForAllocation = isUuid(invId) ? invId : null;
+        // Helper para verificar si es UUID
+        const isUuid = (val) => val && typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
-        // Insertar en allocations usando todas las columnas disponibles por seguridad legacy
+        // Helper para verificar si es número entero
+        const isInteger = (val) => val && (typeof val === 'number' || !isNaN(parseInt(val)));
+
+        // Asignar a la columna correcta según el tipo de ID
+        if (item.invoice_id && isUuid(item.invoice_id)) {
+          invoiceIdForAllocation = item.invoice_id;
+        } else if (item.work_log_id && isUuid(item.work_log_id)) {
+          workLogIdForAllocation = item.work_log_id;
+        } else if (item.factura_id && isInteger(item.factura_id)) {
+          facturaIdForAllocation = item.factura_id;
+        } else {
+          // Intentar inferir del ID combinado (retrocompatibilidad)
+          const invId = item.invoice_id || item.work_log_id || item.factura_id;
+          if (!invId) continue;
+
+          if (isUuid(invId)) {
+            invoiceIdForAllocation = invId;
+          } else if (isInteger(invId)) {
+            facturaIdForAllocation = invId;
+          } else {
+            continue;
+          }
+        }
+
+        // Insertar en allocations usando todas las columnas disponibles
         await sql`
           insert into payment_allocations_180 (
               empresa_id, payment_id, invoice_id, work_log_id, factura_id, importe
           ) values (
-              ${empresaId}, ${payment.id}, ${uuidForAllocation}, 
-              ${isUuid(item.work_log_id) ? item.work_log_id : null}, 
-              ${!isUuid(item.factura_id) ? item.factura_id : null}, 
+              ${empresaId}, ${payment.id},
+              ${invoiceIdForAllocation},
+              ${workLogIdForAllocation},
+              ${facturaIdForAllocation},
               ${item.importe}
           )
         `;
 
+        // Determinar el ID para búsqueda en invoices_180
+        const invIdForSearch = invoiceIdForAllocation || workLogIdForAllocation || facturaIdForAllocation;
+
         // Actualizar tabla de consolidación (invoices_180) - Buscamos por ID real o por ID de item de trabajo
-        await sql`
-          UPDATE invoices_180
-          SET 
-            importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
-            saldo = GREATEST(0, saldo - ${item.importe}),
-            estado = CASE 
-                WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
-                ELSE 'parcial'
-            END
-          WHERE (id::text = ${invId}::text OR work_item_id::text = ${invId}::text)
-            AND empresa_id = ${empresaId}
-        `;
+        if (invIdForSearch) {
+          await sql`
+            UPDATE invoices_180
+            SET
+              importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
+              saldo = GREATEST(0, saldo - ${item.importe}),
+              estado = CASE
+                  WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
+                  ELSE 'parcial'
+              END
+            WHERE (id::text = ${invIdForSearch}::text OR work_item_id::text = ${invIdForSearch}::text)
+              AND empresa_id = ${empresaId}
+          `;
+        }
 
         // Actualización Legacy (Opcional pero recomendada si hay otras partes del app usándolas)
-        if (item.work_log_id) {
+        if (workLogIdForAllocation || item.work_log_id) {
+          const workLogId = workLogIdForAllocation || item.work_log_id;
           await sql`
             UPDATE work_logs_180
-            SET 
+            SET
               pagado = COALESCE(pagado, 0) + ${item.importe},
-              estado_pago = CASE 
+              estado_pago = CASE
                   WHEN (COALESCE(pagado, 0) + ${item.importe}) >= valor THEN 'pagado'
                   ELSE 'parcial'
               END
-            WHERE id = ${item.work_log_id} AND empresa_id = ${empresaId}
+            WHERE id = ${workLogId} AND empresa_id = ${empresaId}
           `;
-        } else if (item.factura_id) {
+        } else if (facturaIdForAllocation || item.factura_id) {
+          const facturaId = facturaIdForAllocation || item.factura_id;
+
           // 1. Actualizar Factura Legacy Y OBTENER RESULTADO ACTUALIZADO
           const [facturaActualizada] = await sql`
             UPDATE factura_180
-            SET 
+            SET
               pagado = COALESCE(pagado, 0) + ${item.importe},
-              estado_pago = CASE 
+              estado_pago = CASE
                   WHEN (COALESCE(pagado, 0) + ${item.importe}) >= total - 0.01 THEN 'pagado'
                   ELSE 'parcial'
               END
-            WHERE id = ${item.factura_id} AND empresa_id = ${empresaId}
+            WHERE id = ${facturaId} AND empresa_id = ${empresaId}
             RETURNING pagado, total, work_log_id
           `;
 
           // 2. Sincronizar invoices_180 (Consolidación)
           await sql`
             UPDATE invoices_180
-            SET 
+            SET
               importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
               saldo = GREATEST(0, saldo - ${item.importe}),
-              estado = CASE 
+              estado = CASE
                   WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
                   ELSE 'parcial'
               END
-            WHERE ((work_item_id::text = ${item.factura_id}::text AND tipo = 'factura') OR id::text = ${item.factura_id}::text)
+            WHERE ((work_item_id::text = ${facturaId}::text AND tipo = 'factura') OR id::text = ${facturaId}::text)
               AND empresa_id = ${empresaId}
           `;
 
           // 3. Sincronizar Trabajos vinculados (USANDO EL DATO ACTUALIZADO)
-          console.log(`[DEBUG] Factura ${item.factura_id}: Pagado=${facturaActualizada?.pagado}, Total=${facturaActualizada?.total}, WorkLogID=${facturaActualizada?.work_log_id}`);
+          console.log(`[DEBUG] Factura ${facturaId}: Pagado=${facturaActualizada?.pagado}, Total=${facturaActualizada?.total}, WorkLogID=${facturaActualizada?.work_log_id}`);
 
           if (facturaActualizada && Number(facturaActualizada.pagado) >= Number(facturaActualizada.total) - 0.01) {
-            console.log(`[DEBUG] Factura ${item.factura_id} completada. Actualizando trabajos...`);
+            console.log(`[DEBUG] Factura ${facturaId} completada. Actualizando trabajos...`);
 
             // A. Por link reverso (work_logs.factura_id) - Modo Lista
             const r1 = await sql`
-               UPDATE work_logs_180 
+               UPDATE work_logs_180
                SET pagado = valor, estado_pago = 'pagado'
-               WHERE factura_id = ${item.factura_id} AND empresa_id = ${empresaId}
+               WHERE factura_id = ${facturaId} AND empresa_id = ${empresaId}
              `;
             console.log(`[DEBUG] Trabajos actualizados por factura_id: ${r1.count}`);
 
@@ -397,12 +432,13 @@ export async function eliminarPago(req, res) {
             UPDATE invoices_180
             SET
                 importe_pagado = GREATEST(0, COALESCE(importe_pagado, 0) - ${a.importe}),
-                saldo = saldo + ${a.importe},
+                saldo = GREATEST(0, saldo + ${a.importe}),
                 estado = CASE
                     WHEN (COALESCE(importe_pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
                     ELSE 'parcial'
                 END
-            WHERE id = ${invId} AND empresa_id = ${empresaId}
+            WHERE (id::text = ${invId}::text OR work_item_id::text = ${invId}::text)
+              AND empresa_id = ${empresaId}
           `;
         }
 
@@ -410,9 +446,9 @@ export async function eliminarPago(req, res) {
         if (a.work_log_id) {
           await sql`
             UPDATE work_logs_180
-            SET 
+            SET
               pagado = GREATEST(0, COALESCE(pagado, 0) - ${a.importe}),
-              estado_pago = CASE 
+              estado_pago = CASE
                   WHEN (COALESCE(pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
                   ELSE 'parcial'
               END
@@ -423,23 +459,67 @@ export async function eliminarPago(req, res) {
         if (a.factura_id) {
           await sql`
             UPDATE factura_180
-            SET 
+            SET
               pagado = GREATEST(0, COALESCE(pagado, 0) - ${a.importe}),
-              estado_pago = CASE 
+              estado_pago = CASE
                   WHEN (COALESCE(pagado, 0) - ${a.importe}) <= 0.01 THEN 'pendiente'
                   ELSE 'parcial'
               END
             WHERE id = ${a.factura_id} AND empresa_id = ${empresaId}
           `;
 
-          // Revertir trabajos de la factura si el pago ya no es total
-          const f = await sql`select pagado, total from factura_180 where id=${a.factura_id} and empresa_id=${empresaId}`;
-          if (!f[0] || Number(f[0].pagado) < Number(f[0].total) - 0.01) {
-            await sql`
-              UPDATE work_logs_180 
-              SET pagado = 0, estado_pago = 'pendiente'
-              WHERE factura_id = ${a.factura_id} AND empresa_id = ${empresaId}
+          // Recalcular pagos de trabajos vinculados basándose en el total de asignaciones restantes
+          const f = await sql`select pagado, total, work_log_id from factura_180 where id=${a.factura_id} and empresa_id=${empresaId}`;
+
+          if (f[0]) {
+            const facturaActualizada = f[0];
+            const totalFactura = Number(facturaActualizada.total);
+
+            // Calcular el total de pagos asignados a esta factura (después de eliminar este pago)
+            const totalAsignaciones = await sql`
+              SELECT COALESCE(SUM(pa.importe), 0) as total_pagado
+              FROM payment_allocations_180 pa
+              WHERE pa.factura_id = ${a.factura_id}
+                AND pa.empresa_id = ${empresaId}
+                AND pa.payment_id != ${id}
             `;
+
+            const totalPagadoReal = Number(totalAsignaciones[0]?.total_pagado || 0);
+            const nuevoEstadoPago = totalPagadoReal >= totalFactura - 0.01 ? 'pagado' :
+                                   totalPagadoReal > 0 ? 'parcial' : 'pendiente';
+
+            // Actualizar trabajos vinculados con el estado correcto
+            if (nuevoEstadoPago === 'pagado') {
+              // Si la factura sigue pagada completamente, marcar trabajos como pagados
+              await sql`
+                UPDATE work_logs_180
+                SET pagado = valor, estado_pago = 'pagado'
+                WHERE factura_id = ${a.factura_id} AND empresa_id = ${empresaId}
+              `;
+
+              if (facturaActualizada.work_log_id) {
+                await sql`
+                  UPDATE work_logs_180
+                  SET pagado = valor, estado_pago = 'pagado'
+                  WHERE id = ${facturaActualizada.work_log_id} AND empresa_id = ${empresaId}
+                `;
+              }
+            } else {
+              // Si la factura ya no está completamente pagada, resetear trabajos
+              await sql`
+                UPDATE work_logs_180
+                SET pagado = 0, estado_pago = 'pendiente'
+                WHERE factura_id = ${a.factura_id} AND empresa_id = ${empresaId}
+              `;
+
+              if (facturaActualizada.work_log_id) {
+                await sql`
+                  UPDATE work_logs_180
+                  SET pagado = 0, estado_pago = 'pendiente'
+                  WHERE id = ${facturaActualizada.work_log_id} AND empresa_id = ${empresaId}
+                `;
+              }
+            }
           }
         }
       }
