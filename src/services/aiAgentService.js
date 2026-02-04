@@ -359,7 +359,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const mensajes = [
       {
         role: "system",
-        content: `Eres APP180 Copilot, el asistente inteligente de gestión empresarial.
+        content: `Eres CONTENDO, el asistente inteligente de gestión empresarial de APP180.
 
 Tu función es ayudar a los usuarios a:
 - Consultar información sobre facturas, empleados, clientes y pagos
