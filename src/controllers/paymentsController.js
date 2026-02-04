@@ -261,38 +261,80 @@ export async function listarTodosLosPagos(req, res) {
 
 /**
  * Endpoint para tu modal:
- * Devuelve pago + remanente + lista de items pendientes (invoices_180) para seleccionar.
+ * Devuelve pago + remanente + lista de items pendientes (facturas y trabajos) para seleccionar.
  */
 export async function getPendientesParaPago(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
-  const { paymentId } = req.params;
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { paymentId } = req.params;
 
-  const p = await sql`
-    select *
-    from payments_180
-    where id=${paymentId} and empresa_id=${empresaId}
-    limit 1
-  `;
-  if (!p[0]) return res.status(404).json({ error: "Pago no existe" });
+    const p = await sql`
+      select *
+      from payments_180
+      where id=${paymentId} and empresa_id=${empresaId}
+      limit 1
+    `;
+    if (!p[0]) return res.status(404).json({ error: "Pago no existe" });
 
-  const rem = await getPagoPendiente({ empresaId, paymentId });
-  const clienteId = p[0].cliente_id;
+    const rem = await getPagoPendiente({ empresaId, paymentId });
+    const clienteId = p[0].cliente_id;
 
-  const pendientes = await sql`
-    select id, tipo, work_item_id, referencia, importe_total, importe_pagado, saldo, estado, fecha_emision
-    from invoices_180
-    where empresa_id=${empresaId}
-      and cliente_id=${clienteId}
-      and estado in ('pendiente','parcial')
-      and saldo > 0
-    order by fecha_emision asc, created_at asc
-  `;
+    const pendientes = [];
 
-  res.json({
-    pago: p[0],
-    remanente: rem,
-    pendientes,
-  });
+    // 1. Facturas Validadas con Saldo
+    const facturas = await sql`
+      SELECT
+        id::text as id,
+        numero as referencia,
+        fecha as fecha_emision,
+        total::numeric as importe_total,
+        COALESCE(pagado, 0)::numeric as importe_pagado,
+        (total - COALESCE(pagado, 0))::numeric as saldo,
+        estado_pago as estado,
+        'factura' as tipo,
+        id::text as work_item_id
+      FROM factura_180
+      WHERE empresa_id = ${empresaId}
+        AND cliente_id = ${clienteId}
+        AND estado = 'VALIDADA'
+        AND (total > COALESCE(pagado, 0) + 0.01)
+      ORDER BY fecha ASC
+    `;
+    pendientes.push(...facturas);
+
+    // 2. Trabajos sin Factura con Saldo
+    const trabajos = await sql`
+      SELECT
+        id::text as id,
+        descripcion as referencia,
+        fecha as fecha_emision,
+        valor::numeric as importe_total,
+        COALESCE(pagado, 0)::numeric as importe_pagado,
+        (valor - COALESCE(pagado, 0))::numeric as saldo,
+        estado_pago as estado,
+        'trabajo' as tipo,
+        id::text as work_item_id
+      FROM work_logs_180
+      WHERE empresa_id = ${empresaId}
+        AND cliente_id = ${clienteId}
+        AND factura_id IS NULL
+        AND (valor > COALESCE(pagado, 0) + 0.01)
+      ORDER BY fecha ASC
+    `;
+    pendientes.push(...trabajos);
+
+    // Ordenar por fecha
+    pendientes.sort((a, b) => new Date(a.fecha_emision) - new Date(b.fecha_emision));
+
+    res.json({
+      pago: p[0],
+      remanente: rem,
+      pendientes,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
 }
 
 export async function imputarPago(req, res) {
