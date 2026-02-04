@@ -161,6 +161,66 @@ export async function asignarPago({
           and empresa_id=${empresaId}
       `;
 
+      // Sincronizar con tablas legacy
+      // Obtener información del invoice para saber qué tipo es
+      const invoiceInfo = await tx`
+        select tipo, work_item_id
+        from invoices_180
+        where id=${invoiceId} and empresa_id=${empresaId}
+      `;
+
+      if (invoiceInfo[0]) {
+        const { tipo, work_item_id } = invoiceInfo[0];
+
+        // Si es un trabajo (work_log)
+        if (tipo === 'trabajo' && work_item_id) {
+          await tx`
+            UPDATE work_logs_180
+            SET
+              pagado = COALESCE(pagado, 0) + ${aplicar},
+              estado_pago = CASE
+                WHEN (COALESCE(pagado, 0) + ${aplicar}) >= valor THEN 'pagado'
+                ELSE 'parcial'
+              END
+            WHERE id = ${work_item_id} AND empresa_id = ${empresaId}
+          `;
+        }
+
+        // Si es una factura
+        if (tipo === 'factura' && work_item_id) {
+          const [facturaActualizada] = await tx`
+            UPDATE factura_180
+            SET
+              pagado = COALESCE(pagado, 0) + ${aplicar},
+              estado_pago = CASE
+                WHEN (COALESCE(pagado, 0) + ${aplicar}) >= total - 0.01 THEN 'pagado'
+                ELSE 'parcial'
+              END
+            WHERE id = ${work_item_id} AND empresa_id = ${empresaId}
+            RETURNING pagado, total, work_log_id
+          `;
+
+          // Si la factura está completamente pagada, actualizar trabajos vinculados
+          if (facturaActualizada && Number(facturaActualizada.pagado) >= Number(facturaActualizada.total) - 0.01) {
+            // Actualizar trabajos por link reverso (work_logs.factura_id)
+            await tx`
+              UPDATE work_logs_180
+              SET pagado = valor, estado_pago = 'pagado'
+              WHERE factura_id = ${work_item_id} AND empresa_id = ${empresaId}
+            `;
+
+            // Actualizar trabajo por link directo (factura.work_log_id)
+            if (facturaActualizada.work_log_id) {
+              await tx`
+                UPDATE work_logs_180
+                SET pagado = valor, estado_pago = 'pagado'
+                WHERE id = ${facturaActualizada.work_log_id} AND empresa_id = ${empresaId}
+              `;
+            }
+          }
+        }
+      }
+
       pendientePago = Math.max(0, pendientePago - aplicar);
     }
 
