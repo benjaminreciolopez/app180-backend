@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { getUser } from "@/services/auth";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import { AICopilot } from "@/components/shared/AICopilot";
 
 type Modulos = Record<string, boolean>;
 
@@ -267,6 +268,9 @@ export default function AdminLayout({
         {/* Contenido */}
         <div className="flex-1 overflow-y-auto md:p-6">{children}</div>
       </main>
+
+      {/* AI Copilot - Bot flotante */}
+      <AICopilot />
     </div>
   );
 }
