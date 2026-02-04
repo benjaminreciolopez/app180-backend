@@ -43,6 +43,7 @@ import exportRoutes from "./routes/exportRoutes.js";
 import { handleGoogleCallback } from "./controllers/emailConfigController.js";
 import facturacionRoutes from "./routes/facturacionRoutes.js";
 import adminStorageRoutes from "./routes/adminStorageRoutes.js";
+import aiRoutes from "./routes/aiRoutes.js";
 
 const app = express();
 
@@ -131,6 +132,7 @@ app.use("/admin/export", exportRoutes);
 app.use("/system", systemRoutes);
 app.use("/admin/facturacion", facturacionRoutes);
 app.use("/admin/storage", adminStorageRoutes);
+app.use("/admin", aiRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
