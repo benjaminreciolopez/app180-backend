@@ -281,7 +281,8 @@ export default function FacturasListadoPage() {
         <div className="grid grid-cols-12 gap-4 p-4 border-b bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
             <div className="col-span-2 md:col-span-1">Estado</div>
             <div className="col-span-3 md:col-span-2">Número / Fecha</div>
-            <div className="col-span-4 md:col-span-4">Cliente</div>
+            <div className="col-span-4 md:col-span-3">Cliente</div>
+            <div className="col-span-3 md:col-span-1 text-center hidden md:block">Pago</div>
             <div className="col-span-3 md:col-span-2 text-right">Importe</div>
             <div className="col-span-12 md:col-span-3 text-right hidden md:block">Acciones</div>
         </div>
@@ -404,8 +405,13 @@ function FacturaRow({ factura, onValidar, onGenerar, onOpen, onPreview, onAnular
     const isValidada = factura.estado === "VALIDADA"
     const isAnulada = factura.estado === "ANULADA"
 
+    // Determinar estado de pago
+    const pagado = Number(factura.pagado || 0)
+    const total = Number(factura.total || 0)
+    const estadoPago = factura.estado_pago || (pagado >= total - 0.01 ? 'pagado' : pagado > 0 ? 'parcial' : 'pendiente')
+
     return (
-        <motion.div 
+        <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -430,13 +436,39 @@ function FacturaRow({ factura, onValidar, onGenerar, onOpen, onPreview, onAnular
             </div>
 
             {/* Cliente */}
-            <div className="col-span-4 md:col-span-4">
+            <div className="col-span-4 md:col-span-3">
                 <div className="font-medium text-slate-800 text-sm truncate">
                     {factura.cliente_nombre || <span className="text-slate-400 italic">Cliente sin asignar</span>}
                 </div>
                 <div className="text-xs text-slate-500 truncate hidden sm:block">
                     {factura.cliente?.nif || ""}
                 </div>
+            </div>
+
+            {/* Estado de Pago */}
+            <div className="col-span-3 md:col-span-1 hidden md:flex justify-center">
+                {isValidada && (
+                    <>
+                        {estadoPago === 'pagado' && (
+                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 shadow-none border-0 text-xs">
+                                Pagada
+                            </Badge>
+                        )}
+                        {estadoPago === 'parcial' && (
+                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 shadow-none border-0 text-xs">
+                                Parcial
+                            </Badge>
+                        )}
+                        {estadoPago === 'pendiente' && (
+                            <Badge className="bg-red-100 text-red-700 hover:bg-red-100 shadow-none border-0 text-xs">
+                                Pendiente
+                            </Badge>
+                        )}
+                    </>
+                )}
+                {(isBorrador || isAnulada) && (
+                    <span className="text-xs text-slate-400">—</span>
+                )}
             </div>
 
             {/* Importe */}
