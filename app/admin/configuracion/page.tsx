@@ -5,6 +5,8 @@ import { api } from "@/services/api";
 import { showSuccess, showError } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import CalendarConfigPanel from "@/components/admin/CalendarConfigPanel";
+import CalendarSyncHistory from "@/components/admin/CalendarSyncHistory";
 
 type Modulos = {
   fichajes?: boolean;
@@ -74,10 +76,13 @@ export default function AdminConfiguracionPage() {
   if (!modulos) return <LoadingSpinner fullPage />;
 
   return (
-    <div className="app-main max-w-xl space-y-4">
+    <div className="app-main max-w-2xl space-y-6">
       <h1 className="text-2xl font-bold">Configuración del sistema</h1>
 
-      <div className="card space-y-3">
+      {/* Módulos */}
+      <div>
+        <h2 className="text-xl font-semibold mb-3">Módulos</h2>
+        <div className="card space-y-3">
         <Toggle
           label="Fichajes"
           value={modulos.fichajes}
@@ -107,11 +112,23 @@ export default function AdminConfiguracionPage() {
           value={modulos.pagos}
           onChange={() => toggle("pagos")}
         />
+        </div>
+
+        <Button onClick={save} disabled={saving} className="mt-4 py-6 font-bold shadow-md">
+          {saving ? "Guardando…" : "Guardar cambios"}
+        </Button>
       </div>
 
-      <Button onClick={save} disabled={saving} className="py-6 font-bold shadow-md">
-        {saving ? "Guardando…" : "Guardar cambios"}
-      </Button>
+      {/* Google Calendar */}
+      <div>
+        <h2 className="text-xl font-semibold mb-3">Sincronización con Google Calendar</h2>
+        <CalendarConfigPanel />
+      </div>
+
+      {/* Historial */}
+      <div>
+        <CalendarSyncHistory />
+      </div>
     </div>
   );
 }
