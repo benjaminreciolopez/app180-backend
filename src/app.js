@@ -18,6 +18,7 @@ import adminAusenciasRoutes from "./routes/adminAusenciasRoutes.js";
 
 import { authRequired } from "./middlewares/authRequired.js";
 import { ejecutarAutocierre } from "./jobs/autocierre.js";
+import { renewCalendarWebhooks } from "./jobs/renewCalendarWebhooks.js";
 
 import empleadoAdjuntosRoutes from "./routes/empleadoAdjuntosRoutes.js";
 import adminAdjuntosRoutes from "./routes/adminAdjuntosRoutes.js";
@@ -41,16 +42,21 @@ import emailConfigRoutes from "./routes/emailConfigRoutes.js";
 import adminReportesRoutes from "./routes/adminReportesRoutes.js";
 import exportRoutes from "./routes/exportRoutes.js";
 import { handleGoogleCallback } from "./controllers/emailConfigController.js";
+import { handleGoogleCallback as handleCalendarCallback } from "./controllers/calendarConfigController.js";
 import facturacionRoutes from "./routes/facturacionRoutes.js";
 import adminStorageRoutes from "./routes/adminStorageRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
+import calendarConfigRoutes from "./routes/calendarConfigRoutes.js";
+import calendarSyncRoutes from "./routes/calendarSyncRoutes.js";
+import calendarWebhookRoutes from "./routes/calendarWebhookRoutes.js";
 
 const app = express();
 
 // =========================
 // CRON
 // =========================
-cron.schedule("59 23 * * *", () => ejecutarAutocierre());
+cron.schedule("59 23 * * *", () => ejecutarAutocierre()); // Autocierre diario
+cron.schedule("0 3 * * *", () => renewCalendarWebhooks()); // Renovar webhooks diario a las 3 AM
 
 // =========================
 // MIDDLEWARES
@@ -94,8 +100,9 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 // =========================
 app.get("/", (req, res) => res.send("API APP180 funcionando"));
 
-// OAuth2 callback (must be at root level, PRIOR to other auth routes)
-app.get("/auth/google/callback", handleGoogleCallback);
+// OAuth2 callbacks (must be at root level, PRIOR to other auth routes)
+app.get("/auth/google/callback", handleGoogleCallback); // Email
+app.get("/auth/google/calendar/callback", handleCalendarCallback); // Calendar
 
 app.use("/auth", authRoutes);
 
@@ -133,6 +140,9 @@ app.use("/system", systemRoutes);
 app.use("/admin/facturacion", facturacionRoutes);
 app.use("/admin/storage", adminStorageRoutes);
 app.use("/admin", aiRoutes);
+app.use("/admin", calendarConfigRoutes); // Google Calendar configuration
+app.use("/admin", calendarSyncRoutes); // Google Calendar sync
+app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
