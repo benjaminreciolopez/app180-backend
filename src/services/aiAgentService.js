@@ -349,11 +349,62 @@ async function trabajosPendientesFacturar({ cliente_id }, empresaId) {
 }
 
 /**
+ * Carga memoria reciente de conversaciones
+ */
+async function cargarMemoria(empresaId, userId, limite = 5) {
+  try {
+    const memoria = await sql`
+      SELECT mensaje, respuesta, created_at
+      FROM contendo_memory_180
+      WHERE empresa_id = ${empresaId} AND user_id = ${userId}
+      ORDER BY created_at DESC
+      LIMIT ${limite}
+    `;
+
+    // Formatear como mensajes de chat (más recientes primero, luego invertir)
+    return memoria.reverse().flatMap(m => [
+      { role: "user", content: m.mensaje },
+      { role: "assistant", content: m.respuesta }
+    ]);
+  } catch (error) {
+    console.error("[AI] Error cargando memoria:", error);
+    return [];
+  }
+}
+
+/**
+ * Guarda conversación en memoria persistente
+ */
+async function guardarConversacion(empresaId, userId, userRole, mensaje, respuesta) {
+  try {
+    await sql`
+      INSERT INTO contendo_memory_180
+      (empresa_id, user_id, role, mensaje, respuesta, metadata)
+      VALUES (
+        ${empresaId},
+        ${userId},
+        ${userRole},
+        ${mensaje},
+        ${respuesta},
+        ${JSON.stringify({ timestamp: new Date().toISOString() })}
+      )
+    `;
+    console.log("[AI] Conversación guardada en memoria");
+  } catch (error) {
+    console.error("[AI] Error guardando memoria:", error);
+    // No lanzar error, la memoria es opcional
+  }
+}
+
+/**
  * Servicio principal de chat con IA
  */
 export async function chatConAgente({ empresaId, userId, userRole, mensaje, historial = [] }) {
   try {
     console.log(`[AI] Chat iniciado - EmpresaID: ${empresaId}, Mensaje: ${mensaje}`);
+
+    // 🆕 Cargar memoria de conversaciones anteriores
+    const memoriaReciente = await cargarMemoria(empresaId, userId, 3);
 
     // Construir mensajes para Groq
     const mensajes = [
@@ -391,6 +442,7 @@ FORMATO:
 
 El usuario es ${userRole === 'admin' ? 'administrador' : 'empleado'}.`
       },
+      ...memoriaReciente,
       ...historial,
       {
         role: "user",
@@ -447,8 +499,13 @@ El usuario es ${userRole === 'admin' ? 'administrador' : 'empleado'}.`
       mensajeRespuesta = response.choices[0].message;
     }
 
+    const respuestaFinal = mensajeRespuesta.content;
+
+    // 🆕 Guardar conversación en memoria para futuras interacciones
+    await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFinal);
+
     return {
-      mensaje: mensajeRespuesta.content,
+      mensaje: respuestaFinal,
       tool_calls: mensajeRespuesta.tool_calls || []
     };
 
