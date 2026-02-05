@@ -5,7 +5,10 @@
       "Bash(git push:*)",
       "Bash(ls:*)",
       "Bash(git commit:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(node -e:*)",
+      "Bash(find:*)",
+      "Bash(psql:*)"
     ]
   }
 }

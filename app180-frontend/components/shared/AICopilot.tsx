@@ -8,7 +8,8 @@ import {
   Send,
   Loader2,
   Sparkles,
-  MessageCircle
+  MessageCircle,
+  Trash2
 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/services/api"
@@ -22,12 +23,40 @@ interface Mensaje {
   timestamp: string
 }
 
+const STORAGE_KEY = "contendo_chat_history"
+
 export function AICopilot() {
   const [isOpen, setIsOpen] = useState(false)
   const [mensajes, setMensajes] = useState<Mensaje[]>([])
   const [inputValue, setInputValue] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // 🆕 Cargar historial de localStorage al montar
+  useEffect(() => {
+    try {
+      const historialGuardado = localStorage.getItem(STORAGE_KEY)
+      if (historialGuardado) {
+        const mensajesGuardados = JSON.parse(historialGuardado)
+        if (Array.isArray(mensajesGuardados) && mensajesGuardados.length > 0) {
+          setMensajes(mensajesGuardados)
+        }
+      }
+    } catch (error) {
+      console.error("Error cargando historial:", error)
+    }
+  }, [])
+
+  // 🆕 Guardar historial en localStorage cuando cambian los mensajes
+  useEffect(() => {
+    if (mensajes.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(mensajes))
+      } catch (error) {
+        console.error("Error guardando historial:", error)
+      }
+    }
+  }, [mensajes])
 
   // Auto-scroll al final cuando hay nuevos mensajes
   useEffect(() => {
@@ -105,6 +134,14 @@ export function AICopilot() {
     }
   }
 
+  const limpiarHistorial = () => {
+    if (confirm("¿Estás seguro de que quieres limpiar todo el historial de conversaciones?")) {
+      setMensajes([])
+      localStorage.removeItem(STORAGE_KEY)
+      toast.success("Historial limpiado")
+    }
+  }
+
   return (
     <>
       {/* Botón flotante */}
@@ -153,14 +190,26 @@ export function AICopilot() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsOpen(false)}
-                className="text-white hover:bg-white/20"
-              >
-                <X className="h-5 w-5" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={limpiarHistorial}
+                  className="text-white hover:bg-white/20"
+                  title="Limpiar historial"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsOpen(false)}
+                  className="text-white hover:bg-white/20"
+                  title="Cerrar"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
 
             {/* Mensajes */}
@@ -219,6 +268,51 @@ export function AICopilot() {
 
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Quick Actions */}
+            {mensajes.length <= 1 && !isLoading && (
+              <div className="px-4 py-2 border-t border-slate-200 bg-slate-50">
+                <p className="text-xs text-slate-500 mb-2">Prueba estas consultas:</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      setInputValue("¿Cuántas facturas tengo pendientes de cobro?")
+                      setTimeout(() => enviarMensaje(), 100)
+                    }}
+                    className="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  >
+                    💰 Facturas pendientes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setInputValue("Dame un resumen de facturación de este mes")
+                      setTimeout(() => enviarMensaje(), 100)
+                    }}
+                    className="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  >
+                    📊 Resumen del mes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setInputValue("¿Quiénes son mis top 5 clientes?")
+                      setTimeout(() => enviarMensaje(), 100)
+                    }}
+                    className="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  >
+                    👥 Top clientes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setInputValue("¿Hay trabajos pendientes de facturar?")
+                      setTimeout(() => enviarMensaje(), 100)
+                    }}
+                    className="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  >
+                    ⏰ Trabajos sin facturar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Input */}
             <div className="p-4 border-t border-slate-200 bg-white">
