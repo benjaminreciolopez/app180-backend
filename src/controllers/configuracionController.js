@@ -83,6 +83,7 @@ export async function updateEmisorConfig(req, res) {
             `;
         } else {
             [result] = await sql`
+                insert into emisor_180 (
                     empresa_id, nombre, nif, direccion, poblacion, provincia, cp, pais, telefono, email, web, iban,
                     texto_pie, texto_exento, texto_rectificativa
                 ) values (
