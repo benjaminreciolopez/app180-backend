@@ -13,6 +13,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@google/genai": "^1.40.0",
     "@supabase/supabase-js": "^2.93.3",
     "bcryptjs": "^2.4.3",
     "chromium-bidi": "^13.1.0",
