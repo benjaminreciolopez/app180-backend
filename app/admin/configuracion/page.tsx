@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import CalendarConfigPanel from "@/components/admin/CalendarConfigPanel";
 import CalendarSyncHistory from "@/components/admin/CalendarSyncHistory";
+import KnowledgePanel from "@/components/admin/KnowledgePanel";
 
 type Modulos = {
   fichajes?: boolean;
@@ -117,6 +118,12 @@ export default function AdminConfiguracionPage() {
         <Button onClick={save} disabled={saving} className="mt-4 py-6 font-bold shadow-md">
           {saving ? "Guardando…" : "Guardar cambios"}
         </Button>
+      </div>
+
+      {/* Conocimiento IA */}
+      <div>
+        <h2 className="text-xl font-semibold mb-3">Entrenamiento de CONTENDO (IA)</h2>
+        <KnowledgePanel />
       </div>
 
       {/* Google Calendar */}
