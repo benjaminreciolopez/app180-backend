@@ -109,3 +109,51 @@ export async function updateEmpresaConfig(req, res) {
     res.status(500).json({ error: "Error guardando configuración" });
   }
 }
+
+/**
+ * GET /admin/configuracion/widgets
+ */
+export async function getDashboardWidgets(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    if (!empresaId) return res.status(403).json({ error: "No empresa" });
+
+    const rows = await sql`
+      SELECT dashboard_widgets
+      FROM empresa_config_180
+      WHERE empresa_id = ${empresaId}
+      LIMIT 1
+    `;
+
+    return res.json({ widgets: rows[0]?.dashboard_widgets || [] });
+  } catch (err) {
+    console.error("❌ getDashboardWidgets:", err);
+    res.status(500).json({ error: "Error obteniendo widgets" });
+  }
+}
+
+/**
+ * PUT /admin/configuracion/widgets
+ */
+export async function updateDashboardWidgets(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    if (!empresaId) return res.status(403).json({ error: "No empresa" });
+
+    const { widgets } = req.body;
+    if (!Array.isArray(widgets)) {
+      return res.status(400).json({ error: "Formato inválido" });
+    }
+
+    await sql`
+      UPDATE empresa_config_180
+      SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb
+      WHERE empresa_id = ${empresaId}
+    `;
+
+    return res.json({ success: true, widgets });
+  } catch (err) {
+    console.error("❌ updateDashboardWidgets:", err);
+    res.status(500).json({ error: "Error guardando widgets" });
+  }
+}
