@@ -1076,7 +1076,7 @@ export const googleCompleteSetup = async (req, res) => {
     // Update empresa name if provided
     if (empresa_nombre) {
       await sql`
-        UPDATE empresa_180 SET nombre = ${empresa_nombre}, updated_at = now()
+        UPDATE empresa_180 SET nombre = ${empresa_nombre}
         WHERE id = ${empresaId}
       `;
     }
