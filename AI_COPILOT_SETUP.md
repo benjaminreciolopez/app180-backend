@@ -131,6 +131,17 @@ Backend (backend)
 - Todas las consultas incluyen filtro por `empresa_id`
 - Los datos del usuario nunca se envían a terceros (solo el contexto necesario)
 
+## Modo "Offline" / Cerebro de Respaldo
+
+Si el servicio de IA (Groq/Gemini) falla por cuotas o errores de conexión, **CONTENDO NO dejará de responder**.
+
+- Se activa automáticamente el **Cerebro de Respaldo** (Base de Datos Local).
+- Responde a preguntas comunes (saludos, ayuda, facturas pendientes, calendario) sin consumir tokens API.
+- **Entrenamiento:** Puedes añadir nuevas respuestas ejecutando:
+  ```bash
+  node scripts/add_knowledge.js "concepto clave" "Respuesta que debe dar el bot"
+  ```
+
 ## Soporte
 
 Si tienes problemas:
