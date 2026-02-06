@@ -135,11 +135,19 @@ export function AICopilot() {
   }
 
   const limpiarHistorial = () => {
-    if (confirm("¿Estás seguro de que quieres limpiar todo el historial de conversaciones?")) {
-      setMensajes([])
-      localStorage.removeItem(STORAGE_KEY)
-      toast.success("Historial limpiado")
-    }
+    toast("¿Eliminar todo el historial?", {
+      action: {
+        label: "Sí, eliminar",
+        onClick: () => {
+          setMensajes([])
+          localStorage.removeItem(STORAGE_KEY)
+          toast.success("Historial limpiado")
+        }
+      },
+      cancel: {
+        label: "Cancelar"
+      }
+    })
   }
 
   return (
