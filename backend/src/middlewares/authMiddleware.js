@@ -98,11 +98,15 @@ export const authRequired = async (req, res, next) => {
       `;
 
       req.user.modulos = cfg[0]?.modulos || {
+        clientes: true,
         empleados: true,
         fichajes: true,
+        calendario: true,
+        calendario_import: true,
         worklogs: true,
         ausencias: true,
         facturacion: false,
+        pagos: false,
       };
     }
     // ==========================

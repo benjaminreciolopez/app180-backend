@@ -998,10 +998,20 @@ export const googleAuth = async (req, res) => {
 
       empresaId = empresa[0].id;
 
-      // Create default config
+      // Create default config with all modules enabled by default
+      const defaultModulos = {
+        clientes: true,
+        fichajes: true,
+        calendario: true,
+        calendario_import: true,
+        worklogs: true,
+        empleados: true,
+        facturacion: false,
+        pagos: false,
+      };
       await sql`
-        INSERT INTO empresa_config_180 (empresa_id)
-        VALUES (${empresaId})
+        INSERT INTO empresa_config_180 (empresa_id, modulos)
+        VALUES (${empresaId}, ${defaultModulos}::jsonb)
       `;
 
       console.log(`✅ Google Signup: ${email} → empresa "${empresaNombre}" created`);
