@@ -225,19 +225,23 @@ async function consultarFacturas({ estado = "TODOS", estado_pago = "todos", clie
 }
 
 async function consultarEmpleados({ activos_solo = true }, empresaId) {
-  let query = sql`SELECT id, nombre, email, active FROM employees_180 WHERE empresa_id = ${empresaId}`;
-  if (activos_solo) query = sql`${query} AND active = true`;
-  query = sql`${query} ORDER BY nombre ASC`;
+  let query = sql`
+    SELECT e.id, e.nombre, e.activo, e.tipo_trabajo, u.email
+    FROM employees_180 e
+    LEFT JOIN users_180 u ON e.user_id = u.id
+    WHERE e.empresa_id = ${empresaId}`;
+  if (activos_solo) query = sql`${query} AND e.activo = true`;
+  query = sql`${query} ORDER BY e.nombre ASC`;
   const empleados = await query;
-  return { total: empleados.length, empleados: empleados.map(e => ({ nombre: e.nombre, email: e.email, activo: e.active })) };
+  return { total: empleados.length, empleados: empleados.map(e => ({ nombre: e.nombre, email: e.email, tipo: e.tipo_trabajo, activo: e.activo })) };
 }
 
 async function consultarClientes({ activos_solo = true }, empresaId) {
-  let query = sql`SELECT id, nombre, email, telefono, active FROM clients_180 WHERE empresa_id = ${empresaId}`;
-  if (activos_solo) query = sql`${query} AND active = true`;
+  let query = sql`SELECT id, nombre, email, telefono, activo FROM clients_180 WHERE empresa_id = ${empresaId}`;
+  if (activos_solo) query = sql`${query} AND activo = true`;
   query = sql`${query} ORDER BY nombre ASC`;
   const clientes = await query;
-  return { total: clientes.length, clientes: clientes.map(c => ({ nombre: c.nombre, email: c.email, telefono: c.telefono, activo: c.active })) };
+  return { total: clientes.length, clientes: clientes.map(c => ({ nombre: c.nombre, email: c.email, telefono: c.telefono, activo: c.activo })) };
 }
 
 async function estadisticasFacturacion({ mes, anio }, empresaId) {
