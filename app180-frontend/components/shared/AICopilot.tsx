@@ -339,7 +339,7 @@ export function AICopilot() {
                 </Button>
               </div>
               <p className="text-xs text-slate-400 mt-2 text-center">
-                Powered by Google Gemini
+                Powered by IA · CONTENDO
               </p>
             </div>
           </motion.div>
