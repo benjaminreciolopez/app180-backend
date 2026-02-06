@@ -144,7 +144,7 @@ const TOOLS = [
         required: ["fecha_inicio", "fecha_fin"]
       }
     }
-  }
+  },
   {
     type: "function",
     function: {
@@ -158,7 +158,7 @@ const TOOLS = [
         required: ["busqueda"]
       }
     }
-  }
+  },
 ];
 
 // ============================
@@ -330,30 +330,33 @@ async function consultarAusencias({ fecha_inicio, fecha_fin, empleado_id, tipo =
 }
 
 async function consultarConocimiento({ busqueda }, empresaId) {
-  // Búsqueda inversa: Ver si alguno de los tokens DEFINIDOS en la BD está contenido en la búsqueda del usuario.
-  // Ej: Usuario dice "Hola contendo", token en BD es "hola". "Hola contendo" ILIKE "%hola%" -> MATCH.
-  // También buscamos por coincidencia directa en la respuesta por si acaso.
-
-  // Normalizamos búsqueda
   const term = busqueda.trim();
 
+  // Búsqueda con prioridad: match exacto del token > token contenido en búsqueda > búsqueda contenida en token
   const hits = await sql`
-    SELECT token, respuesta
+    SELECT token, respuesta, prioridad,
+      CASE
+        WHEN LOWER(token) = LOWER(${term}) THEN 3
+        WHEN ${term} ILIKE ('%' || token || '%') THEN 2
+        WHEN token ILIKE ${'%' + term + '%'} THEN 1
+        ELSE 0
+      END as relevancia
     FROM conocimiento_180
     WHERE empresa_id = ${empresaId}
-    AND (
-      ${term} ILIKE ('%' || token || '%') 
-      OR
-      token ILIKE ${'%' + term + '%'}
-    )
+      AND activo = true
+      AND (
+        LOWER(token) = LOWER(${term})
+        OR ${term} ILIKE ('%' || token || '%')
+        OR token ILIKE ${'%' + term + '%'}
+      )
+    ORDER BY relevancia DESC, prioridad DESC
     LIMIT 1
   `;
 
   if (hits.length === 0) {
-    return { mensaje: null }; // Devolvemos null para indicar que no hubo suerte
+    return { mensaje: null };
   }
 
-  // Si hay match, devolvemos la respuesta directamente para ser usada
   return {
     respuesta_directa: hits[0].respuesta,
     tema: hits[0].token
@@ -463,12 +466,14 @@ El usuario es ${userRole === 'admin' ? 'administrador' : 'empleado'}.`
     }
 
     // Procesar tool calls (máximo 3 iteraciones)
+    // Acumulamos todos los mensajes de herramientas para no perder contexto entre iteraciones
     let iterations = 0;
+    const toolHistory = [];
     while (msg.tool_calls && msg.tool_calls.length > 0 && iterations < 3) {
       iterations++;
       console.log(`[AI] Iteración ${iterations}: ${msg.tool_calls.length} herramientas`);
 
-      const toolMessages = [];
+      toolHistory.push(msg);
       for (const tc of msg.tool_calls) {
         let args = {};
         try {
@@ -477,18 +482,18 @@ El usuario es ${userRole === 'admin' ? 'administrador' : 'empleado'}.`
           args = {};
         }
         const resultado = await ejecutarHerramienta(tc.function.name, args, empresaId);
-        toolMessages.push({
+        toolHistory.push({
           role: "tool",
           tool_call_id: tc.id,
           content: JSON.stringify(resultado)
         });
       }
 
-      // Llamada con resultados de herramientas
+      // Llamada con historial completo de herramientas
       try {
         response = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
-          messages: [...mensajes, msg, ...toolMessages],
+          messages: [...mensajes, ...toolHistory],
           tools: TOOLS,
           tool_choice: "auto",
           temperature: 0.1,

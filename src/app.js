@@ -47,6 +47,7 @@ import { handleUnifiedCallback } from "./controllers/authController.js";
 import facturacionRoutes from "./routes/facturacionRoutes.js";
 import adminStorageRoutes from "./routes/adminStorageRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
+import adminKnowledgeRoutes from "./routes/adminKnowledgeRoutes.js";
 import calendarConfigRoutes from "./routes/calendarConfigRoutes.js";
 import calendarSyncRoutes from "./routes/calendarSyncRoutes.js";
 import calendarWebhookRoutes from "./routes/calendarWebhookRoutes.js";
@@ -139,6 +140,7 @@ app.use("/system", systemRoutes);
 app.use("/admin/facturacion", facturacionRoutes);
 app.use("/admin/storage", adminStorageRoutes);
 app.use("/admin", aiRoutes);
+app.use("/admin", adminKnowledgeRoutes);
 app.use("/admin", calendarConfigRoutes); // Google Calendar configuration
 app.use("/admin", calendarSyncRoutes); // Google Calendar sync
 app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
