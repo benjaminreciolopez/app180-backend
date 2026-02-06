@@ -5,6 +5,9 @@ import { config } from "../config.js";
 import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
 import crypto from "crypto";
 import { sendEmail } from "../services/emailService.js";
+import { google } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
+import { encrypt } from "../utils/encryption.js";
 
 export const registerFirstAdmin = async (req, res) => {
   try {
@@ -893,3 +896,355 @@ export const getMe = async (req, res) => {
     res.status(500).json({ error: "Error obteniendo sesión" });
   }
 };
+
+// =====================================================
+// GOOGLE SIGN-IN / SIGN-UP (ID Token verification)
+// =====================================================
+export const googleAuth = async (req, res) => {
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({ error: "Falta credential de Google" });
+    }
+
+    // Verify ID token with Google
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const googleId = payload.sub;
+    const email = payload.email;
+    const nombre = payload.name || email.split("@")[0];
+    const avatarUrl = payload.picture || null;
+
+    console.log(`🔵 Google Auth: ${email} (${googleId})`);
+
+    // Check if user exists by google_id
+    let userRows = await sql`
+      SELECT id, email, nombre, role, google_id, password_forced
+      FROM users_180
+      WHERE google_id = ${googleId}
+    `;
+
+    // Also check by email (user might exist with email+password)
+    if (userRows.length === 0) {
+      userRows = await sql`
+        SELECT id, email, nombre, role, google_id, password_forced
+        FROM users_180
+        WHERE email = ${email}
+      `;
+    }
+
+    let user;
+    let empresaId;
+    let isNewUser = false;
+
+    if (userRows.length > 0) {
+      // ---- EXISTING USER → LOGIN ----
+      user = userRows[0];
+
+      // Update google_id and avatar if not set
+      if (!user.google_id) {
+        await sql`
+          UPDATE users_180
+          SET google_id = ${googleId}, avatar_url = ${avatarUrl}, updated_at = now()
+          WHERE id = ${user.id}
+        `;
+      }
+
+      // Get empresa
+      if (user.role === "admin") {
+        const empresaRows = await sql`
+          SELECT id FROM empresa_180 WHERE user_id = ${user.id}
+        `;
+        if (empresaRows.length === 0) {
+          return res.status(500).json({ error: "Empresa no encontrada" });
+        }
+        empresaId = empresaRows[0].id;
+      } else {
+        const empRows = await sql`
+          SELECT empresa_id FROM employees_180 WHERE user_id = ${user.id}
+        `;
+        empresaId = empRows[0]?.empresa_id;
+      }
+
+      console.log(`✅ Google Login: ${email} (existing user)`);
+    } else {
+      // ---- NEW USER → SIGNUP ----
+      isNewUser = true;
+
+      // Create user (no password - Google-only)
+      const newUser = await sql`
+        INSERT INTO users_180 (email, nombre, role, google_id, avatar_url, password_forced)
+        VALUES (${email}, ${nombre}, 'admin', ${googleId}, ${avatarUrl}, false)
+        RETURNING id, email, nombre, role
+      `;
+
+      user = newUser[0];
+
+      // Create empresa
+      const domain = email.split("@")[1]?.split(".")[0] || nombre;
+      const empresaNombre = domain.charAt(0).toUpperCase() + domain.slice(1);
+
+      const empresa = await sql`
+        INSERT INTO empresa_180 (user_id, nombre)
+        VALUES (${user.id}, ${empresaNombre})
+        RETURNING id
+      `;
+
+      empresaId = empresa[0].id;
+
+      // Create default config
+      await sql`
+        INSERT INTO empresa_config_180 (empresa_id)
+        VALUES (${empresaId})
+      `;
+
+      console.log(`✅ Google Signup: ${email} → empresa "${empresaNombre}" created`);
+    }
+
+    // Load modules
+    let modulos = {};
+    if (empresaId) {
+      const cfg = await sql`
+        SELECT modulos FROM empresa_config_180
+        WHERE empresa_id = ${empresaId} LIMIT 1
+      `;
+      modulos = cfg[0]?.modulos || {};
+    }
+
+    // Ensure self employee if module active
+    let empleadoId = null;
+    if (user.role === "admin" && empresaId && modulos.empleados !== false) {
+      empleadoId = await ensureSelfEmployee({
+        userId: user.id,
+        empresaId,
+        nombre: user.nombre,
+      });
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        nombre: user.nombre,
+        empresa_id: empresaId,
+        empleado_id: empleadoId,
+        modulos,
+        password_forced: false,
+      },
+      config.jwtSecret,
+      { expiresIn: "10h" },
+    );
+
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        nombre: user.nombre,
+        role: user.role,
+        empresa_id: empresaId,
+        empleado_id: empleadoId,
+        modulos,
+        avatar_url: avatarUrl,
+        password_forced: false,
+      },
+      is_new_user: isNewUser,
+    });
+  } catch (err) {
+    console.error("❌ googleAuth:", err);
+    return res.status(500).json({ error: "Error con autenticación de Google" });
+  }
+};
+
+// =====================================================
+// COMPLETE SETUP: OAuth2 con scopes Calendar + Gmail
+// =====================================================
+export const googleCompleteSetup = async (req, res) => {
+  try {
+    const { empresa_nombre } = req.body;
+    const userId = req.user.id;
+    const empresaId = req.user.empresa_id;
+
+    // Update empresa name if provided
+    if (empresa_nombre) {
+      await sql`
+        UPDATE empresa_180 SET nombre = ${empresa_nombre}, updated_at = now()
+        WHERE id = ${empresaId}
+      `;
+    }
+
+    // Generate OAuth2 URL with all scopes (Calendar + Gmail)
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI,
+    );
+
+    const scopes = [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/calendar",
+      "https://mail.google.com/",
+    ];
+
+    const state = Buffer.from(
+      JSON.stringify({
+        userId,
+        empresaId,
+        type: "complete_setup",
+      }),
+    ).toString("base64");
+
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: scopes,
+      state,
+      prompt: "consent",
+    });
+
+    return res.json({ authUrl });
+  } catch (err) {
+    console.error("❌ googleCompleteSetup:", err);
+    return res.status(500).json({ error: "Error iniciando setup" });
+  }
+};
+
+// =====================================================
+// UNIFIED CALLBACK: Guarda Calendar + Gmail tokens
+// =====================================================
+export const handleUnifiedCallback = async (req, res) => {
+  try {
+    const { code, state, error: authError } = req.query;
+
+    if (authError) {
+      return res.send(callbackHTML("error", "Autenticación cancelada"));
+    }
+
+    if (!code || !state) {
+      return res.status(400).send(callbackHTML("error", "Faltan parámetros"));
+    }
+
+    const { userId, empresaId, type } = JSON.parse(
+      Buffer.from(state, "base64").toString(),
+    );
+
+    // Exchange code for tokens
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI,
+    );
+
+    const { tokens } = await oauth2Client.getToken(code);
+
+    if (!tokens.refresh_token) {
+      return res.send(
+        callbackHTML("error", "No se obtuvo refresh token. Intenta de nuevo."),
+      );
+    }
+
+    // Get user email
+    oauth2Client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+    const userInfo = await oauth2.userinfo.get();
+    const email = userInfo.data.email;
+
+    const encryptedToken = encrypt(tokens.refresh_token);
+
+    if (type === "complete_setup") {
+      // Save BOTH Calendar and Gmail config
+
+      // 1. Gmail config
+      await sql`
+        INSERT INTO empresa_email_config_180 (empresa_id, modo, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, from_name, from_email)
+        VALUES (${empresaId}, 'oauth2', 'gmail', ${email}, ${encryptedToken}, now(), ${email.split("@")[0]}, ${email})
+        ON CONFLICT (empresa_id) DO UPDATE SET
+          modo = 'oauth2',
+          oauth2_provider = 'gmail',
+          oauth2_email = ${email},
+          oauth2_refresh_token = ${encryptedToken},
+          oauth2_connected_at = now(),
+          from_email = ${email},
+          updated_at = now()
+      `;
+
+      // 2. Calendar config
+      await sql`
+        INSERT INTO empresa_calendar_config_180 (empresa_id, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, sync_enabled)
+        VALUES (${empresaId}, 'google', ${email}, ${encryptedToken}, now(), true)
+        ON CONFLICT (empresa_id) DO UPDATE SET
+          oauth2_email = ${email},
+          oauth2_refresh_token = ${encryptedToken},
+          oauth2_connected_at = now(),
+          sync_enabled = true,
+          updated_at = now()
+      `;
+
+      console.log(`✅ Complete setup: Calendar + Gmail configured for empresa ${empresaId}`);
+    } else if (type === "calendar") {
+      // Only Calendar
+      await sql`
+        INSERT INTO empresa_calendar_config_180 (empresa_id, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, sync_enabled)
+        VALUES (${empresaId}, 'google', ${email}, ${encryptedToken}, now(), true)
+        ON CONFLICT (empresa_id) DO UPDATE SET
+          oauth2_email = ${email},
+          oauth2_refresh_token = ${encryptedToken},
+          oauth2_connected_at = now(),
+          sync_enabled = true,
+          updated_at = now()
+      `;
+    } else {
+      // Only Gmail (existing flow)
+      await sql`
+        INSERT INTO empresa_email_config_180 (empresa_id, modo, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, from_name, from_email)
+        VALUES (${empresaId}, 'oauth2', 'gmail', ${email}, ${encryptedToken}, now(), ${email.split("@")[0]}, ${email})
+        ON CONFLICT (empresa_id) DO UPDATE SET
+          modo = 'oauth2',
+          oauth2_provider = 'gmail',
+          oauth2_email = ${email},
+          oauth2_refresh_token = ${encryptedToken},
+          oauth2_connected_at = now(),
+          from_email = ${email},
+          updated_at = now()
+      `;
+    }
+
+    return res.send(callbackHTML("success", "Servicios configurados correctamente"));
+  } catch (err) {
+    console.error("❌ handleUnifiedCallback:", err);
+    return res.status(500).send(callbackHTML("error", err.message));
+  }
+};
+
+// Helper: HTML for callback popup
+function callbackHTML(status, message) {
+  const isSuccess = status === "success";
+  return `<!DOCTYPE html>
+<html><head><title>${isSuccess ? "Conectado" : "Error"}</title>
+<style>
+  body { font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: ${isSuccess ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" : "#fee"}; }
+  .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; max-width: 400px; }
+  .icon { font-size: 4rem; margin-bottom: 1rem; }
+  h1 { color: ${isSuccess ? "#10b981" : "#dc2626"}; margin: 0 0 0.5rem; }
+  p { color: #6b7280; }
+  button { background: #3b82f6; color: white; border: none; padding: 0.75rem 2rem; border-radius: 0.5rem; font-size: 1rem; cursor: pointer; font-weight: 600; margin-top: 1rem; }
+</style></head>
+<body><div class="card">
+  <div class="icon">${isSuccess ? "&#10003;" : "&#10007;"}</div>
+  <h1>${isSuccess ? "Conectado" : "Error"}</h1>
+  <p>${message}</p>
+  <button onclick="window.close()">Cerrar</button>
+</div>
+<script>
+  if (window.opener) { window.opener.postMessage({ type: '${isSuccess ? "oauth-success" : "oauth-error"}', status: '${status}' }, '*'); }
+  ${isSuccess ? "setTimeout(() => window.close(), 3000);" : ""}
+</script>
+</body></html>`;
+}

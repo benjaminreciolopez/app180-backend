@@ -43,6 +43,7 @@ import adminReportesRoutes from "./routes/adminReportesRoutes.js";
 import exportRoutes from "./routes/exportRoutes.js";
 import { handleGoogleCallback } from "./controllers/emailConfigController.js";
 import { handleGoogleCallback as handleCalendarCallback } from "./controllers/calendarConfigController.js";
+import { handleUnifiedCallback } from "./controllers/authController.js";
 import facturacionRoutes from "./routes/facturacionRoutes.js";
 import adminStorageRoutes from "./routes/adminStorageRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
@@ -58,9 +59,6 @@ const app = express();
 cron.schedule("59 23 * * *", () => ejecutarAutocierre()); // Autocierre diario
 cron.schedule("0 3 * * *", () => renewCalendarWebhooks()); // Renovar webhooks diario a las 3 AM
 
-// =========================
-// MIDDLEWARES
-// =========================
 // =========================
 // MIDDLEWARES
 // =========================
@@ -101,8 +99,9 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.get("/", (req, res) => res.send("API APP180 funcionando"));
 
 // OAuth2 callbacks (must be at root level, PRIOR to other auth routes)
-app.get("/auth/google/callback", handleGoogleCallback); // Email
-app.get("/auth/google/calendar/callback", handleCalendarCallback); // Calendar
+app.get("/auth/google/callback", handleGoogleCallback); // Email (legacy)
+app.get("/auth/google/calendar/callback", handleCalendarCallback); // Calendar (legacy)
+app.get("/auth/google/unified-callback", handleUnifiedCallback); // Unified setup (Calendar + Gmail)
 
 app.use("/auth", authRoutes);
 
