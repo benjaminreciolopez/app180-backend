@@ -121,6 +121,7 @@ app.use("/admin", adminJornadasRoutes);
 app.use("/admin", adminplantillasRoutes);
 app.use("/empleado", empleadoPlanDiaRoutes);
 app.use("/worklogs", workLogsRoutes);
+app.use("/admin", adminConfigRoutes); // Must be before routes with requireModule
 app.use("/admin", adminCalendarioRoutes);
 app.use("/empleado", empleadoCalendarioRoutes);
 app.use("/empleado", empleadoJornadasRoutes);
@@ -129,7 +130,6 @@ app.use("/admin", adminCalendarioOCRRoutes);
 app.use("/admin", adminCalendarioImportacionesRoutes);
 app.use("/admin", adminclientesroutes);
 app.use("/admin", paymentsRoutes);
-app.use("/admin", adminConfigRoutes);
 app.use("/perfil", adminProfileRoutes);
 app.use("/admin/auditoria", auditRoutes);
 app.use("/admin", emailConfigRoutes); // Email configuration routes
