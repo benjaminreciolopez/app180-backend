@@ -1,0 +1,17 @@
+import { Router } from "express";
+import { authRequired } from "../middlewares/authMiddleware.js";
+import { roleRequired } from "../middlewares/roleRequired.js";
+import { chat, status } from "../controllers/aiController.js";
+
+const router = Router();
+
+// Todas las rutas requieren autenticación y rol admin
+router.use(authRequired, roleRequired("admin"));
+
+// POST /admin/ai/chat - Chat con el agente IA
+router.post("/ai/chat", chat);
+
+// GET /admin/ai/status - Estado del servicio de IA
+router.get("/ai/status", status);
+
+export default router;
