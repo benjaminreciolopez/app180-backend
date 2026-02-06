@@ -65,12 +65,12 @@ export async function chat(req, res) {
  */
 export async function status(req, res) {
   try {
-    const apiKey = process.env.GROQ_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
 
     res.json({
-      disponible: !!apiKey && apiKey !== "gsk_demo_key_replace_me",
-      modelo: "llama-3.3-70b-versatile",
-      proveedor: "Groq"
+      disponible: !!apiKey && apiKey.length > 0,
+      modelo: "gemini-2.0-flash",
+      proveedor: "Google Gemini"
     });
   } catch (error) {
     console.error("[AI Controller] Error en status:", error);
