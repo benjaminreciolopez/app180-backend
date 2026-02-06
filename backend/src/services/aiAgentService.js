@@ -36,7 +36,7 @@ const TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          activos_solo: { type: "boolean", description: "Si true, solo activos" }
+          activos_solo: { type: "string", enum: ["true", "false"], description: "Si 'true', solo activos" }
         }
       }
     }
@@ -49,7 +49,7 @@ const TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          activos_solo: { type: "boolean", description: "Si true, solo activos" }
+          activos_solo: { type: "string", enum: ["true", "false"], description: "Si 'true', solo activos" }
         }
       }
     }
@@ -108,7 +108,7 @@ const TOOLS = [
           fecha: { type: "string", description: "Fecha YYYY-MM-DD" },
           nombre: { type: "string", description: "Nombre del evento" },
           tipo: { type: "string", enum: ["festivo_local", "festivo_empresa", "cierre_empresa"], description: "Tipo" },
-          es_laborable: { type: "boolean", description: "Si laborable (default: false)" },
+          es_laborable: { type: "string", enum: ["true", "false"], description: "Si laborable (default: false)" },
           descripcion: { type: "string", description: "Descripción" }
         },
         required: ["fecha", "nombre", "tipo"]
@@ -165,20 +165,31 @@ const TOOLS = [
 // EJECUTAR HERRAMIENTAS
 // ============================
 
+// Coerce string booleans to real booleans (LLMs often generate "true"/"false" as strings)
+function coerceBooleans(args) {
+  const result = { ...args };
+  for (const key of Object.keys(result)) {
+    if (result[key] === "true") result[key] = true;
+    else if (result[key] === "false") result[key] = false;
+  }
+  return result;
+}
+
 async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
-  console.log(`[AI] Ejecutando: ${nombreHerramienta}`, argumentos);
+  const args = coerceBooleans(argumentos);
+  console.log(`[AI] Ejecutando: ${nombreHerramienta}`, args);
   try {
     switch (nombreHerramienta) {
-      case "consultar_facturas": return await consultarFacturas(argumentos, empresaId);
-      case "consultar_empleados": return await consultarEmpleados(argumentos, empresaId);
-      case "consultar_clientes": return await consultarClientes(argumentos, empresaId);
-      case "estadisticas_facturacion": return await estadisticasFacturacion(argumentos, empresaId);
-      case "trabajos_pendientes_facturar": return await trabajosPendientesFacturar(argumentos, empresaId);
-      case "consultar_calendario": return await consultarCalendario(argumentos, empresaId);
-      case "crear_evento_calendario": return await crearEventoCalendario(argumentos, empresaId);
-      case "sincronizar_google_calendar": return await sincronizarGoogleCalendar(argumentos, empresaId);
-      case "consultar_ausencias": return await consultarAusencias(argumentos, empresaId);
-      case "consultar_conocimiento": return await consultarConocimiento(argumentos, empresaId);
+      case "consultar_facturas": return await consultarFacturas(args, empresaId);
+      case "consultar_empleados": return await consultarEmpleados(args, empresaId);
+      case "consultar_clientes": return await consultarClientes(args, empresaId);
+      case "estadisticas_facturacion": return await estadisticasFacturacion(args, empresaId);
+      case "trabajos_pendientes_facturar": return await trabajosPendientesFacturar(args, empresaId);
+      case "consultar_calendario": return await consultarCalendario(args, empresaId);
+      case "crear_evento_calendario": return await crearEventoCalendario(args, empresaId);
+      case "sincronizar_google_calendar": return await sincronizarGoogleCalendar(args, empresaId);
+      case "consultar_ausencias": return await consultarAusencias(args, empresaId);
+      case "consultar_conocimiento": return await consultarConocimiento(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -447,12 +458,11 @@ El usuario es ${userRole === 'admin' ? 'administrador' : 'empleado'}.`
       const fallback = await consultarConocimiento({ busqueda: mensaje }, empresaId);
 
       if (fallback.respuesta_directa) {
-        const respuestaFallback = fallback.respuesta_directa + "\n\n*(Respuesta generada desde base de conocimiento local por indisponibilidad del servicio IA)*";
-        await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFallback);
-        return { mensaje: respuestaFallback };
+        await guardarConversacion(empresaId, userId, userRole, mensaje, fallback.respuesta_directa);
+        return { mensaje: fallback.respuesta_directa };
       }
 
-      return { mensaje: "⚠️ El servicio de inteligencia artificial no está disponible momentáneamente y no encontré respuesta en mi base local. Inténtalo de nuevo en unos minutos." };
+      return { mensaje: "No pude procesar tu mensaje en este momento. Inténtalo de nuevo en unos minutos." };
     }
 
     let msg = response.choices?.[0]?.message;
