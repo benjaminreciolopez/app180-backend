@@ -43,6 +43,23 @@ npm-debug.log*
 # claude
 .claude/
 
+# duplicate directories (source of truth is root level)
+app180-frontend/
+backend/
+
+# temp/investigation scripts
+check_*.js
+investigate_*.js
+migrate_*.js
+migrate_*.cjs
+fix_*.js
+test_*.js
+schema.js
+proxy.ts
+roadmap_saas.md
+PLAN.md
+AI_COPILOT_SETUP.md
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
