@@ -2,14 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/services/api";
+import { X, Save, Copy, ChevronDown, Trash2, Edit } from "lucide-react";
 
 type Option = { id: string; nombre: string; modo_defecto?: string };
+type Template = { id: string; descripcion: string; detalles?: string };
 
 type Props = {
   isAdmin?: boolean;
-  empleados?: Option[]; // Solo necesario si isAdmin
+  empleados?: Option[]; 
   clientes: Option[];
   onCreated: () => void;
+  initialData?: any;
+  mode?: 'create' | 'edit' | 'clone';
+  onCancel?: () => void;
 };
 
 export default function FormTrabajos({
@@ -17,12 +22,16 @@ export default function FormTrabajos({
   empleados = [],
   clientes,
   onCreated,
+  initialData,
+  mode = 'create',
+  onCancel
 }: Props) {
   const [loading, setLoading] = useState(false);
 
   // Fields
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [descripcion, setDescripcion] = useState("");
+  const [detalles, setDetalles] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [workItemNombre, setWorkItemNombre] = useState("");
   
@@ -30,7 +39,6 @@ export default function FormTrabajos({
   const [empleadoId, setEmpleadoId] = useState("");
 
   // Billing Mode
-  // 'hora', 'dia', 'mes', 'valorado' (fixed)
   const [billingType, setBillingType] = useState("hora"); 
   
   // Inputs per mode
@@ -38,19 +46,60 @@ export default function FormTrabajos({
   const [dias, setDias] = useState("1");
   const [meses, setMeses] = useState("1");
   
-  const [duracionTexto, setDuracionTexto] = useState(""); // For 'valorado' display
-  const [precioFijo, setPrecioFijo] = useState(""); // For 'valorado' (admin only)
+  const [duracionTexto, setDuracionTexto] = useState(""); 
+  const [precioFijo, setPrecioFijo] = useState(""); 
 
-  // Detect client default mode
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+
+  // Multiple dates (for cloning)
+  const [extraDates, setExtraDates] = useState<string[]>([]);
+
+  // Detect client default mode (only on creation)
   useEffect(() => {
-      if(clienteId) {
+      if(clienteId && mode === 'create') {
           const c = clientes.find(x => x.id === clienteId);
           if(c?.modo_defecto && c.modo_defecto !== 'mixto') {
               setBillingType(c.modo_defecto);
           }
-           // If 'mixto', keep current or default to 'hora'
       }
-  }, [clienteId, clientes]);
+  }, [clienteId, clientes, mode]);
+
+  // Load Templates
+  useEffect(() => {
+    api.get("/worklogs/templates").then(res => {
+      if(Array.isArray(res.data)) setTemplates(res.data);
+    }).catch(console.error);
+  }, []);
+
+  // Sync with initialData (Edit / Clone)
+  useEffect(() => {
+    if (initialData) {
+      setFecha(initialData.fecha ? new Date(initialData.fecha).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+      setDescripcion(initialData.descripcion || "");
+      setDetalles(initialData.detalles || "");
+      setClienteId(initialData.cliente_id || "");
+      setWorkItemNombre(initialData.work_item_nombre || "");
+      setEmpleadoId(initialData.employee_id || "");
+      setBillingType(initialData.tipo_facturacion || "hora");
+      setDuracionTexto(initialData.duracion_texto || "");
+      setPrecioFijo(initialData.valor ? String(initialData.valor) : "");
+
+      // Calc helper inputs
+      if (initialData.tipo_facturacion === 'hora' && initialData.minutos) setHoras(String(initialData.minutos / 60));
+      if (initialData.tipo_facturacion === 'dia' && initialData.minutos) setDias(String(initialData.minutos / 480));
+      if (initialData.tipo_facturacion === 'mes' && initialData.minutos) setMeses(String(initialData.minutos / 9600));
+    } else {
+      // Reset to defaults if initialData is null
+      setDescripcion("");
+      setDetalles("");
+      setWorkItemNombre("");
+      setSaveAsTemplate(false);
+      setExtraDates([]);
+    }
+  }, [initialData, mode]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -85,33 +134,55 @@ export default function FormTrabajos({
 
     setLoading(true);
     try {
-      await api.post("/worklogs", {
+      const payload = {
         fecha,
         minutos: calculatedMinutes, 
         descripcion,
+        detalles,
         cliente_id: clienteId || null,
         work_item_nombre: workItemNombre || null, 
         empleado_id: isAdmin ? (empleadoId || null) : undefined,
-        
-        // New fields
         tipo_facturacion: billingType,
         duracion_texto: billingType === 'valorado' ? duracionTexto : null, 
-        precio: finalPrecio
-      });
+        precio: finalPrecio,
+        save_as_template: saveAsTemplate
+      };
+
+      if (mode === 'edit' && initialData?.id) {
+        await api.put(`/worklogs/${initialData.id}`, payload);
+      } else if (mode === 'clone' && initialData?.id) {
+        // Combinamos fecha base + extraDates
+        const allDates = [fecha, ...extraDates].filter(Boolean);
+        await api.post("/worklogs/clonar", {
+          work_log_id: initialData.id,
+          fechas: allDates,
+          cliente_id: clienteId || null
+        });
+      } else {
+        await api.post("/worklogs", payload);
+      }
 
       // Reset
-      setDescripcion("");
-      setHoras("1");
-      setDias("1");
-      setMeses("1");
-      setDuracionTexto("");
-      setPrecioFijo("");
-      // setClienteId(""); // Keep client selected for faster entry? Or reset? Usually reset.
-      setClienteId("");
-      setWorkItemNombre("");
-      if (isAdmin) setEmpleadoId(""); 
+      if (mode === 'create') {
+        setDescripcion("");
+        setDetalles("");
+        setWorkItemNombre("");
+        setHoras("1");
+        setDias("1");
+        setMeses("1");
+        setDuracionTexto("");
+        setPrecioFijo("");
+        setClienteId("");
+        if (isAdmin) setEmpleadoId(""); 
+      }
       
       onCreated();
+      // Reload templates if one was saved
+      if (saveAsTemplate) {
+        api.get("/worklogs/templates").then(res => {
+          if(Array.isArray(res.data)) setTemplates(res.data);
+        });
+      }
     } catch (err) {
       console.error(err);
       alert("Error al guardar el trabajo");
@@ -121,10 +192,51 @@ export default function FormTrabajos({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card space-y-4">
+    <form onSubmit={handleSubmit} className={`card space-y-4 border-2 transition-colors ${mode === 'edit' ? 'border-indigo-200 bg-indigo-50/10' : mode === 'clone' ? 'border-blue-200 bg-blue-50/10' : 'border-transparent'}`}>
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-lg">Registrar nuevo trabajo</h3>
+        <h3 className="font-semibold text-lg flex items-center gap-2">
+          {mode === 'edit' ? <><Edit size={20} className="text-indigo-600"/> Editar Trabajo</> : 
+           mode === 'clone' ? <><Copy size={20} className="text-blue-600"/> Clonar Trabajo (Multifecha)</> : 
+           "Registrar nuevo trabajo"}
+        </h3>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="p-1 hover:bg-gray-100 rounded-full">
+            <X size={20}/>
+          </button>
+        )}
       </div>
+
+      {/* Selector Plantillas */}
+      {templates.length > 0 && mode === 'create' && (
+        <div className="relative">
+          <button 
+            type="button"
+            onClick={() => setShowTemplates(!showTemplates)}
+            className="flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100"
+          >
+            Usar de Plantilla <ChevronDown size={14}/>
+          </button>
+          {showTemplates && (
+            <div className="absolute top-8 left-0 z-50 w-64 bg-white border border-gray-200 rounded-lg shadow-xl py-1 animate-in fade-in zoom-in duration-100">
+              <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b">Tus descripciones favoritas</div>
+              {templates.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setDescripcion(t.descripcion);
+                    if(t.detalles) setDetalles(t.detalles);
+                    setShowTemplates(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 group flex items-center justify-between"
+                >
+                  <span className="truncate pr-2">{t.descripcion}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {isAdmin && (
@@ -254,7 +366,35 @@ export default function FormTrabajos({
 
       </div>
 
-      <div className="space-y-1">
+      {/* Clonación Multiple Fechas */}
+      {mode === 'clone' && (
+        <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100 space-y-2">
+           <label className="text-xs font-bold text-blue-700 uppercase tracking-tight">Fechas adicionales para clonar</label>
+           <div className="flex flex-wrap gap-2">
+              {extraDates.map((d, i) => (
+                <div key={i} className="flex items-center gap-1 bg-white border border-blue-200 pl-2 pr-1 py-1 rounded-md text-sm text-blue-800 shadow-sm">
+                   {new Date(d).toLocaleDateString()}
+                   <button type="button" onClick={() => setExtraDates(extraDates.filter((_, idx) => idx !== i))} className="p-0.5 hover:text-red-500">
+                      <X size={14}/>
+                   </button>
+                </div>
+              ))}
+              <input 
+                type="date"
+                className="text-xs border rounded px-2 py-1 outline-none"
+                onChange={(e) => {
+                  if(e.target.value) {
+                    setExtraDates([...extraDates, e.target.value]);
+                    e.target.value = "";
+                  }
+                }}
+              />
+           </div>
+           <p className="text-[10px] text-blue-500 italic">Cada fecha generará una copia exacta de este registro.</p>
+        </div>
+      )}
+
+      <div className="space-y-4">
         <label className="text-xs font-medium text-gray-500">
             Descripción / Trabajo
             {billingType !== 'valorado' && (
@@ -277,20 +417,55 @@ export default function FormTrabajos({
              />
              <input
                 className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Detalles del trabajo..."
+                placeholder="Descripción corta (aparece en factura)..."
+                required
                 value={descripcion}
                 onChange={(e) => setDescripcion(e.target.value)}
              />
         </div>
       </div>
 
-      <div className="flex justify-end pt-2">
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-gray-500">Detalles adicionales (Opcional)</label>
+        <textarea
+          className="w-full border rounded-lg px-3 py-2 text-sm min-h-[80px]"
+          placeholder="Explicación detallada del trabajo realizado..."
+          value={detalles}
+          onChange={(e) => setDetalles(e.target.value)}
+        />
+        {mode === 'create' && (
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input 
+              type="checkbox" 
+              className="rounded text-indigo-600"
+              checked={saveAsTemplate}
+              onChange={(e) => setSaveAsTemplate(e.target.checked)}
+            />
+            <span className="text-xs text-gray-500">Guardar descripción y detalles como plantilla favorita</span>
+          </label>
+        )}
+      </div>
+
+       <div className="flex justify-end pt-2 gap-3">
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-6 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100"
+          >
+            Cancelar
+          </button>
+        )}
         <button
           type="submit"
           disabled={loading}
-          className="btn-primary px-6 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+          className="btn-primary px-8 py-2 rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2"
         >
-          {loading ? "Guardando..." : "Guardar Trabajo"}
+          {loading ? "Guardando..." : (
+            mode === 'edit' ? <><Save size={18}/> Guardar Cambios</> : 
+            mode === 'clone' ? <><Copy size={18}/> Iniciar Clonación</> : 
+            "Guardar Trabajo"
+          )}
         </button>
       </div>
     </form>

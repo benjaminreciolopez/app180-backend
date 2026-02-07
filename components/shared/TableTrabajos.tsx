@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ArrowDown, ArrowUp, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Search, Edit, Trash2, Copy, Info } from "lucide-react";
 
 export type WorkLogItem = {
   id: string;
@@ -22,6 +22,8 @@ export type WorkLogItem = {
   // Mixed billing
   tipo_facturacion?: 'hora' | 'dia' | 'mes' | 'valorado';
   duracion_texto?: string | null;
+  factura_id?: number | null;
+  detalles?: string | null;
 };
 
 type ColKey =
@@ -37,6 +39,9 @@ type ColKey =
 type Props = {
   items: WorkLogItem[];
   isAdmin?: boolean;
+  onEdit?: (item: WorkLogItem) => void;
+  onDelete?: (id: string) => void;
+  onClone?: (item: WorkLogItem) => void;
 };
 
 // Utils para formato
@@ -67,7 +72,13 @@ function formatDuracion(item: WorkLogItem) {
   return `${Number(horas.toFixed(2))} h`;
 }
 
-export default function TableTrabajos({ items, isAdmin = false }: Props) {
+export default function TableTrabajos({ 
+  items, 
+  isAdmin = false,
+  onEdit,
+  onDelete,
+  onClone
+}: Props) {
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<ColKey>("fecha");
   const [sortAsc, setSortAsc] = useState(false); // default desc (mas reciente primero)
@@ -218,12 +229,13 @@ export default function TableTrabajos({ items, isAdmin = false }: Props) {
                 <Th label="Valor" col="valor" />
                 <Th label="Estado" col="estado_pago" />
                 <Th label="Descripción" col="descripcion" />
+                <th className="p-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {processed.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center text-gray-500" colSpan={isAdmin ? 7 : 6}>
+                  <td className="p-8 text-center text-gray-500" colSpan={isAdmin ? 8 : 7}> {/* Updated colspan */}
                     No hay resultados
                   </td>
                 </tr>
@@ -264,8 +276,43 @@ export default function TableTrabajos({ items, isAdmin = false }: Props) {
                             <span className="text-gray-300 text-xs">—</span>
                         )}
                     </td>
-                    <td className="p-3 max-w-md truncate text-gray-600" title={it.descripcion}>
-                        {it.descripcion}
+                     <td className="p-3 max-w-md truncate text-gray-600" title={it.descripcion + (it.detalles ? "\n\nDetalles:\n" + it.detalles : "")}>
+                        <div className="flex items-center gap-1">
+                          {it.descripcion}
+                          {it.detalles && (
+                            <Info size={14} className="text-blue-400 shrink-0" />
+                          )}
+                        </div>
+                    </td>
+                    <td className="p-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1">
+                        <button 
+                          onClick={() => onClone?.(it)}
+                          title="Clonar Trabajo"
+                          className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Copy size={16} />
+                        </button>
+                        <button 
+                          onClick={() => onEdit?.(it)}
+                          title="Editar"
+                          className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button 
+                          onClick={() => {
+                            if (confirm("¿Seguro que deseas eliminar este trabajo?")) {
+                              onDelete?.(it.id);
+                            }
+                          }}
+                          disabled={it.pagado != null && it.pagado > 0}
+                          title={it.pagado != null && it.pagado > 0 ? "No se puede eliminar un trabajo pagado" : "Eliminar"}
+                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
