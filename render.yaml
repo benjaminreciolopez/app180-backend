@@ -1,0 +1,113 @@
+services:
+  # APP180 Backend (ya existente)
+  - type: web
+    name: app180-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter  # Ya tienes este plan
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      # Agrega aquí todas las variables de entorno que ya tienes configuradas en Render
+      # DATABASE_URL, JWT_SECRET, GROQ_API_KEY, etc.
+      # Las puedes dejar tal cual están en el dashboard de Render
+    healthCheckPath: /
+
+  # Evolution API - WhatsApp Gateway
+  - type: web
+    name: app180-evolution-api
+    runtime: image
+    image:
+      url: atendai/evolution-api:latest
+    plan: starter  # Mismo plan que el backend, no costo adicional si tienes horas suficientes
+    region: oregon
+    envVars:
+      # Server
+      - key: SERVER_TYPE
+        value: http
+      - key: SERVER_PORT
+        value: 8080
+      - key: SERVER_URL
+        sync: false  # Se auto-completa con la URL de Render
+
+      # Authentication (configurar en Dashboard después del deploy)
+      - key: AUTHENTICATION_API_KEY
+        sync: false
+
+      # Webhook (apunta a n8n)
+      - key: WEBHOOK_GLOBAL_URL
+        sync: false  # Configurar después: https://app180-n8n.onrender.com/webhook/evolution
+      - key: WEBHOOK_GLOBAL_ENABLED
+        value: true
+      - key: WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS
+        value: true
+
+      # WhatsApp
+      - key: QRCODE_LIMIT
+        value: 30
+      - key: QRCODE_COLOR
+        value: "#000000"
+
+      # Database
+      - key: DATABASE_ENABLED
+        value: false
+
+      # Logs
+      - key: LOG_LEVEL
+        value: ERROR
+      - key: LOG_COLOR
+        value: true
+
+    disk:
+      name: evolution-data
+      mountPath: /evolution/instances
+      sizeGB: 1  # $1/mes - Necesario para guardar sesión de WhatsApp
+
+    healthCheckPath: /
+
+  # n8n - Automation Platform
+  - type: web
+    name: app180-n8n
+    runtime: image
+    image:
+      url: n8nio/n8n:latest
+    plan: starter  # Puede ser free, pero mejor Starter para que no se duerma
+    region: oregon
+    envVars:
+      # n8n Config
+      - key: N8N_HOST
+        value: 0.0.0.0
+      - key: N8N_PORT
+        value: 5678
+      - key: N8N_PROTOCOL
+        value: https
+      - key: WEBHOOK_URL
+        sync: false  # Se auto-completa con la URL de Render
+      - key: N8N_ENCRYPTION_KEY
+        sync: false  # Configurar en Dashboard
+
+      # APP180 Backend (apunta al backend en Render)
+      - key: APP180_BACKEND_URL
+        value: https://app180-backend.onrender.com  # O el nombre real de tu backend
+      - key: WHATSAPP_WEBHOOK_API_KEY
+        sync: false  # Configurar en Dashboard
+
+      # Groq (para Whisper STT)
+      - key: GROQ_API_KEY
+        sync: false  # Configurar en Dashboard
+
+      # Evolution API (apunta a Evolution en Render)
+      - key: EVOLUTION_API_URL
+        sync: false  # Configurar después: https://app180-evolution-api.onrender.com
+      - key: EVOLUTION_API_KEY
+        sync: false  # Configurar en Dashboard
+
+    disk:
+      name: n8n-data
+      mountPath: /home/node/.n8n
+      sizeGB: 1  # $1/mes - Necesario para guardar workflows
+
+    healthCheckPath: /

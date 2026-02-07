@@ -11,13 +11,6 @@ function validateApiKey(req) {
   return !!(apiKey && expectedKey && apiKey === expectedKey);
 }
 
-function validatePhone(phoneNumber) {
-  const adminPhone = process.env.WHATSAPP_ADMIN_PHONE;
-  if (!adminPhone) return false;
-  const normalized = phoneNumber.replace(/^\+/, "");
-  return normalized === adminPhone.replace(/^\+/, "");
-}
-
 // Rate limiting simple en memoria
 const rateLimiter = new Map();
 const RATE_LIMIT = 30;
@@ -39,20 +32,40 @@ function checkRateLimit(phone) {
 // CONTEXTO ADMIN
 // ============================
 
-async function getAdminContext() {
-  const empresaId = process.env.WHATSAPP_EMPRESA_ID;
-  const userId = process.env.WHATSAPP_ADMIN_USER_ID;
+/**
+ * Obtiene el contexto del admin basado en el telefono del perfil
+ * @param {string} phoneNumber - Numero de telefono desde WhatsApp
+ * @returns {Object|null} - { empresaId, userId, userRole } o null si no se encuentra
+ */
+async function getAdminContextByPhone(phoneNumber) {
+  try {
+    // Normalizar telefono: quitar + y espacios
+    const normalized = phoneNumber.replace(/^\+/, "").replace(/\s/g, "");
 
-  if (empresaId && userId) {
-    return { empresaId, userId, userRole: "admin" };
+    // Buscar empresa por telefono en perfil_180
+    const [perfil] = await sql`
+      SELECT p.empresa_id, p.telefono, e.user_id
+      FROM perfil_180 p
+      LEFT JOIN empresa_180 e ON p.empresa_id = e.id
+      WHERE p.telefono IS NOT NULL
+        AND REPLACE(REPLACE(p.telefono, '+', ''), ' ', '') = ${normalized}
+      LIMIT 1
+    `;
+
+    if (!perfil) {
+      console.log(`[WhatsApp] No se encontro perfil con telefono: ${normalized}`);
+      return null;
+    }
+
+    return {
+      empresaId: perfil.empresa_id,
+      userId: perfil.user_id,
+      userRole: "admin"
+    };
+  } catch (err) {
+    console.error("[WhatsApp] Error obteniendo contexto:", err);
+    return null;
   }
-
-  // Fallback: buscar primera empresa
-  const [empresa] = await sql`
-    SELECT id as empresa_id, user_id FROM empresa_180 LIMIT 1
-  `;
-  if (!empresa) return null;
-  return { empresaId: empresa.empresa_id, userId: empresa.user_id, userRole: "admin" };
 }
 
 // ============================
@@ -184,23 +197,38 @@ export async function handleWhatsAppMessage(req, res) {
       return res.status(400).json({ error: "phone and message are required" });
     }
 
-    // 3. Validar telefono admin
-    if (!validatePhone(phone)) {
-      console.log(`[WhatsApp] Telefono no autorizado: ${phone}`);
-      return res.status(403).json({ error: "Phone number not authorized" });
-    }
-
-    // 4. Rate limiting
+    // 3. Rate limiting
     if (!checkRateLimit(phone)) {
       return res.status(429).json({ error: "Too many messages. Try again in a minute." });
     }
 
     console.log(`[WhatsApp] Mensaje de ${phone}: ${message.substring(0, 100)}...`);
 
-    // 5. Obtener contexto admin
-    const context = await getAdminContext();
+    // 4. Obtener contexto admin por telefono (valida y obtiene empresa/usuario)
+    const context = await getAdminContextByPhone(phone);
     if (!context) {
-      return res.status(500).json({ error: "Admin context not found" });
+      console.log(`[WhatsApp] Telefono no autorizado o sin perfil: ${phone}`);
+
+      // Devolver mensaje instructivo al usuario por WhatsApp
+      const setupMessage = `Hola! 👋
+
+Para usar CONTENDO por WhatsApp, primero necesitas configurar tu numero de telefono en tu perfil de APP180.
+
+*Pasos:*
+1. Inicia sesion en APP180 (https://app180-frontend.vercel.app)
+2. Ve a *Perfil* en el menu
+3. Agrega tu numero de WhatsApp en el campo *Telefono*
+4. Guarda los cambios
+
+Tu numero actual: ${phone}
+
+Una vez configurado, podras usar todas las funciones de CONTENDO desde WhatsApp: consultar facturas, crear clientes, registrar pagos y mucho mas.`;
+
+      return res.json({
+        response: setupMessage,
+        whatsappFormat: true,
+        requiresSetup: true
+      });
     }
 
     // 6. Comprobar confirmaciones pendientes
