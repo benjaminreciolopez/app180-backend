@@ -252,6 +252,14 @@ export const login = async (req, res) => {
     // =========================
     // CONTROL DE DISPOSITIVO (Compartido Admin/Empleado)
     // =========================
+    console.log("DEBUG DEVICE REGISTRATION:", {
+      role: user.role,
+      id: user.id,
+      empleadoId,
+      device_hash: device_hash || "MISSING",
+      empresaId
+    });
+
     if (empleadoId && device_hash) {
       const deviceRows = await sql`
         SELECT *
