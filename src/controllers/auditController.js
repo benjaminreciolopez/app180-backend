@@ -123,7 +123,7 @@ export const getFichajesRechazados = async (req, res) => {
       FROM fichajes_180 f
       JOIN employees_180 e ON e.id = f.empleado_id
       LEFT JOIN clients_180 c ON c.id = f.cliente_id
-      LEFT JOIN audit_log_180 a ON a.entidad_id = f.id AND a.accion = 'fichaje_rechazado'
+      LEFT JOIN audit_log_180 a ON a.entidad_id = f.id::text AND a.accion = 'fichaje_rechazado'
       LEFT JOIN users_180 u ON u.id = a.user_id
       WHERE e.empresa_id = ${empresaId}
         AND f.estado = 'rechazado'
