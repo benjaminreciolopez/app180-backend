@@ -229,17 +229,17 @@ export async function crearWorkLog(req, res) {
     `;
 
     // Si se pide guardar como plantilla
-    if (save_as_template && cleanDesc) {
+    if (save_as_template && finalDescription) {
       // Evitar duplicados exactos en plantillas por empresa
       const existingTpl = await sql`
         SELECT id FROM work_log_templates_180 
-        WHERE empresa_id = ${empresaId} AND descripcion = ${cleanDesc}
+        WHERE empresa_id = ${empresaId} AND descripcion = ${finalDescription}
         LIMIT 1
       `;
       if (existingTpl.length === 0) {
         await sql`
           INSERT INTO work_log_templates_180 (empresa_id, descripcion, detalles)
-          VALUES (${empresaId}, ${cleanDesc}, ${detalles || null})
+          VALUES (${empresaId}, ${finalDescription}, ${detalles || null})
         `;
       }
     }
