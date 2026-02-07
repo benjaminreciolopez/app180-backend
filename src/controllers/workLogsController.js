@@ -432,7 +432,8 @@ export async function actualizarWorkLog(req, res) {
     const empresaId = req.user.empresa_id;
     const {
       descripcion, detalles, fecha, minutos, precio,
-      tipo_facturacion, duracion_texto, cliente_id, empleado_id
+      tipo_facturacion, duracion_texto, cliente_id, empleado_id,
+      save_as_template = false
     } = req.body;
 
     // Verificar propiedad (o ser admin)
@@ -476,6 +477,24 @@ export async function actualizarWorkLog(req, res) {
       WHERE id = ${id}
       RETURNING *
     `;
+
+    // Si se pide guardar como plantilla
+    if (save_as_template) {
+      const finalDesc = updated.descripcion;
+      const finalDetalles = updated.detalles;
+
+      const existingTpl = await sql`
+        SELECT id FROM work_log_templates_180 
+        WHERE empresa_id = ${empresaId} AND descripcion = ${finalDesc}
+        LIMIT 1
+      `;
+      if (existingTpl.length === 0) {
+        await sql`
+          INSERT INTO work_log_templates_180 (empresa_id, descripcion, detalles)
+          VALUES (${empresaId}, ${finalDesc}, ${finalDetalles || null})
+        `;
+      }
+    }
 
     res.json(updated);
   } catch (err) {
