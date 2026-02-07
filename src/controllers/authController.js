@@ -240,13 +240,19 @@ export const login = async (req, res) => {
 
     if (empresaId) {
       const cfg = await sql`
-        SELECT modulos
+        SELECT modulos, modulos_mobile
         FROM empresa_config_180
         WHERE empresa_id = ${empresaId}
         LIMIT 1
       `;
 
       modulos = cfg[0]?.modulos || {};
+
+      // Si estamos en movil (hay device_hash) y existe config movil, usarla
+      if (device_hash && cfg[0]?.modulos_mobile) {
+        // Combinamos para asegurar que no falten claves, pero damos prioridad a móvil
+        modulos = { ...modulos, ...cfg[0].modulos_mobile };
+      }
     }
 
     // =========================
@@ -1045,10 +1051,16 @@ export const googleAuth = async (req, res) => {
     let modulos = {};
     if (empresaId) {
       const cfg = await sql`
-        SELECT modulos FROM empresa_config_180
+        SELECT modulos, modulos_mobile FROM empresa_config_180
         WHERE empresa_id = ${empresaId} LIMIT 1
       `;
       modulos = cfg[0]?.modulos || {};
+
+      // Si estamos en movil (hay device_hash en body) y existe config movil, usarla
+      const device_hash_input = req.body.device_hash;
+      if (device_hash_input && cfg[0]?.modulos_mobile) {
+         modulos = { ...modulos, ...cfg[0].modulos_mobile };
+      }
     }
 
     // Ensure self employee if module active
