@@ -153,7 +153,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "eliminar_evento_calendario",
-      description: "Elimina un evento del calendario. ACCION que requiere confirmacion por WhatsApp.",
+      description: "Elimina un evento del calendario.",
       parameters: {
         type: "object",
         properties: {
@@ -444,12 +444,6 @@ const TOOLS = [
   },
 ];
 
-// Acciones que requieren confirmacion por WhatsApp
-const DANGEROUS_TOOLS = [
-  "anular_factura", "eliminar_factura", "eliminar_pago",
-  "desactivar_cliente", "eliminar_evento_calendario", "validar_factura"
-];
-
 // ============================
 // EJECUTAR HERRAMIENTAS
 // ============================
@@ -463,24 +457,9 @@ function coerceBooleans(args) {
   return result;
 }
 
-async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, opciones = {}) {
+async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
   const args = coerceBooleans(argumentos);
-  const { canal, phoneNumber } = opciones;
   console.log(`[AI] Ejecutando: ${nombreHerramienta}`, args);
-
-  // Si es accion peligrosa via WhatsApp, pedir confirmacion
-  if (DANGEROUS_TOOLS.includes(nombreHerramienta) && canal === "whatsapp" && phoneNumber) {
-    const preview = await previewDangerousAction(nombreHerramienta, args, empresaId);
-    await sql`
-      DELETE FROM whatsapp_pending_actions_180
-      WHERE empresa_id = ${empresaId} AND phone = ${phoneNumber}
-    `;
-    await sql`
-      INSERT INTO whatsapp_pending_actions_180 (empresa_id, phone, tool_name, arguments, preview_message, expires_at)
-      VALUES (${empresaId}, ${phoneNumber}, ${nombreHerramienta}, ${JSON.stringify(args)}, ${preview}, NOW() + INTERVAL '5 minutes')
-    `;
-    return { requires_confirmation: true, mensaje: preview };
-  }
 
   try {
     switch (nombreHerramienta) {
@@ -522,52 +501,6 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, opc
   } catch (err) {
     console.error(`[AI] Error en herramienta ${nombreHerramienta}:`, err);
     return { error: err.message || "Error ejecutando herramienta" };
-  }
-}
-
-// Exportar para uso directo desde whatsappWebhookController (confirmaciones)
-export async function ejecutarHerramientaDirecta(nombreHerramienta, argumentos, empresaId) {
-  return ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, {});
-}
-
-// ============================
-// PREVIEW ACCIONES PELIGROSAS
-// ============================
-
-async function previewDangerousAction(toolName, args, empresaId) {
-  switch (toolName) {
-    case "anular_factura": {
-      const [f] = await sql`SELECT numero, total, estado FROM factura_180 WHERE id = ${args.factura_id} AND empresa_id = ${empresaId}`;
-      if (!f) return "Factura no encontrada.";
-      return `Vas a ANULAR la factura ${f.numero || 'borrador'} (${Number(f.total).toFixed(2)} EUR). Se creara una rectificativa. Responde SI para confirmar o NO para cancelar.`;
-    }
-    case "eliminar_factura": {
-      const [f] = await sql`SELECT id, total, estado FROM factura_180 WHERE id = ${args.factura_id} AND empresa_id = ${empresaId}`;
-      if (!f) return "Factura no encontrada.";
-      return `Vas a ELIMINAR la factura borrador #${f.id} (${Number(f.total).toFixed(2)} EUR). Esta accion no se puede deshacer. Responde SI para confirmar o NO para cancelar.`;
-    }
-    case "validar_factura": {
-      const [f] = await sql`SELECT id, total FROM factura_180 WHERE id = ${args.factura_id} AND empresa_id = ${empresaId}`;
-      if (!f) return "Factura no encontrada.";
-      return `Vas a VALIDAR la factura #${f.id} por ${Number(f.total).toFixed(2)} EUR. Se le asignara un numero definitivo. Responde SI para confirmar o NO para cancelar.`;
-    }
-    case "eliminar_pago": {
-      const [p] = await sql`SELECT p.importe, c.nombre FROM payments_180 p LEFT JOIN clients_180 c ON p.cliente_id = c.id WHERE p.id = ${args.pago_id} AND p.empresa_id = ${empresaId}`;
-      if (!p) return "Pago no encontrado.";
-      return `Vas a ELIMINAR el pago de ${Number(p.importe).toFixed(2)} EUR del cliente ${p.nombre || 'desconocido'}. Se revertiran las imputaciones. Responde SI para confirmar o NO para cancelar.`;
-    }
-    case "desactivar_cliente": {
-      const [c] = await sql`SELECT nombre FROM clients_180 WHERE id = ${args.cliente_id} AND empresa_id = ${empresaId}`;
-      if (!c) return "Cliente no encontrado.";
-      return `Vas a DESACTIVAR al cliente "${c.nombre}". Responde SI para confirmar o NO para cancelar.`;
-    }
-    case "eliminar_evento_calendario": {
-      const [e] = await sql`SELECT nombre, fecha FROM calendario_empresa_180 WHERE id = ${args.evento_id} AND empresa_id = ${empresaId}`;
-      if (!e) return "Evento no encontrado.";
-      return `Vas a ELIMINAR el evento "${e.nombre}" del ${e.fecha}. Responde SI para confirmar o NO para cancelar.`;
-    }
-    default:
-      return "Accion peligrosa detectada. Responde SI para confirmar o NO para cancelar.";
   }
 }
 
@@ -1131,7 +1064,7 @@ async function guardarConversacion(empresaId, userId, userRole, mensaje, respues
 // SYSTEM PROMPTS
 // ============================
 
-function buildSystemPrompt(userRole, canal) {
+function buildSystemPrompt(userRole) {
   let prompt = `Eres CONTENDO, el asistente inteligente de APP180, una plataforma de gestión empresarial. Responde siempre en español, de forma natural y profesional.
 
 TU PERSONALIDAD:
@@ -1169,8 +1102,8 @@ CUÁNDO USAR HERRAMIENTAS DE ESCRITURA:
 - "Crea un cliente nuevo" → crear_cliente
 - "Registra un trabajo" → crear_trabajo
 - "Pon vacaciones a X" → primero consultar_empleados para el ID, luego crear_ausencia
-- "Valida la factura X" → validar_factura (pide confirmacion por WhatsApp)
-- "Anula la factura X" → anular_factura (pide confirmacion por WhatsApp)
+- "Valida la factura X" → validar_factura
+- "Anula la factura X" → anular_factura
 
 CUÁNDO NO USAR HERRAMIENTAS (responde directamente):
 - Saludos y despedidas
@@ -1189,27 +1122,9 @@ ESTADOS DE FACTURA:
 - Cobro: pendiente, parcial, pagado
 - "Pendientes de cobro" = estado_pago="pendiente"
 
-El usuario es ${userRole === 'admin' ? 'administrador con acceso completo' : 'empleado'}.`;
-
-  if (canal === "whatsapp") {
-    prompt += `
-
-CANAL: Estas respondiendo por WhatsApp.
-REGLAS DE FORMATO WHATSAPP:
-- NO uses tablas Markdown ni enlaces con formato [texto](url).
-- Usa *negrita* con un solo asterisco para resaltar.
-- Usa _cursiva_ con guion bajo.
-- Usa listas simples con guiones o numeros.
-- Maximo 4000 caracteres por respuesta.
-- Si la respuesta es muy larga, resume y ofrece "Quieres mas detalles?".
-- Se conciso y directo. El usuario esta en el movil.
-- Importes: 1.234,56 EUR (formato español). Fechas: DD/MM/YYYY.
-- Para acciones peligrosas (eliminar, anular, validar), el sistema pedira confirmacion automaticamente.`;
-  } else {
-    prompt += `
+El usuario es ${userRole === 'admin' ? 'administrador con acceso completo' : 'empleado'}.
 
 FORMATO: Usa Markdown. Importes en € con 2 decimales. Fechas en formato DD/MM/YYYY.`;
-  }
 
   return prompt;
 }
@@ -1218,9 +1133,9 @@ FORMATO: Usa Markdown. Importes en € con 2 decimales. Fechas en formato DD/MM/
 // CHAT PRINCIPAL
 // ============================
 
-export async function chatConAgente({ empresaId, userId, userRole, mensaje, historial = [], canal = "web", phoneNumber = null }) {
+export async function chatConAgente({ empresaId, userId, userRole, mensaje, historial = [] }) {
   try {
-    console.log(`[AI] Chat - Empresa: ${empresaId}, Canal: ${canal}, Mensaje: ${mensaje}`);
+    console.log(`[AI] Chat - Empresa: ${empresaId}, Mensaje: ${mensaje}`);
 
     if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.length < 10) {
       return { mensaje: "El servicio de IA no está configurado. Contacta al administrador." };
@@ -1229,7 +1144,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const memoriaReciente = await cargarMemoria(empresaId, userId, 3);
 
     const mensajes = [
-      { role: "system", content: buildSystemPrompt(userRole, canal) },
+      { role: "system", content: buildSystemPrompt(userRole) },
       ...memoriaReciente,
       ...historial,
       { role: "user", content: mensaje }
@@ -1281,13 +1196,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
         } catch {
           args = {};
         }
-        const resultado = await ejecutarHerramienta(tc.function.name, args, empresaId, { canal, phoneNumber });
-
-        // Si requiere confirmacion, devolver directamente
-        if (resultado.requires_confirmation) {
-          await guardarConversacion(empresaId, userId, userRole, mensaje, resultado.mensaje);
-          return { mensaje: resultado.mensaje };
-        }
+        const resultado = await ejecutarHerramienta(tc.function.name, args, empresaId);
 
         toolHistory.push({
           role: "tool",
