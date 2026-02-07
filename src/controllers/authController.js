@@ -1273,3 +1273,5 @@ export const login = async (req, res) => {
 </script>
 </body></html>`;
   }
+};
+
