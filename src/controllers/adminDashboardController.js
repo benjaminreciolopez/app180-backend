@@ -177,7 +177,7 @@ export const getAdminDashboard = async (req, res) => {
         SELECT COUNT(*)::int AS count
         FROM work_logs_180
         WHERE empresa_id = ${empresaId}
-          AND facturado = false
+          AND factura_id IS NULL
       `;
       trabajosPendientes = count;
 
