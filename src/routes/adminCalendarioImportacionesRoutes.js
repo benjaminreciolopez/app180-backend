@@ -13,7 +13,7 @@ import { requireModule } from "../middlewares/requireModule.js";
 
 const router = Router();
 
-const guard = [authRequired, roleRequired("admin"), requireModule("calendario_import")];
+const guard = [authRequired, roleRequired("admin"), requireModule("calendario")];
 
 router.get("/calendario/importaciones", ...guard, listarImportaciones);
 router.get("/calendario/importaciones/:id", ...guard, getImportacionDetalle);
