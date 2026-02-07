@@ -148,6 +148,18 @@ export async function crearCliente(req, res) {
 
   if (!nombre) return res.status(400).json({ error: "Nombre requerido" });
 
+  /* =========================
+     Saneamiento de País
+  ========================= */
+  let finalPais = (pais || "ES").trim().toUpperCase();
+  if (finalPais === "ESPAÑA" || finalPais === "SPAIN" || finalPais === "ESP") {
+    finalPais = "ES";
+  }
+  // Forzar máximo 2 caracteres para evitar el error character(2)
+  if (finalPais.length > 2) {
+    finalPais = finalPais.substring(0, 2);
+  }
+
   const modosValidos = ["hora", "dia", "mes", "trabajo", "mixto"];
 
   if (!modosValidos.includes(modo_defecto)) {
@@ -208,7 +220,7 @@ export async function crearCliente(req, res) {
           ${n(poblacion || municipio)}, ${n(municipio || poblacion)}, 
           ${n(provincia)}, 
           ${n(cp || codigo_postal)}, ${n(codigo_postal || cp)},
-          ${n(pais)}, ${n(email)},
+          ${finalPais}, ${n(email)},
           ${modo_defecto},
           ${n(lat)}, ${n(lng)}, ${n(radio_m)}, ${requiere_geo}, 'info',
           ${n(fecha_inicio)}, ${n(fecha_fin)}, ${n(notas)},
@@ -230,7 +242,7 @@ export async function crearCliente(req, res) {
           ${n(razon_social)},
           ${n(nif_cif || nif)},
           ${n(tipo_fiscal)},
-          ${n(pais) || 'España'},
+          ${finalPais},
           ${n(provincia)},
           ${n(municipio || poblacion)},
           ${n(codigo_postal || cp)},
@@ -310,7 +322,15 @@ export async function actualizarCliente(req, res) {
   const fieldsFiscal = {};
 
   for (const k of Object.keys(body)) {
-    const val = body[k] === undefined ? null : body[k];
+    let val = body[k] === undefined ? null : body[k];
+
+    // Sanear país si viene en el body
+    if (k === "pais" && typeof val === "string") {
+      val = val.trim().toUpperCase();
+      if (val === "ESPAÑA" || val === "SPAIN" || val === "ESP") val = "ES";
+      if (val.length > 2) val = val.substring(0, 2);
+    }
+
     if (allowedGeneral.includes(k)) fieldsGeneral[k] = val;
     if (allowedFiscal.includes(k)) fieldsFiscal[k] = val;
   }
