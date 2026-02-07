@@ -75,37 +75,24 @@ export async function getClienteDetalle(req, res) {
   res.json(r[0]);
 }
 
-async function generarCodigoCliente(empresaId) {
-  // Intentar incrementar
-  let r = await sql`
-    update cliente_seq_180
-    set last_num = last_num + 1
+async function obtenerSiguienteCodigoCliente(empresaId) {
+  // Solo consultamos el número actual, NO incrementamos todavía.
+  // El incremento real debe ocurrir al INSERTAR el cliente.
+  const r = await sql`
+    select last_num from cliente_seq_180
     where empresa_id = ${empresaId}
-    returning last_num
   `;
 
-  // Si no existe fila → crearla
-  if (!r[0]) {
-    const init = await sql`
-      insert into cliente_seq_180 (empresa_id, last_num)
-      values (${empresaId}, 1)
-      returning last_num
-    `;
-
-    return `CLI-${String(init[0].last_num).padStart(5, "0")}`;
-  }
-
-  // Caso normal
-  return `CLI-${String(r[0].last_num).padStart(5, "0")}`;
+  const nextNum = r[0] ? r[0].last_num + 1 : 1;
+  return `CLI-${String(nextNum).padStart(5, "0")}`;
 }
 
 export async function getNextCodigoCliente(req, res) {
   const empresaId = await getEmpresaId(req.user.id);
-
-  const codigo = await generarCodigoCliente(empresaId);
-
+  const codigo = await obtenerSiguienteCodigoCliente(empresaId);
   res.json({ codigo });
 }
+
 
 /* ----------------------- */
 
@@ -126,9 +113,11 @@ export async function crearCliente(req, res) {
     // Datos Fiscales (Nuevos campos en tabla principal clients_180)
     nif,
     poblacion,
+    municipio,
     provincia,
     cp,
-    pais = 'España',
+    codigo_postal,
+    pais = 'ES',
     email, // Email específico para facturación o duplicado del de contacto
 
     modo_defecto = "mixto",
@@ -187,77 +176,98 @@ export async function crearCliente(req, res) {
 
   const finalCodigo = codigo;
 
-  /* comprobar duplicado */
-  const existe = await sql`
-  select 1
-  from clients_180
-  where empresa_id=${empresaId}
-    and codigo=${finalCodigo}
-  limit 1
-`;
+  try {
+    const newClient = await sql.begin(async (tx) => {
+      /* comprobar duplicado */
+      const existe = await tx`
+        select 1
+        from clients_180
+        where empresa_id=${empresaId}
+          and codigo=${finalCodigo}
+        limit 1
+      `;
 
-  if (existe[0]) {
-    return res.status(400).json({ error: "Código duplicado" });
+      if (existe[0]) {
+        throw new Error("Código duplicado");
+      }
+
+      // 1. Insertar Cliente General (con campos sincronizados)
+      const [cli] = await tx`
+        insert into clients_180 (
+          empresa_id, nombre, codigo, tipo,
+          direccion, telefono, contacto_nombre, contacto_email,
+          nif, nif_cif, poblacion, municipio, provincia, cp, codigo_postal, pais, email,
+          modo_defecto, lat, lng, radio_m, requiere_geo, geo_policy,
+          fecha_inicio, fecha_fin, notas,
+          razon_social, iban, iva_defecto, exento_iva, activo
+        )
+        values (
+          ${empresaId}, ${nombre}, ${finalCodigo}, ${tipo},
+          ${n(direccion)}, ${n(telefono)}, ${n(contacto_nombre)}, ${n(contacto_email)},
+          ${n(nif || nif_cif)}, ${n(nif_cif || nif)}, 
+          ${n(poblacion || municipio)}, ${n(municipio || poblacion)}, 
+          ${n(provincia)}, 
+          ${n(cp || codigo_postal)}, ${n(codigo_postal || cp)},
+          ${n(pais)}, ${n(email)},
+          ${modo_defecto},
+          ${n(lat)}, ${n(lng)}, ${n(radio_m)}, ${requiere_geo}, 'info',
+          ${n(fecha_inicio)}, ${n(fecha_fin)}, ${n(notas)},
+          ${n(razon_social)}, ${n(iban)}, ${n(iva_defecto)}, ${exento_iva === true}, true
+        )
+        returning *
+      `;
+
+      // 2. Insertar Datos Fiscales
+      await tx`
+        insert into client_fiscal_data_180 (
+          empresa_id, cliente_id, razon_social, nif_cif, tipo_fiscal,
+          pais, provincia, municipio, codigo_postal, direccion_fiscal,
+          email_factura, telefono_factura, persona_contacto,
+          iva_defecto, exento_iva, forma_pago, iban
+        ) values (
+          ${empresaId},
+          ${cli.id},
+          ${n(razon_social)},
+          ${n(nif_cif || nif)},
+          ${n(tipo_fiscal)},
+          ${n(pais) || 'España'},
+          ${n(provincia)},
+          ${n(municipio || poblacion)},
+          ${n(codigo_postal || cp)},
+          ${n(direccion_fiscal || direccion)},
+          ${n(email_factura || email)},
+          ${n(telefono_factura || telefono)},
+          ${n(persona_contacto || contacto_nombre)},
+          ${iva_defecto ? Number(iva_defecto) : null},
+          ${exento_iva === true},
+          ${n(forma_pago)},
+          ${n(iban)}
+        )
+      `;
+
+      // 3. Actualizar el contador de clientes si el código sigue el patrón CLI-XXXXX
+      if (finalCodigo.startsWith("CLI-")) {
+        const numPart = parseInt(finalCodigo.split("-")[1], 10);
+        if (!isNaN(numPart)) {
+          await tx`
+            insert into cliente_seq_180 (empresa_id, last_num)
+            values (${empresaId}, ${numPart})
+            on conflict (empresa_id) do update
+            set last_num = greatest(cliente_seq_180.last_num, ${numPart})
+          `;
+        }
+      }
+
+      return cli;
+    });
+
+    res.status(201).json({ ...newClient, razon_social, nif_cif });
+  } catch (err) {
+    console.error(err);
+    return res.status(err.message === "Código duplicado" ? 400 : 500).json({
+      error: err.message || "Error al crear cliente"
+    });
   }
-
-  // 1. Insertar Cliente General (con campos sincronizados)
-  const r = await sql`
-    insert into clients_180 (
-      empresa_id, nombre, codigo, tipo,
-      direccion, telefono, contacto_nombre, contacto_email,
-      nif, nif_cif, poblacion, municipio, provincia, cp, codigo_postal, pais, email,
-      modo_defecto, lat, lng, radio_m, requiere_geo,
-      fecha_inicio, fecha_fin, notas,
-      razon_social, iban, iva_defecto, exento_iva
-    )
-    values (
-      ${empresaId}, ${nombre}, ${finalCodigo}, ${tipo},
-      ${n(direccion)}, ${n(telefono)}, ${n(contacto_nombre)}, ${n(contacto_email)},
-      ${n(nif || nif_cif)}, ${n(nif_cif || nif)}, 
-      ${n(poblacion || municipio)}, ${n(municipio || poblacion)}, 
-      ${n(provincia)}, 
-      ${n(cp || codigo_postal)}, ${n(codigo_postal || cp)},
-      ${n(pais)}, ${n(email)},
-      ${modo_defecto},
-      ${n(lat)}, ${n(lng)}, ${n(radio_m)}, ${requiere_geo},
-      ${n(fecha_inicio)}, ${n(fecha_fin)}, ${n(notas)},
-      ${n(razon_social)}, ${n(iban)}, ${n(iva_defecto)}, ${exento_iva === true}
-    )
-    returning *
-  `;
-
-  const newClient = r[0];
-
-  // 2. Insertar Datos Fiscales (Tabla satélite para compatibilidad con facturación)
-  await sql`
-    insert into client_fiscal_data_180 (
-      empresa_id, cliente_id, razon_social, nif_cif, tipo_fiscal,
-      pais, provincia, municipio, codigo_postal, direccion_fiscal,
-      email_factura, telefono_factura, persona_contacto,
-      iva_defecto, exento_iva, forma_pago, iban
-    ) values (
-      ${empresaId},
-      ${newClient.id},
-      ${n(razon_social)},
-      ${n(nif_cif || nif)},
-      ${n(tipo_fiscal)},
-      ${n(pais) || 'España'},
-      ${n(provincia)},
-      ${n(municipio || poblacion)},
-      ${n(codigo_postal || cp)},
-      ${n(direccion_fiscal || direccion)},
-      ${n(email_factura || email)},
-      ${n(telefono_factura || telefono)},
-      ${n(persona_contacto || contacto_nombre)},
-      ${n(iva_defecto)},
-      ${exento_iva === true},
-      ${n(forma_pago)},
-      ${n(iban)}
-    )
-  `;
-
-  // Devolver objeto combinado (simulado)
-  res.status(201).json({ ...newClient, razon_social, nif_cif });
 }
 
 /* ----------------------- */
