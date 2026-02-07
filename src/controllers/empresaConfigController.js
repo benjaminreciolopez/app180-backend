@@ -146,7 +146,10 @@ export async function getDashboardWidgets(req, res) {
       LIMIT 1
     `;
 
-    return res.json({ widgets: rows[0]?.dashboard_widgets || [] });
+    const widgets = rows[0]?.dashboard_widgets || [];
+    console.log(`📊 [getDashboardWidgets] Empresa: ${empresaId}, Widgets: ${JSON.stringify(widgets)}, Row exists: ${!!rows[0]}`);
+
+    return res.json({ widgets });
   } catch (err) {
     console.error("❌ getDashboardWidgets:", err);
     res.status(500).json({ error: "Error obteniendo widgets" });
