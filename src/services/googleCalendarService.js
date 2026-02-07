@@ -385,7 +385,7 @@ export function googleToApp180Event(googleEvent) {
     descripcion: googleEvent.description || '',
     tipo: 'festivo_local', // Default, puede ser refinado
     es_laborable: googleEvent.transparency === 'transparent',
-    origen: 'sync',
+    origen: 'ocr',
     activo: true,
     confirmado: true
   };
