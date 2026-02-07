@@ -199,18 +199,18 @@ export const getAdminDashboard = async (req, res) => {
     if (modulos.calendario !== false) {
       const [config] = await sql`
         SELECT
-          google_calendar_connected,
-          google_calendar_last_sync,
-          google_calendar_sync_enabled
-        FROM empresa_180
-        WHERE id = ${empresaId}
+          oauth2_connected_at,
+          last_sync_at,
+          sync_enabled
+        FROM empresa_calendar_config_180
+        WHERE empresa_id = ${empresaId}
       `;
 
       if (config) {
         calendarioSyncStatus = {
-          connected: config.google_calendar_connected || false,
-          lastSync: config.google_calendar_last_sync,
-          enabled: config.google_calendar_sync_enabled || false
+          connected: !!config.oauth2_connected_at,
+          lastSync: config.last_sync_at,
+          enabled: config.sync_enabled || false
         };
       }
     }
