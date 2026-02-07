@@ -651,7 +651,7 @@ export async function validarFactura(req, res) {
 
       // Actualizar path en la factura
       if (savedFile && savedFile.storage_path) {
-        await sql`update factura_180 set pdf_path = ${savedFile.storage_path} where id = ${id}`;
+        await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${id}`;
       }
 
       console.log(`✅ PDF guardado en Storage para: ${numero}`);
@@ -865,7 +865,7 @@ export async function anularFactura(req, res) {
         });
 
         if (savedFile && savedFile.storage_path) {
-          await sql`update factura_180 set pdf_path = ${savedFile.storage_path} where id = ${rectData.id}`;
+          await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${rectData.id}`;
         }
       }
     } catch (err) {
@@ -929,8 +929,8 @@ export async function generarPdf(req, res) {
 
       if (savedFile && savedFile.storage_path) {
         savedPath = savedFile.storage_path;
-        await sql`update factura_180 set pdf_path = ${savedPath} where id = ${id}`;
-        console.log(`✅ [generarPdf] DB actualizada con pdf_path: ${savedPath}`);
+        await sql`update factura_180 set ruta_pdf = ${savedPath} where id = ${id}`;
+        console.log(`✅ [generarPdf] DB actualizada con ruta_pdf: ${savedPath}`);
       } else {
         console.warn(`⚠️ [generarPdf] saveToStorage no retornó file object o path`);
       }
@@ -944,7 +944,7 @@ export async function generarPdf(req, res) {
       return res.json({
         success: true,
         message: "PDF Generado y guardado correctamente",
-        pdf_path: savedPath
+        ruta_pdf: savedPath
       });
     }
 
