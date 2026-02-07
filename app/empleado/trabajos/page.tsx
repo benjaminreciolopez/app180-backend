@@ -21,6 +21,10 @@ export default function EmpleadoTrabajosPage() {
   const [items, setItems] = useState<WorkLogItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // UI State
+  const [formMode, setFormMode] = useState<'create' | 'edit' | 'clone'>('create');
+  const [selectedItem, setSelectedItem] = useState<WorkLogItem | null>(null);
+
   // Catalogos
   const [clientes, setClientes] = useState<any[]>([]);
 
@@ -49,6 +53,28 @@ export default function EmpleadoTrabajosPage() {
     } catch {
       setClientes([]);
     }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await api.delete(`/worklogs/${id}`);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar el trabajo");
+    }
+  }
+
+  function handleEdit(item: WorkLogItem) {
+    setSelectedItem(item);
+    setFormMode('edit');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleClone(item: WorkLogItem) {
+    setSelectedItem(item);
+    setFormMode('clone');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   useEffect(() => {
@@ -106,7 +132,17 @@ export default function EmpleadoTrabajosPage() {
       <FormTrabajos
         isAdmin={false}
         clientes={clientes}
-        onCreated={loadData}
+        initialData={selectedItem}
+        mode={formMode}
+        onCancel={() => {
+          setSelectedItem(null);
+          setFormMode('create');
+        }}
+        onCreated={() => {
+          loadData();
+          setSelectedItem(null);
+          setFormMode('create');
+        }}
       />
 
       {/* Tabla */}
@@ -115,7 +151,13 @@ export default function EmpleadoTrabajosPage() {
             <LoadingSpinner />
         </div>
       ) : (
-        <TableTrabajos items={items} isAdmin={false} />
+        <TableTrabajos 
+          items={items} 
+          isAdmin={false} 
+          onDelete={handleDelete}
+          onEdit={handleEdit}
+          onClone={handleClone}
+        />
       )}
     </div>
   );

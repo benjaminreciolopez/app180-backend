@@ -24,6 +24,8 @@ export default function AdminTrabajosPage() {
 
   // UI State
   const [showForm, setShowForm] = useState(false);
+  const [formMode, setFormMode] = useState<'create' | 'edit' | 'clone'>('create');
+  const [selectedItem, setSelectedItem] = useState<WorkLogItem | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -46,9 +48,7 @@ export default function AdminTrabajosPage() {
       // Verificar si módulo empleados está activo
       let fetchEmpleados = Promise.resolve({ data: [] } as any);
       try {
-        // 🆕 Usar helper
         const user = getUser() || {};
-        // Si no existe modulos, asumimos true (legacy). Si es false explícito, no cargamos.
         if (user.modulos?.empleados !== false) {
           fetchEmpleados = api.get("/employees");
         }
@@ -61,14 +61,12 @@ export default function AdminTrabajosPage() {
 
       const [eRes, cRes] = results;
 
-      // Si falla empleados (ej 403 aunque lo intentamos evitar, o 500), ponemos array vacío sin error
       if (eRes.status === 'fulfilled' && Array.isArray(eRes.value.data)) {
         setEmpleados(eRes.value.data);
       } else {
         setEmpleados([]);
       }
 
-      // Clientes
       if (cRes.status === 'fulfilled' && Array.isArray(cRes.value.data)) {
         setClientes(cRes.value.data);
       } else {
@@ -77,6 +75,30 @@ export default function AdminTrabajosPage() {
     } catch (err) {
       console.error("Error cargando catálogos", err);
     }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await api.delete(`/worklogs/${id}`);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar el trabajo");
+    }
+  }
+
+  function handleEdit(item: WorkLogItem) {
+    setSelectedItem(item);
+    setFormMode('edit');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleClone(item: WorkLogItem) {
+    setSelectedItem(item);
+    setFormMode('clone');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   useEffect(() => {
@@ -134,7 +156,13 @@ export default function AdminTrabajosPage() {
           )}
           
           <button 
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => {
+              if (showForm) {
+                setSelectedItem(null);
+                setFormMode('create');
+              }
+              setShowForm(!showForm);
+            }}
             className={`btn px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${showForm ? 'bg-gray-100 text-gray-700' : 'bg-black text-white hover:bg-gray-800'}`}
           >
             {showForm ? <><X size={16}/> Cancelar</> : <><Plus size={16}/> Crear Trabajo</>}
@@ -149,9 +177,18 @@ export default function AdminTrabajosPage() {
             isAdmin={true}
             empleados={empleados}
             clientes={clientes}
+            initialData={selectedItem}
+            mode={formMode}
+            onCancel={() => {
+              setShowForm(false);
+              setSelectedItem(null);
+              setFormMode('create');
+            }}
             onCreated={() => {
               loadData();
               setShowForm(false);
+              setSelectedItem(null);
+              setFormMode('create');
             }}
           />
         </div>
@@ -163,7 +200,13 @@ export default function AdminTrabajosPage() {
             <LoadingSpinner />
         </div>
       ) : (
-        <TableTrabajos items={items} isAdmin={true} />
+        <TableTrabajos 
+          items={items} 
+          isAdmin={true} 
+          onDelete={handleDelete}
+          onEdit={handleEdit}
+          onClone={handleClone}
+        />
       )}
     </div>
   );
