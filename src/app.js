@@ -51,6 +51,7 @@ import adminKnowledgeRoutes from "./routes/adminKnowledgeRoutes.js";
 import calendarConfigRoutes from "./routes/calendarConfigRoutes.js";
 import calendarSyncRoutes from "./routes/calendarSyncRoutes.js";
 import calendarWebhookRoutes from "./routes/calendarWebhookRoutes.js";
+import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
 
 const app = express();
 
@@ -144,6 +145,7 @@ app.use("/admin", adminKnowledgeRoutes);
 app.use("/admin", calendarConfigRoutes); // Google Calendar configuration
 app.use("/admin", calendarSyncRoutes); // Google Calendar sync
 app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
+app.use("/admin", authRequired, adminPartesDiaRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.message?.includes("Tipo de archivo no permitido")) {
