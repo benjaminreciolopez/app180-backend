@@ -13,6 +13,7 @@ import {
   clonarWorkLog,
   getTemplates,
   deleteTemplate,
+  getSuggestions,
 } from "../controllers/workLogsController.js";
 
 const router = Router();
@@ -38,5 +39,6 @@ router.post("/clonar", clonarWorkLog);
 
 router.get("/templates", getTemplates);
 router.delete("/templates/:id", deleteTemplate);
+router.get("/suggestions", getSuggestions);
 
 export default router;

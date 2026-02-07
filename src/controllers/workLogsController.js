@@ -615,3 +615,46 @@ export async function deleteTemplate(req, res) {
     res.status(500).json({ error: "Error eliminando plantilla" });
   }
 }
+
+/**
+ * GET /worklogs/suggestions
+ * Devuelve listas únicas para autocompletado inteligente.
+ */
+export async function getSuggestions(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+
+    // 1. Tipos (work_item_nombre) únicos de los logs
+    const types = await sql`
+      SELECT DISTINCT work_item_nombre 
+      FROM work_logs_180 
+      WHERE empresa_id = ${empresaId} AND work_item_nombre IS NOT NULL
+      ORDER BY work_item_nombre ASC
+    `;
+
+    // 2. Plantillas (combinación de desc y detalles)
+    const templates = await sql`
+      SELECT descripcion, detalles 
+      FROM work_log_templates_180 
+      WHERE empresa_id = ${empresaId}
+    `;
+
+    // 3. Recientes (opcional, para dar más variedad)
+    const recent = await sql`
+      SELECT descripcion, detalles, work_item_nombre
+      FROM work_logs_180
+      WHERE empresa_id = ${empresaId}
+      ORDER BY created_at DESC
+      LIMIT 100
+    `;
+
+    res.json({
+      types: types.map(t => t.work_item_nombre),
+      templates,
+      recent
+    });
+  } catch (err) {
+    console.error("❌ getSuggestions:", err);
+    res.status(500).json({ error: "Error obteniendo sugerencias" });
+  }
+}
