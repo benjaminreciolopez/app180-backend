@@ -49,8 +49,30 @@ export async function crearWorkLog(req, res) {
       return res.status(400).json({ error: "La descripción es obligatoria" });
     }
 
+    // 0. Resolver work_item_id desde el nombre
+    let finalWorkItemId = null;
+    if (work_item_nombre && work_item_nombre.trim()) {
+      const name = work_item_nombre.trim();
+      const existingItem = await sql`
+        SELECT id FROM work_items_180 
+        WHERE empresa_id = ${empresaId} AND LOWER(nombre) = LOWER(${name})
+        LIMIT 1
+      `;
+      if (existingItem.length > 0) {
+        finalWorkItemId = existingItem[0].id;
+      } else {
+        const [newItem] = await sql`
+          INSERT INTO work_items_180 (empresa_id, nombre)
+          VALUES (${empresaId}, ${name})
+          RETURNING id
+        `;
+        finalWorkItemId = newItem.id;
+      }
+    }
+
     // Concatenar tipo si existe: "[Tipo] Descripción..."
-    let finalDescription = descripcion.trim();
+    const cleanDesc = descripcion.trim();
+    let finalDescription = cleanDesc;
     if (work_item_nombre && work_item_nombre.trim()) {
       finalDescription = `[${work_item_nombre.trim()}] ${finalDescription}`;
     }
@@ -191,7 +213,7 @@ export async function crearWorkLog(req, res) {
           ${empresaId},
           ${finalEmpleadoId},
           ${cliente_id || null},
-          ${null},
+          ${finalWorkItemId},
           ${finalDescription},
           ${detalles || null},
           ${fechaFinal.toISOString()},
@@ -207,17 +229,17 @@ export async function crearWorkLog(req, res) {
     `;
 
     // Si se pide guardar como plantilla
-    if (save_as_template && finalDescription) {
+    if (save_as_template && cleanDesc) {
       // Evitar duplicados exactos en plantillas por empresa
       const existingTpl = await sql`
         SELECT id FROM work_log_templates_180 
-        WHERE empresa_id = ${empresaId} AND descripcion = ${finalDescription}
+        WHERE empresa_id = ${empresaId} AND descripcion = ${cleanDesc}
         LIMIT 1
       `;
       if (existingTpl.length === 0) {
         await sql`
           INSERT INTO work_log_templates_180 (empresa_id, descripcion, detalles)
-          VALUES (${empresaId}, ${finalDescription}, ${detalles || null})
+          VALUES (${empresaId}, ${cleanDesc}, ${detalles || null})
         `;
       }
     }
@@ -438,10 +460,15 @@ export async function actualizarWorkLog(req, res) {
 
     // Verificar propiedad (o ser admin)
     const existing = await sql`
-      SELECT id, employee_id, empresa_id FROM work_logs_180 WHERE id = ${id}
+      SELECT id, employee_id, empresa_id, pagado FROM work_logs_180 WHERE id = ${id}
     `;
     if (!existing[0]) return res.status(404).json({ error: "Trabajo no encontrado" });
     if (existing[0].empresa_id !== empresaId) return res.status(403).json({ error: "No autorizado" });
+
+    // Bloqueo si está pagado
+    if (existing[0].pagado > 0) {
+      return res.status(400).json({ error: "No se puede editar un trabajo ya pagado o facturado. Elimina el pago primero." });
+    }
 
     if (req.user.role !== 'admin' && existing[0].employee_id !== req.user.empleado_id) {
       return res.status(403).json({ error: "No puedes editar trabajos de otros" });
@@ -523,7 +550,7 @@ export async function eliminarWorkLog(req, res) {
     }
 
     if (existing[0].pagado > 0) {
-      return res.status(400).json({ error: "No se puede borrar un trabajo ya pagado/facturado" });
+      return res.status(400).json({ error: "No se puede borrar un trabajo ya pagado o facturado. Elimina el pago primero." });
     }
 
     await sql`DELETE FROM work_logs_180 WHERE id = ${id}`;
@@ -624,12 +651,12 @@ export async function getSuggestions(req, res) {
   try {
     const empresaId = req.user.empresa_id;
 
-    // 1. Tipos (work_item_nombre) únicos de los logs
+    // 1. Tipos (de la tabla de items)
     const types = await sql`
-      SELECT DISTINCT work_item_nombre 
-      FROM work_logs_180 
-      WHERE empresa_id = ${empresaId} AND work_item_nombre IS NOT NULL
-      ORDER BY work_item_nombre ASC
+      SELECT DISTINCT nombre 
+      FROM work_items_180 
+      WHERE empresa_id = ${empresaId}
+      ORDER BY nombre ASC
     `;
 
     // 2. Plantillas (combinación de desc y detalles)
@@ -641,15 +668,16 @@ export async function getSuggestions(req, res) {
 
     // 3. Recientes (opcional, para dar más variedad)
     const recent = await sql`
-      SELECT descripcion, detalles, work_item_nombre
-      FROM work_logs_180
-      WHERE empresa_id = ${empresaId}
-      ORDER BY created_at DESC
+      SELECT w.descripcion, w.detalles, wi.nombre as work_item_nombre
+      FROM work_logs_180 w
+      LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
+      WHERE w.empresa_id = ${empresaId}
+      ORDER BY w.created_at DESC
       LIMIT 100
     `;
 
     res.json({
-      types: types.map(t => t.work_item_nombre),
+      types: types.map(t => t.nombre),
       templates,
       recent
     });
