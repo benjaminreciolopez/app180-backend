@@ -62,7 +62,7 @@ export const storageController = {
                 data: files,
                 stats: {
                     used_bytes: parseInt(stats?.used_bytes || 0),
-                    total_limit_bytes: 512 * 1024 * 1024 // 512MB limit
+                    total_limit_bytes: 1024 * 1024 * 1024 // 1GB limit
                 }
             });
         } catch (err) {
