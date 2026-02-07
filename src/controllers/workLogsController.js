@@ -31,13 +31,15 @@ export async function crearWorkLog(req, res) {
 
     const {
       cliente_id,
-      work_item_nombre, 
+      work_item_nombre,
       descripcion,
-      fecha, 
-      minutos, 
+      detalles,
+      fecha,
+      minutos,
       precio,
-      tipo_facturacion = 'hora', 
-      duracion_texto 
+      tipo_facturacion = 'hora',
+      duracion_texto,
+      save_as_template = false
     } = req.body;
 
     console.log("📝 crearWorkLog Payload:", JSON.stringify(req.body));
@@ -72,7 +74,7 @@ export async function crearWorkLog(req, res) {
     }
 
     if (!finalEmpleadoId) {
-       return res.status(403).json({ error: "Falta empleado_id" });
+      return res.status(403).json({ error: "Falta empleado_id" });
     }
 
     const emp = await sql`
@@ -106,11 +108,11 @@ export async function crearWorkLog(req, res) {
     // if (minutosN == null || minutosN < 0 || minutosN > 24 * 60 * 31) { // Cap high
     //   // return res.status(400).json({ error: "Minutos fuera de rango" });
     // }
-    
+
     // Si es valorado sin precio fijo, minutos puede ser 0
     if (tipo_facturacion !== 'valorado' && minutosN <= 0) {
-        console.log("❌ Error duracion invalida:", minutosN, tipo_facturacion);
-        return res.status(400).json({ error: "Duración inválida" });
+      console.log("❌ Error duracion invalida:", minutosN, tipo_facturacion);
+      return res.status(400).json({ error: "Duración inválida" });
     }
 
     if (fecha && isNaN(new Date(fecha).getTime())) {
@@ -122,15 +124,15 @@ export async function crearWorkLog(req, res) {
 
     // Calcular valor inicial
     let valorInicial = 0;
-    
+
     // 1. Si viene precio manual (desde admin), manda
     if (precio) {
-        valorInicial = Number(precio);
-    } 
+      valorInicial = Number(precio);
+    }
     // 2. Si es calculado (hora, dia, mes)
     else if (cliente_id) {
-       // Buscar tarifa
-       const tariffs = await sql`
+      // Buscar tarifa
+      const tariffs = await sql`
           SELECT precio, tipo 
           FROM client_tariffs_180 
           WHERE cliente_id = ${cliente_id} AND activo = true
@@ -138,32 +140,32 @@ export async function crearWorkLog(req, res) {
           LIMIT 1
        `;
 
-       if (tariffs.length > 0) {
-           const tar = tariffs[0];
-           const p = Number(tar.precio);
+      if (tariffs.length > 0) {
+        const tar = tariffs[0];
+        const p = Number(tar.precio);
 
-           // Normalización:
-           // Las horas, dias, meses las almacenamos en 'minutos' (calculado en front)
-           // Aquí calculamos valor en base a la TARIFA del cliente
-           
-           if (tar.tipo === 'hora') {
-               // Tarifa en horas.
-               valorInicial = (minutosN / 60) * p;
-           } else if (tar.tipo === 'dia') {
-               // Tarifa en dias. Asumimos 8h (480min) = 1 dia para la conversion
-               valorInicial = (minutosN / (8 * 60)) * p;
-           } else if (tar.tipo === 'mes') {
-               // Tarifa en meses. 
-               // Estandard: 1 mes = 160 horas (4 semanas * 40h) ó 22 dias laborales * 8h = 176h
-               // User intent: "un mes de trabajo" = 9600 min (160h).
-               // Si el user metió min=9600, y la tarifa es 1000€/mes => (9600 / 9600) * 1000 = 1000.
-               // Asumiremos 160h/mes como base de conversión. 
-               const minMes = 160 * 60; 
-               valorInicial = (minutosN / minMes) * p;
-           }
-           // Redondear a 2 decimales
-           valorInicial = Math.round(valorInicial * 100) / 100;
-       }
+        // Normalización:
+        // Las horas, dias, meses las almacenamos en 'minutos' (calculado en front)
+        // Aquí calculamos valor en base a la TARIFA del cliente
+
+        if (tar.tipo === 'hora') {
+          // Tarifa en horas.
+          valorInicial = (minutosN / 60) * p;
+        } else if (tar.tipo === 'dia') {
+          // Tarifa en dias. Asumimos 8h (480min) = 1 dia para la conversion
+          valorInicial = (minutosN / (8 * 60)) * p;
+        } else if (tar.tipo === 'mes') {
+          // Tarifa en meses. 
+          // Estandard: 1 mes = 160 horas (4 semanas * 40h) ó 22 dias laborales * 8h = 176h
+          // User intent: "un mes de trabajo" = 9600 min (160h).
+          // Si el user metió min=9600, y la tarifa es 1000€/mes => (9600 / 9600) * 1000 = 1000.
+          // Asumiremos 160h/mes como base de conversión. 
+          const minMes = 160 * 60;
+          valorInicial = (minutosN / minMes) * p;
+        }
+        // Redondear a 2 decimales
+        valorInicial = Math.round(valorInicial * 100) / 100;
+      }
     }
 
     const rows = await sql`
@@ -174,6 +176,7 @@ export async function crearWorkLog(req, res) {
           cliente_id,
           work_item_id,
           descripcion,
+          detalles,
           fecha,
           minutos,
           valor,
@@ -190,6 +193,7 @@ export async function crearWorkLog(req, res) {
           ${cliente_id || null},
           ${null},
           ${finalDescription},
+          ${detalles || null},
           ${fechaFinal.toISOString()},
           ${minutosN},
           ${valorInicial},
@@ -202,6 +206,22 @@ export async function crearWorkLog(req, res) {
       RETURNING *
     `;
 
+    // Si se pide guardar como plantilla
+    if (save_as_template && finalDescription) {
+      // Evitar duplicados exactos en plantillas por empresa
+      const existingTpl = await sql`
+        SELECT id FROM work_log_templates_180 
+        WHERE empresa_id = ${empresaId} AND descripcion = ${finalDescription}
+        LIMIT 1
+      `;
+      if (existingTpl.length === 0) {
+        await sql`
+          INSERT INTO work_log_templates_180 (empresa_id, descripcion, detalles)
+          VALUES (${empresaId}, ${finalDescription}, ${detalles || null})
+        `;
+      }
+    }
+
     return res.json(rows[0]);
   } catch (err) {
     console.error("❌ crearWorkLog:", err);
@@ -210,39 +230,39 @@ export async function crearWorkLog(req, res) {
 }
 
 export async function fixWorkLogValues(req, res) {
-    if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
-    
-    // Copy paste logic from script roughly
-    const jobs = await sql`
+  if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
+
+  // Copy paste logic from script roughly
+  const jobs = await sql`
         SELECT w.id, w.cliente_id, w.minutos 
         FROM work_logs_180 w
         WHERE (w.valor IS NULL OR w.valor = 0)
           AND w.minutos > 0
     `;
 
-    let count = 0;
-    for (const job of jobs) {
-        if (!job.cliente_id) continue;
-        const tariffs = await sql`
+  let count = 0;
+  for (const job of jobs) {
+    if (!job.cliente_id) continue;
+    const tariffs = await sql`
             SELECT precio, tipo FROM client_tariffs_180 
             WHERE cliente_id = ${job.cliente_id} AND activo = true
             ORDER BY created_at DESC LIMIT 1
         `;
-        if (tariffs.length > 0) {
-            const tar = tariffs[0];
-            let nuevoValor = 0;
-            if (tar.tipo === 'hora') {
-                nuevoValor = (job.minutos / 60) * Number(tar.precio);
-            } else if (tar.tipo === 'dia') {
-                nuevoValor = (job.minutos / (8 * 60)) * Number(tar.precio);
-            }
-            if (nuevoValor > 0) {
-                await sql`UPDATE work_logs_180 SET valor=${nuevoValor} WHERE id=${job.id}`;
-                count++;
-            }
-        }
+    if (tariffs.length > 0) {
+      const tar = tariffs[0];
+      let nuevoValor = 0;
+      if (tar.tipo === 'hora') {
+        nuevoValor = (job.minutos / 60) * Number(tar.precio);
+      } else if (tar.tipo === 'dia') {
+        nuevoValor = (job.minutos / (8 * 60)) * Number(tar.precio);
+      }
+      if (nuevoValor > 0) {
+        await sql`UPDATE work_logs_180 SET valor=${nuevoValor} WHERE id=${job.id}`;
+        count++;
+      }
     }
-    res.json({ fixed: count, total_checked: jobs.length });
+  }
+  res.json({ fixed: count, total_checked: jobs.length });
 }
 
 
@@ -400,5 +420,165 @@ export async function adminWorkLogsResumen(req, res) {
   } catch (err) {
     console.error("❌ adminWorkLogsResumen:", err);
     return res.status(500).json({ error: "Error obteniendo resumen" });
+  }
+}
+
+/**
+ * PUT /worklogs/:id
+ */
+export async function actualizarWorkLog(req, res) {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+    const { descripcion, detalles, fecha, minutos, precio, tipo_facturacion, duracion_texto } = req.body;
+
+    // Verificar propiedad (o ser admin)
+    const existing = await sql`
+      SELECT id, employee_id, empresa_id FROM work_logs_180 WHERE id = ${id}
+    `;
+    if (!existing[0]) return res.status(404).json({ error: "Trabajo no encontrado" });
+    if (existing[0].empresa_id !== empresaId) return res.status(403).json({ error: "No autorizado" });
+
+    if (req.user.role !== 'admin' && existing[0].employee_id !== req.user.empleado_id) {
+      return res.status(403).json({ error: "No puedes editar trabajos de otros" });
+    }
+
+    const updateFields = {};
+    if (descripcion) updateFields.descripcion = descripcion;
+    if (detalles !== undefined) updateFields.detalles = detalles;
+    if (fecha) updateFields.fecha = new Date(fecha).toISOString();
+    if (minutos !== undefined) updateFields.minutos = parseIntOrNull(minutos);
+    if (precio !== undefined) updateFields.valor = Number(precio);
+    if (tipo_facturacion) updateFields.tipo_facturacion = tipo_facturacion;
+    if (duracion_texto !== undefined) updateFields.duracion_texto = duracion_texto;
+
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({ error: "Nada que actualizar" });
+    }
+
+    const [updated] = await sql`
+      UPDATE work_logs_180 
+      SET ${sql(updateFields)}, updated_at = now()
+      WHERE id = ${id}
+      RETURNING *
+    `;
+
+    res.json(updated);
+  } catch (err) {
+    console.error("❌ actualizarWorkLog:", err);
+    res.status(500).json({ error: "Error actualizando trabajo" });
+  }
+}
+
+/**
+ * DELETE /worklogs/:id
+ */
+export async function eliminarWorkLog(req, res) {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+
+    // Verificar propiedad (o ser admin)
+    const existing = await sql`
+      SELECT id, employee_id, empresa_id, pagado FROM work_logs_180 WHERE id = ${id}
+    `;
+    if (!existing[0]) return res.status(404).json({ error: "Trabajo no encontrado" });
+    if (existing[0].empresa_id !== empresaId) return res.status(403).json({ error: "No autorizado" });
+
+    if (req.user.role !== 'admin' && existing[0].employee_id !== req.user.empleado_id) {
+      return res.status(403).json({ error: "No puedes borrar trabajos de otros" });
+    }
+
+    if (existing[0].pagado > 0) {
+      return res.status(400).json({ error: "No se puede borrar un trabajo ya pagado/facturado" });
+    }
+
+    await sql`DELETE FROM work_logs_180 WHERE id = ${id}`;
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ eliminarWorkLog:", err);
+    res.status(500).json({ error: "Error eliminando trabajo" });
+  }
+}
+
+/**
+ * POST /worklogs/clonar
+ * Clona un trabajo base a múltiples fechas.
+ */
+export async function clonarWorkLog(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { work_log_id, fechas, cliente_id } = req.body;
+
+    if (!work_log_id || !fechas || !Array.isArray(fechas)) {
+      return res.status(400).json({ error: "Datos insuficientes (work_log_id y array de fechas requeridos)" });
+    }
+
+    const [base] = await sql`
+      SELECT * FROM work_logs_180 WHERE id = ${work_log_id} AND empresa_id = ${empresaId}
+    `;
+    if (!base) return res.status(404).json({ error: "Trabajo base no encontrado" });
+
+    const results = [];
+    for (const f of fechas) {
+      const fechaClon = new Date(f);
+      if (isNaN(fechaClon.getTime())) continue;
+
+      const [newRow] = await sql`
+        INSERT INTO work_logs_180 (
+          empresa_id, employee_id, cliente_id, work_item_id,
+          descripcion, detalles, fecha, minutos, valor,
+          pagado, estado_pago, created_at, tipo_facturacion, duracion_texto
+        ) VALUES (
+          ${empresaId}, ${base.employee_id}, ${cliente_id || base.cliente_id}, ${base.work_item_id},
+          ${base.descripcion}, ${base.detalles}, ${fechaClon.toISOString()}, ${base.minutos}, ${base.valor},
+          0, 'pendiente', now(), ${base.tipo_facturacion}, ${base.duracion_texto}
+        )
+        RETURNING *
+      `;
+      results.push(newRow);
+    }
+
+    res.json({ cloned: results.length, items: results });
+  } catch (err) {
+    console.error("❌ clonarWorkLog:", err);
+    res.status(500).json({ error: "Error clonando trabajo" });
+  }
+}
+
+/**
+ * GET /worklogs/templates
+ */
+export async function getTemplates(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const rows = await sql`
+      SELECT id, descripcion, detalles 
+      FROM work_log_templates_180 
+      WHERE empresa_id = ${empresaId}
+      ORDER BY descripcion ASC
+    `;
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ getTemplates:", err);
+    res.status(500).json({ error: "Error obteniendo plantillas" });
+  }
+}
+
+/**
+ * DELETE /worklogs/templates/:id
+ */
+export async function deleteTemplate(req, res) {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+    await sql`
+      DELETE FROM work_log_templates_180 
+      WHERE id = ${id} AND empresa_id = ${empresaId}
+    `;
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ deleteTemplate:", err);
+    res.status(500).json({ error: "Error eliminando plantilla" });
   }
 }
