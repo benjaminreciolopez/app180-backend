@@ -1,0 +1,2 @@
+ALTER TABLE empresa_config_180 
+ADD COLUMN IF NOT EXISTS modulos_mobile JSONB DEFAULT NULL;
