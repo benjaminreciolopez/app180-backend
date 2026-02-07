@@ -78,20 +78,25 @@ app.use(
       const allowed = [
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://localhost:5173",
         "https://app180-frontend.vercel.app",
+        "https://app180.vercel.app",
       ];
 
-      if (allowed.includes(origin) || origin.endsWith(".vercel.app")) {
+      if (allowed.includes(origin) || origin.endsWith(".vercel.app") || origin.includes("localhost")) {
         return callback(null, true);
       }
 
+      console.warn(`[CORS] Intento bloqueado: ${origin}`);
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    optionsSuccessStatus: 204
   }),
 );
+
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
