@@ -8,6 +8,11 @@ import {
   misWorkLogs,
   adminWorkLogs,
   adminWorkLogsResumen,
+  actualizarWorkLog,
+  eliminarWorkLog,
+  clonarWorkLog,
+  getTemplates,
+  deleteTemplate,
 } from "../controllers/workLogsController.js";
 
 const router = Router();
@@ -25,5 +30,13 @@ router.get("/mis", misWorkLogs);
 // admin
 router.get("/admin", roleRequired("admin"), adminWorkLogs);
 router.get("/admin/resumen", roleRequired("admin"), adminWorkLogsResumen);
+
+// comunes (CRUD + Clonar + Plantillas)
+router.put("/:id", actualizarWorkLog);
+router.delete("/:id", eliminarWorkLog);
+router.post("/clonar", clonarWorkLog);
+
+router.get("/templates", getTemplates);
+router.delete("/templates/:id", deleteTemplate);
 
 export default router;
