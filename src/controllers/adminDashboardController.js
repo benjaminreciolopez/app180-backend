@@ -202,7 +202,7 @@ export const getAdminDashboard = async (req, res) => {
           google_calendar_connected,
           google_calendar_last_sync,
           google_calendar_sync_enabled
-        FROM empresas_180
+        FROM empresa_180
         WHERE id = ${empresaId}
       `;
 
