@@ -13,7 +13,7 @@ import { requireModule } from "../middlewares/requireModule.js";
 
 const router = Router();
 
-const guard = [authRequired, roleRequired("admin"), requireModule("calendario_import")];
+const guard = [authRequired, roleRequired("admin"), requireModule("calendario")];
 
 const upload = multer({
   storage: multer.memoryStorage(),
