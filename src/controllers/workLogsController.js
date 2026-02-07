@@ -11,7 +11,7 @@ function ymd(d = new Date()) {
 
 function parseIntOrNull(v) {
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) ? Math.round(n) : null;
 }
 
 /**
@@ -430,7 +430,10 @@ export async function actualizarWorkLog(req, res) {
   try {
     const { id } = req.params;
     const empresaId = req.user.empresa_id;
-    const { descripcion, detalles, fecha, minutos, precio, tipo_facturacion, duracion_texto } = req.body;
+    const {
+      descripcion, detalles, fecha, minutos, precio,
+      tipo_facturacion, duracion_texto, cliente_id, empleado_id
+    } = req.body;
 
     // Verificar propiedad (o ser admin)
     const existing = await sql`
@@ -446,11 +449,22 @@ export async function actualizarWorkLog(req, res) {
     const updateFields = {};
     if (descripcion) updateFields.descripcion = descripcion;
     if (detalles !== undefined) updateFields.detalles = detalles;
-    if (fecha) updateFields.fecha = new Date(fecha).toISOString();
+    if (fecha) {
+      if (isNaN(new Date(fecha).getTime())) {
+        return res.status(400).json({ error: "Fecha no válida" });
+      }
+      updateFields.fecha = new Date(fecha).toISOString();
+    }
     if (minutos !== undefined) updateFields.minutos = parseIntOrNull(minutos);
     if (precio !== undefined) updateFields.valor = Number(precio);
     if (tipo_facturacion) updateFields.tipo_facturacion = tipo_facturacion;
     if (duracion_texto !== undefined) updateFields.duracion_texto = duracion_texto;
+    if (cliente_id) updateFields.cliente_id = cliente_id;
+
+    // Si es admin, permitir cambiar empleado
+    if (req.user.role === 'admin' && empleado_id) {
+      updateFields.employee_id = empleado_id;
+    }
 
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ error: "Nada que actualizar" });
@@ -458,7 +472,7 @@ export async function actualizarWorkLog(req, res) {
 
     const [updated] = await sql`
       UPDATE work_logs_180 
-      SET ${sql(updateFields)}, updated_at = now()
+      SET ${sql(updateFields)}
       WHERE id = ${id}
       RETURNING *
     `;
@@ -466,7 +480,7 @@ export async function actualizarWorkLog(req, res) {
     res.json(updated);
   } catch (err) {
     console.error("❌ actualizarWorkLog:", err);
-    res.status(500).json({ error: "Error actualizando trabajo" });
+    res.status(500).json({ error: "Error actualizando trabajo: " + err.message });
   }
 }
 
