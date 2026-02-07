@@ -1061,6 +1061,45 @@ export const googleAuth = async (req, res) => {
       });
     }
 
+    // ===================================
+    // DEVICE REGISTRATION (Added for Google Login)
+    // ===================================
+    const device_hash = req.body.device_hash;
+    const user_agent = req.body.user_agent;
+    const ipActual = req.ip;
+
+    console.log("DEBUG GOOGLE DEVICE:", { role: user.role, empleadoId, device_hash });
+
+    if (empleadoId && device_hash) {
+      const deviceRows = await sql`
+        SELECT * FROM employee_devices_180 WHERE empleado_id = ${empleadoId}
+      `;
+
+      if (deviceRows.length === 0) {
+        await sql`
+          INSERT INTO employee_devices_180
+            (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
+          VALUES
+            (${user.id}, ${empleadoId}, ${empresaId}, ${device_hash},
+             ${user_agent || null}, true, ${ipActual})
+        `;
+      } else {
+        const device = deviceRows[0];
+        if (device.device_hash !== device_hash) {
+          // Si es admin o empleado, actualizamos para permitir cambio de dispositivo en login social
+          // (O aplicar misma lógica estricta que login normal si se prefiere)
+          await sql`
+            UPDATE employee_devices_180
+            SET device_hash = ${device_hash},
+                user_agent = ${user_agent || device.user_agent},
+                ip_habitual = ${ipActual},
+                updated_at = now()
+            WHERE id = ${device.id}
+           `;
+        }
+      }
+    }
+
     // Generate JWT
     const token = jwt.sign(
       {
