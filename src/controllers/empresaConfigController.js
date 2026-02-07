@@ -166,12 +166,17 @@ export async function updateDashboardWidgets(req, res) {
       return res.status(400).json({ error: "Formato inválido" });
     }
 
+    // UPSERT: Insertar si no existe, actualizar si existe
     await sql`
-      UPDATE empresa_config_180
-      SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb
-      WHERE empresa_id = ${empresaId}
+      INSERT INTO empresa_config_180 (empresa_id, dashboard_widgets)
+      VALUES (${empresaId}, ${JSON.stringify(widgets)}::jsonb)
+      ON CONFLICT (empresa_id)
+      DO UPDATE SET
+        dashboard_widgets = EXCLUDED.dashboard_widgets,
+        updated_at = NOW()
     `;
 
+    console.log(`✅ Widgets guardados para empresa: ${empresaId}, Total: ${widgets.length}`);
     return res.json({ success: true, widgets });
   } catch (err) {
     console.error("❌ updateDashboardWidgets:", err);
