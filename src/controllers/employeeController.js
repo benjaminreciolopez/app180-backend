@@ -106,6 +106,7 @@ export const getEmployeesAdmin = async (req, res) => {
     const empleados = await sql`
       SELECT DISTINCT ON (e.id)
         e.id,
+        e.user_id,
         e.nombre,
         u.email,
         e.activo,
