@@ -19,13 +19,16 @@ import {
 const router = express.Router();
 
 // 🔐 Todo este router es SOLO ADMIN
-router.use(authRequired, requireModule("empleados"), roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"));
 // ==========================
 // EMPLEADOS (ADMIN)
 // ==========================
 
-// Listar empleados (dashboard admin)
+// Listar empleados (dashboard admin) - Permitir aunque el módulo esté desactivado para planings básicos
 router.get("/", getEmployeesAdmin);
+
+// Rutas que SI requieren el módulo de empleados activo (gestión completa)
+router.use(requireModule("empleados"));
 
 // Crear empleado
 router.post("/", createEmployee);
