@@ -13,7 +13,6 @@ const router = Router();
 router.post(
   "/employees/:id/invite",
   authRequired,
-  requireModule("empleados"),
   roleRequired("admin"),
   inviteEmpleado,
 );
@@ -22,7 +21,6 @@ router.post(
 router.post(
   "/employees/:id/send-invite-email",
   authRequired,
-  requireModule("empleados"),
   roleRequired("admin"),
   sendInviteEmail,
 );
@@ -31,7 +29,6 @@ router.post(
 router.put(
   "/employees/:id",
   authRequired,
-  requireModule("empleados"),
   roleRequired("admin"),
   updateEmployee
 );
