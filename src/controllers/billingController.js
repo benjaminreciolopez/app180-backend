@@ -23,16 +23,16 @@ export async function getBillingStatus(req, res) {
   // 1. Calcular Valor de Trabajos (Monetización)
   // Estrategia simplificada: Sumar work_logs y multiplicar por tarifa activa o precio manual
   // NOTA: Esto es una estimación. En un sistema real, cada work_log debería "cerrarse" contra una tarifa snapshot.
-  
+
   /*
     Para hacerlo "bien" sin complicar demasiado:
     Buscamos work_logs en el periodo.
     Para cada uno, buscamos si tiene un precio manual (future feature) o tarifa asociada.
     Si no tiene, buscamos tarifa vigente del cliente para ese tipo de trabajo.
   */
-  
+
   // Por ahora, vamos a sumar Pagos REALES vs Una estimación simple.
-  
+
   // 1. Obtener Totales Reales de WorkLogs (con su valor y pagado ya calculados/asignados)
   const workStats = await sql`
     SELECT 
@@ -49,11 +49,11 @@ export async function getBillingStatus(req, res) {
   // Por eso, para "Total Pagado" real (flujo de caja), usamos payments_180.
   // Para "Deuda", usamos (work_logs.valor - work_logs.pagado).
   // OJO: Si el cliente paga por adelantado, tiene saldo a favor en payments_180 pero work_logs.pagado es 0.
-  
+
   // Decisión:
   // Saldo Pendiente = (Suma Valor Trabajo) - (Suma Pagos Totales).
   // Si da negativo, es saldo a favor.
-  
+
   const pagos = await sql`
     SELECT COALESCE(SUM(importe), 0) as total_pagado
     FROM payments_180
@@ -116,4 +116,68 @@ export async function getBillingByClient(req, res) {
   `;
 
   res.json(stats);
+}
+
+/**
+ * GET /admin/billing/deudas-pendientes
+ * Devuelve un resumen consolidado de deudas por cliente:
+ * - Deuda en Facturas validadas
+ * - Deuda en Trabajos sin facturar
+ */
+export async function getDeudasPendientesConsolidado(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { desde, hasta, cliente_id } = req.query;
+
+    const d = desde || '2000-01-01';
+    const h = hasta || '2100-01-01';
+
+    const rows = await sql`
+      WITH deudas_facturas AS (
+        SELECT 
+          cliente_id,
+          SUM(total - COALESCE(pagado, 0)) as deuda_facturas,
+          MAX(fecha) as ultima_factura
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
+          AND estado = 'VALIDADA'
+          AND (total > COALESCE(pagado, 0) + 0.01)
+          AND fecha::date BETWEEN ${d}::date AND ${h}::date
+        GROUP BY cliente_id
+      ),
+      deudas_trabajos AS (
+        SELECT 
+          cliente_id,
+          SUM(valor - COALESCE(pagado, 0)) as deuda_trabajos,
+          MAX(fecha) as ultimo_trabajo
+        FROM work_logs_180
+        WHERE empresa_id = ${empresaId}
+          AND factura_id IS NULL
+          AND (valor > COALESCE(pagado, 0) + 0.01)
+          AND fecha::date BETWEEN ${d}::date AND ${h}::date
+        GROUP BY cliente_id
+      )
+      SELECT 
+        c.id as cliente_id,
+        c.nombre as cliente_nombre,
+        c.codigo as cliente_codigo,
+        COALESCE(f.deuda_facturas, 0)::numeric as deuda_facturas,
+        COALESCE(t.deuda_trabajos, 0)::numeric as deuda_trabajos,
+        (COALESCE(f.deuda_facturas, 0) + COALESCE(t.deuda_trabajos, 0))::numeric as deuda_total,
+        GREATEST(f.ultima_factura, t.ultimo_trabajo) as ultima_actividad
+      FROM clients_180 c
+      LEFT JOIN deudas_facturas f ON f.cliente_id = c.id
+      LEFT JOIN deudas_trabajos t ON t.cliente_id = c.id
+      WHERE c.empresa_id = ${empresaId}
+        AND c.activo = true
+        AND (${cliente_id}::uuid IS NULL OR c.id = ${cliente_id}::uuid)
+        AND (f.deuda_facturas > 0 OR t.deuda_trabajos > 0)
+      ORDER BY deuda_total DESC
+    `;
+
+    res.json(rows);
+  } catch (e) {
+    console.error("❌ getDeudasPendientesConsolidado:", e);
+    res.status(500).json({ error: e.message });
+  }
 }
