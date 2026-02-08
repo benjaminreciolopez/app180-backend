@@ -171,7 +171,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     `;
 
     if (empleadoIdSafe) {
-        ausenciasQuery = sql`${ausenciasQuery} AND a.empleado_id = ${empleadoIdSafe}`;
+      ausenciasQuery = sql`${ausenciasQuery} AND a.empleado_id = ${empleadoIdSafe}`;
     }
 
     const ausencias = await sql`${ausenciasQuery} ORDER BY a.fecha_inicio ASC`;
@@ -225,7 +225,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       `;
 
       if (empleadoIdSafe) {
-          jornadasQuery = sql`${jornadasQuery} AND j.empleado_id = ${empleadoIdSafe}`;
+        jornadasQuery = sql`${jornadasQuery} AND j.empleado_id = ${empleadoIdSafe}`;
       }
 
       const jornadas = await sql`${jornadasQuery} ORDER BY j.fecha ASC, j.inicio ASC`;
@@ -237,8 +237,8 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         const avisos = j?.resumen_json?.avisos || [];
         const warnCount = Array.isArray(avisos)
           ? avisos.filter(
-              (x) => x?.nivel === "warning" || x?.nivel === "danger",
-            ).length
+            (x) => x?.nivel === "warning" || x?.nivel === "danger",
+          ).length
           : 0;
 
         eventos.push({
@@ -283,7 +283,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         // Nager devuelve fechas puntuales, calendar_empresa y no_laborable también en este controller.
         diasBloqueados.set(d, e.tipo === 'no_laborable' ? 'no_lab' : 'festivo');
       });
-      
+
       // Ausencias (pueden ser rangos)
       // Como ya las tenemos en 'ausencias' query, las iteramos
       // OJO: Las ausencias son específicas por empleado.
@@ -315,13 +315,13 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
       `;
 
       if (empleadoIdSafe) {
-           // Si se filtra por empleado, traemos SUS asignaciones OR asignaciones vacantes (generales)
-           // SI se quiere ver las generales también.
-           // Pero si el usuario dice "no carga EL planing", probablemente quiere ver SU planing.
-           // Mantengamos la lógica estricta: solo SU ID.
-           asignacionesQuery = sql`${asignacionesQuery} AND a.empleado_id = ${empleadoIdSafe}`;
+        // Si se filtra por empleado, traemos SUS asignaciones OR asignaciones vacantes (generales)
+        // SI se quiere ver las generales también.
+        // Pero si el usuario dice "no carga EL planing", probablemente quiere ver SU planing.
+        // Mantengamos la lógica estricta: solo SU ID.
+        asignacionesQuery = sql`${asignacionesQuery} AND a.empleado_id = ${empleadoIdSafe}`;
       }
-      
+
       const asignaciones = await sql`${asignacionesQuery}`;
 
       // Cache de ausencias por empleado para lookup rápido
@@ -332,14 +332,31 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         ausenciasPorEmpleado.get(aus.empleado_id).push({ start: aus.start, end: aus.end });
       });
 
+      // c) Cache de días activos de plantillas
+      const plantillaIds = [...new Set(asignaciones.map(a => a.plantilla_id))];
+      const plantillaDias = plantillaIds.length > 0
+        ? await sql`
+          SELECT plantilla_id, dia_semana, activo
+          FROM plantilla_dias_180
+          WHERE plantilla_id = ANY(${plantillaIds})
+            AND activo = true
+        `
+        : [];
+
+      const activeDaysMap = new Map();
+      plantillaDias.forEach(pd => {
+        if (!activeDaysMap.has(pd.plantilla_id)) activeDaysMap.set(pd.plantilla_id, new Set());
+        activeDaysMap.get(pd.plantilla_id).add(pd.dia_semana);
+      });
+
       for (const asig of asignaciones) {
         // Rango efectivo de la asignación dentro de la vista
         const asigInicio = ymd(asig.fecha_inicio);
         const asigFin = asig.fecha_fin ? ymd(asig.fecha_fin) : hasta; // Acotado a vista si es infinito
-        
+
         // Clamp al rango de vista [desde, hasta]
         const rangeStart = asigInicio < desde ? desde : asigInicio;
-        const rangeEnd = (asigFin > hasta || !asig.fecha_fin) ? hasta : asigFin; 
+        const rangeEnd = (asigFin > hasta || !asig.fecha_fin) ? hasta : asigFin;
 
         if (rangeStart > rangeEnd) continue;
 
@@ -353,7 +370,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
         while (dCursor <= dEnd) {
           const hoyYmd = ymd(dCursor);
-          
+
           let bloqueado = false;
           // 1. Check Global (Festivos / No Lab)
           if (diasBloqueados.has(hoyYmd)) {
@@ -371,8 +388,11 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
             }
           }
 
-          // Si ignorar_festivos es true, NUNCA está bloqueado por festivos/ausencias
-          if (asig.ignorar_festivos) bloqueado = false;
+          // 3. Check Template Activity
+          const diaSemana = dCursor.getDay() === 0 ? 7 : dCursor.getDay(); // 1=Mon, 7=Sun
+          if (!bloqueado && !activeDaysMap.get(asig.plantilla_id)?.has(diaSemana)) {
+            bloqueado = true;
+          }
 
           if (!bloqueado) {
             // Día laborable para el plan
@@ -391,7 +411,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
 
           dCursor.setDate(dCursor.getDate() + 1);
         }
-        
+
         // Push último chunk
         if (currentChunk) chunks.push(currentChunk);
 
@@ -399,7 +419,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
         chunks.forEach((chk, idx) => {
           // Ajustar end param para FullCalendar (exclusive)
           const endExclusive = addOneDayYMD(chk.end);
-          
+
           const tituloPrincipal = asig.alias || asig.plantilla_nombre || "Planing";
           const subtitle = asig.cliente_nombre ? `➜ ${asig.cliente_nombre}` : "";
 
