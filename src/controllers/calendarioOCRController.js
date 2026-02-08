@@ -1,4 +1,5 @@
 import { sql } from "../db.js";
+import { autoPushToGoogle } from "../services/calendarPushService.js";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
 import { parseCalendarioLaboralV3 } from "../services/ocr/calendarioParser.v3.js";
 
@@ -164,8 +165,22 @@ export async function confirmarOCR(req, res) {
         `;
       }
 
+
       return { importacionId };
     });
+
+    // 4) Push a Google Calendar (asíncrono) para los eventos activados
+    // NOTA: Para no saturar con cientos de llamadas, autoPushToGoogle ya se encarga de agrupar o ser ligero
+    // pero aquí los procesamos uno por uno para asegurar su mapeo individual.
+    for (const it of clean) {
+      if (it.activo) {
+        // Obtenemos el ID del evento recién insertado
+        const row = await sql`SELECT id FROM calendario_empresa_180 WHERE empresa_id = ${empresaId} AND fecha = ${it.fecha}::date`;
+        if (row.length > 0) {
+          autoPushToGoogle(empresaId, 'calendario_empresa', row[0].id);
+        }
+      }
+    }
 
     return res.json({
       ok: true,
