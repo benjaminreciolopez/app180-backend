@@ -1,4 +1,5 @@
 import { sql } from "../db.js";
+import { autoPushToGoogle } from "../services/calendarPushService.js";
 
 async function haySolapeAprobado({
   empleadoId,
@@ -46,6 +47,11 @@ export const aprobarVacaciones = async (req, res) => {
     if (update.length === 0) {
       return res.status(400).json({ error: "Ausencia no encontrada" });
     }
+
+
+    // Push a Google Calendar (asíncrono)
+    const empresaId = update[0].empresa_id || (await sql`SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}`)[0]?.id;
+    if (empresaId) autoPushToGoogle(empresaId, 'ausencias', id);
 
     res.json({ success: true, ausencia: update[0] });
   } catch (err) {
@@ -140,6 +146,9 @@ export const crearBajaMedica = async (req, res) => {
       )
       RETURNING *
     `;
+
+    // Push a Google Calendar (asíncrono)
+    autoPushToGoogle(empresaId, 'ausencias', aus[0].id);
 
     res.set("Cache-Control", "no-store");
     return res.json({ success: true, ausencia: aus[0] });
@@ -328,6 +337,12 @@ export const actualizarEstadoAusencia = async (req, res) => {
     if (!rows.length)
       return res.status(404).json({ error: "Ausencia no encontrada" });
 
+
+    // Push a Google Calendar (asíncrono)
+    if (estado === 'aprobado' || a.estado === 'aprobado') {
+      autoPushToGoogle(empresaId, 'ausencias', id);
+    }
+
     res.json({ success: true, ausencia: rows[0] });
   } catch (err) {
     console.error("❌ actualizarEstadoAusencia:", err);
@@ -421,6 +436,9 @@ export const crearAusenciaAdmin = async (req, res) => {
       )
       RETURNING *
     `;
+
+    // Push a Google Calendar (asíncrono)
+    autoPushToGoogle(empresaId, 'ausencias', rows[0].id);
 
     return res.json({
       success: true,
