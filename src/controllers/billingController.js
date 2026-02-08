@@ -130,7 +130,8 @@ export async function getDeudasPendientesConsolidado(req, res) {
     const { desde, hasta, cliente_id } = req.query;
 
     const d = desde || '2000-01-01';
-    const h = hasta || '2100-01-01';
+    const h = hasta || '2100-12-31';
+    const cId = cliente_id || null;
 
     const rows = await sql`
       WITH deudas_facturas AS (
@@ -170,7 +171,7 @@ export async function getDeudasPendientesConsolidado(req, res) {
       LEFT JOIN deudas_trabajos t ON t.cliente_id = c.id
       WHERE c.empresa_id = ${empresaId}
         AND c.activo = true
-        AND (${cliente_id}::uuid IS NULL OR c.id = ${cliente_id}::uuid)
+        AND (${cId}::uuid IS NULL OR c.id = ${cId}::uuid)
         AND (f.deuda_facturas > 0 OR t.deuda_trabajos > 0)
       ORDER BY deuda_total DESC
     `;
