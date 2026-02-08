@@ -21,7 +21,7 @@ import {
   cerrarTarifa,
 } from "../controllers/clientTariffsController.js";
 
-import { getBillingStatus, getBillingByClient } from "../controllers/billingController.js";
+import { getBillingStatus, getBillingByClient, getDeudasPendientesConsolidado } from "../controllers/billingController.js";
 
 import {
   listarPagosCliente,
@@ -37,6 +37,7 @@ router.use(authRequired, roleRequired("admin"));
 
 router.get("/billing/clients", getBillingByClient); // Lista global
 router.get("/billing/status", getBillingStatus); // Individual
+router.get("/billing/deudas-pendientes", getDeudasPendientesConsolidado); // Consolidado (NUEVO)
 
 router.get("/clientes", listarClientes);
 router.post("/clientes", crearCliente);
