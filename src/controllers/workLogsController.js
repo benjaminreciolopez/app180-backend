@@ -485,14 +485,20 @@ export async function actualizarWorkLog(req, res) {
       updateFields.fecha = new Date(fecha).toISOString();
     }
     if (minutos !== undefined) updateFields.minutos = parseIntOrNull(minutos);
-    if (precio !== undefined) updateFields.valor = Number(precio);
+
+    // Solo actualizar valor directamente si viene un número válido (no null)
+    // Si viene null o undefined, permitimos el recálculo automático abajo
+    if (precio !== undefined && precio !== null && precio !== '') {
+      updateFields.valor = Number(precio);
+    }
+
     if (tipo_facturacion) updateFields.tipo_facturacion = tipo_facturacion;
     if (duracion_texto !== undefined) updateFields.duracion_texto = duracion_texto;
     if (cliente_id) updateFields.cliente_id = cliente_id;
 
     // --- RECALCULO DE PRECIO AUTOMÁTICO ---
-    // Si no se especifica precio manual, y cambian factores clave (o el valor era 0)
-    if (precio === undefined) {
+    // Si no se especifica precio manual (undefined no null), y cambian factores clave (o el valor era 0)
+    if (precio === undefined || precio === null || precio === '') {
       const effectiveClienteId = cliente_id || existing[0].cliente_id;
       const effectiveMinutos = minutos !== undefined ? parseIntOrNull(minutos) : existing[0].minutos;
       // const effectiveTipo = tipo_facturacion || existing[0].tipo_facturacion;
