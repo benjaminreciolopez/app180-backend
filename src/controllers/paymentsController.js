@@ -407,7 +407,10 @@ export async function getTrabajosPendientes(req, res) {
       WHERE empresa_id = ${empresaId}
         AND cliente_id = ${id}
         AND factura_id IS NULL
-        AND (valor > COALESCE(pagado, 0) + 0.01)
+        ${req.query.include_paid === 'true'
+        ? sql``
+        : sql`AND (valor > COALESCE(pagado, 0) + 0.01)`
+      }
     `;
     deudas.push(...trabajos);
 
