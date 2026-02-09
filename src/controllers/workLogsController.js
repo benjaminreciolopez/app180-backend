@@ -460,7 +460,8 @@ export async function actualizarWorkLog(req, res) {
 
     // Verificar propiedad (o ser admin)
     const existing = await sql`
-      SELECT id, employee_id, empresa_id, pagado FROM work_logs_180 WHERE id = ${id}
+      SELECT id, employee_id, empresa_id, pagado, cliente_id, minutos, tipo_facturacion, valor 
+      FROM work_logs_180 WHERE id = ${id}
     `;
     if (!existing[0]) return res.status(404).json({ error: "Trabajo no encontrado" });
     if (existing[0].empresa_id !== empresaId) return res.status(403).json({ error: "No autorizado" });
@@ -488,6 +489,46 @@ export async function actualizarWorkLog(req, res) {
     if (tipo_facturacion) updateFields.tipo_facturacion = tipo_facturacion;
     if (duracion_texto !== undefined) updateFields.duracion_texto = duracion_texto;
     if (cliente_id) updateFields.cliente_id = cliente_id;
+
+    // --- RECALCULO DE PRECIO AUTOMÁTICO ---
+    // Si no se especifica precio manual, y cambian factores clave (o el valor era 0)
+    if (precio === undefined) {
+      const effectiveClienteId = cliente_id || existing[0].cliente_id;
+      const effectiveMinutos = minutos !== undefined ? parseIntOrNull(minutos) : existing[0].minutos;
+      // const effectiveTipo = tipo_facturacion || existing[0].tipo_facturacion;
+
+      const factorChanged = (cliente_id && cliente_id !== existing[0].cliente_id) ||
+        (minutos !== undefined && parseIntOrNull(minutos) !== existing[0].minutos) ||
+        (tipo_facturacion && tipo_facturacion !== existing[0].tipo_facturacion);
+
+      const currentValueIsZero = Number(existing[0].valor) === 0;
+
+      if ((factorChanged || currentValueIsZero) && effectiveClienteId && effectiveMinutos > 0) {
+        const tariffs = await sql`
+              SELECT precio, tipo 
+              FROM client_tariffs_180 
+              WHERE cliente_id = ${effectiveClienteId} AND activo = true
+              ORDER BY created_at DESC
+              LIMIT 1
+           `;
+
+        if (tariffs.length > 0) {
+          const tar = tariffs[0];
+          const p = Number(tar.precio);
+          let nuevoValor = 0;
+
+          if (tar.tipo === 'hora') {
+            nuevoValor = (effectiveMinutos / 60) * p;
+          } else if (tar.tipo === 'dia') {
+            nuevoValor = (effectiveMinutos / (8 * 60)) * p; // Asumiendo 8h jornada
+          } else if (tar.tipo === 'mes') {
+            const minMes = 160 * 60; // 160h base
+            nuevoValor = (effectiveMinutos / minMes) * p;
+          }
+          updateFields.valor = Math.round(nuevoValor * 100) / 100;
+        }
+      }
+    }
 
     // Si es admin, permitir cambiar empleado
     if (req.user.role === 'admin' && empleado_id) {
