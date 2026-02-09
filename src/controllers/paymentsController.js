@@ -399,7 +399,10 @@ export async function getTrabajosPendientes(req, res) {
         estado_pago,
         'trabajo' as tipo,
         descripcion,
-        id::text as original_id
+        id::text as original_id,
+        minutos,
+        tipo_facturacion,
+        duracion_texto
       FROM work_logs_180
       WHERE empresa_id = ${empresaId}
         AND cliente_id = ${id}
@@ -528,7 +531,7 @@ export async function eliminarPago(req, res) {
 
             const totalPagadoReal = Number(totalAsignaciones[0]?.total_pagado || 0);
             const nuevoEstadoPago = totalPagadoReal >= totalFactura - 0.01 ? 'pagado' :
-                                   totalPagadoReal > 0 ? 'parcial' : 'pendiente';
+              totalPagadoReal > 0 ? 'parcial' : 'pendiente';
 
             // Actualizar trabajos vinculados con el estado correcto
             if (nuevoEstadoPago === 'pagado') {
