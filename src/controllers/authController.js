@@ -1059,7 +1059,7 @@ export const googleAuth = async (req, res) => {
       // Si estamos en movil (hay device_hash en body) y existe config movil, usarla
       const device_hash_input = req.body.device_hash;
       if (device_hash_input && cfg[0]?.modulos_mobile) {
-         modulos = { ...modulos, ...cfg[0].modulos_mobile };
+        modulos = { ...modulos, ...cfg[0].modulos_mobile };
       }
     }
 
@@ -1125,7 +1125,7 @@ export const googleAuth = async (req, res) => {
         password_forced: false,
       },
       config.jwtSecret,
-      { expiresIn: "10h" },
+      { expiresIn: "4h" },
     );
 
     return res.json({
