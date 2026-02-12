@@ -108,7 +108,7 @@ const FACTURA_STYLES = `
   .cliente-block {
     position: absolute;
     top: 100pt; /* Alineado con Emisor (100pt) */
-    left: calc(50% + 40pt); 
+    left: calc(50% + 100pt); 
     width: calc(50% - 70pt); 
     text-align: left;
   }
