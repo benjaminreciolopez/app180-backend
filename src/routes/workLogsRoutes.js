@@ -14,6 +14,7 @@ import {
   getTemplates,
   deleteTemplate,
   getSuggestions,
+  fixWorkLogValues,
 } from "../controllers/workLogsController.js";
 
 const router = Router();
@@ -31,6 +32,9 @@ router.get("/mis", misWorkLogs);
 // admin
 router.get("/admin", roleRequired("admin"), adminWorkLogs);
 router.get("/admin/resumen", roleRequired("admin"), adminWorkLogsResumen);
+
+// Recalculate values (Force fix)
+router.put("/fix-values", roleRequired("admin"), fixWorkLogValues);
 
 // comunes (CRUD + Clonar + Plantillas)
 router.put("/:id", actualizarWorkLog);
