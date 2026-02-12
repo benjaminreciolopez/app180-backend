@@ -65,20 +65,26 @@ const FACTURA_STYLES = `
     text-transform: uppercase;
   }
 
-  /* BLOQUE EMISOR - alto - 100pts base */
+  /* LOGO INDEPENDIENTE - ARRIBA A LA IZQUIERDA */
+  .logo-block {
+    position: absolute;
+    top: 20pt;
+    left: 30pt;
+  }
+
+  .logo-img {
+    max-width: 100pt;
+    max-height: 70pt;
+    display: block;
+  }
+
+  /* BLOQUE EMISOR - alto - 100pts (ALINEADO CON CLIENTE) */
   .emisor-block {
     position: absolute;
     top: 100pt;
     left: 30pt; /* margen_x = 30 */
     width: 250pt;
     text-align: left;
-  }
-
-  .logo-img {
-    max-width: 100pt;
-    max-height: 80pt;
-    margin-bottom: 10pt;
-    display: block;
   }
 
   .emisor-nombre {
@@ -92,24 +98,24 @@ const FACTURA_STYLES = `
     line-height: 1.2;
   }
 
-  /* BLOQUE METADATA (FECHA/NUMERO) - ARRIBA A LA DERECHA */
-  /* ENCIMA de los datos del cliente */
+  /* BLOQUE METADATA (FECHA/NUMERO) - ARRIBA A LA DERECHA (ENCIMA DE CLIENTE) */
   .meta-block {
     position: absolute;
-    top: 60pt; /* Alineado altura Título pero a la derecha */
-    right: 30pt;
-    text-align: right;
+    top: 60pt; 
+    left: calc(50% + 100pt); 
+    width: calc(50% - 110pt); 
+    text-align: left;
     font-weight: bold;
     font-size: 11pt;
   }
   .meta-block div { margin-bottom: 4pt; }
 
-  /* BLOQUE CLIENTE - DEBAJO DE METADATA y ALINEADO CON EMISOR */
+  /* BLOQUE CLIENTE - ALINEADO CON EMISOR */
   .cliente-block {
     position: absolute;
-    top: 100pt; /* Alineado con Emisor (100pt) */
+    top: 100pt; 
     left: calc(50% + 100pt); 
-    width: calc(50% - 70pt); 
+    width: calc(50% - 110pt); 
     text-align: left;
   }
 
@@ -400,8 +406,11 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
 
     <div class="header-title">${titulo}</div>
 
-    <div class="emisor-block">
+    <div class="logo-block">
         ${logoHtml}
+    </div>
+
+    <div class="emisor-block">
         <div class="emisor-nombre">${emisor.nombre || ''}</div>
         <div class="emisor-details">
             ${emisorAddress}<br>
