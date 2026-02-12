@@ -90,10 +90,11 @@ const FACTURA_STYLES = `
     line-height: 1.2;
   }
 
-  /* BLOQUE METADATA - alto - 160pts */
+
+  /* BLOQUE METADATA - alto - 160pts -> REPOSICIONADO ABAJO (MÁS ESPACIO) */
   .meta-block {
     position: absolute;
-    top: 160pt;
+    top: 250pt;
     right: 30pt;
     text-align: right;
     font-weight: bold;
@@ -101,12 +102,12 @@ const FACTURA_STYLES = `
   }
   .meta-block div { margin-bottom: 4pt; }
 
-  /* BLOQUE CLIENTE - alto - 200pts, x_cliente = ancho/2 + 80 */
+  /* BLOQUE CLIENTE - REPOSICIONADO ARRIBA (Alineado con Emisor) */
   .cliente-block {
     position: absolute;
-    top: 200pt;
-    left: calc(50% + 80pt); 
-    width: calc(50% - 110pt); /* 30pt margin right equivalent */
+    top: 100pt;
+    left: calc(50% + 40pt); /* Ajustado un poco más a la izquierda para aprovechar espacio */
+    width: calc(50% - 70pt); 
     text-align: left;
   }
 
@@ -124,7 +125,7 @@ const FACTURA_STYLES = `
   /* TABLA DE LÍNEAS */
   /* El punto de inicio en el original es dinámico, aquí usaremos un margen top seguro */
   .table-container {
-    padding-top: 320pt; 
+    padding-top: 340pt; 
     padding-left: 30pt;
     padding-right: 30pt;
   }
@@ -257,9 +258,12 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   // 1. Logo
   let logoHtml = '';
   if (emisor.logo_path) {
+    // Asegurar ruta absoluta para Puppeteer (localhost)
+    const baseUrl = 'http://localhost:5000'; // Puerto backend por defecto
     const src = emisor.logo_path.startsWith('http') || emisor.logo_path.startsWith('data:')
       ? emisor.logo_path
-      : `/api/uploads/${emisor.logo_path.replace(/^\//, '')}`;
+      : `${baseUrl}/api/uploads/${emisor.logo_path.replace(/^\//, '')}`;
+
     logoHtml = `<img src="${src}" class="logo-img" />`;
   }
 
