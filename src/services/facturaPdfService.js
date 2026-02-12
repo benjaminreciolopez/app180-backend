@@ -258,34 +258,37 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   const isTest = config && config.verifactu_activo && config.verifactu_modo === 'TEST';
 
   // 1. Logo
-  // 1. Logo
   let logoHtml = '';
   if (emisor.logo_path) {
     try {
       let src = '';
-      if (emisor.logo_path.startsWith('http') || emisor.logo_path.startsWith('data:')) {
-        src = emisor.logo_path;
-      } else {
-        // RUTA DE SISTEMA DE ARCHIVOS ABSOLUTA
-        // Asumimos que 'uploads' está en el root del proyecto o en 'public/uploads'
-        const cleanPath = emisor.logo_path.replace(/^\//, '').replace(/^api\/uploads\//, '');
-        // Ajustar según estructura real: si app.js está en src/, process.cwd() suele ser root.
-        // Si las subidas van a 'uploads' en root:
+      const logo = emisor.logo_path;
+
+      // Caso 1: Data URI completo o URL externa
+      if (logo.startsWith('data:') || logo.startsWith('http')) {
+        src = logo;
+      }
+      // Caso 2: Raw Base64 (detectamos si es muy largo y no tiene caracteres de ruta)
+      else if (logo.length > 100 && !logo.includes('/') && !logo.includes('\\')) {
+        src = `data:image/png;base64,${logo}`;
+      }
+      // Caso 3: Ruta de archivo
+      else {
+        const cleanPath = logo.replace(/^\//, '').replace(/^api\/uploads\//, '');
         const fsPath = path.join(process.cwd(), 'uploads', cleanPath);
 
         if (fs.existsSync(fsPath)) {
-          // Convertir a base64
           const imgData = fs.readFileSync(fsPath).toString('base64');
-          const ext = path.extname(fsPath).substring(1);
+          const ext = path.extname(fsPath).substring(1) || 'png';
           src = `data:image/${ext};base64,${imgData}`;
         } else {
-          // Fallback a URL local
+          // Último recurso: intentar URL de la API
           src = `http://localhost:5000/api/uploads/${cleanPath}`;
         }
       }
       logoHtml = `<img src="${src}" class="logo-img" />`;
     } catch (e) {
-      console.error("Error processing logo:", e);
+      console.error("❌ [PDF] Error procesando logo:", e);
     }
   }
 
