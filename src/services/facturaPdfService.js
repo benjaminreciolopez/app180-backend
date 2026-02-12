@@ -2,6 +2,8 @@ import { sql } from '../db.js';
 import { generatePdf } from './exportService.js';
 import QRCode from 'qrcode';
 import { construirUrlQr } from './verifactuService.js';
+import path from 'path';
+import fs from 'fs';
 
 /**
  * Estilos base para el PDF de factura - REPLICA EXACTA DE REPORTLAB
@@ -90,11 +92,11 @@ const FACTURA_STYLES = `
     line-height: 1.2;
   }
 
-
-  /* BLOQUE METADATA - alto - 160pts -> REPOSICIONADO ABAJO (MÁS ESPACIO) */
+  /* BLOQUE METADATA (FECHA/NUMERO) - ARRIBA A LA DERECHA */
+  /* ENCIMA de los datos del cliente */
   .meta-block {
     position: absolute;
-    top: 250pt;
+    top: 60pt; /* Alineado altura Título pero a la derecha */
     right: 30pt;
     text-align: right;
     font-weight: bold;
@@ -102,11 +104,11 @@ const FACTURA_STYLES = `
   }
   .meta-block div { margin-bottom: 4pt; }
 
-  /* BLOQUE CLIENTE - REPOSICIONADO ARRIBA (Alineado con Emisor) */
+  /* BLOQUE CLIENTE - DEBAJO DE METADATA y ALINEADO CON EMISOR */
   .cliente-block {
     position: absolute;
-    top: 100pt;
-    left: calc(50% + 40pt); /* Ajustado un poco más a la izquierda para aprovechar espacio */
+    top: 100pt; /* Alineado con Emisor (100pt) */
+    left: calc(50% + 40pt); 
     width: calc(50% - 70pt); 
     text-align: left;
   }
@@ -256,15 +258,35 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   const isTest = config && config.verifactu_activo && config.verifactu_modo === 'TEST';
 
   // 1. Logo
+  // 1. Logo
   let logoHtml = '';
   if (emisor.logo_path) {
-    // Asegurar ruta absoluta para Puppeteer (localhost)
-    const baseUrl = 'http://localhost:5000'; // Puerto backend por defecto
-    const src = emisor.logo_path.startsWith('http') || emisor.logo_path.startsWith('data:')
-      ? emisor.logo_path
-      : `${baseUrl}/api/uploads/${emisor.logo_path.replace(/^\//, '')}`;
+    try {
+      let src = '';
+      if (emisor.logo_path.startsWith('http') || emisor.logo_path.startsWith('data:')) {
+        src = emisor.logo_path;
+      } else {
+        // RUTA DE SISTEMA DE ARCHIVOS ABSOLUTA
+        // Asumimos que 'uploads' está en el root del proyecto o en 'public/uploads'
+        const cleanPath = emisor.logo_path.replace(/^\//, '').replace(/^api\/uploads\//, '');
+        // Ajustar según estructura real: si app.js está en src/, process.cwd() suele ser root.
+        // Si las subidas van a 'uploads' en root:
+        const fsPath = path.join(process.cwd(), 'uploads', cleanPath);
 
-    logoHtml = `<img src="${src}" class="logo-img" />`;
+        if (fs.existsSync(fsPath)) {
+          // Convertir a base64
+          const imgData = fs.readFileSync(fsPath).toString('base64');
+          const ext = path.extname(fsPath).substring(1);
+          src = `data:image/${ext};base64,${imgData}`;
+        } else {
+          // Fallback a URL local
+          src = `http://localhost:5000/api/uploads/${cleanPath}`;
+        }
+      }
+      logoHtml = `<img src="${src}" class="logo-img" />`;
+    } catch (e) {
+      console.error("Error processing logo:", e);
+    }
   }
 
   // 2. QR Code y Aviso Veri*Factu
