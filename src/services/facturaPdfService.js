@@ -83,7 +83,7 @@ const FACTURA_STYLES = `
     position: absolute;
     top: 100pt;
     left: 30pt; /* margen_x = 30 */
-    width: 250pt;
+    width: 210pt;
     text-align: left;
   }
 
@@ -133,7 +133,7 @@ const FACTURA_STYLES = `
   /* TABLA DE LÍNEAS */
   /* El punto de inicio en el original es dinámico, aquí usaremos un margen top seguro */
   .table-container {
-    padding-top: 340pt; 
+    padding-top: 200pt; 
     padding-left: 30pt;
     padding-right: 30pt;
   }
@@ -165,19 +165,18 @@ const FACTURA_STYLES = `
   .col-iva { width: 50pt; text-align: center; } /* Añadida pero compacta */
   .col-total { width: 80pt; text-align: right; }
 
-  /* QR - qr_y = y_totales + (qr_size / 2) -> y_totales = 140. bottom-up */
-  /* En CSS 'bottom' se ajusta mejor a la lógica ReportLab de y-coordinada 0 en el suelo */
+  /* QR - SITUADO ENTRE EMISOR Y CLIENTE, DEBAJO DE TÍTULO */
   .qr-block {
     position: absolute;
-    top: 178pt; /* Alineado exacto con la línea de 'Nº FACTURA' */
+    top: 90pt; 
     left: 50%;
     transform: translateX(-50%);
-    width: 140pt;
+    width: 100pt;
     text-align: center;
   }
   .qr-img {
-    width: 28mm;
-    height: 28mm;
+    width: 22mm;
+    height: 22mm;
     display: block;
     margin: 0 auto;
   }
