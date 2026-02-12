@@ -132,13 +132,7 @@ export const authRequired = async (req, res, next) => {
         });
       }
     }
-    console.log("AUTH CONTEXT:", {
-      id: req.user.id,
-      role: req.user.role,
-      empresa: req.user.empresa_id,
-      empleado: req.user.empleado_id,
-      modulos: req.user.modulos,
-    });
+
 
     return next();
   } catch (err) {
