@@ -606,8 +606,12 @@ export const asignarPlantillaEmpleado = async (req, res) => {
 
     console.log("[DEBUG] Asignar:", { empleado_id, plantilla_id, inicioStr, fin });
 
+    if (!plantilla_id) {
+      return res.status(400).json({ error: "Falta plantilla_id" });
+    }
+
     if (fin && inicioStr && fin < inicioStr) {
-        return res.status(400).json({ error: "La fecha de fin no puede ser anterior a la de inicio" });
+      return res.status(400).json({ error: "La fecha de fin no puede ser anterior a la de inicio" });
     }
 
     const out = await sql.begin(async (tx) => {
@@ -670,11 +674,11 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // =========================
       // 1. Cerrar asignación activa si existe (starts before, intersects)
       // =========================
-      
+
       // Construir filtro de empleado dinámicamente para evitar bug de "Optional param"
-      const filtroEmpleado = empleado_id 
-           ? sql`and empleado_id = ${empleado_id}`
-           : sql`and empleado_id IS NULL`;
+      const filtroEmpleado = empleado_id
+        ? sql`and empleado_id = ${empleado_id}`
+        : sql`and empleado_id IS NULL`;
 
       await tx`
         update empleado_plantillas_180
@@ -689,16 +693,16 @@ export const asignarPlantillaEmpleado = async (req, res) => {
       // 2. Eliminar/Acortar asignaciones FUTURAS que solapen totalmente
       // =========================
       if (!fin) {
-          // Nueva es indefinida -> Borrar todo lo que empiece >= hoy
-          await tx`
+        // Nueva es indefinida -> Borrar todo lo que empiece >= hoy
+        await tx`
             delete from empleado_plantillas_180
             where empresa_id = ${empresaId}
               ${filtroEmpleado}
               and fecha_inicio >= ${finalInicio}::date
           `;
       } else {
-          // Nueva tiene fin -> Borrar lo que solape en el rango [inicio, fin]
-          await tx`
+        // Nueva tiene fin -> Borrar lo que solape en el rango [inicio, fin]
+        await tx`
             delete from empleado_plantillas_180
             where empresa_id = ${empresaId}
                ${filtroEmpleado}
@@ -837,11 +841,11 @@ export const listarAsignaciones = async (req, res) => {
     let filters = sql`a.empresa_id = ${empresaId}`;
 
     if (empleado_id) {
-        if (empleado_id === 'null' || empleado_id === 'admin') {
-             filters = sql`${filters} AND a.empleado_id IS NULL`;
-        } else {
-             filters = sql`${filters} AND a.empleado_id = ${empleado_id}`;
-        }
+      if (empleado_id === 'null' || empleado_id === 'admin') {
+        filters = sql`${filters} AND a.empleado_id IS NULL`;
+      } else {
+        filters = sql`${filters} AND a.empleado_id = ${empleado_id}`;
+      }
     }
 
     if (desde) {
@@ -852,10 +856,10 @@ export const listarAsignaciones = async (req, res) => {
     }
 
     if (estado === 'activos') {
-         // Activos hoy o futuro
-         filters = sql`${filters} AND (a.fecha_fin IS NULL OR a.fecha_fin >= current_date)`;
+      // Activos hoy o futuro
+      filters = sql`${filters} AND (a.fecha_fin IS NULL OR a.fecha_fin >= current_date)`;
     } else if (estado === 'historial') {
-         filters = sql`${filters} AND a.fecha_fin < current_date`;
+      filters = sql`${filters} AND a.fecha_fin < current_date`;
     }
 
     const rows = await sql`
