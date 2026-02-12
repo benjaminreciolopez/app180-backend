@@ -151,6 +151,20 @@ export async function evaluarFichaje(ctx) {
     ip: reqIp,
   });
 
+  // AÑADIDO: Si la política es 'none' o geolocalización desactivada, ignoramos errores de distancia/coordenadas
+  const policy = cliente?.geo_policy || (cliente && cliente.requiere_geo === false ? 'none' : 'strict');
+
+  if (policy === 'none') {
+    geoCheck.permitido = true;
+    // Eliminamos motivos de sospecha relacionados con coordenadas o radio
+    geoCheck.motivos = (geoCheck.motivos || []).filter(m => !['coordenadas_invalidas', 'fuera_de_radio'].includes(m));
+
+    // Si ya no quedan motivos, quitamos la marca de sospechoso
+    if (geoCheck.motivos.length === 0) {
+      geoCheck.sospechoso = false;
+    }
+  }
+
   /* ======================
      Guardar info geo
   ====================== */
@@ -170,8 +184,8 @@ export async function evaluarFichaje(ctx) {
       lat: geoCheck.ipInfo.lat, // fallback IP lat
       lng: geoCheck.ipInfo.lng, // fallback IP lng
     };
-  } 
-  
+  }
+
   // SIEMPRE asegurar coordenadas reales si GPS es válido
   if (gpsOk) {
     if (!geoDireccion) geoDireccion = {};
@@ -215,7 +229,7 @@ export async function evaluarFichaje(ctx) {
   ====================== */
 
   if (!geoCheck.permitido) {
-    const policy = cliente?.geo_policy || "strict"; // Restauramos lectura real de política
+    // const policy = ... (Ya calculada arriba)
 
     if (policy === "strict") {
       // CAMBIO: No bloqueamos, solo marcamos sospechoso
