@@ -167,6 +167,26 @@ app.use((err, req, res, next) => {
 // =========================
 // START
 // =========================
+
+// MIGRACIÓN AUTOMÁTICA (Hotfix)
+(async () => {
+  try {
+    const { sql } = await import("./db.js");
+    await sql.unsafe(`
+        DO $$
+        BEGIN
+            ALTER TABLE clients_180 DROP CONSTRAINT IF EXISTS clients_geo_policy_check;
+            ALTER TABLE clients_180 ADD CONSTRAINT clients_geo_policy_check CHECK (geo_policy IN ('none', 'strict', 'soft', 'info'));
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Error migrating geo_policy: %', SQLERRM;
+        END $$;
+    `);
+    console.log("✅ Configuración de geo_policy actualizada en DB");
+  } catch (e) {
+    console.error("⚠️ Error en migración automática geo_policy:", e.message);
+  }
+})();
+
 app.listen(config.port, () =>
   console.log(`Servidor iniciado en puerto ${config.port}`),
 );
