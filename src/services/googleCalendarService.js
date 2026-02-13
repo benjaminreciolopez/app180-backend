@@ -217,6 +217,27 @@ export async function updateGoogleEvent(empresaId, googleEventId, eventData) {
 }
 
 /**
+ * Actualizar parcialmente un evento en Google Calendar (usando patch)
+ * @param {string} empresaId - UUID de la empresa
+ * @param {string} googleEventId - ID del evento en Google
+ * @param {Object} eventData - Datos actualizados
+ * @returns {Object} - Evento actualizado
+ */
+export async function patchGoogleEvent(empresaId, googleEventId, eventData) {
+  const { client, calendarId } = await getCalendarClient(empresaId);
+  const calendar = google.calendar({ version: 'v3', auth: client });
+
+  const response = await calendar.events.patch({
+    calendarId,
+    eventId: googleEventId,
+    requestBody: eventData
+  });
+
+  console.log('✅ Evento parcheado (patch) en Google Calendar:', googleEventId);
+  return response.data;
+}
+
+/**
  * Eliminar evento en Google Calendar
  * @param {string} empresaId - UUID de la empresa
  * @param {string} googleEventId - ID del evento en Google

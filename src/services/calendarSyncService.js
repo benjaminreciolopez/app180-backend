@@ -4,6 +4,7 @@ import {
   listGoogleEvents,
   createGoogleEvent,
   updateGoogleEvent,
+  patchGoogleEvent,
   deleteGoogleEvent,
   app180ToGoogleEvent,
   googleToApp180Event,
@@ -207,7 +208,7 @@ export async function syncToGoogle(empresaId, { dateFrom, dateTo, userId = null 
       if (mapping) {
         // Actualizar evento existente
         const googleEventData = app180ToGoogleEvent(evento);
-        const updated = await updateGoogleEvent(empresaId, mapping.google_event_id, googleEventData);
+        const updated = await patchGoogleEvent(empresaId, mapping.google_event_id, googleEventData);
 
         await upsertEventMapping(empresaId, {
           app180_source: 'calendario_empresa',
