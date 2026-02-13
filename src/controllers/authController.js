@@ -9,6 +9,7 @@ import { google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
 import { encrypt } from "../utils/encryption.js";
 import { backupService } from "../services/backupService.js";
+import { seedKnowledge } from "../services/knowledgeSeedService.js";
 
 export const registerFirstAdmin = async (req, res) => {
   try {
@@ -61,9 +62,12 @@ export const registerFirstAdmin = async (req, res) => {
   RETURNING id
 `;
     await sql`
-      INSERT INTO empresa_config_180 (empresa_id)
-      VALUES (${empresa[0].id})
+      INSERT INTO empresa_config_180 (empresa_id, ai_tokens)
+      VALUES (${empresa[0].id}, 1000)
     `;
+
+    // 📌 Inicializar Base de Conocimiento con funciones de la app
+    await seedKnowledge(empresa[0].id);
 
     return res.json({ success: true });
   } catch (e) {
