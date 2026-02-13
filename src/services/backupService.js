@@ -14,7 +14,7 @@ const TABLES_CONFIG = [
     { name: "empresa_calendar_config_180", strategy: "direct" },
     { name: "empresa_email_config_180", strategy: "direct" }, // Añadido
     { name: "clients_180", strategy: "direct" },
-    { name: "client_fiscal_data_180", strategy: "join", parent: "clients_180", fk: "client_id" },
+    { name: "client_fiscal_data_180", strategy: "join", parent: "clients_180", fk: "cliente_id" },
     { name: "employees_180", strategy: "direct" },
     { name: "employee_devices_180", strategy: "direct" }, // Añadido
     { name: "concepto_180", strategy: "direct" },
@@ -23,8 +23,6 @@ const TABLES_CONFIG = [
     { name: "fichajes_180", strategy: "direct" },
     { name: "factura_180", strategy: "direct" },
     { name: "lineafactura_180", strategy: "join", parent: "factura_180", fk: "factura_id" },
-    { name: "presupuesto_180", strategy: "direct" },
-    { name: "lineapresupuesto_180", strategy: "join", parent: "presupuesto_180", fk: "presupuesto_id" },
     { name: "storage_180", strategy: "direct" }
 ];
 
