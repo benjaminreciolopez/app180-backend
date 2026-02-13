@@ -136,6 +136,13 @@ export const authRequired = async (req, res, next) => {
 
     return next();
   } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        error: "Token expirado",
+        code: "TOKEN_EXPIRED",
+        expiredAt: err.expiredAt,
+      });
+    }
     console.error("JWT ERROR:", err);
     return res.status(401).json({ error: "Token inválido" });
   }
