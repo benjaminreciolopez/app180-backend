@@ -8,6 +8,7 @@ import { sendEmail } from "../services/emailService.js";
 import { google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
 import { encrypt } from "../utils/encryption.js";
+import { backupService } from "../services/backupService.js";
 
 export const registerFirstAdmin = async (req, res) => {
   try {
@@ -175,6 +176,12 @@ export const login = async (req, res) => {
       }
 
       empresaId = empresaRows[0].id;
+
+      // 🔄 TRIGGER BACKUP SILENCIOSO (Admin)
+      // No usamos await para no bloquear el login
+      backupService.generateBackup(empresaId).catch(err => {
+        console.error("⚠️ Error en backup silencioso post-login:", err.message);
+      });
     }
     let empleadoId = null;
 
