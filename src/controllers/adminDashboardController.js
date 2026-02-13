@@ -178,6 +178,7 @@ export const getAdminDashboard = async (req, res) => {
         FROM work_logs_180
         WHERE empresa_id = ${empresaId}
           AND factura_id IS NULL
+          AND (pagado = 0 OR pagado IS NULL)
       `;
       trabajosPendientes = count;
 
@@ -304,17 +305,18 @@ async function getFacturasPendientesList(empresaId, moduloFacturacion) {
   try {
     const rows = await sql`
       SELECT 
-        id, 
-        numero, 
-        total, 
-        fecha_emision, 
-        cliente_nombre,
-        estado_pago
-      FROM factura_180
-      WHERE empresa_id = ${empresaId}
-        AND estado = 'VALIDADA'
-        AND COALESCE(estado_pago, 'pendiente') IN ('pendiente', 'parcial')
-      ORDER BY fecha_emision DESC
+        f.id, 
+        f.numero, 
+        f.total, 
+        f.fecha as fecha_emision, 
+        c.nombre as cliente_nombre,
+        f.estado_pago
+      FROM factura_180 f
+      LEFT JOIN clients_180 c ON c.id = f.cliente_id
+      WHERE f.empresa_id = ${empresaId}
+        AND f.estado = 'VALIDADA'
+        AND COALESCE(f.estado_pago, 'pendiente') IN ('pendiente', 'parcial')
+      ORDER BY f.fecha DESC
       LIMIT 10
     `;
     return rows;
