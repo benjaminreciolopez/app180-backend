@@ -105,10 +105,20 @@ export const backupService = {
 
             // 4. Guardado Local (Sincronización solicitada por usuario)
             try {
-                const localBaseDir = path.join(process.cwd(), 'uploads', empresaId);
+                // Obtener configuración para ver si hay una ruta definida
+                const [config] = await sql`SELECT backup_local_path FROM configuracionsistema_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+                const customPath = config?.backup_local_path;
+
+                let localBaseDir = customPath;
+                let forceCreate = !!customPath;
+
+                if (!localBaseDir) {
+                    localBaseDir = path.join(process.cwd(), 'uploads', empresaId);
+                }
+
                 console.log(`🔍 [Backup] Comprobando ruta local: ${localBaseDir}`);
 
-                if (fs.existsSync(localBaseDir)) {
+                if (fs.existsSync(localBaseDir) || forceCreate) {
                     const localBackupDir = path.join(localBaseDir, BACKUP_FOLDER);
                     if (!fs.existsSync(localBackupDir)) {
                         fs.mkdirSync(localBackupDir, { recursive: true });
@@ -117,7 +127,7 @@ export const backupService = {
                     fs.writeFileSync(localPath, jsonContent, "utf-8");
                     console.log(`✅ [Backup] Sincronización local exitosa: ${localPath}`);
                 } else {
-                    console.log(`ℹ️ [Backup] Saltando sync local: La carpeta base de la empresa no existe en el servidor.`);
+                    console.log(`ℹ️ [Backup] Saltando sync local: La carpeta base por defecto no existe en el servidor y no hay ruta personalizada definida.`);
                 }
             } catch (localError) {
                 console.error("⚠️ [Backup] Error en sincronización local (no bloqueante):", localError.message);
