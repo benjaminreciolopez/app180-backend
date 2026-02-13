@@ -27,9 +27,10 @@ export async function getEmpresaConfig(req, res) {
     }
 
     let rows = await sql`
-      SELECT modulos, modulos_mobile
-      FROM empresa_config_180
-      WHERE empresa_id = ${empresaId}
+      SELECT modulos, modulos_mobile, ai_tokens, user_id as creator_id
+      FROM empresa_config_180 c
+      JOIN empresa_180 e ON c.empresa_id = e.id
+      WHERE c.empresa_id = ${empresaId}
       LIMIT 1
     `;
 
@@ -55,7 +56,9 @@ export async function getEmpresaConfig(req, res) {
     return res.json({
       ...DEFAULT_MODULOS,
       ...stored,
-      modulos_mobile: mobile
+      modulos_mobile: mobile,
+      ai_tokens: rows[0]?.ai_tokens || 0,
+      es_creador: rows[0]?.creator_id === req.user.id
     });
   } catch (err) {
     console.error("❌ getEmpresaConfig:", err);

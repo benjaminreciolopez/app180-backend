@@ -15,3 +15,6 @@ CREATE TABLE IF NOT EXISTS conocimiento_180 (
 CREATE INDEX IF NOT EXISTS idx_conocimiento_empresa ON conocimiento_180 (empresa_id);
 CREATE INDEX IF NOT EXISTS idx_conocimiento_token ON conocimiento_180 (empresa_id, token);
 CREATE INDEX IF NOT EXISTS idx_conocimiento_activo ON conocimiento_180 (empresa_id, activo);
+
+-- Restricción de unicidad para el token por empresa (case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conocimiento_unique_token ON conocimiento_180 (empresa_id, LOWER(token));

@@ -1,4 +1,5 @@
 import { sql } from "../db.js";
+import { seedKnowledge } from "../services/knowledgeSeedService.js";
 
 async function getEmpresaId(userId) {
   const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
@@ -114,5 +115,19 @@ export async function eliminar(req, res) {
   } catch (err) {
     console.error("[Knowledge] Error eliminar:", err);
     res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /admin/conocimiento/seed
+ */
+export async function recargarSemilla(req, res) {
+  try {
+    const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+    await seedKnowledge(empresaId);
+    res.json({ success: true, message: "Base de conocimiento actualizada con funciones de la app" });
+  } catch (err) {
+    console.error("[Knowledge] Error recargarSemilla:", err);
+    res.status(500).json({ error: "Error al recargar conocimiento base" });
   }
 }

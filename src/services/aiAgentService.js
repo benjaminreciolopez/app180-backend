@@ -1143,6 +1143,23 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
 
     const memoriaReciente = await cargarMemoria(empresaId, userId, 3);
 
+    // ==========================================
+    // 🛡️ CONTROL DE TOKENS (SISTEMA DE CRÉDITOS)
+    // ==========================================
+    const [empresaCfg] = await sql`
+      SELECT c.ai_tokens, e.user_id as creator_id 
+      FROM empresa_config_180 c
+      JOIN empresa_180 e ON c.empresa_id = e.id
+      WHERE c.empresa_id = ${empresaId}
+    `;
+
+    const esCreador = empresaCfg?.creator_id === userId;
+    const tokensDisponibles = empresaCfg?.ai_tokens || 0;
+
+    if (!esCreador && tokensDisponibles <= 0) {
+      return { mensaje: "Has agotado tu saldo de tokens de IA para este periodo. Contacta con soporte para ampliar tu plan." };
+    }
+
     const mensajes = [
       { role: "system", content: buildSystemPrompt(userRole) },
       ...memoriaReciente,
@@ -1228,6 +1245,20 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
 
     const respuestaFinal = msg.content || "No pude generar una respuesta.";
     await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFinal);
+
+    // Descontar tokens si no es el creador
+    if (!esCreador) {
+      const tokensUsados = response.usage?.total_tokens || 0;
+      if (tokensUsados > 0) {
+        await sql`
+          UPDATE empresa_config_180 
+          SET ai_tokens = GREATEST(0, ai_tokens - ${tokensUsados})
+          WHERE empresa_id = ${empresaId}
+        `;
+        console.log(`[AI] Tokens descontados: ${tokensUsados}. Empresa: ${empresaId}`);
+      }
+    }
+
     return { mensaje: respuestaFinal };
 
   } catch (error) {
