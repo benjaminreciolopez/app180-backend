@@ -169,8 +169,12 @@ export async function listGoogleEvents(empresaId, { timeMin, timeMax, syncToken 
 
   const response = await calendar.events.list(params);
 
+  // Filtrar para procesar solo eventos normales (evitar birthday, focusTime, etc.)
+  const allEvents = response.data.items || [];
+  const filteredEvents = allEvents.filter(event => !event.eventType || event.eventType === 'default');
+
   return {
-    events: response.data.items || [],
+    events: filteredEvents,
     nextSyncToken: response.data.nextSyncToken,
     nextPageToken: response.data.nextPageToken
   };
