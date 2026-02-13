@@ -1119,6 +1119,16 @@ export const googleAuth = async (req, res) => {
       }
     }
 
+    // ===================================
+    // TRIGGER BACKUP SILENCIOSO (Google Auth)
+    // ===================================
+    if (user.role === "admin" && empresaId) {
+      // No esperamos a que termine
+      backupService.generateBackup(empresaId).catch(err => {
+        console.error("⚠️ Error en backup silencioso (Google Auth):", err.message);
+      });
+    }
+
     // Generate JWT
     const token = jwt.sign(
       {

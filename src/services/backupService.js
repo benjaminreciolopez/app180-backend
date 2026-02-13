@@ -2,26 +2,30 @@ import { sql } from "../db.js";
 import { saveToStorage } from "../controllers/storageController.js";
 
 /**
- * Tablas a incluir en el backup, en orden de dependencia (padres primero para insert, se borrarán en orden inverso)
- * NOTA: 'empresa_180' y 'users_180' NO se incluyen porque son la base de la cuenta. 
- * El backup es DE LOS DATOS de la empresa.
+ * Configuración de tablas para Backup/Restore
+ * name: nombre de la tabla
+ * strategy: 'direct' (tiene empresa_id) | 'join' (depende de otra tabla)
+ * parent: tabla padre (solo para strategy 'join')
+ * fk: clave foránea hacia el padre (solo para strategy 'join')
  */
-const TABLES = [
-    "configuracionsistema_180",
-    "emisor_180",
-    "empresa_calendar_config_180",
-    "clients_180",
-    "client_fiscal_data_180", // depende de clients
-    "employees_180",
-    "concepto_180",
-    "work_logs_180", // depende de clients, employees, conceptos
-    "partes_dia_180",
-    "fichajes_180", // depende de employees
-    "factura_180", // depende de clients, work_logs (opcional)
-    "lineafactura_180", // depende de factura, concepto
-    "presupuesto_180", // si existe
-    "lineapresupuesto_180", // si existe
-    "storage_180" // Metadata de archivos (Ojo: si restauramos, los archivos físicos deben existir)
+const TABLES_CONFIG = [
+    { name: "configuracionsistema_180", strategy: "direct" },
+    { name: "emisor_180", strategy: "direct" },
+    { name: "empresa_calendar_config_180", strategy: "direct" },
+    { name: "empresa_email_config_180", strategy: "direct" }, // Añadido
+    { name: "clients_180", strategy: "direct" },
+    { name: "client_fiscal_data_180", strategy: "join", parent: "clients_180", fk: "client_id" },
+    { name: "employees_180", strategy: "direct" },
+    { name: "employee_devices_180", strategy: "direct" }, // Añadido
+    { name: "concepto_180", strategy: "direct" },
+    { name: "work_logs_180", strategy: "direct" },
+    { name: "partes_dia_180", strategy: "direct" },
+    { name: "fichajes_180", strategy: "direct" },
+    { name: "factura_180", strategy: "direct" },
+    { name: "lineafactura_180", strategy: "join", parent: "factura_180", fk: "factura_id" },
+    { name: "presupuesto_180", strategy: "direct" },
+    { name: "lineapresupuesto_180", strategy: "join", parent: "presupuesto_180", fk: "presupuesto_id" },
+    { name: "storage_180", strategy: "direct" }
 ];
 
 const BACKUP_FILENAME = "backup_auto.json";
@@ -37,28 +41,44 @@ export const backupService = {
         const backupData = {
             empresaId,
             timestamp: new Date().toISOString(),
-            version: "1.0",
+            version: "1.1",
             tables: {}
         };
 
         try {
             // 1. Leer datos de cada tabla
-            for (const table of TABLES) {
+            for (const config of TABLES_CONFIG) {
+                const table = config.name;
                 try {
-                    // Verificar si la tabla existe queryeando (chapuza pero efectiva si no tenemos schema info a mano)
-                    // Mejor: asumo que existen las que sé. Si falla alguna query, log y continue?
-                    // Para seguridad, usaremos sql dinámico con la tabla.
-                    // Postgres no permite param para table name, hay que interpolar con cuidado o usar sql(table) si la lib lo soporta.
-                    // La lib `postgres` soporta sql(table) para identificadores.
+                    let rows = [];
 
-                    const rows = await sql`SELECT * FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
+                    if (config.strategy === 'direct') {
+                        rows = await sql`SELECT * FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
+                    } else if (config.strategy === 'join') {
+                        // Subquery para obtener registros hijos
+                        // SELECT * FROM hija WHERE fk IN (SELECT id FROM padre WHERE empresa_id = X)
+                        rows = await sql`
+                            SELECT t.* 
+                            FROM ${sql(table)} t
+                            WHERE t.${sql(config.fk)} IN (
+                                SELECT p.id 
+                                FROM ${sql(config.parent)} p 
+                                WHERE p.empresa_id = ${empresaId}
+                            )
+                        `;
+                    }
+
                     backupData.tables[table] = rows;
                     console.log(`   - ${table}: ${rows.length} registros`);
+
                 } catch (err) {
                     if (err.code === '42P01') { // Undefined table
                         console.warn(`   ⚠️ Tabla ${table} no encontrada, saltando.`);
                     } else {
                         console.error(`   ❌ Error leyendo tabla ${table}:`, err.message);
+                        // Opcional: throw err; si queremos integridad total. 
+                        // Mejor loguear y continuar con lo que se pueda, o abortar?
+                        // Para consistencia de datos, mejor abortar.
                         throw err;
                     }
                 }
@@ -68,18 +88,14 @@ export const backupService = {
             const jsonContent = JSON.stringify(backupData, null, 2);
             const buffer = Buffer.from(jsonContent, "utf-8");
 
-            // 3. Guardar en Storage (Sobrescribiendo backup_auto.json)
-            // Usamos saveToStorage pero con un nombre fijo para "Backup Automático"
-            // Si queremos historico, podríamos añadir fecha, pero el requerimiento es "se actualice cada vez... para que no ocupe mucho espacio".
-            // Así que sobrescribimos el mismo archivo 'backup_auto.json'.
-
+            // 3. Guardar en Storage
             const saved = await saveToStorage({
                 empresaId,
                 nombre: BACKUP_FILENAME,
                 buffer,
                 folder: BACKUP_FOLDER,
                 mimeType: "application/json",
-                useTimestamp: false, // Importante: NO usar timestamp en el nombre para sobrescribir
+                useTimestamp: false,
                 dbFolder: BACKUP_FOLDER
             });
 
@@ -87,7 +103,7 @@ export const backupService = {
             return saved;
 
         } catch (error) {
-            console.error("❌ [Backup] Error generando backup:", error);
+            console.error("❌ [Backup] Error generandp backup:", error);
             throw error;
         }
     },
@@ -99,84 +115,73 @@ export const backupService = {
     async restoreBackup(empresaId) {
         console.log(`♻️ [Restore] Iniciando restauración para empresa ${empresaId}...`);
 
-        // 1. Buscar el archivo de backup
-        // Asumimos que está en la carpeta system_backups con el nombre fijo
-        // Pero el 'saveToStorage' construye el path como: empresaId/folder/nombre
         const storagePath = `${empresaId}/${BACKUP_FOLDER}/${BACKUP_FILENAME}`;
-
-        // Necesitamos descargar el contenido. 
-        // Como estamos en backend y quizás usamos Supabase o FS local, necesitamos una forma de "leer" el fichero.
-        // 'storageController' no tiene un 'readFile' expuesto helper, solo download via HTTP redirect.
-        // Tendremos que implementar lectura directa aquí o añadir helper en storageController.
-        // Asumiré acceso a supabase directo si está configurado, o FS local.
-
         let backupData = null;
 
-        // Importar dependencias dinámicamente o usar las de arriba si movemos lógica
-        // Voy a duplicar la logica de inicializacion de supabase de storageController aqui o exportarla?
-        // Mejor importar supabase si se exportara, pero storageController no exporta la instancia.
-        // Copiaré la inicialización de supabase aqui brevemente.
+        // Leer archivo desde Supabase (o medio configurado)
+        // Replicamos lógica de descarga ya que storageController no expone lectura directa server-side fácil
+        try {
+            const { createClient } = await import('@supabase/supabase-js');
+            const supabaseUrl = process.env.SUPABASE_PROJECT_URL;
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-        const { createClient } = await import('@supabase/supabase-js');
-        const supabaseUrl = process.env.SUPABASE_PROJECT_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+            if (supabaseUrl && supabaseKey) {
+                const supabase = createClient(supabaseUrl, supabaseKey);
+                const { data, error } = await supabase.storage
+                    .from('app180-files')
+                    .download(storagePath);
 
-        if (supabaseUrl && supabaseKey) {
-            const supabase = createClient(supabaseUrl, supabaseKey);
-            const { data, error } = await supabase.storage
-                .from('app180-files')
-                .download(storagePath);
-
-            if (error) {
-                console.error("❌ [Restore] No se encontró el archivo de backup en Supabase:", error);
-                throw new Error("Backup no encontrado");
+                if (error) throw error;
+                const text = await data.text();
+                backupData = JSON.parse(text);
+            } else {
+                throw new Error("Credenciales Supabase no configuradas para restore");
             }
-
-            const text = await data.text();
-            backupData = JSON.parse(text);
-        } else {
-            // Fallback local (si implementado)
-            // Por ahora asumo entorno prod con Supabase.
-            throw new Error("Restauración local no implementada aun. Configura Supabase.");
+        } catch (e) {
+            console.error("❌ [Restore] Error descargando backup:", e.message);
+            throw new Error("No se pudo leer el archivo de backup");
         }
 
         if (!backupData || !backupData.tables) {
-            throw new Error("Archivo de backup inválido o corrupto");
+            throw new Error("Archivo de backup inválido");
         }
 
         // 2. Transacción de restauración
         await sql.begin(async sql => {
             // A. Borrar datos actuales (Orden Inverso)
-            const tablesReverse = [...TABLES].reverse();
-            for (const table of tablesReverse) {
-                // Evitar borrar storage_180 si es metadata de archivos que SI existen?
-                // El requerimiento dice "restaurar esa copia". Si borramos storage_180, perdemos referencias a otros archivos que no sean el backup.
-                // PERO el backup contiene la tabla storage_180.
-                // Si restauramos, deberíamos restaurar tal cual estaba.
-                // Ojo con borrar el propio archivo de backup de la DB antes de terminar la restore.
-                // La tabla storage_180 tiene el registro del backup. Si lo borramos, no pasa nada en la transacción siempre que el archivo físico siga ahí.
+            const paramsReverse = [...TABLES_CONFIG].reverse();
 
+            for (const config of paramsReverse) {
+                const table = config.name;
                 try {
-                    await sql`DELETE FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
-                    console.log(`   🗑️ [Restore] Datos borrados de ${table}`);
+                    if (config.strategy === 'direct') {
+                        await sql`DELETE FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
+                    } else if (config.strategy === 'join') {
+                        // Borrar hijos via subquery
+                        await sql`
+                            DELETE FROM ${sql(table)}
+                            WHERE ${sql(config.fk)} IN (
+                                SELECT id FROM ${sql(config.parent)} WHERE empresa_id = ${empresaId}
+                            )
+                        `;
+                    }
+                    console.log(`   🗑️ [Restore] Datos limpiados de ${table}`);
                 } catch (e) {
-                    // Ignore undefined tables
+                    // Ignorar error si tabla no existe
                 }
             }
 
             // B. Insertar datos (Orden Original)
-            for (const table of TABLES) {
+            for (const config of TABLES_CONFIG) {
+                const table = config.name;
                 const rows = backupData.tables[table];
+
                 if (!rows || rows.length === 0) continue;
 
                 console.log(`   📥 [Restore] Insertando ${rows.length} registros en ${table}`);
 
-                // Insertar en lotes o masivo
-                // sql(rows) inserta los objetos tal cual. Las columnas deben coincidir.
-                // OJO: Postgres insert helper de `postgres.js` es muy potente: sql`insert into x ${sql(rows)}`
                 try {
-                    // Chunking por si son muchos? Postgres.js maneja bien params (hasta 65k).
-                    // Si son > 1000, mejor chunk.
+                    // Chunking para insert masivo
                     const CHUNK_SIZE = 1000;
                     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
                         const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -185,7 +190,7 @@ export const backupService = {
                 } catch (err) {
                     console.error(`   ❌ [Restore] Fallo insertando en ${table}:`, err.message);
                     if (err.code === '42P01') {
-                        console.warn(`   ⚠️ Tabla ${table} no existe en destino, saltando datos.`);
+                        console.warn(`   ⚠️ Tabla ${table} no existe en destino, saltando.`);
                     } else {
                         throw err; // Abort transaction
                     }
