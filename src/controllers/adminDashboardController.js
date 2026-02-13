@@ -246,7 +246,7 @@ export const getAdminDashboard = async (req, res) => {
           AND fecha::date = CURRENT_DATE
         GROUP BY tipo
       `;
-      
+
       // 3. Top Clientes (últimos 7 días)
       if (modulos.clientes !== false) {
         topClientesSemana = await sql`
@@ -282,6 +282,7 @@ export const getAdminDashboard = async (req, res) => {
       trabajosPendientes,
       partesHoy,
       calendarioSyncStatus,
+      facturasPendientesList: await getFacturasPendientesList(empresaId, modulos.facturacion), // Nueva lista
       stats: {
         fichajesUltimosDias,
         fichajesPorTipoHoy,
@@ -296,3 +297,29 @@ export const getAdminDashboard = async (req, res) => {
     });
   }
 };
+
+async function getFacturasPendientesList(empresaId, moduloFacturacion) {
+  if (moduloFacturacion === false) return [];
+
+  try {
+    const rows = await sql`
+      SELECT 
+        id, 
+        numero, 
+        total, 
+        fecha_emision, 
+        cliente_nombre,
+        estado_pago
+      FROM factura_180
+      WHERE empresa_id = ${empresaId}
+        AND estado = 'VALIDADA'
+        AND COALESCE(estado_pago, 'pendiente') IN ('pendiente', 'parcial')
+      ORDER BY fecha_emision DESC
+      LIMIT 10
+    `;
+    return rows;
+  } catch (e) {
+    console.error("Error fetching facturas pendientes list", e);
+    return [];
+  }
+}
