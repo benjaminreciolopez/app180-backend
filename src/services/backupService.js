@@ -1,5 +1,7 @@
 import { sql } from "../db.js";
 import { saveToStorage } from "../controllers/storageController.js";
+import path from "path";
+import fs from "fs";
 
 /**
  * Configuración de tablas para Backup/Restore
@@ -99,7 +101,26 @@ export const backupService = {
                 dbFolder: BACKUP_FOLDER
             });
 
-            console.log(`✅ [Backup] Completado. Guardado en: ${saved?.storage_path}`);
+            console.log(`✅ [Backup] Completado en Storage. Guardado en: ${saved?.storage_path}`);
+
+            // 4. Guardado Local (Sincronización solicitada por usuario)
+            try {
+                const localBaseDir = path.join(process.cwd(), 'uploads', empresaId);
+                if (fs.existsSync(localBaseDir)) {
+                    const localBackupDir = path.join(localBaseDir, BACKUP_FOLDER);
+                    if (!fs.existsSync(localBackupDir)) {
+                        fs.mkdirSync(localBackupDir, { recursive: true });
+                    }
+                    const localPath = path.join(localBackupDir, BACKUP_FILENAME);
+                    fs.writeFileSync(localPath, jsonContent, "utf-8");
+                    console.log(`✅ [Backup] Sincronización local exitosa: ${localPath}`);
+                } else {
+                    console.log(`ℹ️ [Backup] Saltando sync local: La carpeta base de la empresa no existe en el servidor.`);
+                }
+            } catch (localError) {
+                console.error("⚠️ [Backup] Error en sincronización local (no bloqueante):", localError.message);
+            }
+
             return saved;
 
         } catch (error) {
