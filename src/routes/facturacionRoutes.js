@@ -17,6 +17,7 @@ router.use(authRequired, roleRequired("admin"));
 /* ================= FACTURAS ================= */
 
 router.get("/facturas", facturasController.listFacturas);
+router.get("/facturas/ultima-fecha", facturasController.getLastValidDate); // Nueva ruta
 router.get("/facturas/:id", facturasController.getFactura);
 router.post("/facturas", facturasController.createFactura);
 router.put("/facturas/:id", facturasController.updateFactura);
