@@ -356,11 +356,19 @@ export function app180ToGoogleEvent(app180Event) {
     no_laborable: '10' // Verde
   };
 
+  // Google requiere formato YYYY-MM-DD para eventos de "todo el día"
+  // Y la fecha de fin es EXCLUSIVA (debe ser el día siguiente)
+  const startDate = new Date(app180Event.fecha);
+  const endDate = new Date(startDate);
+  endDate.setDate(startDate.getDate() + 1);
+
+  const toYMD = (d) => d.toISOString().split('T')[0];
+
   return {
     summary: app180Event.nombre || app180Event.label || 'Evento',
     description: app180Event.descripcion || '',
-    start: { date: app180Event.fecha }, // All-day event
-    end: { date: app180Event.fecha },
+    start: { date: toYMD(startDate) },
+    end: { date: toYMD(endDate) },
     colorId: colorMap[app180Event.tipo] || '1',
     transparency: app180Event.es_laborable ? 'transparent' : 'opaque',
     source: {
