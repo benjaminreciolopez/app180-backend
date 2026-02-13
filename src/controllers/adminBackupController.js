@@ -66,5 +66,23 @@ export const adminBackupController = {
             console.error("Error restoreFromUpload:", error);
             res.status(500).json({ success: false, error: error.message || "Error restaurando desde archivo" });
         }
+    },
+
+    /**
+     * Descargar backup actual (GET /admin/backup/download)
+     */
+    async downloadBackup(req, res) {
+        try {
+            const empresaId = req.user.empresa_id;
+            const data = await backupService.generateBackupData(empresaId);
+
+            res.setHeader('Content-disposition', `attachment; filename=backup_${empresaId}_${Date.now()}.json`);
+            res.setHeader('Content-type', 'application/json');
+            res.write(JSON.stringify(data, null, 2));
+            res.end();
+        } catch (error) {
+            console.error("Error downloadBackup:", error);
+            res.status(500).json({ success: false, error: error.message });
+        }
     }
 };
