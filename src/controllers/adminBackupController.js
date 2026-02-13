@@ -30,5 +30,41 @@ export const adminBackupController = {
             console.error("Error restoreBackup:", error);
             res.status(500).json({ success: false, error: error.message || "Error restaurando backup" });
         }
+    },
+
+    /**
+     * Restaurar desde archivo subido (POST /admin/backup/restore-upload)
+     */
+    async restoreFromUpload(req, res) {
+        try {
+            const empresaId = req.user.empresa_id;
+
+            if (!req.file) {
+                return res.status(400).json({ success: false, error: "No se proporcionó archivo" });
+            }
+
+            // Leer contenido del archivo en memoria (buffer a string)
+            const fileContent = req.file.buffer.toString('utf-8');
+            let backupData;
+
+            try {
+                backupData = JSON.parse(fileContent);
+            } catch (e) {
+                return res.status(400).json({ success: false, error: "El archivo no es un JSON válido" });
+            }
+
+            // Validar estructura básica
+            if (!backupData.tables) {
+                return res.status(400).json({ success: false, error: "Estructura de backup inválida" });
+            }
+
+            await backupService.restoreFromData(empresaId, backupData);
+
+            res.json({ success: true, message: "Sistema restaurado correctamente desde archivo local" });
+
+        } catch (error) {
+            console.error("Error restoreFromUpload:", error);
+            res.status(500).json({ success: false, error: error.message || "Error restaurando desde archivo" });
+        }
     }
 };
