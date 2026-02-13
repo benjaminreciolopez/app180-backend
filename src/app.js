@@ -182,11 +182,15 @@ app.use((err, req, res, next) => {
         BEGIN
             ALTER TABLE clients_180 DROP CONSTRAINT IF EXISTS clients_geo_policy_check;
             ALTER TABLE clients_180 ADD CONSTRAINT clients_geo_policy_check CHECK (geo_policy IN ('none', 'strict', 'soft', 'info'));
+            -- Añadir columna backup_local_path si no existe
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='backup_local_path') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN backup_local_path TEXT;
+            END IF;
         EXCEPTION WHEN OTHERS THEN
-            RAISE NOTICE 'Error migrating geo_policy: %', SQLERRM;
+            RAISE NOTICE 'Error en migración automática: %', SQLERRM;
         END $$;
     `);
-    console.log("✅ Configuración de geo_policy actualizada en DB");
+    console.log("✅ Migraciones automáticas (geo_policy, backup_path) ejecutadas en DB");
   } catch (e) {
     console.error("⚠️ Error en migración automática geo_policy:", e.message);
   }
