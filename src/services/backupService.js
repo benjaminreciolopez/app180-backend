@@ -34,8 +34,9 @@ export const backupService = {
      * Genera un backup completo de la empresa y lo guarda en storage
      * @param {string} empresaId 
      */
-    async generateBackup(empresaId) {
-        console.log(`📦 [Backup] Iniciando backup para empresa ${empresaId}...`);
+    async generateBackupData(empresaId) {
+        console.log(`📦 [Backup] Generando datos de backup para empresa ${empresaId}...`);
+
         const backupData = {
             empresaId,
             timestamp: new Date().toISOString(),
@@ -43,44 +44,45 @@ export const backupService = {
             tables: {}
         };
 
-        try {
-            // 1. Leer datos de cada tabla
-            for (const config of TABLES_CONFIG) {
-                const table = config.name;
-                try {
-                    let rows = [];
+        // 1. Leer datos de cada tabla
+        for (const config of TABLES_CONFIG) {
+            const table = config.name;
+            try {
+                let rows = [];
 
-                    if (config.strategy === 'direct') {
-                        rows = await sql`SELECT * FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
-                    } else if (config.strategy === 'join') {
-                        // Subquery para obtener registros hijos
-                        // SELECT * FROM hija WHERE fk IN (SELECT id FROM padre WHERE empresa_id = X)
-                        rows = await sql`
-                            SELECT t.* 
-                            FROM ${sql(table)} t
-                            WHERE t.${sql(config.fk)} IN (
-                                SELECT p.id 
-                                FROM ${sql(config.parent)} p 
-                                WHERE p.empresa_id = ${empresaId}
-                            )
-                        `;
-                    }
+                if (config.strategy === 'direct') {
+                    rows = await sql`SELECT * FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
+                } else if (config.strategy === 'join') {
+                    // Subquery para obtener registros hijos
+                    rows = await sql`
+                        SELECT t.* 
+                        FROM ${sql(table)} t
+                        WHERE t.${sql(config.fk)} IN (
+                            SELECT p.id 
+                            FROM ${sql(config.parent)} p 
+                            WHERE p.empresa_id = ${empresaId}
+                        )
+                    `;
+                }
 
-                    backupData.tables[table] = rows;
-                    console.log(`   - ${table}: ${rows.length} registros`);
-
-                } catch (err) {
-                    if (err.code === '42P01') { // Undefined table
-                        console.warn(`   ⚠️ Tabla ${table} no encontrada, saltando.`);
-                    } else {
-                        console.error(`   ❌ Error leyendo tabla ${table}:`, err.message);
-                        // Opcional: throw err; si queremos integridad total. 
-                        // Mejor loguear y continuar con lo que se pueda, o abortar?
-                        // Para consistencia de datos, mejor abortar.
-                        throw err;
-                    }
+                backupData.tables[table] = rows;
+            } catch (err) {
+                if (err.code === '42P01') {
+                    console.warn(`   ⚠️ Tabla ${table} no encontrada, saltando.`);
+                } else {
+                    console.error(`   ❌ Error leyendo tabla ${table}:`, err.message);
+                    throw err;
                 }
             }
+        }
+        return backupData;
+    },
+
+    async generateBackup(empresaId) {
+        console.log(`📦 [Backup] Iniciando proceso de backup para empresa ${empresaId}...`);
+
+        try {
+            const backupData = await this.generateBackupData(empresaId);
 
             // 2. Convertir a Buffer
             const jsonContent = JSON.stringify(backupData, null, 2);
@@ -101,51 +103,23 @@ export const backupService = {
             return saved;
 
         } catch (error) {
-            console.error("❌ [Backup] Error generandp backup:", error);
+            console.error("❌ [Backup] Error generando backup:", error);
             throw error;
         }
     },
 
     /**
-     * Restaura el backup desde el storage
+     * Lógica core de restauración a partir de un objeto de datos
      * @param {string} empresaId 
+     * @param {object} backupData 
      */
-    async restoreBackup(empresaId) {
-        console.log(`♻️ [Restore] Iniciando restauración para empresa ${empresaId}...`);
-
-        const storagePath = `${empresaId}/${BACKUP_FOLDER}/${BACKUP_FILENAME}`;
-        let backupData = null;
-
-        // Leer archivo desde Supabase (o medio configurado)
-        // Replicamos lógica de descarga ya que storageController no expone lectura directa server-side fácil
-        try {
-            const { createClient } = await import('@supabase/supabase-js');
-            const supabaseUrl = process.env.SUPABASE_PROJECT_URL;
-            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-            if (supabaseUrl && supabaseKey) {
-                const supabase = createClient(supabaseUrl, supabaseKey);
-                const { data, error } = await supabase.storage
-                    .from('app180-files')
-                    .download(storagePath);
-
-                if (error) throw error;
-                const text = await data.text();
-                backupData = JSON.parse(text);
-            } else {
-                throw new Error("Credenciales Supabase no configuradas para restore");
-            }
-        } catch (e) {
-            console.error("❌ [Restore] Error descargando backup:", e.message);
-            throw new Error("No se pudo leer el archivo de backup");
-        }
-
+    async restoreFromData(empresaId, backupData) {
         if (!backupData || !backupData.tables) {
-            throw new Error("Archivo de backup inválido");
+            throw new Error("Datos de backup inválidos");
         }
 
-        // 2. Transacción de restauración
-        await sql.begin(async sql => {
+        // Transacción de restauración
+        return await sql.begin(async sql => {
             // A. Borrar datos actuales (Orden Inverso)
             const paramsReverse = [...TABLES_CONFIG].reverse();
 
@@ -194,7 +168,44 @@ export const backupService = {
                     }
                 }
             }
+            return true;
         });
+    },
+
+    /**
+     * Restaura el backup desde el storage
+     * @param {string} empresaId 
+     */
+    async restoreBackup(empresaId) {
+        console.log(`♻️ [Restore] Iniciando restauración desde Storage para empresa ${empresaId}...`);
+
+        const storagePath = `${empresaId}/${BACKUP_FOLDER}/${BACKUP_FILENAME}`;
+        let backupData = null;
+
+        try {
+            const { createClient } = await import('@supabase/supabase-js');
+            const supabaseUrl = process.env.SUPABASE_PROJECT_URL;
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+            if (supabaseUrl && supabaseKey) {
+                const supabase = createClient(supabaseUrl, supabaseKey);
+                const { data, error } = await supabase.storage
+                    .from('app180-files')
+                    .download(storagePath);
+
+                if (error) throw error;
+                const text = await data.text();
+                backupData = JSON.parse(text);
+            } else {
+                throw new Error("Credenciales Supabase no configuradas para restore");
+            }
+        } catch (e) {
+            console.error("❌ [Restore] Error descargando backup:", e.message);
+            throw new Error("No se pudo leer el archivo de backup");
+        }
+
+        // Llamar a la lógica core extracted
+        await this.restoreFromData(empresaId, backupData);
 
         console.log("✅ [Restore] Restauración completada con éxito.");
         return true;
