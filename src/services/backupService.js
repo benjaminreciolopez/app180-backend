@@ -106,6 +106,8 @@ export const backupService = {
             // 4. Guardado Local (Sincronización solicitada por usuario)
             try {
                 const localBaseDir = path.join(process.cwd(), 'uploads', empresaId);
+                console.log(`🔍 [Backup] Comprobando ruta local: ${localBaseDir}`);
+
                 if (fs.existsSync(localBaseDir)) {
                     const localBackupDir = path.join(localBaseDir, BACKUP_FOLDER);
                     if (!fs.existsSync(localBackupDir)) {
