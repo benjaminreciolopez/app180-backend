@@ -177,6 +177,34 @@ export async function listFacturas(req, res) {
   }
 }
 
+
+/* =========================
+   ÚLTIMA FECHA VALIDA
+========================= */
+
+export async function getLastValidDate(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+
+    // Obtener la fecha de la última factura validada
+    const [lastInvoice] = await sql`
+      select fecha from factura_180
+      where empresa_id = ${empresaId}
+        and estado IN ('VALIDADA', 'ENVIADA')
+      order by fecha desc
+      limit 1
+    `;
+
+    res.json({
+      success: true,
+      lastDate: lastInvoice ? lastInvoice.fecha : null
+    });
+  } catch (err) {
+    console.error("❌ getLastValidDate:", err);
+    res.status(500).json({ success: false, error: "Error obteniendo última fecha" });
+  }
+}
+
 /* =========================
    DETALLE DE FACTURA
 ========================= */
