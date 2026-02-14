@@ -174,20 +174,12 @@ export const getAdminDashboard = async (req, res) => {
     let partesHoy = 0;
 
     if (modulos.partes_dia !== false) {
-      // Trabajos pendientes: NO facturados O Facturados pero NO pagados
+      // Trabajos pendientes: Cualquier trabajo cuyo estado_pago no sea 'pagado'
       const [{ count = 0 }] = await sql`
         SELECT COUNT(*)::int AS count
         FROM work_logs_180 w
-        LEFT JOIN factura_180 f ON w.factura_id = f.id
         WHERE w.empresa_id = ${empresaId}
-          AND (
-            w.factura_id IS NULL 
-            OR (
-              f.estado = 'VALIDADA' 
-              AND COALESCE(f.estado_pago, 'pendiente') != 'pagado'
-            )
-            OR f.estado = 'BORRADOR'
-          )
+          AND COALESCE(w.estado_pago, 'pendiente') != 'pagado'
       `;
       trabajosPendientes = count;
 
@@ -197,26 +189,19 @@ export const getAdminDashboard = async (req, res) => {
           w.id,
           w.descripcion,
           w.fecha,
+          w.cliente_id,
           c.nombre as cliente_nombre,
+          w.estado_pago,
           CASE 
-            WHEN w.factura_id IS NULL THEN 'NO_FACTURADO'
-            WHEN f.estado = 'BORRADOR' THEN 'EN_BORRADOR'
-            ELSE 'FACTURADO_PENDIENTE'
+             WHEN w.estado_pago = 'pendiente' OR w.estado_pago IS NULL THEN 'PENDIENTE'
+             WHEN w.estado_pago = 'parcial' THEN 'PAGO_PARCIAL'
+             ELSE w.estado_pago 
           END as estado_detalle
         FROM work_logs_180 w
         LEFT JOIN clients_180 c ON w.cliente_id = c.id
-        LEFT JOIN factura_180 f ON w.factura_id = f.id
         WHERE w.empresa_id = ${empresaId}
-          AND (
-            w.factura_id IS NULL 
-            OR (
-              f.estado = 'VALIDADA' 
-              AND COALESCE(f.estado_pago, 'pendiente') != 'pagado'
-            )
-            OR f.estado = 'BORRADOR'
-          )
+          AND COALESCE(w.estado_pago, 'pendiente') != 'pagado'
         ORDER BY w.fecha DESC
-        LIMIT 20
       `;
 
       const [{ count: partes = 0 }] = await sql`
