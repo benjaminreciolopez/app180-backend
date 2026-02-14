@@ -124,14 +124,19 @@ export const backupService = {
                 console.log(`🔍 [Backup] Comprobando ruta local: ${localBaseDir}`);
 
                 if (fs.existsSync(localBaseDir) || forceCreate) {
-                    const localBackupDir = path.join(localBaseDir, BACKUP_FOLDER);
-                    if (!fs.existsSync(localBackupDir)) {
-                        fs.mkdirSync(localBackupDir, { recursive: true });
+                    const localPath = path.join(localBaseDir, BACKUP_FOLDER, BACKUP_FILENAME);
+                    if (!fs.existsSync(path.dirname(localPath))) {
+                        fs.mkdirSync(path.dirname(localPath), { recursive: true });
                     }
-                    const localPath = path.join(localBackupDir, BACKUP_FILENAME);
                     fs.writeFileSync(localPath, jsonContent, "utf-8");
-                    console.log(`✅ [Backup] Sincronización local exitosa: ${localPath}`);
-                } else {
+
+                    if (process.platform !== 'win32' && /^[a-zA-Z]:\\/.test(localBaseDir)) {
+                        console.log(`ℹ️ [Backup] Almacenado en disco VIRTUAL del servidor: ${localPath}`);
+                    } else {
+                        console.log(`✅ [Backup] Sincronización local exitosa: ${localPath}`);
+                    }
+                }
+                else {
                     console.log(`ℹ️ [Backup] Saltando sync local: La carpeta base por defecto no existe en el servidor y no hay ruta personalizada definida.`);
                 }
             } catch (localError) {
