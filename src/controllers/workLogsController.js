@@ -1,5 +1,6 @@
 // src/controllers/workLogsController.js
 import { sql } from "../db.js";
+import { syncDailyReport } from "../services/dailyReportService.js";
 
 // Helpers
 function ymd(d = new Date()) {
@@ -242,6 +243,17 @@ export async function crearWorkLog(req, res) {
           VALUES (${empresaId}, ${finalDescription}, ${detalles || null})
         `;
       }
+    }
+
+    // --- SINCRONIZAR PARTE DIARIO ---
+    try {
+      await syncDailyReport({
+        empresaId,
+        empleadoId: finalEmpleadoId,
+        fecha: fechaFinal
+      });
+    } catch (e) {
+      console.error("❌ Error syncDailyReport en crearWorkLog:", e);
     }
 
     return res.json(rows[0]);
@@ -570,6 +582,17 @@ export async function actualizarWorkLog(req, res) {
       }
     }
 
+    // --- SINCRONIZAR PARTE DIARIO ---
+    try {
+      await syncDailyReport({
+        empresaId,
+        empleadoId: updated.employee_id,
+        fecha: updated.fecha
+      });
+    } catch (e) {
+      console.error("❌ Error syncDailyReport en actualizarWorkLog:", e);
+    }
+
     res.json(updated);
   } catch (err) {
     console.error("❌ actualizarWorkLog:", err);
@@ -644,6 +667,19 @@ export async function clonarWorkLog(req, res) {
         RETURNING *
       `;
       results.push(newRow);
+    }
+
+    // --- SINCRONIZAR PARTE DIARIO (Masivo) ---
+    try {
+      for (const resItem of results) {
+        await syncDailyReport({
+          empresaId,
+          empleadoId: resItem.employee_id,
+          fecha: resItem.fecha
+        });
+      }
+    } catch (e) {
+      console.error("❌ Error syncDailyReport en clonarWorkLog:", e);
     }
 
     res.json({ cloned: results.length, items: results });
