@@ -165,6 +165,7 @@ export const downloadExport = async (req, res) => {
                     { key: 'horas_trabajadas', header: 'Horas' },
                     { key: 'estado', header: 'Estado' },
                     { key: 'resumen', header: 'Resumen' },
+                    { key: 'nota_admin', header: 'Notas Admin' },
                     { key: 'validado', header: 'Validado' }
                 ];
                 filename = `partes-${pDesde || pFecha || 'historico'}`;
