@@ -896,7 +896,8 @@ export const getMe = async (req, res) => {
         e.id AS empleado_id,
         e.empresa_id,
 
-        ec.modulos
+        ec.modulos,
+        ec.modulos_mobile
 
       FROM users_180 u
 
@@ -929,6 +930,7 @@ export const getMe = async (req, res) => {
       empleado_id: r.empleado_id,
 
       modulos: r.modulos || {},
+      modulos_mobile: r.modulos_mobile || null,
 
       password_forced: r.password_forced === true,
     });
