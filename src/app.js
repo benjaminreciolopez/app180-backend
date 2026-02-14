@@ -67,9 +67,6 @@ cron.schedule("0 3 * * *", () => renewCalendarWebhooks()); // Renovar webhooks d
 // =========================
 app.use((req, res, next) => {
   console.log(`📡 REQUEST: ${req.method} ${req.url}`);
-  // Solución Error COOP (Google Auth popup) - RELAXED
-  res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
-  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
   next();
 });
 
