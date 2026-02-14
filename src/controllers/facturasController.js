@@ -710,14 +710,24 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   // 1. Obtener configuración del sistema de facturación
   const [config] = await sql`
-        select numeracion_tipo, numeracion_formato 
+        select numeracion_tipo, numeracion_formato, correlativo_inicial, migracion_legal_aceptado, migracion_last_pdf 
         from configuracionsistema_180 
         where empresa_id=${empresaId}
   `;
 
+  // --- BLOQUEO ESTRICTO DE MIGRACIÓN PENDIENTE ---
+  if (config && (config.correlativo_inicial > 0)) {
+    if (!config.migracion_legal_aceptado || !config.migracion_last_pdf) {
+      const err = new Error("Migración fiscal pendiente. Debes subir la última factura y aceptar la responsabilidad legal en Configuración.");
+      err.status = 403;
+      throw err;
+    }
+  }
+
   const tipo = config?.numeracion_tipo || 'STANDARD';
   const formato = config?.numeracion_formato || 'FAC-{YEAR}-';
 
+  let correlativoBase = (config?.correlativo_inicial || 0);
   let correlativo = 1;
   let numeroFinal = "";
 
@@ -733,7 +743,8 @@ async function generarNumeroFactura(empresaId, fecha) {
         AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
         AND numero LIKE 'F-%'
     `;
-    if (max && max.ultimo) correlativo = max.ultimo + 1;
+    if (max && max.ultimo) correlativo = Math.max(correlativoBase, max.ultimo) + 1;
+    else correlativo = correlativoBase + 1;
     numeroFinal = `F-${String(correlativo).padStart(4, '0')}`;
 
   } else if (tipo === 'BY_YEAR') {
@@ -748,7 +759,8 @@ async function generarNumeroFactura(empresaId, fecha) {
         AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
         AND numero LIKE ${prefix + '%'}
     `;
-    if (max && max.ultimo) correlativo = max.ultimo + 1;
+    if (max && max.ultimo) correlativo = Math.max(correlativoBase, max.ultimo) + 1;
+    else correlativo = correlativoBase + 1;
     numeroFinal = `${prefix}${String(correlativo).padStart(4, '0')}`;
 
   } else if (tipo === 'PREFIXED') {
@@ -770,7 +782,9 @@ async function generarNumeroFactura(empresaId, fecha) {
     `;
 
     if (max && max.ultimo) {
-      correlativo = max.ultimo + 1;
+      correlativo = Math.max(correlativoBase, max.ultimo) + 1;
+    } else {
+      correlativo = correlativoBase + 1;
     }
     numeroFinal = `${resolvedPrefix}${String(correlativo).padStart(4, '0')}`;
   }
