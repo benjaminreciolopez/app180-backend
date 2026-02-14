@@ -116,6 +116,11 @@ export const backupService = {
                     localBaseDir = path.join(process.cwd(), 'uploads', empresaId);
                 }
 
+                // Validación de ruta incongruente (Windows path en Linux)
+                if (process.platform !== 'win32' && /^[a-zA-Z]:\\/.test(localBaseDir)) {
+                    console.warn(`⚠️ [Backup] ATENCIÓN: Se ha detectado una ruta de Windows (${localBaseDir}) en un servidor ${process.platform}. El archivo se guardará localmente EN EL SERVIDOR rematadamente, no en tu PC.`);
+                }
+
                 console.log(`🔍 [Backup] Comprobando ruta local: ${localBaseDir}`);
 
                 if (fs.existsSync(localBaseDir) || forceCreate) {
