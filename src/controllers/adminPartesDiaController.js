@@ -2,14 +2,19 @@ import { sql } from "../db.js";
 
 export async function getPartesDia(req, res) {
   try {
-    const { fecha } = req.query;
-    if (!fecha) {
-      return res.status(400).json({ error: "Fecha requerida" });
-    }
+    const {
+      fecha,
+      cliente_id,
+      fecha_inicio,
+      fecha_fin,
+      sortBy = 'fecha',
+      sortOrder = 'desc'
+    } = req.query;
 
     const empresaId = req.user.empresa_id;
 
-    const items = await sql`
+    // Construcción dinámica de la query
+    let query = sql`
       SELECT 
         pd.*, 
         e.nombre as empleado_nombre,
@@ -18,13 +23,41 @@ export async function getPartesDia(req, res) {
       JOIN employees_180 e ON pd.empleado_id = e.id
       LEFT JOIN clients_180 c ON pd.cliente_id = c.id
       WHERE pd.empresa_id = ${empresaId}
-      AND pd.fecha = ${fecha}
-      ORDER BY e.nombre
+    `;
+
+    // Filtros
+    if (fecha) {
+      query = sql`${query} AND pd.fecha = ${fecha}`;
+    }
+    if (cliente_id) {
+      query = sql`${query} AND pd.cliente_id = ${cliente_id}`;
+    }
+    if (fecha_inicio) {
+      query = sql`${query} AND pd.fecha >= ${fecha_inicio}`;
+    }
+    if (fecha_fin) {
+      query = sql`${query} AND pd.fecha <= ${fecha_fin}`;
+    }
+
+    // Ordenación segura
+    const allowedSortFields = ['fecha', 'empleado_nombre', 'cliente_nombre', 'horas_trabajadas', 'estado'];
+    const field = allowedSortFields.includes(sortBy) ? sortBy : 'fecha';
+    const order = sortOrder.toLowerCase() === 'asc' ? sql`ASC` : sql`DESC`;
+
+    // Para campos de tablas unidas, especificamos el origen si es necesario
+    let orderClause;
+    if (field === 'empleado_nombre') orderClause = sql`e.nombre ${order}`;
+    else if (field === 'cliente_nombre') orderClause = sql`c.nombre ${order}`;
+    else orderClause = sql`pd.${sql(field)} ${order}`;
+
+    const items = await sql`
+      ${query}
+      ORDER BY ${orderClause}
     `;
 
     res.json({ items });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en getPartesDia:", error);
     res.status(500).json({ error: "Error obteniendo partes del día" });
   }
 }

@@ -89,7 +89,7 @@ export async function syncDailyReport({
 
   // 3) Work logs del día (clave para análisis de rentabilidad/autónomo)
   const workLogs = await sql`
-    SELECT id, cliente_id, fecha, precio, minutos, descripcion
+    SELECT id, cliente_id, fecha, valor, minutos, descripcion
     FROM work_logs_180
     WHERE employee_id = ${empleadoId}
       AND fecha::date = ${day}::date
