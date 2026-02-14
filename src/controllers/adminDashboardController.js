@@ -173,14 +173,50 @@ export const getAdminDashboard = async (req, res) => {
     let partesHoy = 0;
 
     if (modulos.partes_dia !== false) {
+      // Trabajos pendientes: NO facturados O Facturados pero NO pagados
       const [{ count = 0 }] = await sql`
         SELECT COUNT(*)::int AS count
-        FROM work_logs_180
-        WHERE empresa_id = ${empresaId}
-          AND factura_id IS NULL
-          AND (pagado = 0 OR pagado IS NULL)
+        FROM work_logs_180 w
+        LEFT JOIN factura_180 f ON w.factura_id = f.id
+        WHERE w.empresa_id = ${empresaId}
+          AND (
+            w.factura_id IS NULL 
+            OR (
+              f.estado = 'VALIDADA' 
+              AND COALESCE(f.estado_pago, 'pendiente') != 'pagado'
+            )
+            OR f.estado = 'BORRADOR'
+          )
       `;
       trabajosPendientes = count;
+
+      // Lista de trabajos pendientes para el modal
+      trabajosPendientesList = await sql`
+        SELECT 
+          w.id,
+          w.descripcion,
+          w.fecha,
+          c.nombre as cliente_nombre,
+          CASE 
+            WHEN w.factura_id IS NULL THEN 'NO_FACTURADO'
+            WHEN f.estado = 'BORRADOR' THEN 'EN_BORRADOR'
+            ELSE 'FACTURADO_PENDIENTE'
+          END as estado_detalle
+        FROM work_logs_180 w
+        LEFT JOIN clients_180 c ON w.cliente_id = c.id
+        LEFT JOIN factura_180 f ON w.factura_id = f.id
+        WHERE w.empresa_id = ${empresaId}
+          AND (
+            w.factura_id IS NULL 
+            OR (
+              f.estado = 'VALIDADA' 
+              AND COALESCE(f.estado_pago, 'pendiente') != 'pagado'
+            )
+            OR f.estado = 'BORRADOR'
+          )
+        ORDER BY w.fecha DESC
+        LIMIT 20
+      `;
 
       const [{ count: partes = 0 }] = await sql`
         SELECT COUNT(*)::int AS count
@@ -281,6 +317,7 @@ export const getAdminDashboard = async (req, res) => {
       cobrosPendientes,
       saldoTotal,
       trabajosPendientes,
+      trabajosPendientesList: trabajosPendientesList || [], // Nueva lista
       partesHoy,
       calendarioSyncStatus,
       facturasPendientesList: await getFacturasPendientesList(empresaId, modulos.facturacion), // Nueva lista
