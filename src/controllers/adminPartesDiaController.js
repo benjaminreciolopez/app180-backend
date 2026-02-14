@@ -84,3 +84,35 @@ export async function validarParte(req, res) {
     res.status(500).json({ error: "Error validando parte" });
   }
 }
+
+export async function validarPartesMasivo(req, res) {
+  try {
+    const { seleccionados, validado, nota_admin } = req.body;
+    const empresaId = req.user.empresa_id;
+
+    if (!Array.isArray(seleccionados) || seleccionados.length === 0) {
+      return res.status(400).json({ error: "No hay elementos seleccionados" });
+    }
+
+    // Ejecutamos en lote
+    await sql.begin(async (sql) => {
+      for (const item of seleccionados) {
+        await sql`
+          UPDATE partes_dia_180
+          SET 
+            validado = ${validado},
+            nota_admin = ${nota_admin || null},
+            validado_at = now()
+          WHERE empresa_id = ${empresaId}
+          AND empleado_id = ${item.empleado_id}
+          AND fecha = ${item.fecha}
+        `;
+      }
+    });
+
+    res.json({ success: true, count: seleccionados.length });
+  } catch (error) {
+    console.error("❌ Error en validarPartesMasivo:", error);
+    res.status(500).json({ error: "Error en la validación masiva" });
+  }
+}
