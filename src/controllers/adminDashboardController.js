@@ -170,6 +170,7 @@ export const getAdminDashboard = async (req, res) => {
     ========================= */
 
     let trabajosPendientes = 0;
+    let trabajosPendientesList = [];
     let partesHoy = 0;
 
     if (modulos.partes_dia !== false) {
