@@ -55,7 +55,7 @@ function pickClienteFromWorkLogs(workLogs) {
 }
 
 /**
- * Sincroniza/crea el parte diario (employee_daily_report_180)
+ * Sincroniza/crea el parte diario (partes_dia_180)
  * Es idempotente y seguro para llamarlo tras cada fichaje o work_log.
  */
 export async function syncDailyReport({
@@ -87,9 +87,9 @@ export async function syncDailyReport({
     ORDER BY fecha ASC
   `;
 
-  // 3) Work logs del día (clave para autónomo)
+  // 3) Work logs del día (clave para análisis de rentabilidad/autónomo)
   const workLogs = await sql`
-    SELECT id, cliente_id, fecha, precio
+    SELECT id, cliente_id, fecha, precio, minutos, descripcion
     FROM work_logs_180
     WHERE employee_id = ${empleadoId}
       AND fecha::date = ${day}::date
@@ -116,15 +116,15 @@ export async function syncDailyReport({
   } else if (jornada && jornada.minutos_trabajados != null) {
     horas_trabajadas = minutesToHoursDecimal(jornada.minutos_trabajados);
   } else if (jornada && jornada.inicio) {
-    // Jornada abierta: cálculo parcial simple (si tienes descansos en jornada, puedes refinarlos)
+    // Jornada abierta: cálculo parcial
     const inicio = new Date(jornada.inicio);
     const now = new Date();
     const diffMin = Math.max(0, Math.round((now - inicio) / 60000));
     horas_trabajadas = minutesToHoursDecimal(diffMin);
   } else if (workLogs.length > 0) {
-    // Si aún no tienes duración en work_logs, no podemos sumar tiempo.
-    // De momento, si hay trabajo sin fichaje dejamos horas null y estado "solo_trabajo".
-    horas_trabajadas = null;
+    // VISIÓN RENTABILIDAD: Si no hay fichajes, extraemos el tiempo de los trabajos registrados
+    const totalMinutosTrabajos = workLogs.reduce((acc, w) => acc + (Number(w.minutos) || 0), 0);
+    horas_trabajadas = minutesToHoursDecimal(totalMinutosTrabajos);
   } else {
     horas_trabajadas = 0;
   }
@@ -137,15 +137,13 @@ export async function syncDailyReport({
   } else if (!jornada && workLogs.length > 0) {
     estado = "solo_trabajo";
   } else if (jornada && jornada.estado) {
-    // jornada.estado es USER-DEFINED en tu BD; normalizamos para el parte
-    // Si tu enum ya trae "abierta"/"cerrada", ajusta aquí
     const j = String(jornada.estado).toLowerCase();
     estado = j.includes("abiert") ? "abierto" : "completo";
   } else if (!jornada && fichajes.length > 0) {
     estado = "incompleto";
   }
 
-  // si hay sospechosos, escalamos estado
+  // si hay sospechosos, incidencias
   if (!ausencia && fichajes.some((f) => f.sospechoso === true)) {
     estado = "incidencia";
   }
@@ -154,15 +152,22 @@ export async function syncDailyReport({
   const resumenBase = buildResumenFromFichajes(fichajes);
   const cliente_id = pickClienteFromWorkLogs(workLogs);
 
-  const resumen = ausencia
-    ? `Ausencia: ${ausencia.tipo} (${ausencia.estado})`
-    : workLogs.length > 0 && fichajes.length === 0
-      ? `Trabajo registrado sin fichaje (${workLogs.length} entradas)`
-      : resumenBase;
+  // Mejorar el resumen si proceden de worklogs (para auditoría de tiempos)
+  let resumenFinal = resumenBase;
+  if (ausencia) {
+    resumenFinal = `Ausencia: ${ausencia.tipo} (${ausencia.estado})`;
+  } else if (workLogs.length > 0) {
+    const descripciones = workLogs.map(w => w.descripcion).join(" | ");
+    if (fichajes.length === 0) {
+      resumenFinal = `[TIEMPOS ESTIMADOS] ${descripciones}`;
+    } else {
+      resumenFinal = `${resumenBase} || Trabajos: ${descripciones}`;
+    }
+  }
 
-  // 8) UPSERT en employee_daily_report_180 (unique empleado_id, fecha)
+  // 8) UPSERT en partes_dia_180 (unique empresa_id, empleado_id, fecha)
   const upsert = await sql`
-    INSERT INTO employee_daily_report_180 (
+    INSERT INTO partes_dia_180 (
       empleado_id,
       empresa_id,
       fecha,
@@ -177,14 +182,14 @@ export async function syncDailyReport({
       ${empleadoId},
       ${empresaId},
       ${day}::date,
-      ${resumen},
+      ${resumenFinal},
       ${horas_trabajadas},
       ${cliente_id},
       ${estado},
       now(),
       now()
     )
-    ON CONFLICT (empleado_id, fecha)
+    ON CONFLICT (empresa_id, empleado_id, fecha)
     DO UPDATE SET
       resumen = EXCLUDED.resumen,
       horas_trabajadas = EXCLUDED.horas_trabajadas,
