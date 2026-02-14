@@ -139,8 +139,11 @@ export const downloadExport = async (req, res) => {
                 break;
 
             case 'partes-dia':
-                // Partes del dia (resumen diario)
-                const pFecha = fechaOrNull(queryParams.fecha) || new Date().toISOString().slice(0, 10);
+                // Partes del dia (resumen diario / rentabilidad)
+                const pFecha = fechaOrNull(queryParams.fecha);
+                const pClienteId = queryParams.cliente_id;
+                const pDesde = fechaOrNull(queryParams.fecha_inicio);
+                const pHasta = fechaOrNull(queryParams.fecha_fin);
 
                 data = await sql`
                     SELECT pd.*, e.nombre as empleado_nombre, c.nombre as cliente_nombre
@@ -148,11 +151,15 @@ export const downloadExport = async (req, res) => {
                     JOIN employees_180 e ON pd.empleado_id = e.id
                     LEFT JOIN clients_180 c ON pd.cliente_id = c.id
                     WHERE pd.empresa_id = ${empresaId}
-                    AND pd.fecha = ${pFecha}::date
-                    ORDER BY e.nombre
+                    ${pFecha ? sql`AND pd.fecha = ${pFecha}::date` : sql``}
+                    ${pClienteId ? sql`AND pd.cliente_id = ${pClienteId}` : sql``}
+                    ${pDesde ? sql`AND pd.fecha >= ${pDesde}::date` : sql``}
+                    ${pHasta ? sql`AND pd.fecha <= ${pHasta}::date` : sql``}
+                    ORDER BY pd.fecha DESC, e.nombre ASC
                 `;
                 htmlContent = partesDiaToHtml(data);
                 csvColumns = [
+                    { key: 'fecha', header: 'Fecha' },
                     { key: 'empleado_nombre', header: 'Empleado' },
                     { key: 'cliente_nombre', header: 'Cliente' },
                     { key: 'horas_trabajadas', header: 'Horas' },
@@ -160,7 +167,7 @@ export const downloadExport = async (req, res) => {
                     { key: 'resumen', header: 'Resumen' },
                     { key: 'validado', header: 'Validado' }
                 ];
-                filename = `partes-${pFecha}`;
+                filename = `partes-${pDesde || pFecha || 'historico'}`;
                 break;
 
             case 'fichajes':
