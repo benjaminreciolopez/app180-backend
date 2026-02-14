@@ -183,6 +183,38 @@ app.use((err, req, res, next) => {
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='backup_local_path') THEN
                 ALTER TABLE configuracionsistema_180 ADD COLUMN backup_local_path TEXT;
             END IF;
+            -- Añadir columnas de migración si no existen
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='correlativo_inicial') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN correlativo_inicial INTEGER DEFAULT 0;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_pdf') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_pdf TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_legal_aceptado') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_legal_aceptado BOOLEAN DEFAULT FALSE;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_fecha_aceptacion') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_fecha_aceptacion TIMESTAMP;
+            END IF;
+            -- Columnas de Auditoría Avanzada
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_serie') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_serie TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_emisor_nif') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_emisor_nif TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_cliente_nif') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_cliente_nif TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_subtotal') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_subtotal NUMERIC(15,2);
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_iva') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_iva NUMERIC(15,2);
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_total') THEN
+                ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_total NUMERIC(15,2);
+            END IF;
         EXCEPTION WHEN OTHERS THEN
             RAISE NOTICE 'Error en migración automática: %', SQLERRM;
         END $$;
