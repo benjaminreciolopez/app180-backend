@@ -322,6 +322,16 @@ export async function actualizarCliente(req, res) {
   const fieldsGeneral = {};
   const fieldsFiscal = {};
 
+  // Mapeo de sincronización: campo en clients_180 -> campo en client_fiscal_data_180
+  const syncMap = {
+    "nombre": "razon_social",
+    "nif_cif": "nif_cif",
+    "iban": "iban",
+    "iva_defecto": "iva_defecto",
+    "exento_iva": "exento_iva",
+    "forma_pago": "forma_pago"
+  };
+
   for (const k of Object.keys(body)) {
     let val = body[k] === undefined ? null : body[k];
 
@@ -340,10 +350,15 @@ export async function actualizarCliente(req, res) {
     // Agregar a fieldsGeneral si está en allowedGeneral
     if (allowedGeneral.includes(k)) {
       fieldsGeneral[k] = val;
+      
+      // Si este campo tiene sincronización, agregarlo a fieldsFiscal con el nombre correcto
+      if (syncMap[k]) {
+        fieldsFiscal[syncMap[k]] = val;
+      }
     }
     
-    // Agregar a fieldsFiscal si está en allowedFiscal
-    if (allowedFiscal.includes(k)) {
+    // Agregar a fieldsFiscal si está en allowedFiscal (y no fue sincronizado)
+    if (allowedFiscal.includes(k) && !fieldsFiscal[k]) {
       fieldsFiscal[k] = val;
     }
   }
