@@ -290,12 +290,14 @@ export async function actualizarCliente(req, res) {
 
   const body = req.body;
 
-  // Campos de clients_180 (SOLO para clients_180, no para fiscal)
+  // Campos de clients_180 (SYNC: algunos también van a client_fiscal_data_180)
   const allowedGeneral = [
     "nombre", "tipo", "direccion", "telefono", "contacto_nombre", "contacto_email",
     "modo_defecto", "lat", "lng", "radio_m", "requiere_geo", "fecha_inicio", "fecha_fin",
     "notas", "activo", "geo_policy",
-    "nif", "nif_cif", "poblacion", "municipio", "provincia", "cp", "codigo_postal", "pais", "email"
+    "nif", "nif_cif", "poblacion", "municipio", "provincia", "cp", "codigo_postal", "pais", "email",
+    // Campos fiscales que también se guardan en clients_180 (sincronización)
+    "razon_social", "iban", "iva_defecto", "exento_iva", "forma_pago"
   ];
 
   // Campos de client_fiscal_data_180
@@ -330,8 +332,18 @@ export async function actualizarCliente(req, res) {
       if (val.length > 2) val = val.substring(0, 2);
     }
 
+    // Agregar a fieldsGeneral si está en allowedGeneral
     if (allowedGeneral.includes(k)) fieldsGeneral[k] = val;
+    
+    // Agregar a fieldsFiscal si está en allowedFiscal
     if (allowedFiscal.includes(k)) fieldsFiscal[k] = val;
+    
+    // SYNC: Si es un campo fiscal, también agregarlo a fieldsGeneral para sincronizar clients_180
+    const fiscalOnlyFields = ["razon_social", "nif_cif", "tipo_fiscal", "direccion_fiscal", "email_factura", "telefono_factura", "persona_contacto", "codigo_postal"];
+    if (fiscalOnlyFields.includes(k) && !fieldsFiscal[k]) {
+      // Solo agregar a fieldsFiscal si no está ya
+      fieldsFiscal[k] = val;
+    }
   }
 
   // Actualizar tabla general
