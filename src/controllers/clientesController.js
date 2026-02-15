@@ -333,15 +333,12 @@ export async function actualizarCliente(req, res) {
     }
 
     // Agregar a fieldsGeneral si está en allowedGeneral
-    if (allowedGeneral.includes(k)) fieldsGeneral[k] = val;
+    if (allowedGeneral.includes(k)) {
+      fieldsGeneral[k] = val;
+    }
     
     // Agregar a fieldsFiscal si está en allowedFiscal
-    if (allowedFiscal.includes(k)) fieldsFiscal[k] = val;
-    
-    // SYNC: Si es un campo fiscal, también agregarlo a fieldsGeneral para sincronizar clients_180
-    const fiscalOnlyFields = ["razon_social", "nif_cif", "tipo_fiscal", "direccion_fiscal", "email_factura", "telefono_factura", "persona_contacto", "codigo_postal"];
-    if (fiscalOnlyFields.includes(k) && !fieldsFiscal[k]) {
-      // Solo agregar a fieldsFiscal si no está ya
+    if (allowedFiscal.includes(k)) {
       fieldsFiscal[k] = val;
     }
   }
@@ -422,13 +419,23 @@ export async function actualizarCliente(req, res) {
     }
   }
 
-  // Respuesta final
-  if (clientUpdated) {
-    res.json(clientUpdated);
-  } else {
-    // Si solo actualizamos fiscal, devolvemos success genérico o fetch del cliente
-    res.json({ ok: true, id });
-  }
+  // Respuesta final: siempre devolvemos el cliente actualizado
+  // Si no hubo update en general pero sí en fiscal, traemos el cliente desde BD
+  const clienteActualizado = clientUpdated || 
+    (await sql`
+      select c.*,
+             f.razon_social, f.nif_cif, f.tipo_fiscal,
+             f.pais, f.provincia, f.municipio, f.codigo_postal, f.direccion_fiscal,
+             f.email_factura, f.telefono_factura, f.persona_contacto,
+             f.iva_defecto, f.exento_iva, f.forma_pago, f.iban
+      from clients_180 c
+      left join client_fiscal_data_180 f on f.cliente_id = c.id
+      where c.id=${id}
+        and c.empresa_id=${empresaId}
+      limit 1
+    `)[0];
+
+  res.json(clienteActualizado);
 }
 
 /* ----------------------- */
