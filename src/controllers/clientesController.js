@@ -332,6 +332,11 @@ export async function actualizarCliente(req, res) {
       if (val.length > 2) val = val.substring(0, 2);
     }
 
+    // Convertir iva_defecto a número si viene como string
+    if (k === "iva_defecto" && val !== null && val !== undefined) {
+      val = Number(val);
+    }
+
     // Agregar a fieldsGeneral si está en allowedGeneral
     if (allowedGeneral.includes(k)) {
       fieldsGeneral[k] = val;
@@ -370,11 +375,13 @@ export async function actualizarCliente(req, res) {
 
     if (exists[0]) {
       console.log(`[actualizarCliente] UPDATE client_fiscal_data_180 para cliente ${id}`);
-      await sql`
+      console.log(`[actualizarCliente] UPDATE query con valores:`, fieldsFiscal);
+      const updateResult = await sql`
         update client_fiscal_data_180
         set ${sql(fieldsFiscal)}
         where cliente_id=${id}
       `;
+      console.log(`[actualizarCliente] UPDATE completado. Filas afectadas:`, updateResult.count);
     } else {
       // Create if missing
       await sql`
