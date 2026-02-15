@@ -290,13 +290,12 @@ export async function actualizarCliente(req, res) {
 
   const body = req.body;
 
-  // Campos de clients_180
+  // Campos de clients_180 (SOLO para clients_180, no para fiscal)
   const allowedGeneral = [
     "nombre", "tipo", "direccion", "telefono", "contacto_nombre", "contacto_email",
     "modo_defecto", "lat", "lng", "radio_m", "requiere_geo", "fecha_inicio", "fecha_fin",
     "notas", "activo", "geo_policy",
-    "nif", "nif_cif", "poblacion", "municipio", "provincia", "cp", "codigo_postal", "pais", "email",
-    "razon_social", "iban", "iva_defecto", "exento_iva", "forma_pago"
+    "nif", "nif_cif", "poblacion", "municipio", "provincia", "cp", "codigo_postal", "pais", "email"
   ];
 
   // Campos de client_fiscal_data_180
