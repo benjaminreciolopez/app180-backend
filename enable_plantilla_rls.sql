@@ -1,5 +1,6 @@
--- Enable RLS and create policies for plantilla tables
--- Migration timestamp: 20260215133641
+-- ============================================================================
+-- HABILITAR RLS Y CREAR POLÍTICAS PARA TABLAS PLANTILLA
+-- ============================================================================
 
 -- ============================================================================
 -- 1. plantilla_bloques_180
@@ -244,3 +245,18 @@ CREATE POLICY "delete_plantilla_excepciones_180" ON plantilla_excepciones_180
         AND pj.empresa_id = (SELECT empresa_id FROM users_180 WHERE id = auth.uid())
     )
   );
+
+-- ============================================================================
+-- VERIFICACIÓN: Confirmar que RLS está habilitada
+-- ============================================================================
+SELECT 
+  tablename,
+  rowsecurity
+FROM pg_tables
+WHERE tablename IN (
+  'plantilla_bloques_180',
+  'plantilla_dias_180',
+  'plantilla_excepcion_bloques_180',
+  'plantilla_excepciones_180'
+)
+ORDER BY tablename;
