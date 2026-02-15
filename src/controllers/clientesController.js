@@ -386,14 +386,29 @@ export async function actualizarCliente(req, res) {
       if (fieldsFiscal[key] === undefined) fieldsFiscal[key] = null;
     }
 
-    console.log(`[actualizarCliente] fieldsFiscal:`, fieldsFiscal, `exists: ${exists[0] ? 'sí' : 'no'}`);
+    // IMPORTANTE: Solo actualizar campos que tengan valores (no null, no strings vacíos)
+    // Esto previene sobrescribir datos existentes con valores vacíos
+    const fieldsToUpdate = {};
+    for (const key in fieldsFiscal) {
+      const val = fieldsFiscal[key];
+      // Solo incluir si: tiene valor (no null) o es un campo especial que debe actualizarse siempre
+      if (val !== null && val !== undefined && val !== "") {
+        fieldsToUpdate[key] = val;
+      } else if (key === "razon_social" && val !== null && val !== undefined) {
+        // Razon social siempre se actualiza si viene en el body
+        fieldsToUpdate[key] = val;
+      }
+    }
 
-    if (exists[0]) {
+    console.log(`[actualizarCliente] fieldsFiscal (todos):`, fieldsFiscal);
+    console.log(`[actualizarCliente] fieldsToUpdate (solo con valor):`, fieldsToUpdate);
+
+    if (exists[0] && Object.keys(fieldsToUpdate).length > 0) {
       console.log(`[actualizarCliente] UPDATE client_fiscal_data_180 para cliente ${id}`);
-      console.log(`[actualizarCliente] UPDATE query con valores:`, fieldsFiscal);
+      console.log(`[actualizarCliente] UPDATE query con valores:`, fieldsToUpdate);
       const updateResult = await sql`
         update client_fiscal_data_180
-        set ${sql(fieldsFiscal)}
+        set ${sql(fieldsToUpdate)}
         where cliente_id=${id}
       `;
       console.log(`[actualizarCliente] UPDATE completado. Filas afectadas:`, updateResult.count);
