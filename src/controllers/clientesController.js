@@ -289,6 +289,14 @@ export async function actualizarCliente(req, res) {
   const { id } = req.params;
 
   const body = req.body;
+  
+  // DEBUG: Log incoming request
+  console.log(`[actualizarCliente] Incoming request body:`, {
+    nombre: body.nombre,
+    razon_social: body.razon_social,
+    nif_cif: body.nif_cif,
+    persona_contacto: body.persona_contacto,
+  });
 
   // Campos de clients_180 (SYNC: algunos también van a client_fiscal_data_180)
   const allowedGeneral = [
@@ -322,9 +330,11 @@ export async function actualizarCliente(req, res) {
   const fieldsGeneral = {};
   const fieldsFiscal = {};
 
-  // Mapeo de sincronización: campo en clients_180 -> campo en client_fiscal_data_180
+  // Mapeo de sincronización BIDIRECCIONAL: 
+  // Si viene nombre, actualiza razon_social; si viene razon_social, actualiza nombre
   const syncMap = {
-    "nombre": "razon_social",
+    "nombre": "razon_social",        // nombre -> razon_social
+    "razon_social": "nombre",        // razon_social -> nombre (NUEVA SINCRONIZACIÓN)
     "nif_cif": "nif_cif",
     "iban": "iban",
     "iva_defecto": "iva_defecto",
@@ -353,13 +363,26 @@ export async function actualizarCliente(req, res) {
       
       // Si este campo tiene sincronización, agregarlo a fieldsFiscal con el nombre correcto
       if (syncMap[k]) {
-        fieldsFiscal[syncMap[k]] = val;
+        const syncedFieldName = syncMap[k];
+        // Si la sincronización va a la tabla fiscal, agregar a fieldsFiscal
+        if (allowedFiscal.includes(syncedFieldName)) {
+          fieldsFiscal[syncedFieldName] = val;
+        }
       }
     }
     
-    // Agregar a fieldsFiscal si está en allowedFiscal (y no fue sincronizado)
-    if (allowedFiscal.includes(k) && !fieldsFiscal[k]) {
+    // Agregar a fieldsFiscal si está en allowedFiscal
+    if (allowedFiscal.includes(k)) {
       fieldsFiscal[k] = val;
+      
+      // Si este campo tiene sincronización, agregarlo a fieldsGeneral con el nombre correcto
+      if (syncMap[k]) {
+        const syncedFieldName = syncMap[k];
+        // Si la sincronización va a la tabla general, agregar a fieldsGeneral
+        if (allowedGeneral.includes(syncedFieldName)) {
+          fieldsGeneral[syncedFieldName] = val;
+        }
+      }
     }
   }
 
