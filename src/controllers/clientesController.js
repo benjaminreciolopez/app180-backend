@@ -365,15 +365,45 @@ export async function actualizarCliente(req, res) {
         where cliente_id=${id}
       `;
     } else {
-      // Create if missing - Usamos el helper de objeto que es más seguro y limpio
-      const row = {
-        empresa_id: empresaId ?? null,
-        cliente_id: id ?? null,
-        ...fieldsFiscal
-      };
-
+      // Create if missing
       await sql`
-        insert into client_fiscal_data_180 ${sql(row)}
+        insert into client_fiscal_data_180 (
+          empresa_id,
+          cliente_id,
+          razon_social,
+          nif_cif,
+          tipo_fiscal,
+          pais,
+          provincia,
+          municipio,
+          codigo_postal,
+          direccion_fiscal,
+          email_factura,
+          telefono_factura,
+          persona_contacto,
+          iva_defecto,
+          exento_iva,
+          forma_pago,
+          iban
+        ) values (
+          ${empresaId},
+          ${id},
+          ${fieldsFiscal.razon_social ?? null},
+          ${fieldsFiscal.nif_cif ?? null},
+          ${fieldsFiscal.tipo_fiscal ?? null},
+          ${fieldsFiscal.pais ?? 'ES'},
+          ${fieldsFiscal.provincia ?? null},
+          ${fieldsFiscal.municipio ?? null},
+          ${fieldsFiscal.codigo_postal ?? null},
+          ${fieldsFiscal.direccion_fiscal ?? null},
+          ${fieldsFiscal.email_factura ?? null},
+          ${fieldsFiscal.telefono_factura ?? null},
+          ${fieldsFiscal.persona_contacto ?? null},
+          ${fieldsFiscal.iva_defecto ?? null},
+          ${fieldsFiscal.exento_iva ?? false},
+          ${fieldsFiscal.forma_pago ?? null},
+          ${fieldsFiscal.iban ?? null}
+        )
       `;
     }
   }
