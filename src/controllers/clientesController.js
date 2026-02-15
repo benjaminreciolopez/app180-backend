@@ -357,7 +357,10 @@ export async function actualizarCliente(req, res) {
       if (fieldsFiscal[key] === undefined) fieldsFiscal[key] = null;
     }
 
+    console.log(`[actualizarCliente] fieldsFiscal:`, fieldsFiscal, `exists: ${exists[0] ? 'sí' : 'no'}`);
+
     if (exists[0]) {
+      console.log(`[actualizarCliente] UPDATE client_fiscal_data_180 para cliente ${id}`);
       await sql`
         update client_fiscal_data_180
         set ${sql(fieldsFiscal)}
