@@ -55,7 +55,7 @@ router.post("/pagos", crearPago); // Generic create
 
 /* Cliente individual */
 router.get("/clientes/:id", getClienteDetalle);
-router.patch("/clientes/:id", actualizarCliente);
+router.put("/clientes/:id", actualizarCliente);
 router.delete("/clientes/:id", desactivarCliente);
 
 /* Utilidad */
