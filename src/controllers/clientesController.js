@@ -423,6 +423,11 @@ export async function actualizarCliente(req, res) {
       }
     }
 
+    // Asegurar que iva_defecto sea número si tiene valor
+    if (fieldsToUpdate.iva_defecto !== undefined && fieldsToUpdate.iva_defecto !== null) {
+      fieldsToUpdate.iva_defecto = Number(fieldsToUpdate.iva_defecto);
+    }
+
     console.log(`[actualizarCliente] fieldsFiscal (todos):`, fieldsFiscal);
     console.log(`[actualizarCliente] fieldsToUpdate (solo con valor):`, fieldsToUpdate);
 
