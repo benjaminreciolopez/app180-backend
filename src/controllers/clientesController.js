@@ -33,12 +33,17 @@ export async function listarClientes(req, res) {
   }
 
   // Unimos con datos fiscales para que el frontend tenga la información completa al listar y editar
+  // También añadimos un resumen de tarifas activas desde client_tariffs_180
   const rows = await sql`
     select c.*,
            f.razon_social, f.nif_cif, f.tipo_fiscal,
            f.municipio, f.codigo_postal, f.direccion_fiscal,
            f.email_factura, f.telefono_factura, f.persona_contacto,
-           f.iva_defecto, f.exento_iva, f.forma_pago, f.iban
+           f.iva_defecto, f.exento_iva, f.forma_pago, f.iban,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'hora' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_hora,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'dia' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_dia,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'mes' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_mes,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'trabajo' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_trabajo
     from clients_180 c
     left join client_fiscal_data_180 f on f.cliente_id = c.id
     where c.empresa_id = ${empresaId}
@@ -56,13 +61,17 @@ export async function getClienteDetalle(req, res) {
   const empresaId = await getEmpresaId(req.user.id);
   const { id } = req.params;
 
-  // Hacemos JOIN con datos fiscales
+  // Hacemos JOIN con datos fiscales y comprobamos tarifas
   const r = await sql`
     select c.*,
            f.razon_social, f.nif_cif, f.tipo_fiscal,
            f.pais, f.provincia, f.municipio, f.codigo_postal, f.direccion_fiscal,
            f.email_factura, f.telefono_factura, f.persona_contacto,
-           f.iva_defecto, f.exento_iva, f.forma_pago, f.iban
+           f.iva_defecto, f.exento_iva, f.forma_pago, f.iban,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'hora' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_hora,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'dia' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_dia,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'mes' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_mes,
+           exists(select 1 from client_tariffs_180 t where t.cliente_id = c.id and t.tipo = 'trabajo' and t.activo = true and t.fecha_inicio <= current_date and (t.fecha_fin is null or t.fecha_fin >= current_date)) as tiene_tarifa_trabajo
     from clients_180 c
     left join client_fiscal_data_180 f on f.cliente_id = c.id
     where c.id=${id}
@@ -289,7 +298,7 @@ export async function actualizarCliente(req, res) {
   const { id } = req.params;
 
   const body = req.body;
-  
+
   // DEBUG: Log incoming request
   console.log(`[actualizarCliente] Incoming request body:`, {
     nombre: body.nombre,
@@ -360,7 +369,7 @@ export async function actualizarCliente(req, res) {
     // Agregar a fieldsGeneral si está en allowedGeneral
     if (allowedGeneral.includes(k)) {
       fieldsGeneral[k] = val;
-      
+
       // Si este campo tiene sincronización, agregarlo a fieldsFiscal con el nombre correcto
       if (syncMap[k]) {
         const syncedFieldName = syncMap[k];
@@ -370,11 +379,11 @@ export async function actualizarCliente(req, res) {
         }
       }
     }
-    
+
     // Agregar a fieldsFiscal si está en allowedFiscal
     if (allowedFiscal.includes(k)) {
       fieldsFiscal[k] = val;
-      
+
       // Si este campo tiene sincronización, agregarlo a fieldsGeneral con el nombre correcto
       if (syncMap[k]) {
         const syncedFieldName = syncMap[k];
@@ -486,7 +495,7 @@ export async function actualizarCliente(req, res) {
 
   // Respuesta final: siempre devolvemos el cliente actualizado
   // Si no hubo update en general pero sí en fiscal, traemos el cliente desde BD
-  const clienteActualizado = clientUpdated || 
+  const clienteActualizado = clientUpdated ||
     (await sql`
       select c.*,
              f.razon_social, f.nif_cif, f.tipo_fiscal,
