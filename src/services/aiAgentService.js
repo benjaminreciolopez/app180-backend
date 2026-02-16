@@ -442,6 +442,200 @@ const TOOLS = [
       }
     }
   },
+
+  // ===== NUEVOS SKILLS: ANALYTICS FINANCIERO =====
+  {
+    type: "function",
+    function: {
+      name: "top_clientes",
+      description: "Ranking de los mejores clientes por facturación. Úsala cuando pregunten por los clientes más importantes o top clientes.",
+      parameters: {
+        type: "object",
+        properties: {
+          limite: { type: "number", description: "Nº de clientes a mostrar (default: 5)" },
+          periodo: { type: "string", enum: ["mes", "trimestre", "anio", "todo"], description: "Periodo a analizar (default: todo)" },
+          criterio: { type: "string", enum: ["facturado", "pendiente", "pagado"], description: "Criterio de ranking (default: facturado)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "resumen_ejecutivo",
+      description: "Dashboard completo del negocio: facturación, cobros, clientes, empleados, trabajos pendientes. Úsala cuando pregunten '¿cómo va el negocio?' o quieran un resumen general.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_deuda",
+      description: "Consulta facturas vencidas y clientes morosos. Úsala cuando pregunten '¿quién me debe?' o sobre impagos.",
+      parameters: {
+        type: "object",
+        properties: {
+          dias_vencido: { type: "number", description: "Días de antigüedad mínima (default: 30)" },
+          cliente_id: { type: "string", description: "Filtrar por cliente específico" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_pagos",
+      description: "Lista pagos/cobros registrados. Úsala cuando pregunten por pagos recibidos.",
+      parameters: {
+        type: "object",
+        properties: {
+          cliente_id: { type: "string", description: "Filtrar por cliente" },
+          fecha_desde: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_hasta: { type: "string", description: "Fecha fin YYYY-MM-DD" },
+          limite: { type: "number", description: "Máximo de pagos (default: 20)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "comparar_periodos",
+      description: "Compara facturación entre dos meses. Úsala cuando pregunten 'este mes vs anterior' o comparativas.",
+      parameters: {
+        type: "object",
+        properties: {
+          periodo_a: { type: "string", description: "Primer periodo YYYY-MM" },
+          periodo_b: { type: "string", description: "Segundo periodo YYYY-MM" }
+        },
+        required: ["periodo_a", "periodo_b"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "tendencia_facturacion",
+      description: "Evolución de facturación de los últimos N meses con tendencia. Úsala para análisis de tendencias.",
+      parameters: {
+        type: "object",
+        properties: {
+          meses: { type: "number", description: "Número de meses hacia atrás (default: 6)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "clientes_en_riesgo",
+      description: "Detecta clientes con señales de impago o abandono: facturas >60 días sin pagar, sin actividad >90 días.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "alertas_negocio",
+      description: "Alertas proactivas: facturas vencidas, borradores antiguos, trabajos sin facturar, ausencias próximas. Úsala cuando pregunten '¿algún problema?' o '¿qué tengo pendiente?'.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+
+  // ===== NUEVOS SKILLS: RRHH/JORNADAS =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_fichajes",
+      description: "Consulta fichajes (entradas/salidas) de empleados. Úsala cuando pregunten sobre horas fichadas o asistencia.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado" },
+          fecha_inicio: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin YYYY-MM-DD" }
+        },
+        required: ["fecha_inicio", "fecha_fin"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "resumen_horas_empleado",
+      description: "Resumen de horas trabajadas por empleado en un periodo. Si no se indica empleado, muestra ranking de todo el equipo.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado (opcional, todos si vacío)" },
+          fecha_inicio: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin YYYY-MM-DD" }
+        },
+        required: ["fecha_inicio", "fecha_fin"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_ausencias_resumen",
+      description: "Resumen de ausencias por tipo: vacaciones usadas, bajas médicas, permisos. Para saber el saldo de vacaciones.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado (opcional, todos si vacío)" },
+          anio: { type: "number", description: "Año a consultar (default: actual)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "productividad_empleado",
+      description: "Productividad: horas trabajadas, valor generado, clientes atendidos, ratio valor/hora.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado (opcional, todos si vacío)" },
+          fecha_inicio: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin YYYY-MM-DD" }
+        },
+        required: ["fecha_inicio", "fecha_fin"]
+      }
+    }
+  },
+
+  // ===== NUEVOS SKILLS: AUTOMATIZACIÓN =====
+  {
+    type: "function",
+    function: {
+      name: "facturar_trabajos_pendientes",
+      description: "Crea una factura borrador con todos los trabajos pendientes de un cliente. ACCION que modifica datos.",
+      parameters: {
+        type: "object",
+        properties: {
+          cliente_id: { type: "string", description: "ID del cliente" },
+          iva: { type: "number", description: "Porcentaje de IVA (default: 21)" }
+        },
+        required: ["cliente_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "cierre_mensual",
+      description: "Resumen completo de cierre de mes: facturado, cobrado, pendiente, horas equipo, trabajos sin facturar, borradores.",
+      parameters: {
+        type: "object",
+        properties: {
+          mes: { type: "number", description: "Mes (1-12)" },
+          anio: { type: "number", description: "Año" }
+        }
+      }
+    }
+  },
 ];
 
 // ============================
@@ -496,6 +690,23 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       case "crear_trabajo": return await crearTrabajo(args, empresaId);
       // Ausencias
       case "crear_ausencia": return await crearAusencia(args, empresaId);
+      // Nuevos skills: Analytics financiero
+      case "top_clientes": return await topClientes(args, empresaId);
+      case "resumen_ejecutivo": return await resumenEjecutivo(args, empresaId);
+      case "consultar_deuda": return await consultarDeuda(args, empresaId);
+      case "consultar_pagos": return await consultarPagos(args, empresaId);
+      case "comparar_periodos": return await compararPeriodos(args, empresaId);
+      case "tendencia_facturacion": return await tendenciaFacturacion(args, empresaId);
+      case "clientes_en_riesgo": return await clientesEnRiesgo(args, empresaId);
+      case "alertas_negocio": return await alertasNegocio(args, empresaId);
+      // Nuevos skills: RRHH
+      case "consultar_fichajes": return await consultarFichajes(args, empresaId);
+      case "resumen_horas_empleado": return await resumenHorasEmpleado(args, empresaId);
+      case "consultar_ausencias_resumen": return await consultarAusenciasResumen(args, empresaId);
+      case "productividad_empleado": return await productividadEmpleado(args, empresaId);
+      // Nuevos skills: Automatización
+      case "facturar_trabajos_pendientes": return await facturarTrabajosPendientes(args, empresaId);
+      case "cierre_mensual": return await cierreMensual(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -1034,6 +1245,530 @@ async function crearAusencia({ empleado_id, tipo, fecha_inicio, fecha_fin, motiv
 }
 
 // ============================
+// NUEVOS SKILLS: ANALYTICS FINANCIERO
+// ============================
+
+async function topClientes({ limite = 5, periodo = "todo", criterio = "facturado" }, empresaId) {
+  const now = new Date();
+  let dateFilter = sql``;
+  if (periodo === "mes") {
+    dateFilter = sql`AND EXTRACT(MONTH FROM f.fecha) = ${now.getMonth() + 1} AND EXTRACT(YEAR FROM f.fecha) = ${now.getFullYear()}`;
+  } else if (periodo === "trimestre") {
+    const trimStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    dateFilter = sql`AND f.fecha >= ${trimStart.toISOString().split('T')[0]}`;
+  } else if (periodo === "anio") {
+    dateFilter = sql`AND EXTRACT(YEAR FROM f.fecha) = ${now.getFullYear()}`;
+  }
+
+  const orderCol = criterio === "pendiente" ? "total_pendiente" : criterio === "pagado" ? "total_cobrado" : "total_facturado";
+
+  const rows = await sql`
+    SELECT c.id, c.nombre,
+      COALESCE(SUM(f.total), 0) as total_facturado,
+      COALESCE(SUM(f.pagado), 0) as total_cobrado,
+      COALESCE(SUM(f.total - COALESCE(f.pagado, 0)), 0) as total_pendiente,
+      COUNT(f.id) as num_facturas
+    FROM clients_180 c
+    LEFT JOIN factura_180 f ON f.cliente_id = c.id AND f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA' ${dateFilter}
+    WHERE c.empresa_id = ${empresaId} AND c.activo = true
+    GROUP BY c.id, c.nombre
+    HAVING COALESCE(SUM(f.total), 0) > 0
+    ORDER BY ${sql(orderCol)} DESC
+    LIMIT ${limite}
+  `;
+
+  return {
+    periodo, criterio, total_clientes: rows.length,
+    ranking: rows.map((r, i) => ({
+      posicion: i + 1, nombre: r.nombre, total_facturado: Number(r.total_facturado),
+      total_cobrado: Number(r.total_cobrado), total_pendiente: Number(r.total_pendiente),
+      num_facturas: Number(r.num_facturas)
+    }))
+  };
+}
+
+async function resumenEjecutivo(_args, empresaId) {
+  const now = new Date();
+  const mesActual = now.getMonth() + 1;
+  const anioActual = now.getFullYear();
+
+  const [stats] = await sql`
+    SELECT
+      COALESCE(SUM(CASE WHEN estado = 'VALIDADA' THEN total ELSE 0 END), 0) as total_facturado,
+      COALESCE(SUM(CASE WHEN estado = 'VALIDADA' THEN COALESCE(pagado, 0) ELSE 0 END), 0) as total_cobrado,
+      COALESCE(SUM(CASE WHEN estado = 'VALIDADA' THEN total - COALESCE(pagado, 0) ELSE 0 END), 0) as total_pendiente,
+      COUNT(CASE WHEN estado = 'VALIDADA' THEN 1 END) as facturas_validadas,
+      COUNT(CASE WHEN estado = 'BORRADOR' THEN 1 END) as facturas_borrador
+    FROM factura_180
+    WHERE empresa_id = ${empresaId}
+      AND EXTRACT(MONTH FROM fecha) = ${mesActual} AND EXTRACT(YEAR FROM fecha) = ${anioActual}
+  `;
+
+  const [clientes] = await sql`SELECT COUNT(*) as total FROM clients_180 WHERE empresa_id = ${empresaId} AND activo = true`;
+  const [empleados] = await sql`SELECT COUNT(*) as total FROM employees_180 WHERE empresa_id = ${empresaId} AND activo = true`;
+  const [trabajosPend] = await sql`SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL`;
+
+  const [vencidas] = await sql`
+    SELECT COUNT(*) as total, COALESCE(SUM(total - COALESCE(pagado, 0)), 0) as importe
+    FROM factura_180 WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+      AND COALESCE(estado_pago, 'pendiente') != 'pagado' AND fecha < NOW() - INTERVAL '30 days'
+  `;
+
+  return {
+    periodo: `${mesActual}/${anioActual}`,
+    facturacion: {
+      total_facturado: Number(stats.total_facturado), total_cobrado: Number(stats.total_cobrado),
+      total_pendiente: Number(stats.total_pendiente), facturas_validadas: Number(stats.facturas_validadas),
+      facturas_borrador: Number(stats.facturas_borrador)
+    },
+    empresa: { clientes_activos: Number(clientes.total), empleados_activos: Number(empleados.total) },
+    pendientes: {
+      trabajos_sin_facturar: Number(trabajosPend.total), valor_sin_facturar: Number(trabajosPend.valor),
+      facturas_vencidas: Number(vencidas.total), importe_vencido: Number(vencidas.importe)
+    }
+  };
+}
+
+async function consultarDeuda({ dias_vencido = 30, cliente_id }, empresaId) {
+  let query = sql`
+    SELECT f.id, f.numero, f.fecha, f.total, COALESCE(f.pagado, 0) as pagado,
+      f.total - COALESCE(f.pagado, 0) as saldo, c.nombre as cliente_nombre, c.email,
+      EXTRACT(DAY FROM NOW() - f.fecha)::int as dias_antiguedad
+    FROM factura_180 f
+    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+    WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
+      AND COALESCE(f.estado_pago, 'pendiente') != 'pagado'
+      AND f.fecha < NOW() - INTERVAL '1 day' * ${dias_vencido}
+  `;
+  if (cliente_id) query = sql`${query} AND f.cliente_id = ${cliente_id}`;
+  query = sql`${query} ORDER BY f.fecha ASC LIMIT 30`;
+
+  const deudas = await query;
+  const totalDeuda = deudas.reduce((sum, d) => sum + Number(d.saldo), 0);
+
+  return {
+    total_facturas_vencidas: deudas.length, total_deuda: totalDeuda,
+    dias_minimo: dias_vencido,
+    deudas: deudas.map(d => ({
+      factura: d.numero || `Borrador #${d.id}`, fecha: d.fecha, cliente: d.cliente_nombre,
+      total: Number(d.total), pagado: Number(d.pagado), saldo: Number(d.saldo),
+      dias_antiguedad: d.dias_antiguedad
+    }))
+  };
+}
+
+async function consultarPagos({ cliente_id, fecha_desde, fecha_hasta, limite = 20 }, empresaId) {
+  let query = sql`
+    SELECT p.id, p.importe, p.metodo, p.fecha_pago, p.referencia, c.nombre as cliente_nombre
+    FROM payments_180 p
+    LEFT JOIN clients_180 c ON p.cliente_id = c.id
+    WHERE p.empresa_id = ${empresaId}
+  `;
+  if (cliente_id) query = sql`${query} AND p.cliente_id = ${cliente_id}`;
+  if (fecha_desde) query = sql`${query} AND p.fecha_pago >= ${fecha_desde}`;
+  if (fecha_hasta) query = sql`${query} AND p.fecha_pago <= ${fecha_hasta}`;
+  query = sql`${query} ORDER BY p.fecha_pago DESC LIMIT ${limite}`;
+
+  const pagos = await query;
+  const totalImporte = pagos.reduce((sum, p) => sum + Number(p.importe), 0);
+
+  return {
+    total_pagos: pagos.length, total_importe: totalImporte,
+    pagos: pagos.map(p => ({
+      id: p.id, cliente: p.cliente_nombre, importe: Number(p.importe),
+      metodo: p.metodo, fecha: p.fecha_pago, referencia: p.referencia
+    }))
+  };
+}
+
+async function compararPeriodos({ periodo_a, periodo_b }, empresaId) {
+  async function getStats(periodo) {
+    const [anio, mes] = periodo.split('-').map(Number);
+    const [s] = await sql`
+      SELECT COUNT(*) as num_facturas,
+        COALESCE(SUM(total), 0) as facturado,
+        COALESCE(SUM(COALESCE(pagado, 0)), 0) as cobrado,
+        COALESCE(SUM(total - COALESCE(pagado, 0)), 0) as pendiente
+      FROM factura_180
+      WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+        AND EXTRACT(MONTH FROM fecha) = ${mes} AND EXTRACT(YEAR FROM fecha) = ${anio}
+    `;
+    return { periodo, num_facturas: Number(s.num_facturas), facturado: Number(s.facturado), cobrado: Number(s.cobrado), pendiente: Number(s.pendiente) };
+  }
+
+  const a = await getStats(periodo_a);
+  const b = await getStats(periodo_b);
+  const variacion = a.facturado > 0 ? ((b.facturado - a.facturado) / a.facturado * 100) : (b.facturado > 0 ? 100 : 0);
+
+  return {
+    periodo_a: a, periodo_b: b,
+    variacion_facturado_pct: Math.round(variacion * 10) / 10,
+    variacion_cobrado_pct: a.cobrado > 0 ? Math.round((b.cobrado - a.cobrado) / a.cobrado * 1000) / 10 : 0
+  };
+}
+
+async function tendenciaFacturacion({ meses = 6 }, empresaId) {
+  const rows = await sql`
+    SELECT TO_CHAR(fecha, 'YYYY-MM') as mes,
+      COUNT(*) as num_facturas,
+      COALESCE(SUM(total), 0) as facturado,
+      COALESCE(SUM(COALESCE(pagado, 0)), 0) as cobrado,
+      COALESCE(SUM(total - COALESCE(pagado, 0)), 0) as pendiente
+    FROM factura_180
+    WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+      AND fecha >= NOW() - INTERVAL '1 month' * ${meses}
+    GROUP BY TO_CHAR(fecha, 'YYYY-MM')
+    ORDER BY mes ASC
+  `;
+
+  const tendencia = rows.map(r => ({
+    mes: r.mes, num_facturas: Number(r.num_facturas),
+    facturado: Number(r.facturado), cobrado: Number(r.cobrado), pendiente: Number(r.pendiente)
+  }));
+
+  // Calculate trend
+  let tendenciaTexto = "estable";
+  if (tendencia.length >= 2) {
+    const ultimosMeses = tendencia.slice(-3);
+    const primerMes = ultimosMeses[0]?.facturado || 0;
+    const ultimoMes = ultimosMeses[ultimosMeses.length - 1]?.facturado || 0;
+    if (primerMes > 0) {
+      const cambio = ((ultimoMes - primerMes) / primerMes) * 100;
+      tendenciaTexto = cambio > 10 ? "creciente" : cambio < -10 ? "decreciente" : "estable";
+    }
+  }
+
+  return { meses_analizados: meses, tendencia: tendenciaTexto, datos: tendencia };
+}
+
+async function clientesEnRiesgo(_args, empresaId) {
+  // Clients with invoices >60 days unpaid
+  const morosos = await sql`
+    SELECT c.id, c.nombre,
+      COUNT(f.id) as facturas_pendientes,
+      COALESCE(SUM(f.total - COALESCE(f.pagado, 0)), 0) as deuda_total,
+      MIN(f.fecha) as factura_mas_antigua
+    FROM clients_180 c
+    JOIN factura_180 f ON f.cliente_id = c.id AND f.empresa_id = ${empresaId}
+    WHERE c.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
+      AND COALESCE(f.estado_pago, 'pendiente') != 'pagado'
+      AND f.fecha < NOW() - INTERVAL '60 days'
+    GROUP BY c.id, c.nombre
+    ORDER BY deuda_total DESC LIMIT 10
+  `;
+
+  // Clients with no activity in 90 days
+  const inactivos = await sql`
+    SELECT c.id, c.nombre,
+      MAX(COALESCE(f.fecha, w.fecha)) as ultima_actividad
+    FROM clients_180 c
+    LEFT JOIN factura_180 f ON f.cliente_id = c.id AND f.empresa_id = ${empresaId}
+    LEFT JOIN work_logs_180 w ON w.cliente_id = c.id AND w.empresa_id = ${empresaId}
+    WHERE c.empresa_id = ${empresaId} AND c.activo = true
+    GROUP BY c.id, c.nombre
+    HAVING MAX(COALESCE(f.fecha, w.fecha)) < NOW() - INTERVAL '90 days'
+       OR MAX(COALESCE(f.fecha, w.fecha)) IS NULL
+    ORDER BY ultima_actividad ASC NULLS FIRST
+    LIMIT 10
+  `;
+
+  return {
+    morosos: morosos.map(m => ({
+      nombre: m.nombre, facturas_pendientes: Number(m.facturas_pendientes),
+      deuda_total: Number(m.deuda_total), factura_mas_antigua: m.factura_mas_antigua
+    })),
+    inactivos: inactivos.map(i => ({ nombre: i.nombre, ultima_actividad: i.ultima_actividad })),
+    total_en_riesgo: morosos.length + inactivos.length
+  };
+}
+
+async function alertasNegocio(_args, empresaId) {
+  const alertas = [];
+
+  // Facturas vencidas >30 días
+  const [vencidas] = await sql`
+    SELECT COUNT(*) as total, COALESCE(SUM(total - COALESCE(pagado, 0)), 0) as importe
+    FROM factura_180 WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+      AND COALESCE(estado_pago, 'pendiente') != 'pagado'
+      AND fecha < NOW() - INTERVAL '30 days'
+  `;
+  if (Number(vencidas.total) > 0) {
+    alertas.push({ tipo: "urgente", icono: "🔴", mensaje: `${vencidas.total} facturas vencidas (>30 días) por ${Number(vencidas.importe).toFixed(2)} €` });
+  }
+
+  // Borradores sin validar >7 días
+  const [borradores] = await sql`
+    SELECT COUNT(*) as total
+    FROM factura_180 WHERE empresa_id = ${empresaId} AND estado = 'BORRADOR'
+      AND created_at < NOW() - INTERVAL '7 days'
+  `;
+  if (Number(borradores.total) > 0) {
+    alertas.push({ tipo: "aviso", icono: "🟡", mensaje: `${borradores.total} borradores sin validar (>7 días)` });
+  }
+
+  // Trabajos sin facturar >15 días
+  const [trabajos] = await sql`
+    SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor
+    FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL
+      AND fecha < NOW() - INTERVAL '15 days'
+  `;
+  if (Number(trabajos.total) > 0) {
+    alertas.push({ tipo: "aviso", icono: "🟡", mensaje: `${trabajos.total} trabajos sin facturar (>15 días) por ${Number(trabajos.valor).toFixed(2)} €` });
+  }
+
+  // Ausencias próximas (7 días)
+  const ausencias = await sql`
+    SELECT a.tipo, a.fecha_inicio, e.nombre
+    FROM ausencias_180 a JOIN employees_180 e ON a.empleado_id = e.id
+    WHERE a.empresa_id = ${empresaId} AND a.estado = 'aprobada'
+      AND a.fecha_inicio BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+    ORDER BY a.fecha_inicio ASC LIMIT 5
+  `;
+  for (const a of ausencias) {
+    alertas.push({ tipo: "info", icono: "📅", mensaje: `${a.nombre}: ${a.tipo} desde ${a.fecha_inicio}` });
+  }
+
+  if (alertas.length === 0) {
+    alertas.push({ tipo: "ok", icono: "✅", mensaje: "Todo en orden. No hay alertas pendientes." });
+  }
+
+  return { total_alertas: alertas.length, alertas };
+}
+
+// ============================
+// NUEVOS SKILLS: RRHH
+// ============================
+
+async function consultarFichajes({ empleado_id, fecha_inicio, fecha_fin }, empresaId) {
+  let query = sql`
+    SELECT f.id, f.tipo, f.fecha, f.created_at as hora, e.nombre as empleado_nombre, f.sospechoso
+    FROM fichajes_180 f
+    JOIN employees_180 e ON f.empleado_id = e.id
+    WHERE f.empresa_id = ${empresaId} AND f.fecha >= ${fecha_inicio} AND f.fecha <= ${fecha_fin}
+  `;
+  if (empleado_id) query = sql`${query} AND f.empleado_id = ${empleado_id}`;
+  query = sql`${query} ORDER BY f.fecha ASC, f.created_at ASC LIMIT 100`;
+
+  const fichajes = await query;
+  const sospechosos = fichajes.filter(f => f.sospechoso).length;
+
+  return {
+    total: fichajes.length, sospechosos,
+    fichajes: fichajes.map(f => ({
+      empleado: f.empleado_nombre, tipo: f.tipo, fecha: f.fecha,
+      hora: new Date(f.hora).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+      sospechoso: f.sospechoso || false
+    }))
+  };
+}
+
+async function resumenHorasEmpleado({ empleado_id, fecha_inicio, fecha_fin }, empresaId) {
+  let query = sql`
+    SELECT e.id, e.nombre,
+      COUNT(j.id) as dias_trabajados,
+      COALESCE(SUM(j.minutos_trabajados), 0) as minutos_totales,
+      COALESCE(SUM(j.minutos_extra), 0) as minutos_extra,
+      COALESCE(SUM(j.minutos_descanso), 0) as minutos_descanso
+    FROM employees_180 e
+    LEFT JOIN jornadas_180 j ON j.empleado_id = e.id AND j.empresa_id = ${empresaId}
+      AND j.fecha >= ${fecha_inicio} AND j.fecha <= ${fecha_fin}
+    WHERE e.empresa_id = ${empresaId} AND e.activo = true
+  `;
+  if (empleado_id) query = sql`${query} AND e.id = ${empleado_id}`;
+  query = sql`${query} GROUP BY e.id, e.nombre ORDER BY minutos_totales DESC`;
+
+  const rows = await query;
+  return {
+    periodo: { desde: fecha_inicio, hasta: fecha_fin },
+    empleados: rows.map(r => ({
+      nombre: r.nombre,
+      dias_trabajados: Number(r.dias_trabajados),
+      horas_trabajadas: Math.round(Number(r.minutos_totales) / 60 * 10) / 10,
+      horas_extra: Math.round(Number(r.minutos_extra) / 60 * 10) / 10,
+      horas_descanso: Math.round(Number(r.minutos_descanso) / 60 * 10) / 10,
+      promedio_diario: Number(r.dias_trabajados) > 0
+        ? Math.round(Number(r.minutos_totales) / Number(r.dias_trabajados) / 60 * 10) / 10
+        : 0
+    }))
+  };
+}
+
+async function consultarAusenciasResumen({ empleado_id, anio }, empresaId) {
+  const year = anio || new Date().getFullYear();
+  let query = sql`
+    SELECT e.nombre,
+      COUNT(CASE WHEN a.tipo = 'vacaciones' THEN 1 END) as vacaciones,
+      COUNT(CASE WHEN a.tipo = 'baja_medica' THEN 1 END) as bajas_medicas,
+      COUNT(CASE WHEN a.tipo = 'asuntos_propios' THEN 1 END) as asuntos_propios,
+      COUNT(CASE WHEN a.tipo = 'permiso' THEN 1 END) as permisos,
+      SUM(CASE WHEN a.tipo = 'vacaciones' THEN (a.fecha_fin - a.fecha_inicio + 1) ELSE 0 END) as dias_vacaciones_usados
+    FROM employees_180 e
+    LEFT JOIN ausencias_180 a ON a.empleado_id = e.id AND a.empresa_id = ${empresaId}
+      AND EXTRACT(YEAR FROM a.fecha_inicio) = ${year} AND a.estado = 'aprobada'
+    WHERE e.empresa_id = ${empresaId} AND e.activo = true
+  `;
+  if (empleado_id) query = sql`${query} AND e.id = ${empleado_id}`;
+  query = sql`${query} GROUP BY e.id, e.nombre ORDER BY e.nombre ASC`;
+
+  const rows = await query;
+  return {
+    anio: year,
+    empleados: rows.map(r => ({
+      nombre: r.nombre,
+      vacaciones: Number(r.vacaciones), dias_vacaciones_usados: Number(r.dias_vacaciones_usados),
+      bajas_medicas: Number(r.bajas_medicas), asuntos_propios: Number(r.asuntos_propios),
+      permisos: Number(r.permisos)
+    }))
+  };
+}
+
+async function productividadEmpleado({ empleado_id, fecha_inicio, fecha_fin }, empresaId) {
+  let query = sql`
+    SELECT e.id, e.nombre,
+      COALESCE(SUM(j.minutos_trabajados), 0) as minutos_trabajados,
+      (SELECT COALESCE(SUM(w.valor), 0) FROM work_logs_180 w WHERE w.empresa_id = ${empresaId} AND w.employee_id = e.id AND w.fecha >= ${fecha_inicio} AND w.fecha <= ${fecha_fin}) as valor_generado,
+      (SELECT COUNT(DISTINCT w.cliente_id) FROM work_logs_180 w WHERE w.empresa_id = ${empresaId} AND w.employee_id = e.id AND w.fecha >= ${fecha_inicio} AND w.fecha <= ${fecha_fin}) as clientes_atendidos,
+      (SELECT COUNT(*) FROM work_logs_180 w WHERE w.empresa_id = ${empresaId} AND w.employee_id = e.id AND w.fecha >= ${fecha_inicio} AND w.fecha <= ${fecha_fin}) as trabajos_completados
+    FROM employees_180 e
+    LEFT JOIN jornadas_180 j ON j.empleado_id = e.id AND j.empresa_id = ${empresaId}
+      AND j.fecha >= ${fecha_inicio} AND j.fecha <= ${fecha_fin}
+    WHERE e.empresa_id = ${empresaId} AND e.activo = true
+  `;
+  if (empleado_id) query = sql`${query} AND e.id = ${empleado_id}`;
+  query = sql`${query} GROUP BY e.id, e.nombre ORDER BY valor_generado DESC`;
+
+  const rows = await query;
+  return {
+    periodo: { desde: fecha_inicio, hasta: fecha_fin },
+    empleados: rows.map(r => {
+      const horas = Number(r.minutos_trabajados) / 60;
+      const valor = Number(r.valor_generado);
+      return {
+        nombre: r.nombre, horas_trabajadas: Math.round(horas * 10) / 10,
+        valor_generado: valor, clientes_atendidos: Number(r.clientes_atendidos),
+        trabajos_completados: Number(r.trabajos_completados),
+        valor_por_hora: horas > 0 ? Math.round(valor / horas * 100) / 100 : 0
+      };
+    })
+  };
+}
+
+// ============================
+// NUEVOS SKILLS: AUTOMATIZACIÓN
+// ============================
+
+async function facturarTrabajosPendientes({ cliente_id, iva = 21 }, empresaId) {
+  const [cliente] = await sql`SELECT id, nombre FROM clients_180 WHERE id = ${cliente_id} AND empresa_id = ${empresaId}`;
+  if (!cliente) return { error: "Cliente no encontrado" };
+
+  const trabajos = await sql`
+    SELECT id, descripcion, fecha, minutos, valor
+    FROM work_logs_180
+    WHERE empresa_id = ${empresaId} AND cliente_id = ${cliente_id} AND factura_id IS NULL
+    ORDER BY fecha ASC
+  `;
+
+  if (trabajos.length === 0) return { mensaje: `No hay trabajos pendientes de facturar para ${cliente.nombre}.` };
+
+  let createdId;
+  let total;
+  await sql.begin(async (tx) => {
+    let subtotal = 0;
+    let iva_total = 0;
+
+    const [factura] = await tx`
+      INSERT INTO factura_180 (empresa_id, cliente_id, fecha, estado, iva_global, subtotal, iva_total, total, created_at)
+      VALUES (${empresaId}, ${cliente_id}, ${new Date().toISOString().split('T')[0]}::date, 'BORRADOR', ${iva}, 0, 0, 0, now())
+      RETURNING id
+    `;
+    createdId = factura.id;
+
+    for (const t of trabajos) {
+      const desc = t.descripcion || "Trabajo";
+      const valor = Number(t.valor || 0);
+      const base = valor > 0 ? valor : (Number(t.minutos || 0) / 60);
+      const importe_iva = base * iva / 100;
+      subtotal += base;
+      iva_total += importe_iva;
+
+      await tx`
+        INSERT INTO lineafactura_180 (factura_id, descripcion, cantidad, precio_unitario, total, iva_percent)
+        VALUES (${factura.id}, ${`${desc} (${t.fecha})`}, 1, ${base}, ${base + importe_iva}, ${iva})
+      `;
+
+      await tx`UPDATE work_logs_180 SET factura_id = ${factura.id} WHERE id = ${t.id} AND empresa_id = ${empresaId}`;
+    }
+
+    total = Math.round((subtotal + iva_total) * 100) / 100;
+    await tx`
+      UPDATE factura_180 SET subtotal = ${Math.round(subtotal * 100) / 100},
+        iva_total = ${Math.round(iva_total * 100) / 100}, total = ${total}
+      WHERE id = ${factura.id}
+    `;
+  });
+
+  return {
+    success: true,
+    mensaje: `Factura borrador creada para ${cliente.nombre} con ${trabajos.length} trabajos. Total: ${total.toFixed(2)} € (IVA ${iva}%). ID: ${createdId}`,
+    factura: { id: createdId, cliente: cliente.nombre, trabajos: trabajos.length, total, estado: "BORRADOR" }
+  };
+}
+
+async function cierreMensual({ mes, anio }, empresaId) {
+  const now = new Date();
+  const m = mes || (now.getMonth() + 1);
+  const a = anio || now.getFullYear();
+
+  const [facturacion] = await sql`
+    SELECT
+      COUNT(CASE WHEN estado = 'VALIDADA' THEN 1 END) as validadas,
+      COUNT(CASE WHEN estado = 'BORRADOR' THEN 1 END) as borradores,
+      COALESCE(SUM(CASE WHEN estado = 'VALIDADA' THEN total ELSE 0 END), 0) as facturado,
+      COALESCE(SUM(CASE WHEN estado = 'VALIDADA' THEN COALESCE(pagado, 0) ELSE 0 END), 0) as cobrado,
+      COALESCE(SUM(CASE WHEN estado = 'VALIDADA' THEN total - COALESCE(pagado, 0) ELSE 0 END), 0) as pendiente
+    FROM factura_180 WHERE empresa_id = ${empresaId}
+      AND EXTRACT(MONTH FROM fecha) = ${m} AND EXTRACT(YEAR FROM fecha) = ${a}
+  `;
+
+  const [horas] = await sql`
+    SELECT COALESCE(SUM(minutos_trabajados), 0) as minutos, COUNT(DISTINCT empleado_id) as empleados
+    FROM jornadas_180 WHERE empresa_id = ${empresaId}
+      AND EXTRACT(MONTH FROM fecha) = ${m} AND EXTRACT(YEAR FROM fecha) = ${a}
+  `;
+
+  const [trabajosPend] = await sql`
+    SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor
+    FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL
+      AND EXTRACT(MONTH FROM fecha) = ${m} AND EXTRACT(YEAR FROM fecha) = ${a}
+  `;
+
+  const [nuevosClientes] = await sql`
+    SELECT COUNT(*) as total FROM clients_180
+    WHERE empresa_id = ${empresaId}
+      AND EXTRACT(MONTH FROM created_at) = ${m} AND EXTRACT(YEAR FROM created_at) = ${a}
+  `;
+
+  return {
+    periodo: `${String(m).padStart(2, '0')}/${a}`,
+    facturacion: {
+      facturas_validadas: Number(facturacion.validadas), facturas_borrador: Number(facturacion.borradores),
+      total_facturado: Number(facturacion.facturado), total_cobrado: Number(facturacion.cobrado),
+      total_pendiente: Number(facturacion.pendiente),
+      ratio_cobro: Number(facturacion.facturado) > 0 ? Math.round(Number(facturacion.cobrado) / Number(facturacion.facturado) * 100) : 0
+    },
+    equipo: {
+      empleados_activos: Number(horas.empleados),
+      horas_trabajadas: Math.round(Number(horas.minutos) / 60 * 10) / 10
+    },
+    pendientes: {
+      trabajos_sin_facturar: Number(trabajosPend.total),
+      valor_sin_facturar: Number(trabajosPend.valor)
+    },
+    crecimiento: { nuevos_clientes: Number(nuevosClientes.total) }
+  };
+}
+
+// ============================
 // MEMORIA
 // ============================
 
@@ -1073,35 +1808,64 @@ TU PERSONALIDAD:
 - Si te dan las gracias o se despiden, responde con amabilidad.
 
 SOBRE APP180 (lo que puedes hacer):
-- Consultar facturas (validadas, borradores, anuladas) y su estado de cobro
-- Ver empleados y clientes registrados
-- Estadísticas de facturación por mes
-- Trabajos pendientes de facturar
-- Consultar el calendario de la empresa (festivos, cierres)
-- Consultar ausencias de empleados
-- Buscar en la base de conocimiento de la empresa
-- Crear facturas en borrador, actualizar y validar facturas
+
+📊 CONSULTAS:
+- Facturas: estado, cobro, listados, estadísticas mensuales
+- Clientes: listados, ranking top clientes, clientes en riesgo
+- Empleados: listados, fichajes, horas trabajadas, productividad
+- Pagos: listado de cobros recibidos
+- Deuda: facturas vencidas y morosos
+- Ausencias: consulta y resumen por empleado
+- Calendario: festivos, cierres, eventos
+- Conocimiento: procedimientos y FAQ de la empresa
+
+📈 ANÁLISIS:
+- Resumen ejecutivo del negocio
+- Comparar periodos (mes vs mes)
+- Tendencia de facturación
+- Clientes en riesgo de impago
+- Alertas proactivas de problemas
+- Cierre mensual completo
+- Productividad por empleado
+
+✏️ ACCIONES:
+- Crear facturas, validar, anular, enviar por email
 - Crear y gestionar clientes
 - Registrar pagos/cobros
 - Registrar trabajos (work logs)
-- Crear ausencias para empleados
-- Crear y eliminar eventos del calendario
+- Crear ausencias (vacaciones, bajas)
+- Crear/eliminar eventos del calendario
+- Facturar automáticamente todos los trabajos pendientes de un cliente
 
-CUÁNDO USAR HERRAMIENTAS DE CONSULTA:
-- Preguntas sobre facturas → consultar_facturas o estadisticas_facturacion
-- Preguntas sobre empleados → consultar_empleados
-- Preguntas sobre clientes → consultar_clientes
-- Preguntas sobre calendario, festivos, cierres → consultar_calendario
-- Preguntas sobre ausencias, vacaciones, bajas → consultar_ausencias
-- Preguntas sobre trabajos sin facturar → trabajos_pendientes_facturar
-- Información de la empresa o procedimientos → consultar_conocimiento
+CUÁNDO USAR HERRAMIENTAS:
+- Facturas → consultar_facturas, estadisticas_facturacion
+- Top clientes → top_clientes
+- "¿Cómo va el negocio?" → resumen_ejecutivo
+- "¿Quién me debe?" → consultar_deuda
+- Pagos recibidos → consultar_pagos
+- "Este mes vs anterior" → comparar_periodos
+- Tendencias → tendencia_facturacion
+- Riesgo de impago → clientes_en_riesgo
+- "¿Algún problema?" → alertas_negocio
+- Cierre de mes → cierre_mensual
+- Fichajes/asistencia → consultar_fichajes
+- Horas trabajadas → resumen_horas_empleado
+- Productividad → productividad_empleado
+- Ausencias/vacaciones → consultar_ausencias o consultar_ausencias_resumen
+- Empleados → consultar_empleados
+- Clientes → consultar_clientes
+- Trabajos sin facturar → trabajos_pendientes_facturar
+- "Factura todo lo de X" → facturar_trabajos_pendientes
+- Calendario → consultar_calendario
+- Info empresa → consultar_conocimiento
 
 CUÁNDO USAR HERRAMIENTAS DE ESCRITURA:
-- "Crea una factura para X" → primero consultar_clientes para obtener el ID, luego crear_factura
+- "Crea una factura para X" → primero consultar_clientes, luego crear_factura
+- "Factura los trabajos de X" → facturar_trabajos_pendientes (automático)
 - "Registra un pago" → primero consultar_clientes, luego crear_pago
 - "Crea un cliente nuevo" → crear_cliente
 - "Registra un trabajo" → crear_trabajo
-- "Pon vacaciones a X" → primero consultar_empleados para el ID, luego crear_ausencia
+- "Pon vacaciones a X" → primero consultar_empleados, luego crear_ausencia
 - "Valida la factura X" → validar_factura
 - "Anula la factura X" → anular_factura
 

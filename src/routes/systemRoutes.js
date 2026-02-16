@@ -7,6 +7,15 @@ import { sql } from "../db.js";
 
 router.get("/status", getSystemStatus);
 
+router.get("/health", async (req, res) => {
+  try {
+    const [result] = await sql`SELECT 1 as ok`;
+    res.json({ status: "ok", db: result?.ok === 1 ? "connected" : "error", timestamp: new Date().toISOString() });
+  } catch (e) {
+    res.status(503).json({ status: "error", db: "disconnected", error: e.message, timestamp: new Date().toISOString() });
+  }
+});
+
 router.get("/migrate-billing-schema", async (req, res) => {
     try {
         await sql`
