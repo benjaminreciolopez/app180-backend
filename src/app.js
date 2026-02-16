@@ -2,6 +2,8 @@
 
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import cron from "node-cron";
 import { config } from "./config.js";
 
@@ -70,6 +72,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// =========================
+// SECURITY
+// =========================
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "unsafe-none" },
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false,
+}));
+
+// Rate limiters
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas peticiones. Inténtalo de nuevo en unos minutos." },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados intentos de acceso. Espera 15 minutos." },
+});
+
+app.use(globalLimiter);
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -111,7 +142,7 @@ app.get("/auth/google/callback", handleGoogleCallback); // Email (legacy)
 app.get("/auth/google/calendar/callback", handleCalendarCallback); // Calendar (legacy)
 app.get("/auth/google/unified-callback", handleUnifiedCallback); // Unified setup (Calendar + Gmail)
 
-app.use("/auth", authRoutes);
+app.use("/auth", authLimiter, authRoutes);
 
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);
@@ -154,16 +185,42 @@ app.use("/admin", calendarSyncRoutes); // Google Calendar sync
 app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
 app.use("/admin", authRequired, adminPartesDiaRoutes);
 
-app.use((err, req, res, next) => {
+// =========================
+// GLOBAL ERROR HANDLER
+// =========================
+app.use((err, req, res, _next) => {
+  // Multer errors
   if (err?.message?.includes("Tipo de archivo no permitido")) {
     return res.status(400).json({ error: "Solo PDF, JPG o PNG" });
   }
   if (err?.code === "LIMIT_FILE_SIZE") {
-    return res
-      .status(400)
-      .json({ error: "Archivo demasiado grande (máx 10MB)" });
+    return res.status(400).json({ error: "Archivo demasiado grande (máx 10MB)" });
   }
-  return next(err);
+
+  // CORS errors
+  if (err?.message === "Not allowed by CORS") {
+    return res.status(403).json({ error: "Origen no permitido" });
+  }
+
+  // Known errors with status
+  const status = err.status || err.statusCode || 500;
+  const message = status < 500 ? err.message : "Error interno del servidor";
+
+  if (status >= 500) {
+    console.error(`[ERROR] ${req.method} ${req.url}:`, err.message || err);
+  }
+
+  res.status(status).json({ error: message });
+});
+
+// Catch unhandled rejections
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED REJECTION]", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[UNCAUGHT EXCEPTION]", err);
+  process.exit(1);
 });
 
 // =========================
