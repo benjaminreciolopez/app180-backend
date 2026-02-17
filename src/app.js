@@ -158,6 +158,8 @@ app.use("/empleado", authRequired, empleadoAdjuntosRoutes);
 app.use("/admin", authRequired, adminAdjuntosRoutes);
 app.use("/admin", adminJornadasRoutes);
 app.use("/admin", adminplantillasRoutes);
+app.use("/", adminJornadasRoutes); // Para compatibilidad con llamadas sin prefix /admin
+app.use("/", adminplantillasRoutes); // Para compatibilidad con llamadas sin prefix /admin
 app.use("/empleado", empleadoPlanDiaRoutes);
 app.use("/worklogs", workLogsRoutes);
 app.use("/admin", adminConfigRoutes); // Must be before routes with requireModule
