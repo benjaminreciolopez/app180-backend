@@ -1,6 +1,7 @@
 // backend/src/controllers/clientesController.js
 
 import { sql } from "../db.js";
+import { sendSuccess, sendError } from "../utils/responseHelpers.js";
 
 /* =========================
    Helpers
@@ -79,7 +80,7 @@ export async function getClienteDetalle(req, res) {
     limit 1
   `;
 
-  if (!r[0]) return res.status(404).json({ error: "No existe" });
+  if (!r[0]) return sendError(res, "No existe", 404);
 
   res.json(r[0]);
 }
@@ -155,7 +156,7 @@ export async function crearCliente(req, res) {
     iban
   } = req.body;
 
-  if (!nombre) return res.status(400).json({ error: "Nombre requerido" });
+  if (!nombre) return sendError(res, "Nombre requerido", 400);
 
   /* =========================
      Saneamiento de País
@@ -172,19 +173,19 @@ export async function crearCliente(req, res) {
   const modosValidos = ["hora", "dia", "mes", "trabajo", "mixto"];
 
   if (!modosValidos.includes(modo_defecto)) {
-    return res.status(400).json({ error: "Modo inválido" });
+    return sendError(res, "Modo inválido", 400);
   }
 
   if (radio_m != null && Number(radio_m) <= 0) {
-    return res.status(400).json({ error: "Radio inválido" });
+    return sendError(res, "Radio inválido", 400);
   }
 
   if (lat != null && (Number(lat) < -90 || Number(lat) > 90)) {
-    return res.status(400).json({ error: "Lat inválida" });
+    return sendError(res, "Lat inválida", 400);
   }
 
   if (lng != null && (Number(lng) < -180 || Number(lng) > 180)) {
-    return res.status(400).json({ error: "Lng inválida" });
+    return sendError(res, "Lng inválida", 400);
   }
 
   /* =========================
@@ -192,7 +193,7 @@ export async function crearCliente(req, res) {
 ========================= */
 
   if (!codigo) {
-    return res.status(400).json({ error: "Código requerido" });
+    return sendError(res, "Código requerido", 400);
   }
 
   const finalCodigo = codigo;
@@ -285,9 +286,7 @@ export async function crearCliente(req, res) {
     res.status(201).json({ ...newClient, razon_social, nif_cif });
   } catch (err) {
     console.error(err);
-    return res.status(err.message === "Código duplicado" ? 400 : 500).json({
-      error: err.message || "Error al crear cliente"
-    });
+    return sendError(res, err.message || "Error al crear cliente", err.message === "Código duplicado" ? 400 : 500);
   }
 }
 
@@ -298,14 +297,6 @@ export async function actualizarCliente(req, res) {
   const { id } = req.params;
 
   const body = req.body;
-
-  // DEBUG: Log incoming request
-  console.log(`[actualizarCliente] Incoming request body:`, {
-    nombre: body.nombre,
-    razon_social: body.razon_social,
-    nif_cif: body.nif_cif,
-    persona_contacto: body.persona_contacto,
-  });
 
   // Campos de clients_180 (SYNC: algunos también van a client_fiscal_data_180)
   const allowedGeneral = [
@@ -437,18 +428,12 @@ export async function actualizarCliente(req, res) {
       fieldsToUpdate.iva_defecto = Number(fieldsToUpdate.iva_defecto);
     }
 
-    console.log(`[actualizarCliente] fieldsFiscal (todos):`, fieldsFiscal);
-    console.log(`[actualizarCliente] fieldsToUpdate (solo con valor):`, fieldsToUpdate);
-
     if (exists[0] && Object.keys(fieldsToUpdate).length > 0) {
-      console.log(`[actualizarCliente] UPDATE client_fiscal_data_180 para cliente ${id}`);
-      console.log(`[actualizarCliente] UPDATE query con valores:`, fieldsToUpdate);
-      const updateResult = await sql`
+      await sql`
         update client_fiscal_data_180
         set ${sql(fieldsToUpdate)}
         where cliente_id=${id}
       `;
-      console.log(`[actualizarCliente] UPDATE completado. Filas afectadas:`, updateResult.count);
     } else {
       // Create if missing
       await sql`
@@ -577,9 +562,7 @@ export async function asignarClienteEmpleado(req, res) {
     const { empleado_id, cliente_id, fecha_inicio, fecha_fin } = req.body || {};
 
     if (!empleado_id || !cliente_id || !fecha_inicio) {
-      return res.status(400).json({
-        error: "empleado_id, cliente_id y fecha_inicio son obligatorios",
-      });
+      return sendError(res, "empleado_id, cliente_id y fecha_inicio son obligatorios", 400);
     }
 
     const out = await sql.begin(async (tx) => {
@@ -631,7 +614,7 @@ export async function asignarClienteEmpleado(req, res) {
     res.json(out);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || "Error al asignar cliente" });
+    sendError(res, err.message || "Error al asignar cliente");
   }
 }
 
@@ -652,7 +635,7 @@ export async function listarAsignacionesClientes(req, res) {
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Error listando clientes" });
+    sendError(res, "Error listando clientes");
   }
 }
 
@@ -662,7 +645,7 @@ export async function desasignarClienteEmpleado(req, res) {
     const { empleado_id } = req.body || {};
 
     if (!empleado_id) {
-      return res.status(400).json({ error: "empleado_id es obligatorio" });
+      return sendError(res, "empleado_id es obligatorio", 400);
     }
 
     await sql.begin(async (tx) => {
@@ -674,7 +657,7 @@ export async function desasignarClienteEmpleado(req, res) {
         limit 1
       `;
       if (!e.length) {
-        return res.status(404).json({ error: "Empleado no válido" });
+        return sendError(res, "Empleado no válido", 404);
       }
 
       // Fecha HOY desde Postgres
@@ -694,7 +677,7 @@ export async function desasignarClienteEmpleado(req, res) {
     res.json({ ok: true, message: "Asignaciones de cliente cerradas correctamente" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Error desasignando cliente" });
+    sendError(res, "Error desasignando cliente");
   }
 }
 
