@@ -230,8 +230,6 @@ export async function crearWorkLog(req, res) {
     `;
 
     // --- SINCRONIZAR PARTE DIARIO ---
-
-    // --- SINCRONIZAR PARTE DIARIO ---
     try {
       await syncDailyReport({
         empresaId,
@@ -551,22 +549,6 @@ export async function actualizarWorkLog(req, res) {
     `;
 
     // Si se pide guardar como plantilla
-    if (save_as_template) {
-      const finalDesc = updated.descripcion;
-      const finalDetalles = updated.detalles;
-
-      const existingTpl = await sql`
-        SELECT id FROM work_log_templates_180 
-        WHERE empresa_id = ${empresaId} AND descripcion = ${finalDesc}
-        LIMIT 1
-      `;
-      if (existingTpl.length === 0) {
-        await sql`
-          INSERT INTO work_log_templates_180 (empresa_id, descripcion, detalles)
-          VALUES (${empresaId}, ${finalDesc}, ${finalDetalles || null})
-        `;
-      }
-    }
 
     // --- SINCRONIZAR PARTE DIARIO ---
     try {
@@ -763,9 +745,3 @@ export async function getSuggestions(req, res) {
   }
 }
 
-/**
- * Recalcula valores monetarios si algo cambió.
- */
-export async function fixWorkLogValues(req, res) {
-  res.json({ success: true, message: "No implementado aún" });
-}
