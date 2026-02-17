@@ -66,6 +66,19 @@ export async function getDashboardData(req, res) {
     `;
 
         // ==========================================
+        // 2b. TOTAL MES ANTERIOR (Real)
+        // ==========================================
+        const [totalMesAnterior] = await sql`
+      SELECT COALESCE(SUM(total), 0) as total
+      FROM factura_180
+      WHERE ${baseConditions}
+        ${kpiStatus}
+        ${clienteFilter}
+        AND fecha >= date_trunc('month', current_date - interval '1 month')
+        AND fecha < date_trunc('month', current_date)
+    `;
+
+        // ==========================================
         // 3. EVOLUCIÓN MENSUAL (Gráfico)
         // ==========================================
         const mensualRows = await sql`
@@ -184,6 +197,7 @@ export async function getDashboardData(req, res) {
                 kpis: {
                     total_anual: facturacionActual,
                     total_anterior: facturacionAnterior,
+                    total_mes_anterior: parseFloat(totalMesAnterior.total),
                     num_facturas: parseInt(totalAnual.num_facturas),
                     variacion_percent: facturacionAnterior > 0
                         ? ((facturacionActual - facturacionAnterior) / facturacionAnterior) * 100
