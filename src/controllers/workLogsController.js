@@ -717,8 +717,8 @@ export async function getSuggestions(req, res) {
         
         UNION ALL
         
-        -- Historial de trabajos reales con work_item_nombre
-        SELECT DISTINCT ON (w.descripcion)
+        -- Historial de trabajos reales
+        SELECT 
           w.descripcion,
           w.detalles,
           'log' as origen,
@@ -727,9 +727,14 @@ export async function getSuggestions(req, res) {
         FROM work_logs_180 w
         LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
         WHERE w.empresa_id = ${empresaId}
-        ORDER BY w.descripcion, w.created_at DESC
       )
-      SELECT * FROM combined
+      SELECT DISTINCT ON (descripcion)
+        descripcion,
+        detalles,
+        origen,
+        work_item_nombre,
+        created_at
+      FROM combined
       ORDER BY descripcion, created_at DESC
       LIMIT 100
     `;
