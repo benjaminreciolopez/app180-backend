@@ -717,50 +717,87 @@ export async function deleteTemplate(req, res) {
  * Devuelve listas únicas para autocompletado inteligente.
  */
 export async function getSuggestions(req, res) {
-  try {
-    const empresaId = req.user.empresa_id;
+  /**
+   * GET /worklogs/templates
+   * Como ya no hay tabla de plantillas, devolvemos los items habituales como plantillas 
+   * para que el frontend no falle y sigan siendo útiles.
+   */
+  export async function getTemplates(req, res) {
+    try {
+      const empresaId = req.user.empresa_id;
+      const items = await sql`
+      SELECT id, nombre as descripcion, descripcion as detalles
+      FROM work_items_180
+      WHERE empresa_id = ${empresaId} AND activo = true
+      ORDER BY nombre ASC
+    `;
+      res.json(items);
+    } catch (err) {
+      console.error("❌ getTemplates:", err);
+      res.status(500).json({ error: "Error obteniendo plantillas" });
+    }
+  }
 
-    // 1. Tipos (de la tabla de items)
-    const types = await sql`
+  /**
+   * DELETE /worklogs/templates/:id
+   * Los conceptos habituales no se pueden borrar desde aquí.
+   */
+  export async function deleteTemplate(req, res) {
+    res.status(403).json({ error: "Los conceptos habituales no se pueden borrar desde aquí." });
+  }
+
+  /**
+   * GET /worklogs/suggestions
+   * Devuelve listas únicas para autocompletado inteligente.
+   */
+  export async function getSuggestions(req, res) {
+    try {
+      const empresaId = req.user.empresa_id;
+
+      // 1. Tipos (de la tabla de items)
+      const types = await sql`
       SELECT DISTINCT nombre 
       FROM work_items_180 
       WHERE empresa_id = ${empresaId}
       ORDER BY nombre ASC
     `;
 
-    // 2. Plantillas / Sugerencias de Texto (de conceptos habituales y registros reales)
-    const suggestions = await sql`
+      // 2. Plantillas / Sugerencias de Texto (combinado)
+      const suggestions = await sql`
       WITH combined AS (
         -- Conceptos habituales (de work_items_180)
         SELECT 
           nombre || COALESCE(': ' || descripcion, '') as descripcion,
           NULL as detalles,
-          'item' as origen
+          'item' as origen,
+          nombre as work_item_nombre
         FROM work_items_180
         WHERE empresa_id = ${empresaId} AND activo = true
         
         UNION ALL
         
-        -- Historial de trabajos reales descripciones únicas (de work_logs_180)
-        SELECT DISTINCT ON (descripcion)
-          descripcion,
-          detalles,
-          'log' as origen
-        FROM work_logs_180
-        WHERE empresa_id = ${empresaId}
-        ORDER BY descripcion, created_at DESC
+        -- Historial de trabajos reales con work_item_nombre
+        SELECT DISTINCT ON (w.descripcion)
+          w.descripcion,
+          w.detalles,
+          'log' as origen,
+          wi.nombre as work_item_nombre
+        FROM work_logs_180 w
+        LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
+        WHERE w.empresa_id = ${empresaId}
+        ORDER BY w.descripcion, w.created_at DESC
       )
       SELECT * FROM combined
       LIMIT 100
     `;
 
-    res.json({
-      types: types.map(t => t.nombre),
-      templates: suggestions.filter(s => s.origen === 'item' || s.detalles),
-      recent: suggestions.filter(s => s.origen === 'log')
-    });
-  } catch (err) {
-    console.error("❌ getSuggestions:", err);
-    res.status(500).json({ error: "Error obteniendo sugerencias" });
+      res.json({
+        types: types.map(t => t.nombre),
+        templates: suggestions.filter(s => s.origen === 'item' || s.detalles),
+        recent: suggestions.filter(s => s.origen === 'log')
+      });
+    } catch (err) {
+      console.error("❌ getSuggestions:", err);
+      res.status(500).json({ error: "Error obteniendo sugerencias" });
+    }
   }
-}
