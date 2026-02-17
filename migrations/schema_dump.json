@@ -1,0 +1,3426 @@
+--- TABLES ---
+[
+  {
+    "tablename": "work_log_templates_180"
+  },
+  {
+    "tablename": "empresa_config_180"
+  },
+  {
+    "tablename": "conocimiento_180"
+  },
+  {
+    "tablename": "plantillas_jornada_180"
+  },
+  {
+    "tablename": "partes_dia_180"
+  },
+  {
+    "tablename": "ausencias_adjuntos_180"
+  },
+  {
+    "tablename": "perfil_180"
+  },
+  {
+    "tablename": "invite_180"
+  },
+  {
+    "tablename": "asignaciones_plantilla_jornada_180"
+  },
+  {
+    "tablename": "employee_daily_report_180"
+  },
+  {
+    "tablename": "festivos_es_180"
+  },
+  {
+    "tablename": "ausencias_180"
+  },
+  {
+    "tablename": "calendario_empresa_180"
+  },
+  {
+    "tablename": "client_fiscal_data_180"
+  },
+  {
+    "tablename": "work_items_180"
+  },
+  {
+    "tablename": "client_tariffs_180"
+  },
+  {
+    "tablename": "empleado_plantillas_180"
+  },
+  {
+    "tablename": "fichajes_180"
+  },
+  {
+    "tablename": "work_logs_180"
+  },
+  {
+    "tablename": "time_logs_180"
+  },
+  {
+    "tablename": "jornadas_180"
+  },
+  {
+    "tablename": "purchases_180"
+  },
+  {
+    "tablename": "invoices_180"
+  },
+  {
+    "tablename": "plantilla_dias_180"
+  },
+  {
+    "tablename": "plantilla_excepciones_180"
+  },
+  {
+    "tablename": "turno_bloques_180"
+  },
+  {
+    "tablename": "auditoria_180"
+  },
+  {
+    "tablename": "configuracionsistema_180"
+  },
+  {
+    "tablename": "emisor_180"
+  },
+  {
+    "tablename": "employees_180"
+  },
+  {
+    "tablename": "iva_180"
+  },
+  {
+    "tablename": "calendario_importacion_item_180"
+  },
+  {
+    "tablename": "clients_180"
+  },
+  {
+    "tablename": "calendario_importacion_180"
+  },
+  {
+    "tablename": "factura_180"
+  },
+  {
+    "tablename": "cliente_seq_180"
+  },
+  {
+    "tablename": "contendo_memory_180"
+  },
+  {
+    "tablename": "empleado_clientes_180"
+  },
+  {
+    "tablename": "employee_devices_180"
+  },
+  {
+    "tablename": "calendar_webhook_180"
+  },
+  {
+    "tablename": "turnos_180"
+  },
+  {
+    "tablename": "empresa_180"
+  },
+  {
+    "tablename": "users_180"
+  },
+  {
+    "tablename": "audit_log_180"
+  },
+  {
+    "tablename": "calendar_sync_log_180"
+  },
+  {
+    "tablename": "empresa_calendar_config_180"
+  },
+  {
+    "tablename": "registroverifactu_180"
+  },
+  {
+    "tablename": "calendar_event_mapping_180"
+  },
+  {
+    "tablename": "lineafactura_180"
+  },
+  {
+    "tablename": "plantilla_bloques_180"
+  },
+  {
+    "tablename": "plantilla_excepcion_bloques_180"
+  },
+  {
+    "tablename": "payments_180"
+  },
+  {
+    "tablename": "payment_allocations_180"
+  },
+  {
+    "tablename": "storage_180"
+  },
+  {
+    "tablename": "envios_email_180"
+  },
+  {
+    "tablename": "empresa_email_config_180"
+  },
+  {
+    "tablename": "concepto_180"
+  }
+]
+
+--- COLUMNS: work_log_templates_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "detalles",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: empresa_config_180 ---
+[
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "modulos",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "dashboard_widgets",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "modulos_mobile",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "ai_tokens",
+    "data_type": "integer"
+  }
+]
+
+--- COLUMNS: conocimiento_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "token",
+    "data_type": "text"
+  },
+  {
+    "column_name": "respuesta",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "categoria",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "prioridad",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  }
+]
+
+--- COLUMNS: plantillas_jornada_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  }
+]
+
+--- COLUMNS: partes_dia_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "horas_trabajadas",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "resumen",
+    "data_type": "text"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "validado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "validado_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "nota_admin",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: ausencias_adjuntos_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "ausencia_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "storage_path",
+    "data_type": "text"
+  },
+  {
+    "column_name": "filename",
+    "data_type": "text"
+  },
+  {
+    "column_name": "mime_type",
+    "data_type": "text"
+  },
+  {
+    "column_name": "size_bytes",
+    "data_type": "bigint"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "creado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "creado_por_tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "tipo_documento",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: perfil_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre_fiscal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cif",
+    "data_type": "text"
+  },
+  {
+    "column_name": "direccion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "poblacion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "provincia",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cp",
+    "data_type": "text"
+  },
+  {
+    "column_name": "pais",
+    "data_type": "text"
+  },
+  {
+    "column_name": "telefono",
+    "data_type": "text"
+  },
+  {
+    "column_name": "email",
+    "data_type": "text"
+  },
+  {
+    "column_name": "web",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: invite_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "token",
+    "data_type": "text"
+  },
+  {
+    "column_name": "usado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "creado",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "usado_en",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "expires_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "used_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "created_by_user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "email_destino",
+    "data_type": "text"
+  },
+  {
+    "column_name": "code",
+    "data_type": "character varying"
+  }
+]
+
+--- COLUMNS: asignaciones_plantilla_jornada_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "plantilla_jornada_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "date"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: employee_daily_report_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "resumen",
+    "data_type": "text"
+  },
+  {
+    "column_name": "horas_trabajadas",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "validado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "validado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "validado_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "importe",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "facturado",
+    "data_type": "boolean"
+  }
+]
+
+--- COLUMNS: festivos_es_180 ---
+[
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ambito",
+    "data_type": "text"
+  },
+  {
+    "column_name": "comunidad",
+    "data_type": "text"
+  },
+  {
+    "column_name": "provincia",
+    "data_type": "text"
+  },
+  {
+    "column_name": "municipio",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: ausencias_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "date"
+  },
+  {
+    "column_name": "motivo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "creado_en",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "comentario_empleado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "comentario_admin",
+    "data_type": "text"
+  },
+  {
+    "column_name": "creado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "revisado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "revisado_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: calendario_empresa_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "creado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "es_laborable",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "label",
+    "data_type": "text"
+  },
+  {
+    "column_name": "origen",
+    "data_type": "text"
+  },
+  {
+    "column_name": "confirmado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "importacion_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: client_fiscal_data_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "razon_social",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nif_cif",
+    "data_type": "text"
+  },
+  {
+    "column_name": "tipo_fiscal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "pais",
+    "data_type": "text"
+  },
+  {
+    "column_name": "provincia",
+    "data_type": "text"
+  },
+  {
+    "column_name": "municipio",
+    "data_type": "text"
+  },
+  {
+    "column_name": "codigo_postal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "direccion_fiscal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "email_factura",
+    "data_type": "text"
+  },
+  {
+    "column_name": "telefono_factura",
+    "data_type": "text"
+  },
+  {
+    "column_name": "persona_contacto",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "iva_defecto",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "exento_iva",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "forma_pago",
+    "data_type": "text"
+  },
+  {
+    "column_name": "iban",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: work_items_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "trabajo_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "description",
+    "data_type": "text"
+  },
+  {
+    "column_name": "duracion_minutos",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "valor_monetario",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "tipo_facturacion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: client_tariffs_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "work_item_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "precio",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "date"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: empleado_plantillas_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "plantilla_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "date"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "alias",
+    "data_type": "text"
+  },
+  {
+    "column_name": "color",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ignorar_festivos",
+    "data_type": "boolean"
+  }
+]
+
+--- COLUMNS: fichajes_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "lat",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "lng",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "ip",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "origen",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nota",
+    "data_type": "text"
+  },
+  {
+    "column_name": "validado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "validado_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "validado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "sospechoso",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "sospecha_motivo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ip_info",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "distancia_km",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "jornada_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "creado_manual",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "direccion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ciudad",
+    "data_type": "text"
+  },
+  {
+    "column_name": "pais",
+    "data_type": "text"
+  },
+  {
+    "column_name": "gps_accuracy",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "geo_distancia",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "geo_sospechoso",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "geo_motivos",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "geo_direccion",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "device_hash",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: work_logs_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "employee_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "work_item_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "minutos",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "valor",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "pagado",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "estado_pago",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "tipo_facturacion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "duracion_texto",
+    "data_type": "text"
+  },
+  {
+    "column_name": "factura_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "detalles",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: time_logs_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "proyecto_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "duracion_minutos",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: jornadas_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "hora_entrada",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "hora_salida",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "minutos_trabajados",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "minutos_descanso",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "minutos_extra",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "column_name": "origen_cierre",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "column_name": "incidencia",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nota_admin",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "inicio",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "fin",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "origen_creacion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "plantilla_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "resumen_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "modo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "prevista_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "validacion_estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: purchases_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "proveedor",
+    "data_type": "text"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cantidad",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "precio_unitario",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "total",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "fecha_compra",
+    "data_type": "date"
+  },
+  {
+    "column_name": "categoria",
+    "data_type": "text"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: invoices_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "numero_factura",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha_emision",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_vencimiento",
+    "data_type": "date"
+  },
+  {
+    "column_name": "total",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "iva",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: plantilla_dias_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "plantilla_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "dia_semana",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "hora_inicio",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "hora_fin",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  }
+]
+
+--- COLUMNS: plantilla_excepciones_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "plantilla_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "hora_inicio",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "hora_fin",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "nota",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: turno_bloques_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "turno_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "hora_inicio",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "hora_fin",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "obligatorio",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: auditoria_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "entidad",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "entidad_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "accion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "resultado",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "motivo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "error_codigo",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "origen",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "ip",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "user_agent",
+    "data_type": "text"
+  },
+  {
+    "column_name": "payload",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: configuracionsistema_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "verifactu_activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "verifactu_modo",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "verifactu_url",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "verifactu_ultimo_hash",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "verifactu_ultimo_envio",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "cert_aeat_path",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "cert_aeat_password",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "cert_aeat_valido",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "cert_aeat_caduca_en",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "facturas_inmutables",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "prohibir_borrado_facturas",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "bloquear_fechas_pasadas",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "auditoria_activa",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "nivel_auditoria",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "pin_habilitado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "smtp_enabled",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "smtp_host",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "smtp_port",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "smtp_user",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "smtp_password",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "smtp_from",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "smtp_tls",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "smtp_ssl",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "creado_en",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "actualizado_en",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "numeracion_tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ticket_bai_activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "numeracion_formato",
+    "data_type": "text"
+  },
+  {
+    "column_name": "storage_facturas_folder",
+    "data_type": "text"
+  },
+  {
+    "column_name": "backup_local_path",
+    "data_type": "text"
+  },
+  {
+    "column_name": "correlativo_inicial",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "migracion_last_pdf",
+    "data_type": "text"
+  },
+  {
+    "column_name": "migracion_legal_aceptado",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "migracion_fecha_aceptacion",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "migracion_last_serie",
+    "data_type": "text"
+  },
+  {
+    "column_name": "migracion_last_emisor_nif",
+    "data_type": "text"
+  },
+  {
+    "column_name": "migracion_last_cliente_nif",
+    "data_type": "text"
+  },
+  {
+    "column_name": "migracion_last_subtotal",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "migracion_last_iva",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "migracion_last_total",
+    "data_type": "numeric"
+  }
+]
+
+--- COLUMNS: emisor_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "nif",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "direccion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "poblacion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "provincia",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "cp",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "pais",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "telefono",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "email",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "web",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "logo_path",
+    "data_type": "text"
+  },
+  {
+    "column_name": "texto_pie",
+    "data_type": "text"
+  },
+  {
+    "column_name": "texto_exento",
+    "data_type": "text"
+  },
+  {
+    "column_name": "texto_rectificativa",
+    "data_type": "text"
+  },
+  {
+    "column_name": "mensaje_iva",
+    "data_type": "text"
+  },
+  {
+    "column_name": "firmar_pdf",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "certificado_path",
+    "data_type": "text"
+  },
+  {
+    "column_name": "certificado_password",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "modo_numeracion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "serie",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "serie_facturacion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "numeracion_plantilla",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "siguiente_numero",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "ultimo_anio_numerado",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "numeracion_bloqueada",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "anio_numeracion_bloqueada",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "ruta_pdf",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "ruta_facturas",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "seguridad_pin",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "seguridad_timeout_min",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "seguridad_login_timeout_min",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "auto_update",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "certificado_info",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "registro_mercantil",
+    "data_type": "text"
+  },
+  {
+    "column_name": "iban",
+    "data_type": "text"
+  },
+  {
+    "column_name": "terminos_legales",
+    "data_type": "text"
+  },
+  {
+    "column_name": "certificado_upload_date",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: employees_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "max_duracion_turno",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "turno_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo_trabajo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cliente_defecto_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: iva_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "porcentaje",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: calendario_importacion_item_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "importacion_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "es_laborable",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "label",
+    "data_type": "text"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "origen",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: clients_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "direccion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "telefono",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "lat",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "lng",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "radio_m",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "codigo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "contacto_nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "contacto_email",
+    "data_type": "text"
+  },
+  {
+    "column_name": "notas",
+    "data_type": "text"
+  },
+  {
+    "column_name": "requiere_geo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "date"
+  },
+  {
+    "column_name": "razon_social",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nif_cif",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "tipo_fiscal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "pais",
+    "data_type": "character"
+  },
+  {
+    "column_name": "provincia",
+    "data_type": "text"
+  },
+  {
+    "column_name": "codigo_postal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "direccion_fiscal",
+    "data_type": "text"
+  },
+  {
+    "column_name": "municipio",
+    "data_type": "text"
+  },
+  {
+    "column_name": "email_factura",
+    "data_type": "text"
+  },
+  {
+    "column_name": "telefono_factura",
+    "data_type": "text"
+  },
+  {
+    "column_name": "persona_contacto",
+    "data_type": "text"
+  },
+  {
+    "column_name": "iva_defecto",
+    "data_type": "text"
+  },
+  {
+    "column_name": "exento_iva",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "forma_pago",
+    "data_type": "text"
+  },
+  {
+    "column_name": "iban",
+    "data_type": "text"
+  },
+  {
+    "column_name": "modo_defecto",
+    "data_type": "text"
+  },
+  {
+    "column_name": "precio_default_hora",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "precio_default_dia",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "precio_default_mes",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "precio_default_trabajo",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "geo_policy",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nif",
+    "data_type": "text"
+  },
+  {
+    "column_name": "poblacion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cp",
+    "data_type": "text"
+  },
+  {
+    "column_name": "email",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: calendario_importacion_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "creado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "origen",
+    "data_type": "text"
+  },
+  {
+    "column_name": "raw_text",
+    "data_type": "text"
+  },
+  {
+    "column_name": "stats",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "reverted_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "revertido_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: factura_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "numero",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "column_name": "subtotal",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "iva_global",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "iva_total",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "total",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "mensaje_iva",
+    "data_type": "text"
+  },
+  {
+    "column_name": "rectificativa",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "ruta_pdf",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "fecha_validacion",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "offline_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "serie",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "verifactu_hash",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "verifactu_fecha_generacion",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "metodo_pago",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "pagado",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "estado_pago",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "work_log_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: cliente_seq_180 ---
+[
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "last_num",
+    "data_type": "integer"
+  }
+]
+
+--- COLUMNS: contendo_memory_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "role",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "mensaje",
+    "data_type": "text"
+  },
+  {
+    "column_name": "respuesta",
+    "data_type": "text"
+  },
+  {
+    "column_name": "metadata",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: empleado_clientes_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "fecha_inicio",
+    "data_type": "date"
+  },
+  {
+    "column_name": "fecha_fin",
+    "data_type": "date"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: employee_devices_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "device_hash",
+    "data_type": "text"
+  },
+  {
+    "column_name": "user_agent",
+    "data_type": "text"
+  },
+  {
+    "column_name": "registrado",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "ip_habitual",
+    "data_type": "text"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "ip_lat",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "ip_lng",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "ip_country",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ip_city",
+    "data_type": "text"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "ip_region",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ip_timezone",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ip_provider",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: calendar_webhook_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "channel_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "resource_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "calendar_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "expiration",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "active",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: turnos_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "tipo_turno",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "column_name": "tipo_horario",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "column_name": "horas_dia_objetivo",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "max_horas_dia",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "max_horas_semana",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "minutos_descanso_min",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "minutos_descanso_max",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "nocturno_permitido",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: empresa_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  }
+]
+
+--- COLUMNS: users_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "email",
+    "data_type": "text"
+  },
+  {
+    "column_name": "password",
+    "data_type": "text"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "text"
+  },
+  {
+    "column_name": "role",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "password_forced",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "turno_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "google_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "avatar_url",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: audit_log_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empleado_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "accion",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "entidad_tipo",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "entidad_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "datos_anteriores",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "datos_nuevos",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "motivo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "ip_address",
+    "data_type": "inet"
+  },
+  {
+    "column_name": "user_agent",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: calendar_sync_log_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "sync_type",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "sync_direction",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "status",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "events_created",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "events_updated",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "events_deleted",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "errors_count",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "error_details",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "sync_summary",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "triggered_by",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: empresa_calendar_config_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "oauth2_provider",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "oauth2_email",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "oauth2_refresh_token",
+    "data_type": "text"
+  },
+  {
+    "column_name": "oauth2_connected_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "calendar_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "sync_token",
+    "data_type": "text"
+  },
+  {
+    "column_name": "last_sync_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "sync_enabled",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "sync_direction",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "sync_types",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "sync_range_months",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: registroverifactu_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "factura_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "numero_factura",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "fecha_factura",
+    "data_type": "date"
+  },
+  {
+    "column_name": "total_factura",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "hash_actual",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "hash_anterior",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "fecha_registro",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "estado_envio",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "error_envio",
+    "data_type": "text"
+  }
+]
+
+--- COLUMNS: calendar_event_mapping_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "app180_source",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "app180_event_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "google_calendar_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "google_event_id",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "last_synced_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "sync_direction",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "google_etag",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: lineafactura_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "factura_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "concepto_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "cantidad",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "precio_unitario",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "total",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "iva_percent",
+    "data_type": "numeric"
+  }
+]
+
+--- COLUMNS: plantilla_bloques_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "plantilla_dia_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "hora_inicio",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "hora_fin",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "obligatorio",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: plantilla_excepcion_bloques_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "excepcion_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "tipo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "hora_inicio",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "hora_fin",
+    "data_type": "time without time zone"
+  },
+  {
+    "column_name": "obligatorio",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: payments_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "importe",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "metodo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "fecha_pago",
+    "data_type": "date"
+  },
+  {
+    "column_name": "referencia",
+    "data_type": "text"
+  },
+  {
+    "column_name": "notas",
+    "data_type": "text"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: payment_allocations_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "payment_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "work_log_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "importe",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "factura_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "invoice_id",
+    "data_type": "uuid"
+  }
+]
+
+--- COLUMNS: storage_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "storage_path",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "folder",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "mime_type",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "size_bytes",
+    "data_type": "bigint"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  }
+]
+
+--- COLUMNS: envios_email_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "factura_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "destinatario",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "cc",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "asunto",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "cuerpo",
+    "data_type": "text"
+  },
+  {
+    "column_name": "estado",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "error",
+    "data_type": "text"
+  },
+  {
+    "column_name": "enviado_por",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "enviado_en",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: empresa_email_config_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "modo",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "oauth2_provider",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "oauth2_email",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "oauth2_refresh_token",
+    "data_type": "text"
+  },
+  {
+    "column_name": "oauth2_connected_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "smtp_host",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "smtp_port",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "smtp_user",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "smtp_password",
+    "data_type": "text"
+  },
+  {
+    "column_name": "smtp_secure",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "from_name",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "from_email",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  }
+]
+
+--- COLUMNS: concepto_180 ---
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "empresa_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "nombre",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "column_name": "fecha_creacion",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "column_name": "activo",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "cliente_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "categoria",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "precio_unitario",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "iva_default",
+    "data_type": "numeric"
+  }
+]

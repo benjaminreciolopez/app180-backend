@@ -229,21 +229,7 @@ export async function crearWorkLog(req, res) {
       RETURNING *
     `;
 
-    // Si se pide guardar como plantilla
-    if (save_as_template && finalDescription) {
-      // Evitar duplicados exactos en plantillas por empresa
-      const existingTpl = await sql`
-        SELECT id FROM work_log_templates_180 
-        WHERE empresa_id = ${empresaId} AND descripcion = ${finalDescription}
-        LIMIT 1
-      `;
-      if (existingTpl.length === 0) {
-        await sql`
-          INSERT INTO work_log_templates_180 (empresa_id, descripcion, detalles)
-          VALUES (${empresaId}, ${finalDescription}, ${detalles || null})
-        `;
-      }
-    }
+    // --- SINCRONIZAR PARTE DIARIO ---
 
     // --- SINCRONIZAR PARTE DIARIO ---
     try {
@@ -742,27 +728,36 @@ export async function getSuggestions(req, res) {
       ORDER BY nombre ASC
     `;
 
-    // 2. Plantillas (combinación de desc y detalles)
-    const templates = await sql`
-      SELECT descripcion, detalles 
-      FROM work_log_templates_180 
-      WHERE empresa_id = ${empresaId}
-    `;
-
-    // 3. Recientes (opcional, para dar más variedad)
-    const recent = await sql`
-      SELECT w.descripcion, w.detalles, wi.nombre as work_item_nombre
-      FROM work_logs_180 w
-      LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
-      WHERE w.empresa_id = ${empresaId}
-      ORDER BY w.created_at DESC
+    // 2. Plantillas / Sugerencias de Texto (de conceptos habituales y registros reales)
+    const suggestions = await sql`
+      WITH combined AS (
+        -- Conceptos habituales (de work_items_180)
+        SELECT 
+          nombre || COALESCE(': ' || descripcion, '') as descripcion,
+          NULL as detalles,
+          'item' as origen
+        FROM work_items_180
+        WHERE empresa_id = ${empresaId} AND activo = true
+        
+        UNION ALL
+        
+        -- Historial de trabajos reales descripciones únicas (de work_logs_180)
+        SELECT DISTINCT ON (descripcion)
+          descripcion,
+          detalles,
+          'log' as origen
+        FROM work_logs_180
+        WHERE empresa_id = ${empresaId}
+        ORDER BY descripcion, created_at DESC
+      )
+      SELECT * FROM combined
       LIMIT 100
     `;
 
     res.json({
       types: types.map(t => t.nombre),
-      templates,
-      recent
+      templates: suggestions.filter(s => s.origen === 'item' || s.detalles),
+      recent: suggestions.filter(s => s.origen === 'log')
     });
   } catch (err) {
     console.error("❌ getSuggestions:", err);

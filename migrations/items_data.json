@@ -1,0 +1,14 @@
+[
+  {
+    "id": "39b09775-4158-49f4-b7ac-8474687d7f87",
+    "empresa_id": "8ea0cef5-795c-4c98-bc5e-63d546a452f8",
+    "nombre": "HORMIGONADO",
+    "descripcion": null
+  },
+  {
+    "id": "ee8d7e7d-d06b-45f9-8f27-bdf1dcc1b9ff",
+    "empresa_id": "8ea0cef5-795c-4c98-bc5e-63d546a452f8",
+    "nombre": "PENDIENTES",
+    "descripcion": null
+  }
+]
