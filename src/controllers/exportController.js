@@ -127,13 +127,17 @@ export const downloadExport = async (req, res) => {
 
             case 'clientes':
                 data = await sql`
-                    SELECT * FROM clients_180 WHERE empresa_id = ${empresaId} ORDER BY nombre
+                    SELECT c.*, fd.nif_cif 
+                    FROM clients_180 c 
+                    LEFT JOIN client_fiscal_data_180 fd ON fd.cliente_id = c.id
+                    WHERE c.empresa_id = ${empresaId} 
+                    ORDER BY c.nombre
                 `;
                 htmlContent = clientesToHtml(data);
                 csvColumns = [
                     { key: 'nombre', header: 'Cliente' },
                     { key: 'codigo', header: 'Código' },
-                    { key: 'cif', header: 'CIF' },
+                    { key: 'nif_cif', header: 'NIF/CIF' },
                     { key: 'contacto_nombre', header: 'Contacto' }
                 ];
                 break;
