@@ -66,19 +66,20 @@ export async function getIvaTrimestral(req, res) {
 
         const data = await sql`
       SELECT 
-        iva_global as tipo_iva,
-        COUNT(id) as num_facturas,
-        SUM(subtotal) as base_imponible,
-        SUM(iva_total) as cuota_iva,
-        SUM(total) as total_facturado
-      FROM factura_180
-      WHERE empresa_id = ${empresaId}
-        AND estado IN ('VALIDADA', 'ANULADA')
-        AND EXTRACT(YEAR FROM fecha) = ${year}
-        AND EXTRACT(MONTH FROM fecha) >= ${range[0]}
-        AND EXTRACT(MONTH FROM fecha) <= ${range[1]}
-      GROUP BY iva_global
-      ORDER BY iva_global ASC
+        l.iva_percent as tipo_iva,
+        COUNT(DISTINCT f.id) as num_facturas,
+        SUM(l.cantidad * l.precio_unitario) as base_imponible,
+        SUM(l.total - (l.cantidad * l.precio_unitario)) as cuota_iva,
+        SUM(l.total) as total_facturado
+      FROM factura_180 f
+      JOIN lineafactura_180 l ON l.factura_id = f.id
+      WHERE f.empresa_id = ${empresaId}
+        AND f.estado IN ('VALIDADA', 'ANULADA')
+        AND EXTRACT(YEAR FROM f.fecha) = ${year}
+        AND EXTRACT(MONTH FROM f.fecha) >= ${range[0]}
+        AND EXTRACT(MONTH FROM f.fecha) <= ${range[1]}
+      GROUP BY l.iva_percent
+      ORDER BY l.iva_percent ASC
     `;
 
         // Totales
@@ -178,7 +179,11 @@ export async function getRankingClientes(req, res) {
 
         res.json({
             success: true,
-            data: ranking
+            data: ranking.map(r => ({
+                ...r,
+                num_facturas: parseInt(r.num_facturas),
+                total_facturado: parseFloat(r.total_facturado || 0)
+            }))
         });
 
     } catch (err) {
