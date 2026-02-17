@@ -677,17 +677,19 @@ export async function clonarWorkLog(req, res) {
 
 /**
  * GET /worklogs/templates
+ * Como ya no hay tabla de plantillas, devolvemos los items habituales como plantillas 
+ * para que el frontend no falle y sigan siendo útiles.
  */
 export async function getTemplates(req, res) {
   try {
     const empresaId = req.user.empresa_id;
-    const rows = await sql`
-      SELECT id, descripcion, detalles 
-      FROM work_log_templates_180 
-      WHERE empresa_id = ${empresaId}
-      ORDER BY descripcion ASC
+    const items = await sql`
+      SELECT id, nombre as descripcion, descripcion as detalles
+      FROM work_items_180
+      WHERE empresa_id = ${empresaId} AND activo = true
+      ORDER BY nombre ASC
     `;
-    res.json(rows);
+    res.json(items);
   } catch (err) {
     console.error("❌ getTemplates:", err);
     res.status(500).json({ error: "Error obteniendo plantillas" });
@@ -696,20 +698,10 @@ export async function getTemplates(req, res) {
 
 /**
  * DELETE /worklogs/templates/:id
+ * Los conceptos habituales no se pueden borrar desde aquí.
  */
 export async function deleteTemplate(req, res) {
-  try {
-    const { id } = req.params;
-    const empresaId = req.user.empresa_id;
-    await sql`
-      DELETE FROM work_log_templates_180 
-      WHERE id = ${id} AND empresa_id = ${empresaId}
-    `;
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ deleteTemplate:", err);
-    res.status(500).json({ error: "Error eliminando plantilla" });
-  }
+  res.status(403).json({ error: "Los conceptos habituales no se pueden borrar desde aquí." });
 }
 
 /**
@@ -717,60 +709,27 @@ export async function deleteTemplate(req, res) {
  * Devuelve listas únicas para autocompletado inteligente.
  */
 export async function getSuggestions(req, res) {
-  /**
-   * GET /worklogs/templates
-   * Como ya no hay tabla de plantillas, devolvemos los items habituales como plantillas 
-   * para que el frontend no falle y sigan siendo útiles.
-   */
-  export async function getTemplates(req, res) {
-    try {
-      const empresaId = req.user.empresa_id;
-      const items = await sql`
-      SELECT id, nombre as descripcion, descripcion as detalles
-      FROM work_items_180
-      WHERE empresa_id = ${empresaId} AND activo = true
-      ORDER BY nombre ASC
-    `;
-      res.json(items);
-    } catch (err) {
-      console.error("❌ getTemplates:", err);
-      res.status(500).json({ error: "Error obteniendo plantillas" });
-    }
-  }
+  try {
+    const empresaId = req.user.empresa_id;
 
-  /**
-   * DELETE /worklogs/templates/:id
-   * Los conceptos habituales no se pueden borrar desde aquí.
-   */
-  export async function deleteTemplate(req, res) {
-    res.status(403).json({ error: "Los conceptos habituales no se pueden borrar desde aquí." });
-  }
-
-  /**
-   * GET /worklogs/suggestions
-   * Devuelve listas únicas para autocompletado inteligente.
-   */
-  export async function getSuggestions(req, res) {
-    try {
-      const empresaId = req.user.empresa_id;
-
-      // 1. Tipos (de la tabla de items)
-      const types = await sql`
+    // 1. Tipos (de la tabla de items)
+    const types = await sql`
       SELECT DISTINCT nombre 
       FROM work_items_180 
       WHERE empresa_id = ${empresaId}
       ORDER BY nombre ASC
     `;
 
-      // 2. Plantillas / Sugerencias de Texto (combinado)
-      const suggestions = await sql`
+    // 2. Plantillas / Sugerencias de Texto (combinado)
+    const suggestions = await sql`
       WITH combined AS (
         -- Conceptos habituales (de work_items_180)
         SELECT 
           nombre || COALESCE(': ' || descripcion, '') as descripcion,
           NULL as detalles,
           'item' as origen,
-          nombre as work_item_nombre
+          nombre as work_item_nombre,
+          now() as created_at
         FROM work_items_180
         WHERE empresa_id = ${empresaId} AND activo = true
         
@@ -781,23 +740,32 @@ export async function getSuggestions(req, res) {
           w.descripcion,
           w.detalles,
           'log' as origen,
-          wi.nombre as work_item_nombre
+          wi.nombre as work_item_nombre,
+          w.created_at
         FROM work_logs_180 w
         LEFT JOIN work_items_180 wi ON wi.id = w.work_item_id
         WHERE w.empresa_id = ${empresaId}
         ORDER BY w.descripcion, w.created_at DESC
       )
       SELECT * FROM combined
+      ORDER BY descripcion, created_at DESC
       LIMIT 100
     `;
 
-      res.json({
-        types: types.map(t => t.nombre),
-        templates: suggestions.filter(s => s.origen === 'item' || s.detalles),
-        recent: suggestions.filter(s => s.origen === 'log')
-      });
-    } catch (err) {
-      console.error("❌ getSuggestions:", err);
-      res.status(500).json({ error: "Error obteniendo sugerencias" });
-    }
+    res.json({
+      types: types.map(t => t.nombre),
+      templates: suggestions.filter(s => s.origen === 'item' || s.detalles),
+      recent: suggestions.filter(s => s.origen === 'log')
+    });
+  } catch (err) {
+    console.error("❌ getSuggestions:", err);
+    res.status(500).json({ error: "Error obteniendo sugerencias" });
   }
+}
+
+/**
+ * Recalcula valores monetarios si algo cambió.
+ */
+export async function fixWorkLogValues(req, res) {
+  res.json({ success: true, message: "No implementado aún" });
+}
