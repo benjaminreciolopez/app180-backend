@@ -164,7 +164,7 @@ export const clientesToHtml = (data) => {
         <tr>
             <td><strong>${item.nombre}</strong></td>
             <td>${item.codigo || '-'}</td>
-            <td>${item.cif || '-'}</td>
+            <td>${item.nif_cif || item.cif || '-'}</td>
             <td>${item.contacto_nombre || '-'}</td>
             <td>${item.email || '-'}</td>
             <td class="text-center">${item.activo ? 'Sí' : 'No'}</td>
