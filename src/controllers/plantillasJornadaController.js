@@ -1215,9 +1215,53 @@ export const desasignarPlantillaEmpleado = async (req, res) => {
 
 export const renovarAsignacion = async (req, res) => {
   try {
-    // Placeholder implementation to fix deployment error
-    // TODO: Implement logic
-    res.status(501).json({ error: "Not Implemented" });
+    const empresaId = await getEmpresaIdAdminOrThrow(req.user.id);
+    const { asignacion_id, meses } = req.body || {};
+
+    if (!asignacion_id || !meses) {
+      return res.status(400).json({ error: "Faltan datos (asignacion_id, meses)" });
+    }
+
+    const m = parseInt(meses);
+    if (isNaN(m) || m <= 0) {
+      return res.status(400).json({ error: "Meses inválidos" });
+    }
+
+    const out = await sql.begin(async (tx) => {
+      // 1. Obtener asignación actual
+      const [asig] = await tx`
+        select id, fecha_fin, fecha_inicio, empleado_id
+        from empleado_plantillas_180
+        where id = ${asignacion_id} and empresa_id = ${empresaId}
+      `;
+
+      if (!asig) {
+        const err = new Error("Asignación no encontrada");
+        err.status = 404;
+        throw err;
+      }
+
+      // 2. Calcular nueva fecha
+      // Si no tiene fin, o el fin es pasado, usamos HOY como base para empezar a sumar? 
+      // El front suele mandar "ampliar". Si tiene fin "2024-03-31" y pide 1 mes -> "2024-04-30"
+      // Si no tiene fin, no tiene sentido renovar, pero por si acaso:
+      const baseDate = asig.fecha_fin ? new Date(asig.fecha_fin) : new Date();
+      baseDate.setMonth(baseDate.getMonth() + m);
+
+      const nuevaFechaFin = baseDate.toISOString().slice(0, 10);
+
+      // 3. Actualizar
+      const [updated] = await tx`
+        update empleado_plantillas_180
+        set fecha_fin = ${nuevaFechaFin}::date
+        where id = ${asignacion_id}
+        returning *
+      `;
+
+      return updated;
+    });
+
+    res.json(out);
   } catch (err) {
     handleErr(res, err, "renovarAsignacion");
   }
