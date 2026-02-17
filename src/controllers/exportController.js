@@ -127,7 +127,7 @@ export const downloadExport = async (req, res) => {
 
             case 'clientes':
                 data = await sql`
-                    SELECT c.*, fd.nif_cif 
+                    SELECT c.*, COALESCE(NULLIF(fd.nif_cif, ''), NULLIF(c.nif_cif, ''), NULLIF(c.nif, '')) as nif_cif 
                     FROM clients_180 c 
                     LEFT JOIN client_fiscal_data_180 fd ON fd.cliente_id = c.id
                     WHERE c.empresa_id = ${empresaId} 

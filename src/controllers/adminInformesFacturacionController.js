@@ -165,7 +165,7 @@ export async function getRankingClientes(req, res) {
       SELECT 
         c.id,
         c.nombre,
-        COALESCE(fd.nif_cif, c.nif_cif) as nif_cif,
+        COALESCE(NULLIF(fd.nif_cif, ''), NULLIF(c.nif_cif, ''), NULLIF(c.nif, '')) as nif_cif,
         COUNT(f.id) as num_facturas,
         SUM(f.total) as total_facturado
       FROM clients_180 c
@@ -174,7 +174,7 @@ export async function getRankingClientes(req, res) {
       WHERE f.empresa_id = ${empresaId}
         AND f.estado IN ('VALIDADA', 'ANULADA')
         ${yearFilter}
-      GROUP BY c.id, c.nombre, fd.nif_cif, c.nif_cif
+      GROUP BY c.id, c.nombre, fd.nif_cif, c.nif_cif, c.nif
       ORDER BY total_facturado DESC
       LIMIT 50
     `;
