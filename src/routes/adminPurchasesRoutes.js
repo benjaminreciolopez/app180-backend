@@ -10,12 +10,20 @@ import {
     ocrGasto,
     getUniqueValues
 } from "../controllers/adminPurchasesController.js";
+import { storageController } from "../controllers/storageController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Todas las rutas de compras requieren ser admin
 router.use(authRequired, roleRequired("admin"));
+
+/**
+ * @route GET /admin/purchases/proxy
+ * @desc Abrir archivo (proxy a Supabase signed URL)
+ * @query path
+ */
+router.get("/purchases/proxy", storageController.proxyFile);
 
 /**
  * @route GET /admin/purchases/values
