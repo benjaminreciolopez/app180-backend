@@ -163,64 +163,49 @@ export const storageController = {
 /**
  * Helper para guardar archivo (usado por otros controladores)
  */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+// Asegurar que existe la carpeta uploads
+if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
 export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeType, useTimestamp = true, dbFolder = null }) {
     try {
         const finalName = useTimestamp ? `${Date.now()}_${nombre}` : nombre;
-        const fileName = `${empresaId}/${folder}/${finalName}`;
-        console.log(`💾 [saveToStorage] Intentando subir a: ${fileName}, Bytes: ${buffer.length}`);
+        // Estructura: uploads/{empresaId}/{folder}/{filename}
+        const relativeFolder = path.join(String(empresaId), folder);
+        const absoluteFolder = path.join(UPLOADS_DIR, relativeFolder);
 
-        if (supabase) {
-            const { data, error } = await supabase.storage
-                .from('app180-files')
-                .upload(fileName, buffer, {
-                    contentType: mimeType,
-                    upsert: true
-                });
-
-            if (error) {
-                console.error(`❌ [saveToStorage] Error subida Supabase:`, error);
-                throw error;
-            }
-            console.log(`✅ [saveToStorage] Subida OK. Path: ${data?.path}, FullPath: ${data?.fullPath}`);
-
-            // Evitar duplicados en DB si no usamos timestamp
-            if (!useTimestamp) {
-                const [existing] = await sql`
-                    SELECT id FROM storage_180 
-                    WHERE empresa_id = ${empresaId} AND storage_path = ${fileName}
-                    LIMIT 1
-                `;
-                if (existing) {
-                    console.log(`🔄 [saveToStorage] Actualizando registro existente ID: ${existing.id}`);
-                    const [updated] = await sql`
-                        UPDATE storage_180 
-                        SET size_bytes = ${buffer.length}, created_at = NOW()
-                        WHERE id = ${existing.id}
-                        RETURNING *
-                    `;
-                    return updated;
-                }
-            }
-
-            const folderToSave = dbFolder || folder;
-            const [record] = await sql`
-                INSERT INTO storage_180 (empresa_id, nombre, storage_path, folder, mime_type, size_bytes)
-                VALUES (${empresaId}, ${nombre}, ${fileName}, ${folderToSave}, ${mimeType}, ${buffer.length})
-                RETURNING *
-            `;
-            return record;
-        } else {
-            console.warn('⚠️ Supabase Storage no configurado. Solo guardando metadatos localmente (simulado).');
-            const folderToSave = dbFolder || folder;
-            const [record] = await sql`
-        INSERT INTO storage_180 (empresa_id, nombre, storage_path, folder, mime_type, size_bytes)
-        VALUES (${empresaId}, ${nombre}, ${'local_placeholder/' + fileName}, ${folderToSave}, ${mimeType}, ${buffer.length})
-        RETURNING *
-      `;
-            return record;
+        if (!fs.existsSync(absoluteFolder)) {
+            fs.mkdirSync(absoluteFolder, { recursive: true });
         }
+
+        const absolutePath = path.join(absoluteFolder, finalName);
+        fs.writeFileSync(absolutePath, buffer);
+
+        console.log(`💾 [saveToDisk] Local Save OK: ${absolutePath}`);
+
+        // Ruta relativa que se guardará en BD y servirá para accesos
+        // Usamos barras normales para URLs
+        const relativeStoragePath = `uploads/${empresaId}/${folder}/${finalName}`.replace(/\\/g, '/');
+
+        const folderToSave = dbFolder || folder;
+        const [record] = await sql`
+            INSERT INTO storage_180 (empresa_id, nombre, storage_path, folder, mime_type, size_bytes)
+            VALUES (${empresaId}, ${nombre}, ${relativeStoragePath}, ${folderToSave}, ${mimeType}, ${buffer.length})
+            RETURNING *
+        `;
+        return record;
+
     } catch (err) {
-        console.error('Error saveToStorage:', err);
+        console.error('Error saveToStorage (Local Disk):', err);
         throw err;
     }
 }
