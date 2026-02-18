@@ -88,7 +88,7 @@ export async function ocrGasto(req, res) {
             success: true,
             data: {
                 ...data,
-                document_url: storageRecord.storage_path,
+                documento_url: storageRecord.storage_path,
                 anio,
                 trimestre: tri
             }
