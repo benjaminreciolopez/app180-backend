@@ -41,7 +41,8 @@ export async function chat(req, res) {
 
     res.json({
       mensaje: respuesta.mensaje,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      accion_realizada: respuesta.accion_realizada || false
     });
 
   } catch (error) {
