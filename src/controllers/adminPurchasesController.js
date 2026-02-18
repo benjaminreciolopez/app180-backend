@@ -34,7 +34,16 @@ export async function ocrGasto(req, res) {
             messages: [
                 {
                     role: "system",
-                    content: "Eres un experto contable. Extrae los siguientes datos de un ticket o factura en JSON: proveedor (string), total (number), fecha_compra (YYYY-MM-DD), descripcion (breve resumen). Si no encuentras alguno, pon null. SOLO RESPONDE EL JSON."
+                    content: `Eres un experto contable español. Tu tarea es extraer datos de un ticket o factura.
+                    
+                    REGLAS CRÍTICAS:
+                    1. Caso Amazon: Las facturas de Amazon a veces muestran el total en lugares inusuales o desglosado. Busca siempre el 'Total general' o 'Importe total'.
+                    2. Proveedor: Si es Amazon, identifica si es "Amazon EU S.a.r.L" o similar.
+                    3. Fecha: Extrae en formato YYYY-MM-DD.
+                    4. Total: Debe ser un número (float). No incluyas símbolos de moneda.
+                    5. Descripción: Resumen muy breve de lo comprado (ej: "Material oficina", "Componentes PC").
+                    
+                    Responde EXCLUSIVAMENTE un objeto JSON con estas claves: proveedor, total, fecha_compra, descripcion.`
                 },
                 {
                     role: "user",
