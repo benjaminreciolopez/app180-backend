@@ -1,14 +1,17 @@
 import { Router } from "express";
+import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import {
     listarCompras,
     crearCompra,
     actualizarCompra,
-    eliminarCompra
+    eliminarCompra,
+    ocrGasto
 } from "../controllers/adminPurchasesController.js";
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Todas las rutas de compras requieren ser admin
 router.use(authRequired, roleRequired("admin"));
@@ -18,6 +21,12 @@ router.use(authRequired, roleRequired("admin"));
  * @desc Listar compras con filtros
  */
 router.get("/purchases", listarCompras);
+
+/**
+ * @route POST /admin/purchases/ocr
+ * @desc Procesar OCR para un gasto
+ */
+router.post("/purchases/ocr", upload.single("file"), ocrGasto);
 
 /**
  * @route POST /admin/purchases
