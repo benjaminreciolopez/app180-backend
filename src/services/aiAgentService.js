@@ -24,6 +24,7 @@ const TOOLS = [
           estado: { type: "string", enum: ["VALIDADA", "BORRADOR", "ANULADA", "TODOS"], description: "Estado de emisión" },
           estado_pago: { type: "string", enum: ["pendiente", "parcial", "pagado", "todos"], description: "Estado de cobro" },
           cliente_id: { type: "string", description: "ID del cliente (UUID)" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           limite: { type: "number", description: "Máximo de facturas (default: 10)" }
         }
       }
@@ -182,11 +183,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "crear_factura",
-      description: "Crea una factura en borrador. Requiere cliente_id, fecha y al menos una linea con descripcion, cantidad y precio_unitario.",
+      description: "Crea una factura en borrador. Requiere cliente_id o nombre_cliente, fecha y al menos una linea con descripcion, cantidad y precio_unitario.",
       parameters: {
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente (integer)" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           fecha: { type: "string", description: "Fecha YYYY-MM-DD" },
           lineas: {
             type: "array",
@@ -325,6 +327,7 @@ const TOOLS = [
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           nombre: { type: "string" },
           email: { type: "string" },
           telefono: { type: "string" },
@@ -344,9 +347,10 @@ const TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          cliente_id: { type: "string", description: "ID del cliente a desactivar" }
+          cliente_id: { type: "string", description: "ID del cliente a desactivar" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" }
         },
-        required: ["cliente_id"]
+        required: []
       }
     }
   },
@@ -361,6 +365,7 @@ const TOOLS = [
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           importe: { type: "number", description: "Importe del pago" },
           metodo: { type: "string", enum: ["transferencia", "efectivo", "tarjeta", "bizum", "otro"], description: "Metodo de pago" },
           fecha_pago: { type: "string", description: "Fecha del pago YYYY-MM-DD" },
@@ -395,10 +400,11 @@ const TOOLS = [
         type: "object",
         properties: {
           empleado_id: { type: "string", description: "ID del empleado" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado (alternativa a empleado_id)" },
           nombre: { type: "string" },
           activo: { type: "string", enum: ["true", "false"] }
         },
-        required: ["empleado_id"]
+        required: []
       }
     }
   },
@@ -413,6 +419,7 @@ const TOOLS = [
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           descripcion: { type: "string", description: "Descripcion del trabajo" },
           fecha: { type: "string", description: "Fecha YYYY-MM-DD" },
           minutos: { type: "number", description: "Duracion en minutos" },
@@ -611,14 +618,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "facturar_trabajos_pendientes",
-      description: "Crea una factura borrador con todos los trabajos pendientes de un cliente. ACCION que modifica datos.",
+      description: "Crea una factura borrador con todos los trabajos pendientes de un cliente. Puedes usar nombre_cliente si no tienes el ID. ACCION que modifica datos.",
       parameters: {
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           iva: { type: "number", description: "Porcentaje de IVA (default: 21)" }
         },
-        required: ["cliente_id"]
+        required: []
       }
     }
   },
@@ -680,14 +688,74 @@ function parseFailedGeneration(errorMessage) {
       }
     }
 
+    // Validar que los parámetros _id no sean placeholders del LLM
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const INT_RE = /^\d+$/;
+    for (const [key, val] of Object.entries(args)) {
+      if (key.endsWith('_id') && typeof val === 'string' && !UUID_RE.test(val) && !INT_RE.test(val)) {
+        console.warn(`[AI] Argumento placeholder detectado: ${key}="${val}" - no se ejecuta la herramienta`);
+        return null;
+      }
+    }
+
     return { name, args };
   } catch {
     return null;
   }
 }
 
+/**
+ * Resuelve nombre_cliente → cliente_id y nombre_empleado → empleado_id
+ * buscando en la BD por coincidencia parcial (ILIKE).
+ */
+async function resolveIds(args, empresaId) {
+  if (args.nombre_cliente && !args.cliente_id) {
+    const clientes = await sql`
+      SELECT id, nombre FROM clients_180
+      WHERE empresa_id = ${empresaId} AND activo = true
+        AND nombre ILIKE ${'%' + args.nombre_cliente + '%'}
+      LIMIT 5
+    `;
+    if (clientes.length === 1) {
+      args.cliente_id = clientes[0].id;
+      console.log(`[AI] Resuelto cliente: "${args.nombre_cliente}" → ${args.cliente_id} (${clientes[0].nombre})`);
+    } else if (clientes.length > 1) {
+      return { error: `Se encontraron ${clientes.length} clientes con "${args.nombre_cliente}": ${clientes.map(c => c.nombre).join(', ')}. Especifica cuál.` };
+    } else {
+      return { error: `No se encontró ningún cliente activo con el nombre "${args.nombre_cliente}".` };
+    }
+    delete args.nombre_cliente;
+  }
+  if (args.nombre_empleado && !args.empleado_id) {
+    const empleados = await sql`
+      SELECT id, nombre FROM empleados_180
+      WHERE empresa_id = ${empresaId} AND activo = true
+        AND nombre ILIKE ${'%' + args.nombre_empleado + '%'}
+      LIMIT 5
+    `;
+    if (empleados.length === 1) {
+      args.empleado_id = empleados[0].id;
+      console.log(`[AI] Resuelto empleado: "${args.nombre_empleado}" → ${args.empleado_id} (${empleados[0].nombre})`);
+    } else if (empleados.length > 1) {
+      return { error: `Se encontraron ${empleados.length} empleados con "${args.nombre_empleado}": ${empleados.map(e => e.nombre).join(', ')}. Especifica cuál.` };
+    } else {
+      return { error: `No se encontró ningún empleado activo con el nombre "${args.nombre_empleado}".` };
+    }
+    delete args.nombre_empleado;
+  }
+  return null;
+}
+
 async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
   const args = coerceBooleans(argumentos);
+
+  // Resolver nombres → IDs automáticamente
+  const resolveError = await resolveIds(args, empresaId);
+  if (resolveError) {
+    console.log(`[AI] Error resolviendo IDs para ${nombreHerramienta}:`, resolveError);
+    return resolveError;
+  }
+
   console.log(`[AI] Ejecutando: ${nombreHerramienta}`, args);
 
   try {
@@ -1894,13 +1962,19 @@ CUÁNDO USAR HERRAMIENTAS:
 - Calendario → consultar_calendario
 - Info empresa → consultar_conocimiento
 
+RESOLUCIÓN AUTOMÁTICA DE NOMBRES:
+- Puedes usar nombre_cliente en vez de cliente_id en CUALQUIER herramienta. El sistema buscará automáticamente el ID.
+- Puedes usar nombre_empleado en vez de empleado_id. El sistema buscará automáticamente el ID.
+- Si hay varios resultados, el sistema te devolverá las opciones para que preguntes al usuario cuál.
+- NO necesitas llamar a consultar_clientes antes de una acción si el usuario ya te dio el nombre del cliente.
+
 CUÁNDO USAR HERRAMIENTAS DE ESCRITURA:
-- "Crea una factura para X" → primero consultar_clientes, luego crear_factura
-- "Factura los trabajos de X" → facturar_trabajos_pendientes (automático)
-- "Registra un pago" → primero consultar_clientes, luego crear_pago
+- "Crea una factura para Pepe" → crear_factura con nombre_cliente="Pepe" (se resuelve automáticamente)
+- "Factura los trabajos de María" → facturar_trabajos_pendientes con nombre_cliente="María"
+- "Registra un pago de García" → crear_pago con nombre_cliente="García"
 - "Crea un cliente nuevo" → crear_cliente
 - "Registra un trabajo" → crear_trabajo
-- "Pon vacaciones a X" → primero consultar_empleados, luego crear_ausencia
+- "Pon vacaciones a Juan" → crear_ausencia con nombre_empleado="Juan"
 - "Valida la factura X" → validar_factura
 - "Anula la factura X" → anular_factura
 
@@ -1914,7 +1988,7 @@ REGLAS DE DATOS:
 1. NUNCA inventes datos, cifras, nombres o importes. Solo responde con lo que devuelvan las herramientas.
 2. Si una herramienta devuelve total: 0 o lista vacía, di claramente: "No hay [tipo de dato] registrados actualmente."
 3. Si la pregunta es ambigua, pregunta al usuario qué necesita exactamente.
-4. Para acciones de escritura, SIEMPRE consulta primero los datos necesarios (ID de cliente, ID de empleado, etc.) antes de crear.
+4. Para acciones de escritura, usa nombre_cliente o nombre_empleado directamente. El sistema resolverá los IDs automáticamente.
 
 ESTADOS DE FACTURA:
 - Emisión: VALIDADA, BORRADOR, ANULADA

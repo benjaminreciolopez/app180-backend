@@ -58,6 +58,9 @@ import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
 
 const app = express();
 
+// Render usa proxy inverso → necesario para express-rate-limit
+app.set('trust proxy', 1);
+
 // =========================
 // CRON
 // =========================
