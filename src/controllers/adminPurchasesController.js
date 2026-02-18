@@ -20,7 +20,6 @@ function getTrimestre(fechaStr) {
  */
 export async function ocrGasto(req, res) {
     try {
-        const { empresa_id } = req.user;
         const file = req.file;
 
         if (!file) return res.status(400).json({ error: "No se subió ningún archivo" });
@@ -68,30 +67,10 @@ export async function ocrGasto(req, res) {
 
         const data = JSON.parse(completion.choices[0].message.content);
 
-        // 3. Determinar carpeta dinámica (Año/Trimestre)
-        const fecha = data.fecha_compra || new Date().toISOString().split('T')[0];
-        const anio = new Date(fecha).getFullYear();
-        const tri = getTrimestre(fecha);
-        const folderPath = `gastos/${anio}/T${tri}`;
-
-        // 4. Guardar archivo en Supabase
-        const storageRecord = await saveToStorage({
-            empresaId: empresa_id,
-            nombre: file.originalname,
-            buffer: file.buffer,
-            folder: folderPath,
-            mimeType: file.mimetype
-        });
-
-        // Devolver datos estructurados + URL del documento
+        // Devolver SOLO datos estructurados (sin guardar archivo aún)
         res.json({
             success: true,
-            data: {
-                ...data,
-                documento_url: storageRecord.storage_path,
-                anio,
-                trimestre: tri
-            }
+            data: data
         });
 
     } catch (error) {
@@ -189,9 +168,38 @@ export async function crearCompra(req, res) {
             return res.status(400).json({ error: "Descripción e importe total son obligatorios." });
         }
 
+        let finalDocumentUrl = documento_url || null;
+
+        // Si se subió archivo con el create
+        if (req.file) {
+            const fechaRef = fecha_compra || new Date().toISOString().split('T')[0];
+            const y = new Date(fechaRef).getFullYear();
+            const t = getTrimestre(fechaRef);
+            const folderPath = `gastos/${y}/T${t}`;
+
+            const storageRecord = await saveToStorage({
+                empresaId: empresa_id,
+                nombre: req.file.originalname,
+                buffer: req.file.buffer,
+                folder: folderPath,
+                mimeType: req.file.mimetype
+            });
+            finalDocumentUrl = storageRecord.storage_path;
+        }
+
         const fechaFinal = fecha_compra || new Date().toISOString().split('T')[0];
         const finalAnio = anio || new Date(fechaFinal).getFullYear();
         const finalTri = trimestre || getTrimestre(fechaFinal);
+
+        // Si ocr_data viene como string (desde FormData), parsearlo
+        let parsedOcrData = ocr_data;
+        if (typeof ocr_data === 'string') {
+            try {
+                parsedOcrData = JSON.parse(ocr_data);
+            } catch (e) {
+                console.warn("Fallo al parsear ocr_data", e);
+            }
+        }
 
         const [newPurchase] = await sql`
       INSERT INTO purchases_180 (
@@ -204,7 +212,7 @@ export async function crearCompra(req, res) {
         ${total}, ${fechaFinal}, 
         ${categoria || 'general'}, ${base_imponible || total}, ${iva_importe || 0},
         ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'}, 
-        ${documento_url || null}, ${ocr_data ? JSON.stringify(ocr_data) : null},
+        ${finalDocumentUrl}, ${parsedOcrData ? JSON.stringify(parsedOcrData) : null},
         ${finalAnio}, ${finalTri}, ${numero_factura || null}, true
       ) RETURNING *
     `;
@@ -247,6 +255,22 @@ export async function actualizarCompra(req, res) {
             finalData.trimestre = getTrimestre(finalData.fecha_compra);
         }
 
+        if (req.file) {
+            const fechaRef = finalData.fecha_compra || new Date().toISOString().split('T')[0];
+            const y = new Date(fechaRef).getFullYear();
+            const t = getTrimestre(fechaRef);
+            const folderPath = `gastos/${y}/T${t}`;
+
+            const storageRecord = await saveToStorage({
+                empresaId: empresa_id,
+                nombre: req.file.originalname,
+                buffer: req.file.buffer,
+                folder: folderPath,
+                mimeType: req.file.mimetype
+            });
+            finalData.documento_url = storageRecord.storage_path;
+        }
+
         if (Object.keys(finalData).length === 0) {
             return res.status(400).json({ error: "No se proporcionaron campos para actualizar." });
         }
@@ -272,6 +296,8 @@ export async function actualizarCompra(req, res) {
 /**
  * Eliminar (desactivar) un gasto
  */
+// ... (código existente)
+
 export async function eliminarCompra(req, res) {
     try {
         const { id } = req.params;
@@ -292,5 +318,32 @@ export async function eliminarCompra(req, res) {
     } catch (error) {
         console.error("[Purchases] Error eliminarCompra:", error);
         res.status(500).json({ error: "Error al eliminar el gasto." });
+    }
+}
+
+export async function getUniqueValues(req, res) {
+    try {
+        const { empresa_id } = req.user;
+        const { field = 'categoria' } = req.query;
+
+        // Validar campo para evitar inyección SQL (aunque sql`` debería proteger, mejor whitelist)
+        const allowedFields = ['categoria', 'metodo_pago', 'proveedor'];
+        if (!allowedFields.includes(field)) {
+            return res.status(400).json({ error: "Campo no permitido para listar valores únicos" });
+        }
+
+        const values = await sql`
+            SELECT DISTINCT ${sql(field)} as value
+            FROM purchases_180 
+            WHERE empresa_id = ${empresa_id} AND activo = true
+            ORDER BY ${sql(field)} ASC
+        `;
+
+        // Mapear a array de strings
+        const list = values.map(v => v.value).filter(Boolean);
+        res.json({ data: list });
+    } catch (error) {
+        console.error("Error getUniqueValues:", error);
+        res.status(500).json({ error: "Error al obtener valores únicos" });
     }
 }
