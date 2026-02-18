@@ -450,6 +450,32 @@ const TOOLS = [
     }
   },
 
+  // ===== META-HERRAMIENTA: CONSULTAR REQUISITOS =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_requisitos",
+      description: "Devuelve qué datos/parámetros necesita una acción antes de ejecutarla. SIEMPRE usa esta herramienta cuando el usuario pregunte '¿qué necesitas para...?' o '¿qué datos hacen falta?'. NUNCA llames directamente a una herramienta de escritura si no tienes los datos reales del usuario.",
+      parameters: {
+        type: "object",
+        properties: {
+          accion: {
+            type: "string",
+            description: "Nombre de la herramienta sobre la que quieres saber los requisitos",
+            enum: [
+              "crear_factura", "actualizar_factura", "validar_factura", "anular_factura",
+              "eliminar_factura", "enviar_factura_email", "crear_cliente", "actualizar_cliente",
+              "desactivar_cliente", "crear_pago", "eliminar_pago", "actualizar_empleado",
+              "crear_trabajo", "crear_ausencia", "crear_evento_calendario",
+              "eliminar_evento_calendario", "facturar_trabajos_pendientes", "cierre_mensual"
+            ]
+          }
+        },
+        required: ["accion"]
+      }
+    }
+  },
+
   // ===== NUEVOS SKILLS: ANALYTICS FINANCIERO =====
   {
     type: "function",
@@ -709,6 +735,15 @@ function parseFailedGeneration(errorMessage) {
  * buscando en la BD por coincidencia parcial (ILIKE).
  */
 async function resolveIds(args, empresaId) {
+  // Rechazar nombres genéricos antes de buscar en BD
+  const GENERIC_NAME_RE = /^(nombre|cliente|empleado|el cliente|la empresa|usuario|persona|test|ejemplo|prueba)/i;
+  if (args.nombre_cliente && GENERIC_NAME_RE.test(args.nombre_cliente.trim())) {
+    return { error: `"${args.nombre_cliente}" no es un nombre real de cliente. Pregunta al usuario el nombre específico.` };
+  }
+  if (args.nombre_empleado && GENERIC_NAME_RE.test(args.nombre_empleado.trim())) {
+    return { error: `"${args.nombre_empleado}" no es un nombre real de empleado. Pregunta al usuario el nombre específico.` };
+  }
+
   if (args.nombre_cliente && !args.cliente_id) {
     const clientes = await sql`
       SELECT id, nombre FROM clients_180
@@ -746,8 +781,85 @@ async function resolveIds(args, empresaId) {
   return null;
 }
 
+/**
+ * Meta-herramienta: devuelve los requisitos de una acción en lenguaje natural.
+ */
+function consultarRequisitos({ accion }) {
+  const tool = TOOLS.find(t => t.function.name === accion);
+  if (!tool) return { error: `Herramienta "${accion}" no encontrada.` };
+
+  const params = tool.function.parameters;
+  const props = params.properties || {};
+  const required = params.required || [];
+
+  const campos = Object.entries(props).map(([key, schema]) => {
+    const obligatorio = required.includes(key);
+    const desc = schema.description || key;
+    const tipo = schema.type === 'array' ? 'lista' : schema.type === 'number' ? 'número' : schema.type;
+    const opciones = schema.enum ? ` (opciones: ${schema.enum.join(', ')})` : '';
+    return `- **${key}** (${tipo}${obligatorio ? ', OBLIGATORIO' : ', opcional'}): ${desc}${opciones}`;
+  });
+
+  return {
+    herramienta: accion,
+    descripcion: tool.function.description,
+    parametros: campos.join('\n'),
+    nota: "Pide al usuario los datos obligatorios antes de ejecutar la acción. Puedes usar nombre_cliente o nombre_empleado en vez de IDs."
+  };
+}
+
+/**
+ * Detecta valores placeholder/genéricos en los argumentos.
+ * Devuelve un mensaje de error si detecta placeholders, o null si todo ok.
+ */
+function detectPlaceholders(args, nombreHerramienta) {
+  const PLACEHOLDER_PATTERNS = [
+    /^nombre\s+del?\s+(cliente|empleado|empresa|usuario)/i,
+    /^id\s+del?\s+(cliente|empleado|factura|pago)/i,
+    /^datos?\s+del?\s/i,
+    /^(el|la|los|las|un|una)\s+(cliente|empleado|nombre|id|factura)/i,
+    /^<[^>]+>$/,  // <valor>
+    /^\[.+\]$/,   // [valor]
+    /^{.+}$/,     // {valor}
+    /^(ejemplo|test|prueba|sample|placeholder|xxx|yyy|zzz)$/i,
+    /^(tu|su|mi)\s+(nombre|cliente|id)/i,
+    /^aqui\s+(va|el|la)/i,
+    /^insertar?\s/i,
+    /^completar?\s/i,
+  ];
+
+  for (const [key, val] of Object.entries(args)) {
+    if (typeof val !== 'string') continue;
+    const trimmed = val.trim();
+    if (!trimmed) continue;
+
+    for (const pattern of PLACEHOLDER_PATTERNS) {
+      if (pattern.test(trimmed)) {
+        console.warn(`[AI] Placeholder detectado en ${nombreHerramienta}: ${key}="${val}"`);
+        return {
+          error: `El parámetro "${key}" contiene un valor genérico ("${val}"). Necesito el dato real del usuario. Pregúntale directamente.`,
+          sugerencia: `Pregunta al usuario: ¿Cuál es el ${key.replace(/_/g, ' ')} que quieres usar?`
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
   const args = coerceBooleans(argumentos);
+
+  // Meta-herramienta: consultar requisitos (no necesita validación)
+  if (nombreHerramienta === 'consultar_requisitos') {
+    return consultarRequisitos(args);
+  }
+
+  // 🛡️ Detectar placeholders ANTES de ejecutar
+  const placeholderError = detectPlaceholders(args, nombreHerramienta);
+  if (placeholderError) {
+    return placeholderError;
+  }
 
   // Resolver nombres → IDs automáticamente
   const resolveError = await resolveIds(args, empresaId);
@@ -1941,6 +2053,7 @@ SOBRE APP180 (lo que puedes hacer):
 - Facturar automáticamente todos los trabajos pendientes de un cliente
 
 CUÁNDO USAR HERRAMIENTAS:
+- "¿Qué necesitas para...?" / "¿Cómo hago...?" → consultar_requisitos (SIEMPRE)
 - Facturas → consultar_facturas, estadisticas_facturacion
 - Top clientes → top_clientes
 - "¿Cómo va el negocio?" → resumen_ejecutivo
@@ -1978,11 +2091,21 @@ CUÁNDO USAR HERRAMIENTAS DE ESCRITURA:
 - "Valida la factura X" → validar_factura
 - "Anula la factura X" → anular_factura
 
-CUÁNDO NO USAR HERRAMIENTAS (responde directamente):
+🛡️ HERRAMIENTA DEFENSIVA - consultar_requisitos:
+- Cuando el usuario pregunte "¿qué necesitas para...?", "¿qué datos hacen falta?", "¿cómo hago...?" → USA consultar_requisitos
+- NUNCA llames a una herramienta de escritura si no tienes TODOS los datos reales del usuario
+- Si no tienes el nombre real del cliente/empleado, PREGUNTA primero, no inventes
+- NUNCA uses valores genéricos como "nombre del cliente", "ID del cliente", "datos del cliente"
+
+CUÁNDO NO USAR HERRAMIENTAS DE ACCIÓN (responde directamente o usa consultar_requisitos):
 - Saludos y despedidas
 - Agradecimientos
 - Preguntas sobre qué puedes hacer o cómo funcionas
 - Conversación casual
+- "¿Qué necesitas para facturar?" → consultar_requisitos("facturar_trabajos_pendientes")
+- "¿Cómo creo una factura?" → consultar_requisitos("crear_factura")
+- "¿Qué datos hacen falta para un pago?" → consultar_requisitos("crear_pago")
+- Cualquier pregunta sobre CÓMO hacer algo → consultar_requisitos, NO ejecutar la acción
 
 REGLAS DE DATOS:
 1. NUNCA inventes datos, cifras, nombres o importes. Solo responde con lo que devuelvan las herramientas.
