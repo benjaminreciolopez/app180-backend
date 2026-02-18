@@ -5,7 +5,7 @@ import { sql } from "../db.js";
  */
 export async function listarCompras(req, res) {
     try {
-        const { empresaId } = req.user;
+        const { empresa_id } = req.user;
         let {
             fecha_inicio,
             fecha_fin,
@@ -18,7 +18,7 @@ export async function listarCompras(req, res) {
         // Convertir a números para evitar problemas con tipos o valores undefined
         const safeLimite = Number(limite) || 50;
         const safeOffset = Number(offset) || 0;
-        const safeEmpresaId = empresaId || null;
+        const safeEmpresaId = empresa_id || null;
 
         if (!safeEmpresaId) {
             return res.status(401).json({ error: "Sesión inválida o empresa no identificada." });
@@ -67,7 +67,7 @@ export async function listarCompras(req, res) {
  */
 export async function crearCompra(req, res) {
     try {
-        const { empresaId } = req.user;
+        const { empresa_id } = req.user;
         const {
             proveedor,
             descripcion,
@@ -94,7 +94,7 @@ export async function crearCompra(req, res) {
         total, fecha_compra, categoria, base_imponible, iva_importe,
         iva_porcentaje, metodo_pago, documento_url, ocr_data, activo
       ) VALUES (
-        ${empresaId}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
+        ${empresa_id}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
         ${total}, ${fecha_compra || new Date().toISOString().split('T')[0]}, 
         ${categoria || 'general'}, ${base_imponible || total}, ${iva_importe || 0},
         ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'}, 
@@ -115,7 +115,7 @@ export async function crearCompra(req, res) {
 export async function actualizarCompra(req, res) {
     try {
         const { id } = req.params;
-        const { empresaId } = req.user;
+        const { empresa_id } = req.user;
         const updateData = req.body;
 
         // Campos permitidos para actualizar
@@ -141,7 +141,7 @@ export async function actualizarCompra(req, res) {
         const [updated] = await sql`
       UPDATE purchases_180
       SET ${sql(finalData)}, updated_at = NOW()
-      WHERE id = ${id} AND empresa_id = ${empresaId}
+      WHERE id = ${id} AND empresa_id = ${empresa_id}
       RETURNING *
     `;
 
@@ -162,12 +162,12 @@ export async function actualizarCompra(req, res) {
 export async function eliminarCompra(req, res) {
     try {
         const { id } = req.params;
-        const { empresaId } = req.user;
+        const { empresa_id } = req.user;
 
         const [deleted] = await sql`
       UPDATE purchases_180
       SET activo = false, updated_at = NOW()
-      WHERE id = ${id} AND empresa_id = ${empresaId}
+      WHERE id = ${id} AND empresa_id = ${empresa_id}
       RETURNING id
     `;
 
