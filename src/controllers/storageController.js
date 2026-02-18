@@ -159,6 +159,35 @@ export const storageController = {
             console.error('Error uploadFile:', err);
             res.status(500).json({ success: false, error: err.message });
         }
+    },
+
+    /**
+     * Proxy para abrir archivo por path (sin ID)
+     */
+    async proxyFile(req, res) {
+        try {
+            const { path } = req.query;
+            if (!path) return res.status(400).json({ error: "Falta el parámetro 'path'" });
+
+            if (supabase) {
+                // Generar URL firmada temporal (60 segs) para ver el archivo
+                const { data, error } = await supabase.storage
+                    .from('app180-files')
+                    .createSignedUrl(path, 60);
+
+                if (error) {
+                    console.error("Error signedUrl proxy:", error);
+                    return res.status(404).send("Archivo no encontrado o error en storage");
+                }
+
+                return res.redirect(data.signedUrl);
+            } else {
+                return res.status(500).json({ error: "Supabase no configurado" });
+            }
+        } catch (err) {
+            console.error("Error proxyFile:", err);
+            res.status(500).send("Error interno");
+        }
     }
 };
 
