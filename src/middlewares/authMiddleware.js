@@ -35,16 +35,21 @@ export const authRequired = async (req, res, next) => {
     return next();
   }
 
+  let token = null;
   const authHeader = req.headers.authorization || req.get("Authorization");
 
-  if (!authHeader) {
-    return res.status(401).json({ error: "Token no proporcionado" });
+  if (authHeader) {
+    const parts = authHeader.split(" ");
+    if (parts.length === 2 && parts[0] === "Bearer") {
+      token = parts[1];
+    }
+  } else if (req.query.token) {
+    // Permitir token en query string para iframes/proxies
+    token = req.query.token;
   }
 
-  const [type, token] = authHeader.split(" ");
-
-  if (type !== "Bearer" || !token) {
-    return res.status(401).json({ error: "Token inválido" });
+  if (!token) {
+    return res.status(401).json({ error: "Token no proporcionado o inválido" });
   }
 
   try {
