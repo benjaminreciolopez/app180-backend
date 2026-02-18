@@ -447,6 +447,78 @@ const TOOLS = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "marcar_trabajo_cobrado",
+      description: "Marca un trabajo como COBRADO DIRECTAMENTE (sin factura). Úsala cuando el usuario diga que ya ha cobrado un trabajo pero no hay factura oficial.",
+      parameters: {
+        type: "object",
+        properties: {
+          trabajo_id: { type: "string", description: "ID del trabajo (UUID)" },
+          metodo_pago: { type: "string", description: "Método de pago (efectivo, bizum, transferencia, etc.)" }
+        },
+        required: ["trabajo_id"]
+      }
+    }
+  },
+
+  // ===== GASTOS Y COMPRAS (WRITE) =====
+  {
+    type: "function",
+    function: {
+      name: "registrar_gasto",
+      description: "Registra un gasto o compra (materiales, combustible, etc.).",
+      parameters: {
+        type: "object",
+        properties: {
+          proveedor: { type: "string", description: "Nombre del proveedor o establecimiento" },
+          descripcion: { type: "string", description: "Concepto del gasto" },
+          total: { type: "number", description: "Importe total del ticket/factura" },
+          base_imponible: { type: "number", description: "Base imponible (opcional)" },
+          iva_importe: { type: "number", description: "Importe de IVA (opcional)" },
+          iva_porcentaje: { type: "number", description: "Porcentaje de IVA (ej: 21)" },
+          fecha: { type: "string", description: "Fecha YYYY-MM-DD (default: hoy)" },
+          categoria: { type: "string", description: "Categoría (material, combustible, herramientas, etc.)" },
+          metodo_pago: { type: "string", description: "Método de pago" }
+        },
+        required: ["descripcion", "total"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "registrar_factura_existente",
+      description: "Registra una factura que ya existe físicamente/legalmente (ej: para recuperar datos borrados por error).",
+      parameters: {
+        type: "object",
+        properties: {
+          numero_factura: { type: "string", description: "Número de la factura real" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente" },
+          fecha_emision: { type: "string", description: "Fecha YYYY-MM-DD" },
+          total: { type: "number", description: "Importe total de la factura" },
+          estado_pago: { type: "string", description: "Estado de pago (pagado, pendiente)" }
+        },
+        required: ["numero_factura", "nombre_cliente", "total"]
+      }
+    }
+  },
+
+  // ===== ANÁLISIS FINANCIERO 360 =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_resumen_financiero",
+      description: "Muestra el beneficio real del negocio cruzando ingresos (facturas + cobros directos) y gastos.",
+      parameters: {
+        type: "object",
+        properties: {
+          periodo: { type: "string", description: "Periodo a consultar (mes_actual, mes_anterior, año_actual)" }
+        }
+      }
+    }
+  },
 
   // ===== AUSENCIAS (WRITE) =====
   {
@@ -935,6 +1007,12 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       // Trabajos
       case "crear_trabajo": return await crearTrabajo(args, empresaId);
       case "consultar_historial_trabajos": return await consultarHistorialTrabajos(args, empresaId);
+      case "marcar_trabajo_cobrado": return await marcarTrabajoCobrado(args, empresaId);
+      // Gastos
+      case "registrar_gasto": return await registrarGasto(args, empresaId);
+      case "registrar_factura_existente": return await registrarFacturaExistente(args, empresaId);
+      // Análisis Avanzado
+      case "consultar_resumen_financiero": return await consultarResumenFinanciero(args, empresaId);
       // Ausencias
       case "crear_ausencia": return await crearAusencia(args, empresaId);
       // Nuevos skills: Analytics financiero
@@ -1491,6 +1569,127 @@ async function consultarHistorialTrabajos({ cliente_id, limite = 5 }, empresaId)
       detalles: t.detalles || ""
     })),
     instruccion: "Muestra esta tabla al usuario y pregúntale si quiere usar uno de estos como base o prefiere registrar un TRABAJO NUEVO."
+  };
+}
+
+async function marcarTrabajoCobrado({ trabajo_id, metodo_pago }, empresaId) {
+  const [trabajo] = await sql`
+    UPDATE work_logs_180
+    SET estado_pago = 'pagado', 
+        metodo_pago_directo = ${metodo_pago || 'efectivo'},
+        pagado_at = NOW()
+    WHERE id = ${trabajo_id} AND empresa_id = ${empresaId}
+    RETURNING id, descripcion
+  `;
+  if (!trabajo) return { error: "Trabajo no encontrado." };
+  return { success: true, mensaje: `Trabajo "${trabajo.descripcion}" marcado como COBRADO DIRECTAMENTE.` };
+}
+
+// ============================
+// HERRAMIENTAS DE ESCRITURA - GASTOS
+// ============================
+
+async function registrarGasto({ proveedor, descripcion, total, base_imponible, iva_importe, iva_porcentaje, fecha, categoria, metodo_pago }, empresaId) {
+  const fechaGasto = fecha || new Date().toISOString().split('T')[0];
+  const [gasto] = await sql`
+    INSERT INTO purchases_180 (
+      empresa_id, proveedor, descripcion, total, base_imponible, 
+      iva_importe, iva_porcentaje, fecha_compra, categoria, metodo_pago, activo
+    ) VALUES (
+      ${empresaId}, ${proveedor || null}, ${descripcion}, ${total}, 
+      ${base_imponible || total}, ${iva_importe || 0}, ${iva_porcentaje || 0}, 
+      ${fechaGasto}, ${categoria || 'general'}, ${metodo_pago || 'otro'}, true
+    ) RETURNING id
+  `;
+  return { success: true, mensaje: `Gasto registrado: "${descripcion}" por un total de ${total}€. ID: ${gasto.id}` };
+}
+
+async function registrarFacturaExistente({ numero_factura, nombre_cliente, fecha_emision, total, estado_pago }, empresaId) {
+  const fecha = fecha_emision || new Date().toISOString().split('T')[0];
+
+  // Buscar cliente
+  const [cliente] = await sql`
+    SELECT id FROM clients_180 WHERE nombre ILIKE ${'%' + nombre_cliente + '%'} AND empresa_id = ${empresaId} LIMIT 1
+  `;
+  if (!cliente) return { error: `No se encontró al cliente "${nombre_cliente}".` };
+
+  const [idExistente] = await sql`
+    SELECT id FROM invoices_180 WHERE numero_factura = ${numero_factura} AND empresa_id = ${empresaId}
+  `;
+  if (idExistente) return { error: `La factura ${numero_factura} ya está registrada.` };
+
+  const [factura] = await sql`
+    INSERT INTO invoices_180 (
+      empresa_id, numero_factura, cliente_id, fecha_emision, total, estado_pago, estado_emision, activo
+    ) VALUES (
+      ${empresaId}, ${numero_factura}, ${cliente.id}, ${fecha}, ${total}, 
+      ${estado_pago || 'pendiente'}, 'VALIDADA', true
+    ) RETURNING id
+  `;
+
+  return { success: true, mensaje: `Factura ${numero_factura} recuperada con éxito. ID: ${factura.id}` };
+}
+
+// ============================
+// HERRAMIENTAS DE ANÁLISIS AVANZADO
+// ============================
+
+async function consultarResumenFinanciero({ periodo = 'mes_actual' }, empresaId) {
+  let startDate, endDate;
+  const now = new Date();
+
+  if (periodo === 'mes_actual') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  } else if (periodo === 'mes_anterior') {
+    startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+  } else {
+    startDate = new Date(now.getFullYear(), 0, 1);
+    endDate = new Date(now.getFullYear(), 11, 31);
+  }
+
+  // 1. Ingresos por Facturas (Pagadas o Parcialmente)
+  const [ingresosFacturas] = await sql`
+    SELECT COALESCE(SUM(total), 0) as total
+    FROM invoices_180
+    WHERE empresa_id = ${empresaId} 
+      AND fecha_emision BETWEEN ${startDate} AND ${endDate}
+      AND estado_pago IN ('pagado', 'parcial')
+  `;
+
+  // 2. Ingresos por Cobros Directos (Trabajos pagados sin factura)
+  const [ingresosDirectos] = await sql`
+    SELECT COALESCE(SUM(valor), 0) as total
+    FROM work_logs_180
+    WHERE empresa_id = ${empresaId}
+      AND pagado_at BETWEEN ${startDate} AND ${endDate}
+      AND estado_pago = 'pagado'
+  `;
+
+  // 3. Gastos
+  const [gastos] = await sql`
+    SELECT COALESCE(SUM(total), 0) as total
+    FROM purchases_180
+    WHERE empresa_id = ${empresaId}
+      AND fecha_compra BETWEEN ${startDate} AND ${endDate}
+      AND activo = true
+  `;
+
+  const totalIngresos = Number(ingresosFacturas.total) + Number(ingresosDirectos.total);
+  const totalGastos = Number(gastos.total);
+  const beneficio = totalIngresos - totalGastos;
+
+  return {
+    periodo: `${startDate.toLocaleDateString()} al ${endDate.toLocaleDateString()}`,
+    ingresos: {
+      facturados: Number(ingresosFacturas.total),
+      cobros_directos: Number(ingresosDirectos.total),
+      total: totalIngresos
+    },
+    gastos: totalGastos,
+    beneficio_neto: beneficio,
+    mensaje: beneficio >= 0 ? "El negocio está en positivo." : "Atención: Los gastos superan a los ingresos en este periodo."
   };
 }
 
@@ -2143,13 +2342,18 @@ RESOLUCIÓN AUTOMÁTICA DE NOMBRES:
 - Si el sistema te devuelve un error sobre IDs (ej: UUID inválido), es porque has puesto un nombre donde iba un ID. No lo hagas, pero si sucede, el sistema intentará resolverlo por ti.
 
 FLUJO DE TRABAJOS (WORK LOGS):
-1. Cuando el usuario diga que ha trabajado para un cliente, SIEMPRE consulta primero su historial con \`consultar_historial_trabajos\`.
+1. Cuando el usuario diga que ha trabajado para un cliente, SIEMPRE consulta primero su historial con consultar_historial_trabajos.
 2. Presenta los últimos trabajos en una tabla Markdown clara.
 3. Pregunta al usuario: "¿Deseas seleccionar uno de estos trabajos previos o registrar un **TRABAJO NUEVO**?".
 4. Si elige uno previo, usa sus datos. Si elige "NUEVO", solicita:
    - **Trabajo / Descripción completa**: El detalle técnico de lo que se ha hecho.
    - **Descripción corta factura**: Un resumen para la facturación (ej: "Mantenimiento preventivo").
    - **Detalles adicionales** (opcional).
+5. Si el usuario dice que ya se lo han pagado "en mano" o "por bizum", usa marcar_trabajo_cobrado.
+
+GESTIÓN DE GASTOS (NIVEL DIOS):
+1. Siempre que el usuario mencione una compra, ticket o gasto, usa registrar_gasto.
+2. Si el usuario quiere ver cómo va de dinero real, usa consultar_resumen_financiero. Este es el nivel más alto de análisis: combina facturas oficiales y cobros directos contra todos los gastos.
 
 REGLAS DE DATOS:
 1. NUNCA inventes datos, cifras, nombres o importes. Solo responde con lo que devuelvan las herramientas.
