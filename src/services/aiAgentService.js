@@ -414,19 +414,36 @@ const TOOLS = [
     type: "function",
     function: {
       name: "crear_trabajo",
-      description: "Registra un trabajo realizado (work log). Si el usuario dice 'he trabajado X horas', usa horas. Si dice 'hoy', usa la fecha actual. Si no dice descripción, PREGÚNTALA antes de llamar esta herramienta.",
+      description: "Registra un trabajo realizado (work log). Si el usuario dice 'he trabajado X horas', usa horas. Si dice 'hoy', usa la fecha actual. IMPORTANTE: Si es un trabajo nuevo, pide: 1. Trabajo/Descrip. Completa, 2. Concepto corto factura. 3. Detalles adicionales (opcional).",
       parameters: {
         type: "object",
         properties: {
-          cliente_id: { type: "string", description: "ID del cliente" },
+          cliente_id: { type: "string", description: "ID del cliente (UUID)" },
           nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
-          descripcion: { type: "string", description: "Descripcion del trabajo realizado" },
+          descripcion: { type: "string", description: "Trabajo / Descripción completa del trabajo realizado (detalle técnico)" },
+          concepto_facturacion: { type: "string", description: "Descripción corta para poner en la factura (ej: Arreglo de cristal)" },
+          detalles: { type: "string", description: "Detalles adicionales u observaciones (opcional)" },
           fecha: { type: "string", description: "Fecha YYYY-MM-DD (default: hoy)" },
-          horas: { type: "number", description: "Duración en horas (alternativa a minutos, ej: 9)" },
-          minutos: { type: "number", description: "Duración en minutos (alternativa a horas, ej: 540)" },
+          horas: { type: "number", description: "Duración en horas (ej: 9)" },
+          minutos: { type: "number", description: "Duración en minutos (ej: 540)" },
           precio: { type: "number", description: "Valor/precio manual (opcional)" }
         },
         required: ["descripcion"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_historial_trabajos",
+      description: "Obtiene los últimos trabajos realizados para un cliente. Úsala para que el usuario pueda seleccionar un trabajo previo antes de registrar uno nuevo.",
+      parameters: {
+        type: "object",
+        properties: {
+          cliente_id: { type: "string", description: "ID del cliente (UUID)" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
+          limite: { type: "number", description: "Nº de trabajos a recuperar (default: 5)" }
+        }
       }
     }
   },
@@ -715,13 +732,13 @@ function parseFailedGeneration(errorMessage) {
       }
     }
 
-    // Validar que los parámetros _id no sean placeholders del LLM
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const INT_RE = /^\d+$/;
     for (const [key, val] of Object.entries(args)) {
       if (key.endsWith('_id') && typeof val === 'string' && !UUID_RE.test(val) && !INT_RE.test(val)) {
-        console.warn(`[AI] Argumento placeholder detectado: ${key}="${val}" - no se ejecuta la herramienta`);
-        return null;
+        console.warn(`[AI] Argumento placeholder o nombre detectado en campo ID: ${key}="${val}" - se intentará resolver`);
+        // Si el valor no es un ID válido, lo tratamos como un nombre para intentar resolverlo
+        const baseKey = key.replace('_id', '');
+        args[`nombre_${baseKey}`] = val;
+        delete args[key];
       }
     }
 
@@ -738,6 +755,19 @@ function parseFailedGeneration(errorMessage) {
 async function resolveIds(args, empresaId) {
   // Rechazar nombres genéricos antes de buscar en BD
   const GENERIC_NAME_RE = /^(nombre|cliente|empleado|el cliente|la empresa|usuario|persona|test|ejemplo|prueba)/i;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // Si cliente_id viene con un nombre (no UUID), moverlo a nombre_cliente
+  if (args.cliente_id && typeof args.cliente_id === 'string' && !UUID_RE.test(args.cliente_id) && !/^\d+$/.test(args.cliente_id)) {
+    args.nombre_cliente = args.cliente_id;
+    delete args.cliente_id;
+  }
+  // Lo mismo para empleado_id
+  if (args.empleado_id && typeof args.empleado_id === 'string' && !UUID_RE.test(args.empleado_id) && !/^\d+$/.test(args.empleado_id)) {
+    args.nombre_empleado = args.empleado_id;
+    delete args.empleado_id;
+  }
+
   if (args.nombre_cliente && GENERIC_NAME_RE.test(args.nombre_cliente.trim())) {
     return { error: `"${args.nombre_cliente}" no es un nombre real de cliente. Pregunta al usuario el nombre específico.` };
   }
@@ -904,6 +934,7 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       case "actualizar_empleado": return await actualizarEmpleado(args, empresaId);
       // Trabajos
       case "crear_trabajo": return await crearTrabajo(args, empresaId);
+      case "consultar_historial_trabajos": return await consultarHistorialTrabajos(args, empresaId);
       // Ausencias
       case "crear_ausencia": return await crearAusencia(args, empresaId);
       // Nuevos skills: Analytics financiero
@@ -1414,7 +1445,7 @@ async function actualizarEmpleado({ empleado_id, nombre, activo }, empresaId) {
 // HERRAMIENTAS DE ESCRITURA - TRABAJOS
 // ============================
 
-async function crearTrabajo({ cliente_id, descripcion, fecha, horas, minutos, precio }, empresaId) {
+async function crearTrabajo({ cliente_id, descripcion, concepto_facturacion, detalles, fecha, horas, minutos, precio }, empresaId) {
   const fechaTrabajo = fecha || new Date().toISOString().split('T')[0];
   const valor = precio || null;
   // Aceptar horas como alternativa a minutos
@@ -1428,13 +1459,39 @@ async function crearTrabajo({ cliente_id, descripcion, fecha, horas, minutos, pr
   }
 
   const [trabajo] = await sql`
-    INSERT INTO work_logs_180 (empresa_id, cliente_id, descripcion, fecha, minutos, valor)
-    VALUES (${empresaId}, ${cliente_id || null}, ${descripcion}, ${fechaTrabajo}::date, ${totalMinutos}, ${valor})
+    INSERT INTO work_logs_180 (empresa_id, cliente_id, descripcion, concepto_facturacion, detalles, fecha, minutos, valor)
+    VALUES (${empresaId}, ${cliente_id || null}, ${descripcion}, ${concepto_facturacion || null}, ${detalles || null}, ${fechaTrabajo}::date, ${totalMinutos}, ${valor})
     RETURNING id
   `;
 
   const horasDisplay = totalMinutos >= 60 ? `${Math.floor(totalMinutos / 60)}h ${totalMinutos % 60 > 0 ? `${totalMinutos % 60}min` : ''}` : `${totalMinutos} min`;
   return { success: true, mensaje: `Trabajo registrado${clienteNombre ? ` para ${clienteNombre}` : ''}. Duración: ${horasDisplay.trim()}. Fecha: ${fechaTrabajo}. ID: ${trabajo.id}` };
+}
+
+async function consultarHistorialTrabajos({ cliente_id, limite = 5 }, empresaId) {
+  if (!cliente_id) return { error: "ID del cliente es necesario para consultar el historial." };
+
+  const trabajos = await sql`
+    SELECT id, fecha, descripcion, concepto_facturacion, detalles
+    FROM work_logs_180
+    WHERE empresa_id = ${empresaId} AND cliente_id = ${cliente_id}
+    ORDER BY fecha DESC, created_at DESC
+    LIMIT ${limite}
+  `;
+
+  if (trabajos.length === 0) return { mensaje: "No hay trabajos registrados anteriormente para este cliente." };
+
+  return {
+    total: trabajos.length,
+    trabajos: trabajos.map(t => ({
+      id: t.id,
+      fecha: t.fecha,
+      trabajo: t.descripcion,
+      concepto_corto: t.concepto_facturacion || "No indicado",
+      detalles: t.detalles || ""
+    })),
+    instruccion: "Muestra esta tabla al usuario y pregúntale si quiere usar uno de estos como base o prefiere registrar un TRABAJO NUEVO."
+  };
 }
 
 // ============================
@@ -2083,46 +2140,16 @@ CUÁNDO USAR HERRAMIENTAS:
 
 RESOLUCIÓN AUTOMÁTICA DE NOMBRES:
 - Puedes usar nombre_cliente en vez de cliente_id en CUALQUIER herramienta. El sistema buscará automáticamente el ID.
-- Puedes usar nombre_empleado en vez de empleado_id. El sistema buscará automáticamente el ID.
-- Si hay varios resultados, el sistema te devolverá las opciones para que preguntes al usuario cuál.
-- NO necesitas llamar a consultar_clientes antes de una acción si el usuario ya te dio el nombre del cliente.
+- Si el sistema te devuelve un error sobre IDs (ej: UUID inválido), es porque has puesto un nombre donde iba un ID. No lo hagas, pero si sucede, el sistema intentará resolverlo por ti.
 
-CUÁNDO USAR HERRAMIENTAS DE ESCRITURA:
-- "Crea una factura para Pepe" → crear_factura con nombre_cliente="Pepe" (se resuelve automáticamente)
-- "Factura los trabajos de María" → facturar_trabajos_pendientes con nombre_cliente="María"
-- "Registra un pago de García" → crear_pago con nombre_cliente="García"
-- "Crea un cliente nuevo" → crear_cliente
-- "Registra un trabajo" → crear_trabajo
-- "Pon vacaciones a Juan" → crear_ausencia con nombre_empleado="Juan"
-- "Valida la factura X" → validar_factura
-- "Anula la factura X" → anular_factura
-
-🛡️ HERRAMIENTA DEFENSIVA - consultar_requisitos:
-- Cuando el usuario pregunte "¿qué necesitas para...?", "¿qué datos hacen falta?", "¿cómo hago...?" → USA consultar_requisitos
-- NUNCA llames a una herramienta de escritura si no tienes TODOS los datos reales del usuario
-- Si no tienes el nombre real del cliente/empleado, PREGUNTA primero, no inventes
-- NUNCA uses valores genéricos como "nombre del cliente", "ID del cliente", "datos del cliente"
-
-CUÁNDO NO USAR HERRAMIENTAS DE ACCIÓN (responde directamente o usa consultar_requisitos):
-- Saludos y despedidas
-- Agradecimientos
-- Preguntas sobre qué puedes hacer o cómo funcionas
-- Conversación casual
-- "¿Qué necesitas para facturar?" → consultar_requisitos("facturar_trabajos_pendientes")
-- "¿Cómo creo una factura?" → consultar_requisitos("crear_factura")
-- "¿Qué datos hacen falta para un pago?" → consultar_requisitos("crear_pago")
-- Cualquier pregunta sobre CÓMO hacer algo → consultar_requisitos, NO ejecutar la acción
-
-🧠 PARSEO DE LENGUAJE NATURAL:
-Cuando el usuario describe una acción en lenguaje natural, EXTRAE todos los datos posibles:
-- "hoy he trabajado 9 horas para Miguel Antonio" → crear_trabajo con nombre_cliente="Miguel Antonio", horas=9, fecha="${hoy}"
-  FALTA: descripcion → PREGUNTA SOLO lo que falta: "¿Qué trabajo realizaste?"
-- "ayer facturé 500€ a Pérez" → crear_factura con nombre_cliente="Pérez", fecha=ayer, lineas con total=500
-- "registra 3 horas de diseño web para García" → crear_trabajo con nombre_cliente="García", horas=3, descripcion="diseño web"
-- "he trabajado" / "trabajé" = EL PROPIO USUARIO. No necesitas preguntar quién.
-- "hoy" = ${hoy}, "ayer" = calcular
-
-REGLA CLAVE: Si del mensaje del usuario puedes extraer 3 de 4 campos, PREGUNTA SOLO el campo que falta. NO preguntes todo. NO repitas lo que ya tienes.
+FLUJO DE TRABAJOS (WORK LOGS):
+1. Cuando el usuario diga que ha trabajado para un cliente, SIEMPRE consulta primero su historial con \`consultar_historial_trabajos\`.
+2. Presenta los últimos trabajos en una tabla Markdown clara.
+3. Pregunta al usuario: "¿Deseas seleccionar uno de estos trabajos previos o registrar un **TRABAJO NUEVO**?".
+4. Si elige uno previo, usa sus datos. Si elige "NUEVO", solicita:
+   - **Trabajo / Descripción completa**: El detalle técnico de lo que se ha hecho.
+   - **Descripción corta factura**: Un resumen para la facturación (ej: "Mantenimiento preventivo").
+   - **Detalles adicionales** (opcional).
 
 REGLAS DE DATOS:
 1. NUNCA inventes datos, cifras, nombres o importes. Solo responde con lo que devuelvan las herramientas.
