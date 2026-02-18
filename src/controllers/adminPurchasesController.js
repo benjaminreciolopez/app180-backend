@@ -184,6 +184,7 @@ export async function crearCompra(req, res) {
                 folder: folderPath,
                 mimeType: req.file.mimetype
             });
+            // Guardamos la ruta relativa (path en el bucket)
             finalDocumentUrl = storageRecord.storage_path;
         }
 
@@ -268,16 +269,26 @@ export async function actualizarCompra(req, res) {
                 folder: folderPath,
                 mimeType: req.file.mimetype
             });
+            // Ruta relativa del bucket
             finalData.documento_url = storageRecord.storage_path;
+        }
+
+        // Fix: si ocr_data viene como string JSON (FormData), lo parseamos
+        // para que postgres.js lo serialice bien como jsonb o lo pasamos como string
+        if (updateData.ocr_data && typeof updateData.ocr_data === 'string') {
+            try {
+                finalData.ocr_data = JSON.parse(updateData.ocr_data);
+            } catch (e) { }
         }
 
         if (Object.keys(finalData).length === 0) {
             return res.status(400).json({ error: "No se proporcionaron campos para actualizar." });
         }
 
+        const columns = Object.keys(finalData);
         const [updated] = await sql`
       UPDATE purchases_180
-      SET ${sql(finalData)}, updated_at = NOW()
+      SET ${sql(finalData, columns)}, updated_at = NOW()
       WHERE id = ${id} AND empresa_id = ${empresa_id}
       RETURNING *
     `;
