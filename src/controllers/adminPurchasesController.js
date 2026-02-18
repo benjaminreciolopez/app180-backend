@@ -37,13 +37,26 @@ export async function ocrGasto(req, res) {
                     content: `Eres un experto contable español. Tu tarea es extraer datos de un ticket o factura.
                     
                     REGLAS CRÍTICAS:
-                    1. Caso Amazon: Las facturas de Amazon a veces muestran el total en lugares inusuales o desglosado. Busca siempre el 'Total general' o 'Importe total'.
-                    2. Proveedor: Si es Amazon, identifica si es "Amazon EU S.a.r.L" o similar.
-                    3. Fecha: Extrae en formato YYYY-MM-DD.
-                    4. Total: Debe ser un número (float). No incluyas símbolos de moneda.
-                    5. Descripción: Resumen muy breve de lo comprado (ej: "Material oficina", "Componentes PC").
+                    1. Caso Amazon: Las facturas de Amazon a veces muestran el total en lugares inusuales. Busca 'Total general'.
+                    2. Proveedor: Identifica el nombre legal.
+                    3. Fecha: Formato YYYY-MM-DD.
+                    4. Numero de Factura: Busca 'Nº de factura', 'Factura nº', 'Invoice #', etc.
+                    5. Base Imponible: El importe antes de impuestos.
+                    6. IVA: Extrae el porcentaje (ej: 21) y el importe del impuesto.
+                    7. Total: Importe final con impuestos.
+                    8. Descripción: Resumen breve.
                     
-                    Responde EXCLUSIVAMENTE un objeto JSON con estas claves: proveedor, total, fecha_compra, descripcion.`
+                    Responde EXCLUSIVAMENTE un objeto JSON: 
+                    {
+                        "proveedor": string,
+                        "total": number,
+                        "fecha_compra": "YYYY-MM-DD",
+                        "descripcion": string,
+                        "numero_factura": string,
+                        "base_imponible": number,
+                        "iva_porcentaje": number,
+                        "iva_importe": number
+                    }`
                 },
                 {
                     role: "user",
@@ -75,7 +88,7 @@ export async function ocrGasto(req, res) {
             success: true,
             data: {
                 ...data,
-                document_url: storageRecord.storage_path, // Ajustar según si es URL pública o path
+                document_url: storageRecord.storage_path,
                 anio,
                 trimestre: tri
             }
@@ -124,7 +137,7 @@ export async function listarCompras(req, res) {
         if (trimestre) query = sql`${query} AND trimestre = ${trimestre}`;
 
         if (busqueda) {
-            query = sql`${query} AND (proveedor ILIKE ${'%' + busqueda + '%'} OR descripcion ILIKE ${'%' + busqueda + '%'})`;
+            query = sql`${query} AND (proveedor ILIKE ${'%' + busqueda + '%'} OR descripcion ILIKE ${'%' + busqueda + '%'} OR numero_factura ILIKE ${'%' + busqueda + '%'})`;
         }
 
         query = sql`${query} ORDER BY fecha_compra DESC, created_at DESC LIMIT ${safeLimite} OFFSET ${safeOffset}`;
@@ -168,7 +181,8 @@ export async function crearCompra(req, res) {
             documento_url,
             ocr_data,
             anio,
-            trimestre
+            trimestre,
+            numero_factura
         } = req.body;
 
         if (!descripcion || total === undefined) {
@@ -183,14 +197,15 @@ export async function crearCompra(req, res) {
       INSERT INTO purchases_180 (
         empresa_id, proveedor, descripcion, cantidad, precio_unitario,
         total, fecha_compra, categoria, base_imponible, iva_importe,
-        iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre, activo
+        iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre, 
+        numero_factura, activo
       ) VALUES (
         ${empresa_id}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
         ${total}, ${fechaFinal}, 
         ${categoria || 'general'}, ${base_imponible || total}, ${iva_importe || 0},
         ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'}, 
         ${documento_url || null}, ${ocr_data ? JSON.stringify(ocr_data) : null},
-        ${finalAnio}, ${finalTri}, true
+        ${finalAnio}, ${finalTri}, ${numero_factura || null}, true
       ) RETURNING *
     `;
 
@@ -214,7 +229,7 @@ export async function actualizarCompra(req, res) {
             'proveedor', 'descripcion', 'cantidad', 'precio_unitario', 'total',
             'fecha_compra', 'categoria', 'base_imponible', 'iva_importe',
             'iva_porcentaje', 'metodo_pago', 'documento_url', 'ocr_data',
-            'anio', 'trimestre'
+            'anio', 'trimestre', 'numero_factura'
         ];
 
         const finalData = {};
