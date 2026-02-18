@@ -6,7 +6,7 @@ import { sql } from "../db.js";
 export async function listarCompras(req, res) {
     try {
         const { empresaId } = req.user;
-        const {
+        let {
             fecha_inicio,
             fecha_fin,
             categoria,
@@ -15,9 +15,18 @@ export async function listarCompras(req, res) {
             offset = 0
         } = req.query;
 
+        // Convertir a números para evitar problemas con tipos o valores undefined
+        const safeLimite = Number(limite) || 50;
+        const safeOffset = Number(offset) || 0;
+        const safeEmpresaId = empresaId || null;
+
+        if (!safeEmpresaId) {
+            return res.status(401).json({ error: "Sesión inválida o empresa no identificada." });
+        }
+
         let query = sql`
       SELECT * FROM purchases_180 
-      WHERE empresa_id = ${empresaId} AND activo = true
+      WHERE empresa_id = ${safeEmpresaId} AND activo = true
     `;
 
         if (fecha_inicio) {
@@ -26,26 +35,26 @@ export async function listarCompras(req, res) {
         if (fecha_fin) {
             query = sql`${query} AND fecha_compra <= ${fecha_fin}`;
         }
-        if (categoria) {
+        if (categoria && categoria !== 'all') {
             query = sql`${query} AND categoria = ${categoria}`;
         }
         if (busqueda) {
             query = sql`${query} AND (proveedor ILIKE ${'%' + busqueda + '%'} OR descripcion ILIKE ${'%' + busqueda + '%'})`;
         }
 
-        query = sql`${query} ORDER BY fecha_compra DESC, created_at DESC LIMIT ${limite} OFFSET ${offset}`;
+        query = sql`${query} ORDER BY fecha_compra DESC, created_at DESC LIMIT ${safeLimite} OFFSET ${safeOffset}`;
 
         const rows = await query;
         const [count] = await sql`
       SELECT COUNT(*) FROM purchases_180 
-      WHERE empresa_id = ${empresaId} AND activo = true
+      WHERE empresa_id = ${safeEmpresaId} AND activo = true
     `;
 
         res.json({
             data: rows,
             total: parseInt(count.count),
-            limite: parseInt(limite),
-            offset: parseInt(offset)
+            limite: safeLimite,
+            offset: safeOffset
         });
     } catch (error) {
         console.error("[Purchases] Error listarCompras:", error);
