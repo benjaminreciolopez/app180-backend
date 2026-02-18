@@ -651,6 +651,41 @@ function coerceBooleans(args) {
   return result;
 }
 
+/**
+ * Parsea una tool call fallida de Groq (error tool_use_failed)
+ * y coerce los tipos string→number según el schema de la herramienta.
+ * Devuelve { name, args } o null si no se puede recuperar.
+ */
+function parseFailedGeneration(errorMessage) {
+  try {
+    const jsonStr = errorMessage.replace(/^\d+\s*/, '');
+    const errorBody = JSON.parse(jsonStr);
+    const failedGen = errorBody?.error?.failed_generation;
+    if (!failedGen || errorBody?.error?.code !== 'tool_use_failed') return null;
+
+    const match = failedGen.match(/<function=(\w+)>\s*(\{[\s\S]*?\})\s*<\/function>/);
+    if (!match) return null;
+
+    const [, name, argsJson] = match;
+    const args = JSON.parse(argsJson);
+
+    const tool = TOOLS.find(t => t.function.name === name);
+    if (tool) {
+      const props = tool.function.parameters.properties || {};
+      for (const [key, schema] of Object.entries(props)) {
+        if (schema.type === 'number' && typeof args[key] === 'string') {
+          const num = Number(args[key]);
+          if (!isNaN(num)) args[key] = num;
+        }
+      }
+    }
+
+    return { name, args };
+  } catch {
+    return null;
+  }
+}
+
 async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
   const args = coerceBooleans(argumentos);
   console.log(`[AI] Ejecutando: ${nombreHerramienta}`, args);
@@ -1944,6 +1979,38 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       });
     } catch (apiErr) {
       console.error("[AI] Error API Groq:", apiErr.message);
+
+      // Intentar recuperar tool calls con tipos incorrectos (ej: string en vez de number)
+      const parsed = parseFailedGeneration(apiErr.message);
+      if (parsed) {
+        console.log(`[AI] Recuperando tool call fallida: ${parsed.name}`, parsed.args);
+        const resultado = await ejecutarHerramienta(parsed.name, parsed.args, empresaId);
+
+        const toolCallId = "recovered_" + Date.now();
+        const toolHistory = [
+          { role: "assistant", content: null, tool_calls: [{ id: toolCallId, type: "function", function: { name: parsed.name, arguments: JSON.stringify(parsed.args) } }] },
+          { role: "tool", tool_call_id: toolCallId, content: JSON.stringify(resultado) }
+        ];
+
+        try {
+          const recoveryResponse = await groq.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [...mensajes, ...toolHistory],
+            tools: TOOLS,
+            tool_choice: "none",
+            temperature: 0.1,
+            max_tokens: 1024
+          });
+          const recoveryMsg = recoveryResponse.choices?.[0]?.message?.content;
+          if (recoveryMsg) {
+            await guardarConversacion(empresaId, userId, userRole, mensaje, recoveryMsg);
+            return { mensaje: recoveryMsg };
+          }
+        } catch (retryErr) {
+          console.error("[AI] Error en recovery:", retryErr.message);
+        }
+      }
+
       console.log("[AI] Activando modo fallback local...");
       const fallback = await consultarConocimiento({ busqueda: mensaje }, empresaId);
       if (fallback.respuesta_directa) {
@@ -1997,7 +2064,36 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
           max_tokens: 1024
         });
       } catch (apiErr) {
-        console.error("[AI] Error API Groq (tool response):", apiErr);
+        console.error("[AI] Error API Groq (tool response):", apiErr.message || apiErr);
+
+        // Intentar recuperar tool call con tipos incorrectos
+        const parsed = parseFailedGeneration(apiErr.message || String(apiErr));
+        if (parsed) {
+          console.log(`[AI] Recuperando tool call fallida (loop): ${parsed.name}`, parsed.args);
+          const resultado = await ejecutarHerramienta(parsed.name, parsed.args, empresaId);
+
+          const toolCallId = "recovered_" + Date.now();
+          toolHistory.push(
+            { role: "assistant", content: null, tool_calls: [{ id: toolCallId, type: "function", function: { name: parsed.name, arguments: JSON.stringify(parsed.args) } }] },
+            { role: "tool", tool_call_id: toolCallId, content: JSON.stringify(resultado) }
+          );
+
+          try {
+            response = await groq.chat.completions.create({
+              model: "llama-3.3-70b-versatile",
+              messages: [...mensajes, ...toolHistory],
+              tools: TOOLS,
+              tool_choice: "none",
+              temperature: 0.1,
+              max_tokens: 1024
+            });
+            msg = response.choices?.[0]?.message;
+            if (msg) break;
+          } catch (retryErr) {
+            console.error("[AI] Error en recovery (loop):", retryErr.message);
+          }
+        }
+
         return { mensaje: "Error al procesar los datos. Inténtalo de nuevo." };
       }
 
