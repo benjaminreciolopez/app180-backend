@@ -414,18 +414,19 @@ const TOOLS = [
     type: "function",
     function: {
       name: "crear_trabajo",
-      description: "Registra un trabajo realizado (work log).",
+      description: "Registra un trabajo realizado (work log). Si el usuario dice 'he trabajado X horas', usa horas. Si dice 'hoy', usa la fecha actual. Si no dice descripción, PREGÚNTALA antes de llamar esta herramienta.",
       parameters: {
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente" },
           nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
-          descripcion: { type: "string", description: "Descripcion del trabajo" },
-          fecha: { type: "string", description: "Fecha YYYY-MM-DD" },
-          minutos: { type: "number", description: "Duracion en minutos" },
+          descripcion: { type: "string", description: "Descripcion del trabajo realizado" },
+          fecha: { type: "string", description: "Fecha YYYY-MM-DD (default: hoy)" },
+          horas: { type: "number", description: "Duración en horas (alternativa a minutos, ej: 9)" },
+          minutos: { type: "number", description: "Duración en minutos (alternativa a horas, ej: 540)" },
           precio: { type: "number", description: "Valor/precio manual (opcional)" }
         },
-        required: ["descripcion", "minutos"]
+        required: ["descripcion"]
       }
     }
   },
@@ -1413,17 +1414,11 @@ async function actualizarEmpleado({ empleado_id, nombre, activo }, empresaId) {
 // HERRAMIENTAS DE ESCRITURA - TRABAJOS
 // ============================
 
-async function crearTrabajo({ cliente_id, descripcion, fecha, minutos, precio }, empresaId) {
+async function crearTrabajo({ cliente_id, descripcion, fecha, horas, minutos, precio }, empresaId) {
   const fechaTrabajo = fecha || new Date().toISOString().split('T')[0];
   const valor = precio || null;
-
-  const insertData = {
-    empresa_id: empresaId,
-    descripcion,
-    fecha: fechaTrabajo,
-    minutos: minutos || 0,
-    valor
-  };
+  // Aceptar horas como alternativa a minutos
+  const totalMinutos = minutos || (horas ? Math.round(horas * 60) : 0);
 
   let clienteNombre = null;
   if (cliente_id) {
@@ -1434,11 +1429,12 @@ async function crearTrabajo({ cliente_id, descripcion, fecha, minutos, precio },
 
   const [trabajo] = await sql`
     INSERT INTO work_logs_180 (empresa_id, cliente_id, descripcion, fecha, minutos, valor)
-    VALUES (${empresaId}, ${cliente_id || null}, ${descripcion}, ${fechaTrabajo}::date, ${minutos || 0}, ${valor})
+    VALUES (${empresaId}, ${cliente_id || null}, ${descripcion}, ${fechaTrabajo}::date, ${totalMinutos}, ${valor})
     RETURNING id
   `;
 
-  return { success: true, mensaje: `Trabajo registrado${clienteNombre ? ` para ${clienteNombre}` : ''}. ${minutos} minutos. ID: ${trabajo.id}` };
+  const horasDisplay = totalMinutos >= 60 ? `${Math.floor(totalMinutos / 60)}h ${totalMinutos % 60 > 0 ? `${totalMinutos % 60}min` : ''}` : `${totalMinutos} min`;
+  return { success: true, mensaje: `Trabajo registrado${clienteNombre ? ` para ${clienteNombre}` : ''}. Duración: ${horasDisplay.trim()}. Fecha: ${fechaTrabajo}. ID: ${trabajo.id}` };
 }
 
 // ============================
@@ -2014,8 +2010,18 @@ async function guardarConversacion(empresaId, userId, userRole, mensaje, respues
 // SYSTEM PROMPTS
 // ============================
 
-function buildSystemPrompt(userRole) {
+function buildSystemPrompt(userRole, userContext = {}) {
+  const hoy = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const { userName, userId } = userContext;
+
   let prompt = `Eres CONTENDO, el asistente inteligente de APP180, una plataforma de gestión empresarial. Responde siempre en español, de forma natural y profesional.
+
+CONTEXTO ACTUAL:
+- Fecha de hoy: ${hoy}
+- Usuario actual: ${userName || 'desconocido'} (${userRole === 'admin' ? 'administrador' : 'empleado'})
+- ID del usuario: ${userId || 'desconocido'}
+- Cuando el usuario diga "hoy", "ayer", "esta semana", usa estas referencias de fecha.
+- Cuando el usuario diga "he trabajado" o "trabajé", se refiere A SÍ MISMO. Si necesitas empleado_id, usa "${userId || ''}".
 
 TU PERSONALIDAD:
 - Eres amable, cercano y profesional. Hablas con naturalidad.
@@ -2107,18 +2113,30 @@ CUÁNDO NO USAR HERRAMIENTAS DE ACCIÓN (responde directamente o usa consultar_r
 - "¿Qué datos hacen falta para un pago?" → consultar_requisitos("crear_pago")
 - Cualquier pregunta sobre CÓMO hacer algo → consultar_requisitos, NO ejecutar la acción
 
+🧠 PARSEO DE LENGUAJE NATURAL:
+Cuando el usuario describe una acción en lenguaje natural, EXTRAE todos los datos posibles:
+- "hoy he trabajado 9 horas para Miguel Antonio" → crear_trabajo con nombre_cliente="Miguel Antonio", horas=9, fecha="${hoy}"
+  FALTA: descripcion → PREGUNTA SOLO lo que falta: "¿Qué trabajo realizaste?"
+- "ayer facturé 500€ a Pérez" → crear_factura con nombre_cliente="Pérez", fecha=ayer, lineas con total=500
+- "registra 3 horas de diseño web para García" → crear_trabajo con nombre_cliente="García", horas=3, descripcion="diseño web"
+- "he trabajado" / "trabajé" = EL PROPIO USUARIO. No necesitas preguntar quién.
+- "hoy" = ${hoy}, "ayer" = calcular
+
+REGLA CLAVE: Si del mensaje del usuario puedes extraer 3 de 4 campos, PREGUNTA SOLO el campo que falta. NO preguntes todo. NO repitas lo que ya tienes.
+
 REGLAS DE DATOS:
 1. NUNCA inventes datos, cifras, nombres o importes. Solo responde con lo que devuelvan las herramientas.
 2. Si una herramienta devuelve total: 0 o lista vacía, di claramente: "No hay [tipo de dato] registrados actualmente."
 3. Si la pregunta es ambigua, pregunta al usuario qué necesita exactamente.
 4. Para acciones de escritura, usa nombre_cliente o nombre_empleado directamente. El sistema resolverá los IDs automáticamente.
+5. NUNCA llames a una herramienta de ESCRITURA con datos inventados o genéricos. Si te falta algo, PREGUNTA.
 
 ESTADOS DE FACTURA:
 - Emisión: VALIDADA, BORRADOR, ANULADA
 - Cobro: pendiente, parcial, pagado
 - "Pendientes de cobro" = estado_pago="pendiente"
 
-El usuario es ${userRole === 'admin' ? 'administrador con acceso completo' : 'empleado'}.
+El usuario es ${userRole === 'admin' ? 'administrador con acceso completo' : 'empleado'}${userName ? ` (${userName})` : ''}.
 
 FORMATO: Usa Markdown. Importes en € con 2 decimales. Fechas en formato DD/MM/YYYY.`;
 
@@ -2156,8 +2174,12 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       return { mensaje: "Has agotado tu saldo de tokens de IA para este periodo. Contacta con soporte para ampliar tu plan." };
     }
 
+    // Obtener nombre del usuario para contexto
+    const [userInfo] = await sql`SELECT nombre FROM users_180 WHERE id = ${userId} LIMIT 1`;
+    const userName = userInfo?.nombre || null;
+
     const mensajes = [
-      { role: "system", content: buildSystemPrompt(userRole) },
+      { role: "system", content: buildSystemPrompt(userRole, { userName, userId }) },
       ...memoriaReciente,
       ...historial,
       { role: "user", content: mensaje }
@@ -2226,6 +2248,16 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       return { mensaje: "No pude procesar tu mensaje." };
     }
 
+    // Tools de escritura que modifican datos
+    const WRITE_TOOLS = new Set([
+      'crear_factura', 'actualizar_factura', 'validar_factura', 'anular_factura',
+      'eliminar_factura', 'enviar_factura_email', 'crear_cliente', 'actualizar_cliente',
+      'desactivar_cliente', 'crear_pago', 'eliminar_pago', 'actualizar_empleado',
+      'crear_trabajo', 'crear_ausencia', 'crear_evento_calendario', 'eliminar_evento_calendario',
+      'facturar_trabajos_pendientes'
+    ]);
+    let accionRealizada = false;
+
     // Procesar tool calls (máximo 3 iteraciones)
     let iterations = 0;
     const toolHistory = [];
@@ -2242,6 +2274,11 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
           args = {};
         }
         const resultado = await ejecutarHerramienta(tc.function.name, args, empresaId);
+
+        // Detectar si se ejecutó una acción de escritura con éxito
+        if (WRITE_TOOLS.has(tc.function.name) && resultado?.success) {
+          accionRealizada = true;
+        }
 
         toolHistory.push({
           role: "tool",
@@ -2316,7 +2353,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       }
     }
 
-    return { mensaje: respuestaFinal };
+    return { mensaje: respuestaFinal, accion_realizada: accionRealizada };
 
   } catch (error) {
     console.error("[AI] Error general:", error);
