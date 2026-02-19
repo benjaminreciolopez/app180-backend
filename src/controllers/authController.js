@@ -1331,6 +1331,29 @@ export const handleUnifiedCallback = async (req, res) => {
   }
 };
 
+
+export const getMeModules = async (req, res) => {
+  try {
+    const isMobile = req.query.mobile === 'true';
+
+    // Default modules (permitir todos por defecto para fix 404)
+    const modules = {
+      fichajes: true,
+      empleados: true,
+      clientes: true,
+      facturacion: true,
+      calendario: true,
+      partes_dia: true,
+      gastos: true,
+    };
+
+    return res.json(modules);
+  } catch (err) {
+    console.error("❌ getMeModules:", err);
+    return res.status(500).json({ error: "Error obteniendo módulos" });
+  }
+};
+
 // Helper: HTML for callback popup
 function callbackHTML(status, message) {
   const isSuccess = status === "success";
