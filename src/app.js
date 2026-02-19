@@ -55,17 +55,12 @@ import calendarConfigRoutes from "./routes/calendarConfigRoutes.js";
 import calendarSyncRoutes from "./routes/calendarSyncRoutes.js";
 import calendarWebhookRoutes from "./routes/calendarWebhookRoutes.js";
 import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
-// ... imports anteriores
 import adminPurchasesRoutes from "./routes/adminPurchasesRoutes.js";
-import adminFiscalRoutes from "./routes/adminFiscalRoutes.js"; // Nuevo módulo fiscal
+import adminFiscalRoutes from "./routes/adminFiscalRoutes.js";
 
-// ... configuración app ...
+const app = express();
 
-app.use("/admin/purchases", adminPurchasesRoutes);
-app.use("/admin/fiscal", adminFiscalRoutes); // Montaje del nuevo módulo
-app.use("/admin/invoices", facturacionRoutes); // (si existe)
-
-// ... resto de rutas
+// Render usa proxy inverso → necesario para express-rate-limit
 app.set('trust proxy', 1);
 
 // =========================
