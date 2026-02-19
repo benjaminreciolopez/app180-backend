@@ -442,7 +442,7 @@ const TOOLS = [
         properties: {
           cliente_id: { type: "string", description: "ID del cliente (UUID)" },
           nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
-          limite: { type: "number", description: "Nº de trabajos a recuperar (default: 5)" }
+          limite: { type: "string", description: "Nº de trabajos a recuperar (default: '5')" }
         }
       }
     }
@@ -1549,12 +1549,14 @@ async function crearTrabajo({ cliente_id, descripcion, concepto_facturacion, det
 async function consultarHistorialTrabajos({ cliente_id, limite = 5 }, empresaId) {
   if (!cliente_id) return { error: "ID del cliente es necesario para consultar el historial." };
 
+  const limitNum = parseInt(String(limite)) || 5;
+
   const trabajos = await sql`
     SELECT id, fecha, descripcion, concepto_facturacion, detalles
     FROM work_logs_180
     WHERE empresa_id = ${empresaId} AND cliente_id = ${cliente_id}
     ORDER BY fecha DESC, created_at DESC
-    LIMIT ${limite}
+    LIMIT ${limitNum}
   `;
 
   if (trabajos.length === 0) return { mensaje: "No hay trabajos registrados anteriormente para este cliente." };
@@ -2246,7 +2248,7 @@ async function cargarMemoria(empresaId, userId, limite = 3) {
       WHERE empresa_id = ${empresaId} AND user_id = ${userId}
       ORDER BY created_at DESC LIMIT ${limite}
     `;
-    return memoria.reverse().flatMap(m => [
+    return [...memoria].reverse().flatMap(m => [
       { role: "user", content: m.mensaje },
       { role: "assistant", content: m.respuesta }
     ]);
