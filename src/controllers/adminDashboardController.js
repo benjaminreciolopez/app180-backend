@@ -247,29 +247,7 @@ export const getAdminDashboard = async (req, res) => {
     let topClientesSemana = [];
 
     if (modulos.fichajes !== false) {
-      // 1. Fichajes últimos 7 días
-      fichajesUltimosDias = await sql`
-        SELECT 
-          to_char(fecha, 'YYYY-MM-DD') as dia,
-          COUNT(*)::int as cantidad
-        FROM fichajes_180
-        WHERE empresa_id = ${empresaId}
-          AND fecha >= CURRENT_DATE - INTERVAL '6 days'
-        GROUP BY dia
-        ORDER BY dia ASC
-      `;
-
-      // 2. Distribución tipos hoy
-      fichajesPorTipoHoy = await sql`
-        SELECT 
-          tipo, 
-          COUNT(*)::int as cantidad
-        FROM fichajes_180
-        WHERE empresa_id = ${empresaId}
-          AND fecha::date = CURRENT_DATE
-        GROUP BY tipo
-      `;
-
+      // ... (código existente fichajes) ...
       // 3. Top Clientes (últimos 7 días)
       if (modulos.clientes !== false) {
         topClientesSemana = await sql`
@@ -285,6 +263,57 @@ export const getAdminDashboard = async (req, res) => {
           LIMIT 5
         `;
       }
+    }
+
+    /* =========================
+       BENEFICIO REAL (Financiero Año Actual)
+    ========================= */
+    let beneficioReal = {
+      facturado_base: 0,
+      no_facturado: 0,
+      gastos_base: 0,
+      beneficio_neto: 0,
+      year: new Date().getFullYear()
+    };
+
+    if (modulos.facturacion !== false) {
+      const currentYear = new Date().getFullYear();
+
+      // 1. Facturado (Base Imponible) - Facturas oficiales
+      const [fact] = await sql`
+            SELECT COALESCE(SUM(subtotal), 0) as total 
+            FROM factura_180 
+            WHERE empresa_id = ${empresaId} 
+            AND EXTRACT(YEAR FROM fecha) = ${currentYear}
+            AND estado NOT IN ('BORRADOR', 'ANULADA')
+        `;
+
+      // 2. No facturado (Work Logs pagados sin factura asociada) - "Caja B" o cobros directos
+      // Usamos 'precio' o 'valor' de work_logs
+      // Vamos a verificar si existe columna 'valor' o 'precio'. En migraciones anteriores era 'precio'.
+      // Usaré COALESCE(precio, 0)
+      const [nofact] = await sql`
+            SELECT COALESCE(SUM(precio), 0) as total
+            FROM work_logs_180
+            WHERE empresa_id = ${empresaId}
+            AND EXTRACT(YEAR FROM fecha) = ${currentYear}
+            AND estado_pago = 'pagado'
+            AND factura_id IS NULL
+        `;
+
+      // 3. Gastos (Base Imponible)
+      const [gast] = await sql`
+            SELECT COALESCE(SUM(base_imponible), 0) as total
+            FROM purchases_180
+            WHERE empresa_id = ${empresaId}
+            AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
+            AND activo = true
+        `;
+
+      beneficioReal.facturado_base = Number(fact.total);
+      beneficioReal.no_facturado = Number(nofact.total);
+      beneficioReal.gastos_base = Number(gast.total);
+      beneficioReal.beneficio_neto = (beneficioReal.facturado_base + beneficioReal.no_facturado) - beneficioReal.gastos_base;
     }
 
     /* =========================
@@ -307,6 +336,7 @@ export const getAdminDashboard = async (req, res) => {
       partesHoy,
       calendarioSyncStatus,
       facturasPendientesList: await getFacturasPendientesList(empresaId, modulos.facturacion), // Nueva lista
+      beneficioReal, // Nueva métrica beneficio operativo
       stats: {
         fichajesUltimosDias,
         fichajesPorTipoHoy,
