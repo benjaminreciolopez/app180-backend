@@ -149,8 +149,19 @@ export async function getDashboardWidgets(req, res) {
       LIMIT 1
     `;
 
-    const widgets = rows[0]?.dashboard_widgets || [];
-    console.log(`📊 [getDashboardWidgets] Empresa: ${empresaId}, Widgets: ${JSON.stringify(widgets)}, Row exists: ${!!rows[0]}`);
+    let widgets = rows[0]?.dashboard_widgets || [];
+
+    // Fix: Si se guardó como string JSON dentro de JSONB (doble codificación), parsear.
+    if (typeof widgets === 'string') {
+      try {
+        widgets = JSON.parse(widgets);
+      } catch (e) {
+        console.error("Error parsing widgets JSON", e);
+        widgets = [];
+      }
+    }
+
+    console.log(`📊 [getDashboardWidgets] Empresa: ${empresaId}, Widgets count: ${widgets.length}`);
 
     return res.json({ widgets });
   } catch (err) {
@@ -175,7 +186,7 @@ export async function updateDashboardWidgets(req, res) {
     // UPSERT: Insertar si no existe, actualizar si existe
     await sql`
       INSERT INTO empresa_config_180 (empresa_id, dashboard_widgets)
-      VALUES (${empresaId}, ${JSON.stringify(widgets)}::jsonb)
+      VALUES (${empresaId}, ${widgets}::jsonb)
       ON CONFLICT (empresa_id)
       DO UPDATE SET
         dashboard_widgets = EXCLUDED.dashboard_widgets,
