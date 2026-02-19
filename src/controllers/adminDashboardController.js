@@ -278,42 +278,15 @@ export const getAdminDashboard = async (req, res) => {
 
     if (modulos.facturacion !== false) {
       const currentYear = new Date().getFullYear();
+      const startDate = `${currentYear}-01-01`;
+      const endDate = `${currentYear}-12-31`;
 
-      // 1. Facturado (Base Imponible) - Facturas oficiales
-      const [fact] = await sql`
-            SELECT COALESCE(SUM(subtotal), 0) as total 
-            FROM factura_180 
-            WHERE empresa_id = ${empresaId} 
-            AND EXTRACT(YEAR FROM fecha) = ${currentYear}
-            AND estado NOT IN ('BORRADOR', 'ANULADA')
-        `;
+      const calc = await calculateBeneficio(empresaId, startDate, endDate);
 
-      // 2. No facturado (Work Logs pagados sin factura asociada) - "Caja B" o cobros directos
-      // Usamos 'precio' o 'valor' de work_logs
-      // Vamos a verificar si existe columna 'valor' o 'precio'. En migraciones anteriores era 'precio'.
-      // Usaré COALESCE(precio, 0)
-      const [nofact] = await sql`
-            SELECT COALESCE(SUM(valor), 0) as total
-            FROM work_logs_180
-            WHERE empresa_id = ${empresaId}
-            AND EXTRACT(YEAR FROM fecha) = ${currentYear}
-            AND estado_pago = 'pagado'
-            AND factura_id IS NULL
-        `;
-
-      // 3. Gastos (Base Imponible)
-      const [gast] = await sql`
-            SELECT COALESCE(SUM(base_imponible), 0) as total
-            FROM purchases_180
-            WHERE empresa_id = ${empresaId}
-            AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
-            AND activo = true
-        `;
-
-      beneficioReal.facturado_base = Number(fact.total);
-      beneficioReal.no_facturado = Number(nofact.total);
-      beneficioReal.gastos_base = Number(gast.total);
-      beneficioReal.beneficio_neto = (beneficioReal.facturado_base + beneficioReal.no_facturado) - beneficioReal.gastos_base;
+      beneficioReal = {
+        ...calc,
+        year: currentYear
+      };
     }
 
     /* =========================
@@ -378,3 +351,114 @@ async function getFacturasPendientesList(empresaId, moduloFacturacion) {
     return [];
   }
 }
+
+/**
+ * Helper para calcular beneficio en un rango
+ */
+async function calculateBeneficio(empresaId, startDate, endDate) {
+  // 1. Facturado (Base)
+  const [fact] = await sql`
+      SELECT COALESCE(SUM(subtotal), 0) as total 
+      FROM factura_180 
+      WHERE empresa_id = ${empresaId} 
+        AND fecha BETWEEN ${startDate} AND ${endDate}
+        AND estado NOT IN ('BORRADOR', 'ANULADA')
+    `;
+
+  // 2. No Facturado
+  const [nofact] = await sql`
+      SELECT COALESCE(SUM(valor), 0) as total
+      FROM work_logs_180
+      WHERE empresa_id = ${empresaId}
+        AND fecha BETWEEN ${startDate} AND ${endDate}
+        AND estado_pago = 'pagado'
+        AND factura_id IS NULL
+    `;
+
+  // 3. Gastos
+  const [gast] = await sql`
+      SELECT COALESCE(SUM(base_imponible), 0) as total
+      FROM purchases_180
+      WHERE empresa_id = ${empresaId}
+        AND fecha_compra BETWEEN ${startDate} AND ${endDate}
+        AND activo = true
+    `;
+
+  const facturado = Number(fact.total);
+  const noFacturado = Number(nofact.total);
+  const gastos = Number(gast.total);
+
+  const beneficioBruto = (facturado + noFacturado) - gastos;
+
+  // 4. Impuestos Estimados (Modelo 130 IRPF - 20% del beneficio)
+  let impuestos = 0;
+  if (beneficioBruto > 0) {
+    impuestos = beneficioBruto * 0.20;
+  }
+
+  const beneficioNeto = beneficioBruto - impuestos;
+
+  return {
+    facturado_base: facturado,
+    no_facturado: noFacturado,
+    gastos_base: gastos,
+    impuestos_estimados: impuestos,
+    beneficio_neto: beneficioNeto
+  };
+}
+
+/**
+ * Endpoint específico para widget de beneficio con filtros
+ */
+export const getBeneficioReal = async (req, res) => {
+  try {
+    const empresaId = req.user.empresa_id;
+    if (!empresaId) return res.status(400).json({ error: "No empresa" });
+
+    const now = new Date();
+    let year = parseInt(req.query.year) || now.getFullYear();
+    let startDate, endDate;
+    const period = req.query.period || 'year';
+
+    // Helper fechas (local time safe)
+    const fmt = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    if (period === 'quarter') {
+      // trimestre 1-4
+      const q = parseInt(req.query.quarter) || Math.floor((now.getMonth() + 3) / 3);
+      const startMonth = (q - 1) * 3;
+      startDate = fmt(new Date(year, startMonth, 1));
+      // Último día del trimestre: (year, startMonth+3, 0)
+      // Ojo: JS Month is 0-indexed.
+      // startMonth=0 (Jan). endMonth=3 (Apr). Date(2024, 3, 0) -> Mar 31.
+      endDate = fmt(new Date(year, startMonth + 3, 0));
+    } else if (period === 'month') {
+      const m = parseInt(req.query.month) || (now.getMonth() + 1);
+      startDate = fmt(new Date(year, m - 1, 1));
+      endDate = fmt(new Date(year, m, 0));
+    } else {
+      // Year
+      startDate = `${year}-01-01`;
+      endDate = `${year}-12-31`;
+    }
+
+    const calc = await calculateBeneficio(empresaId, startDate, endDate);
+
+    res.json({
+      ...calc,
+      startDate,
+      endDate,
+      period,
+      year
+    });
+
+  } catch (e) {
+    console.error("❌ getBeneficioReal:", e);
+    res.status(500).json({ error: "Error calculando beneficio" });
+  }
+};

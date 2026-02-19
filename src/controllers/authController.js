@@ -1335,19 +1335,38 @@ export const handleUnifiedCallback = async (req, res) => {
 export const getMeModules = async (req, res) => {
   try {
     const isMobile = req.query.mobile === 'true';
+    const empresaId = req.user.empresa_id;
 
-    // Default modules (permitir todos por defecto para fix 404)
-    const modules = {
-      fichajes: true,
-      empleados: true,
+    const [config] = await sql`
+        SELECT modulos, modulos_mobile 
+        FROM empresa_config_180 
+        WHERE empresa_id = ${empresaId}
+        LIMIT 1
+    `;
+
+    const DEFAULT_MODULOS = {
       clientes: true,
-      facturacion: true,
+      fichajes: true,
       calendario: true,
-      partes_dia: true,
-      gastos: true,
+      calendario_import: true,
+      worklogs: true,
+      empleados: true,
+      facturacion: false,
+      pagos: false,
     };
 
-    return res.json(modules);
+    if (!config) {
+      return res.json(DEFAULT_MODULOS);
+    }
+
+    const globalModules = { ...DEFAULT_MODULOS, ...(config.modulos || {}) };
+
+    if (isMobile && config.modulos_mobile) {
+      return res.json({ ...globalModules, ...config.modulos_mobile });
+    }
+
+    return res.json(globalModules);
+
   } catch (err) {
     console.error("❌ getMeModules:", err);
     return res.status(500).json({ error: "Error obteniendo módulos" });
