@@ -388,15 +388,19 @@ async function calculateBeneficio(empresaId, startDate, endDate) {
   const noFacturado = Number(nofact.total);
   const gastos = Number(gast.total);
 
-  const beneficioBruto = (facturado + noFacturado) - gastos;
-
-  // 4. Impuestos Estimados (Modelo 130 IRPF - 20% del beneficio)
+  // 4. Impuestos Estimados (Modelo 130 IRPF - 20% del Beneficio Fiscal Real)
+  // El IRPF se paga solo sobre lo FACTURADO OFICIALMENTE menos GASTOS OFICIALES.
+  // No se pagan impuestos sobre 'noFacturado' (Caja B).
+  const beneficioFiscal = facturado - gastos;
   let impuestos = 0;
-  if (beneficioBruto > 0) {
-    impuestos = beneficioBruto * 0.20;
+
+  // Solo si hay beneficio fiscal positivo se calculan impuestos
+  if (beneficioFiscal > 0) {
+    impuestos = beneficioFiscal * 0.20;
   }
 
-  const beneficioNeto = beneficioBruto - impuestos;
+  // El beneficio neto real es: (Todo lo que entra, sea A o B) - (Gastos) - (Impuestos que pagarás)
+  const beneficioNeto = (facturado + noFacturado) - gastos - impuestos;
 
   return {
     facturado_base: facturado,
