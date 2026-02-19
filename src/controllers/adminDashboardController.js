@@ -293,7 +293,7 @@ export const getAdminDashboard = async (req, res) => {
       // Vamos a verificar si existe columna 'valor' o 'precio'. En migraciones anteriores era 'precio'.
       // Usaré COALESCE(precio, 0)
       const [nofact] = await sql`
-            SELECT COALESCE(SUM(precio), 0) as total
+            SELECT COALESCE(SUM(valor), 0) as total
             FROM work_logs_180
             WHERE empresa_id = ${empresaId}
             AND EXTRACT(YEAR FROM fecha) = ${currentYear}
