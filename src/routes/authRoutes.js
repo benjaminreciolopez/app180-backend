@@ -11,6 +11,7 @@ import {
   getMe,
   googleAuth,
   googleCompleteSetup,
+  getMeModules,
 } from "../controllers/authController.js";
 
 import { authRequired } from "../middlewares/authMiddleware.js";
@@ -27,6 +28,7 @@ router.post("/google", googleAuth);
 router.post("/google/complete-setup", authRequired, googleCompleteSetup);
 
 router.get("/me", authRequired, getMe);
+router.get("/me/modules", authRequired, getMeModules);
 
 // Cambio de contraseña
 router.post("/change-password", authRequired, changePassword);
