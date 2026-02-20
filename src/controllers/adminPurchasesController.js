@@ -43,7 +43,8 @@ export async function ocrGasto(req, res) {
                     5. Base Imponible: El importe antes de impuestos.
                     6. IVA: Extrae el porcentaje (ej: 21) y el importe del impuesto.
                     7. Total: Importe final con impuestos.
-                    8. Descripción: Resumen breve.
+                    8. Retención (IRPF): Si existe, el porcentaje e importe.
+                    9. Descripción: Resumen breve.
                     
                     Responde EXCLUSIVAMENTE un objeto JSON: 
                     {
@@ -54,7 +55,9 @@ export async function ocrGasto(req, res) {
                         "numero_factura": string,
                         "base_imponible": number,
                         "iva_porcentaje": number,
-                        "iva_importe": number
+                        "iva_importe": number,
+                        "retencion_porcentaje": number,
+                        "retencion_importe": number
                     }`
                 },
                 {
@@ -161,7 +164,9 @@ export async function crearCompra(req, res) {
             ocr_data,
             anio,
             trimestre,
-            numero_factura
+            numero_factura,
+            retencion_porcentaje,
+            retencion_importe
         } = req.body;
 
         if (!descripcion || total === undefined) {
@@ -207,14 +212,16 @@ export async function crearCompra(req, res) {
         empresa_id, proveedor, descripcion, cantidad, precio_unitario,
         total, fecha_compra, categoria, base_imponible, iva_importe,
         iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre, 
-        numero_factura, activo
+        numero_factura, retencion_porcentaje, retencion_importe, activo
       ) VALUES (
         ${empresa_id}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
         ${total}, ${fechaFinal}, 
         ${categoria || 'general'}, ${base_imponible || total}, ${iva_importe || 0},
         ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'}, 
         ${finalDocumentUrl}, ${parsedOcrData ? JSON.stringify(parsedOcrData) : null},
-        ${finalAnio}, ${finalTri}, ${numero_factura || null}, true
+        ${finalAnio}, ${finalTri}, ${numero_factura || null}, 
+        ${retencion_porcentaje || 0}, ${retencion_importe || 0},
+        true
       ) RETURNING *
     `;
 
@@ -238,7 +245,7 @@ export async function actualizarCompra(req, res) {
             'proveedor', 'descripcion', 'cantidad', 'precio_unitario', 'total',
             'fecha_compra', 'categoria', 'base_imponible', 'iva_importe',
             'iva_porcentaje', 'metodo_pago', 'documento_url', 'ocr_data',
-            'anio', 'trimestre', 'numero_factura'
+            'anio', 'trimestre', 'numero_factura', 'retencion_porcentaje', 'retencion_importe'
         ];
 
         const finalData = {};

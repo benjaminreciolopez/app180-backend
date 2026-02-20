@@ -153,7 +153,11 @@ export async function crearCliente(req, res) {
     iva_defecto,
     exento_iva,
     forma_pago,
-    iban
+    iban,
+
+    // Retenciones (Nuevos campos)
+    aplicar_retencion = false,
+    retencion_tipo = 0
   } = req.body;
 
   if (!nombre) return sendError(res, "Nombre requerido", 400);
@@ -221,7 +225,8 @@ export async function crearCliente(req, res) {
           nif, nif_cif, poblacion, municipio, provincia, cp, codigo_postal, pais, email,
           modo_defecto, lat, lng, radio_m, requiere_geo, geo_policy,
           fecha_inicio, fecha_fin, notas,
-          razon_social, iban, iva_defecto, exento_iva, activo
+          razon_social, iban, iva_defecto, exento_iva, activo,
+          aplicar_retencion, retencion_tipo
         )
         values (
           ${empresaId}, ${nombre}, ${finalCodigo}, ${tipo},
@@ -234,7 +239,8 @@ export async function crearCliente(req, res) {
           ${modo_defecto},
           ${n(lat)}, ${n(lng)}, ${n(radio_m)}, ${requiere_geo}, 'info',
           ${n(fecha_inicio)}, ${n(fecha_fin)}, ${n(notas)},
-          ${n(razon_social)}, ${n(iban)}, ${n(iva_defecto)}, ${exento_iva === true}, true
+          ${n(razon_social)}, ${n(iban)}, ${n(iva_defecto)}, ${exento_iva === true}, true,
+          ${aplicar_retencion === true}, ${n(retencion_tipo)}
         )
         returning *
       `;
@@ -305,7 +311,8 @@ export async function actualizarCliente(req, res) {
     "notas", "activo", "geo_policy",
     "nif", "nif_cif", "poblacion", "municipio", "provincia", "cp", "codigo_postal", "pais", "email",
     // Campos fiscales que también se guardan en clients_180 (sincronización)
-    "razon_social", "iban", "iva_defecto", "exento_iva", "forma_pago"
+    "razon_social", "iban", "iva_defecto", "exento_iva", "forma_pago",
+    "aplicar_retencion", "retencion_tipo"
   ];
 
   // Campos de client_fiscal_data_180
@@ -339,7 +346,9 @@ export async function actualizarCliente(req, res) {
     "iban": "iban",
     "iva_defecto": "iva_defecto",
     "exento_iva": "exento_iva",
-    "forma_pago": "forma_pago"
+    "forma_pago": "forma_pago",
+    "aplicar_retencion": "aplicar_retencion",
+    "retencion_tipo": "retencion_tipo"
   };
 
   for (const k of Object.keys(body)) {

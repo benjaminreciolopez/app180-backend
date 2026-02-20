@@ -57,6 +57,7 @@ import calendarWebhookRoutes from "./routes/calendarWebhookRoutes.js";
 import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
 import adminPurchasesRoutes from "./routes/adminPurchasesRoutes.js";
 import adminFiscalRoutes from "./routes/adminFiscalRoutes.js";
+import nominasRoutes from "./routes/nominasRoutes.js";
 
 const app = express();
 
@@ -200,6 +201,7 @@ app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
 app.use("/admin", authRequired, adminPartesDiaRoutes);
 app.use("/admin", adminPurchasesRoutes);
 app.use("/admin/fiscal", adminFiscalRoutes);
+app.use("/admin/nominas", nominasRoutes);
 
 // =========================
 // GLOBAL ERROR HANDLER
