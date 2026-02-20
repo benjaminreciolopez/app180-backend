@@ -81,79 +81,182 @@ export const aeatService = {
     },
 
     /**
-     * Generar fichero BOE para Modelo 303
+     * Generar fichero BOE para Modelo 303 (Especificación 2026)
      * @param {object} datos Datos calculados del modelo
      * @returns {string} Contenido en formato BOE
      */
     generarBOE303(datos) {
         const { year, trimestre, nif, nombre, modelo303 } = datos;
         const u = BOE_UTILS;
+        const periodo = trimestre === '4' ? '4T' : `${trimestre}T`;
 
-        // REGISTRO TIPO 1 (Cabecera - 390 caracteres aprox)
-        let r1 = "";
-        r1 += "1"; // Tipo registro
-        r1 += "303"; // Modelo
-        r1 += year; // Ejercicio
-        r1 += trimestre === '4' ? '4T' : `${trimestre}T`.padStart(2, '0'); // Periodo (01, 02, 03, 4T o similar según diseño)
-        r1 += u.padText(nif, 9);
-        r1 += u.padText(nombre, 40);
-        r1 = r1.padEnd(390, ' ');
+        // REGISTRO TIPO 1 (Cabecera - Hoja DP30300)
+        let r1 = "<T"; // Pos 1 (Lon 2)
+        r1 += "303";   // Pos 3 (Lon 3)
+        r1 += "0";     // Pos 6 (Lon 1) - Discriminante
+        r1 += year;    // Pos 7 (Lon 4)
+        r1 += periodo.padStart(2, '0'); // Pos 11 (Lon 2)
+        r1 += "0000>"; // Pos 13 (Lon 5)
+        r1 += "<AUX>"; // Pos 18 (Lon 5)
+        r1 = r1.padEnd(322, ' '); // Relleno hasta constante final AUX
+        r1 += "</AUX>"; // Pos 323 (Lon 6)
+        r1 = r1.padEnd(390, ' '); // Longitud estándar para cabecera
 
-        // REGISTRO TIPO 2 (Liquidación)
-        let r2 = "";
-        r2 += "2";
-        r2 += "303";
-        r2 += u.padNumber(modelo303.devengado.base, 15); // Casilla 01 (ejemplo de posición)
-        r2 += u.padNumber(modelo303.devengado.cuota, 15); // Casilla 03
-        r2 += u.padNumber(modelo303.deducible.base, 15); // Casilla 28
-        r2 += u.padNumber(modelo303.deducible.cuota, 15); // Casilla 29
-        r2 += u.padNumber(modelo303.resultado, 15); // Casilla 71
-        r2 = r2.padEnd(390, ' ');
+        // REGISTRO TIPO 2 (Liquidación Página 1 - Hoja DP30301)
+        let r2 = "<T";    // Pos 1 (Lon 2)
+        r2 += "303";      // Pos 3 (Lon 3)
+        r2 += "01000";    // Pos 6 (Lon 5) - Página 1
+        r2 += ">";        // Pos 11 (Lon 1)
+        r2 += " ";        // Pos 12 (Lon 1) - Indicador complementaria
+        r2 += "I";        // Pos 13 (Lon 1) - Tipo declaración (I=Ingreso por defecto)
+        r2 += u.padText(nif, 9);   // Pos 14 (Lon 9)
+        r2 += u.padText(nombre, 80); // Pos 23 (Lon 80)
+        r2 += year;       // Pos 103 (Lon 4)
+        r2 += periodo.padStart(2, '0'); // Pos 107 (Lon 2)
+        r2 += "2232222DDMMYYYY "; // Pos 109-126 (Valores por defecto/fijos según Nota 5)
+
+        // Bloque de Casillas de Liquidación (Pos 131 en adelante)
+        // [01][02][03] - 4% (Buscamos Pos 209 para casilla 01 en spec)
+        // Nota: La spec indica Pos 131 para casilla 150. Vamos a mapear las que tenemos:
+
+        let r2_liq = "".padEnd(2000, ' '); // Buffer para posicionar por índice absoluto
+
+        const setCasilla = (pos, valor, conSigno = false) => {
+            const formatted = conSigno ? u.padNumber(valor, 17) : u.padNumber(valor, 17);
+            // Si tiene signo N, padNumber pone el signo. La spec dice 'N' para con signo.
+            r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + 16);
+        };
+
+        // IVA DEVENGADO
+        setCasilla(209, modelo303.devengado.base); // [01]
+        setCasilla(231, modelo303.devengado.cuota); // [03]
+        setCasilla(326, 0); // [07] 21% Base (Estructura 2026 usa otras posiciones)
+        setCasilla(348, 0); // [09] 21% Cuota
+        setCasilla(696, modelo303.devengado.cuota); // [27] Total cuota devengada
+
+        // IVA DEDUCIBLE
+        setCasilla(713, modelo303.deducible.base); // [28]
+        setCasilla(730, modelo303.deducible.cuota); // [29]
+        setCasilla(1002, modelo303.deducible.cuota); // [45] Total a deducir
+
+        setCasilla(1019, modelo303.resultado); // [46] Resultado régimen general
+
+        // Construimos el string final de la página 1 recortando/rellenando
+        r2 = r2 + r2_liq.substring(130, 1569);
+        r2 += "</T30301000>"; // Indicador fin de registro
 
         return r1 + "\n" + r2;
     },
 
     /**
-     * Generar fichero BOE para Modelo 130
+     * Generar fichero BOE para Modelo 130 (Estimación Directa)
      */
     generarBOE130(datos) {
         const { year, trimestre, nif, nombre, modelo130 } = datos;
         const u = BOE_UTILS;
+        const periodo = `${trimestre}T`;
 
-        let r1 = "1130" + year + trimestre.padStart(2, '0') + u.padText(nif, 9) + u.padText(nombre, 40);
-        r1 = r1.padEnd(390, ' ');
+        // REGISTRO TIPO 1 (Cabecera - Hoja DR 13000)
+        let r1 = "<T"; // Pos 1 (Lon 2)
+        r1 += "130";   // Pos 3 (Lon 3)
+        r1 += "0";     // Pos 6 (Lon 1)
+        r1 += year;    // Pos 7 (Lon 4)
+        r1 += periodo.padStart(2, '0'); // Pos 11 (Lon 2)
+        r1 += "0000>"; // Pos 13 (Lon 5)
+        r1 += "<AUX>"; // Pos 18 (Lon 5)
+        r1 = r1.padEnd(322, ' ');
+        r1 += "</AUX>"; // Pos 323 (Lon 6)
+        r1 = r1.padEnd(390, ' '); // Relleno cabecera
 
-        let r2 = "2130";
-        r2 += u.padNumber(modelo130.ingresos, 15);
-        r2 += u.padNumber(modelo130.gastos, 15);
-        r2 += u.padNumber(modelo130.rendimiento, 15);
-        r2 += u.padNumber(modelo130.a_ingresar, 15);
-        r2 = r2.padEnd(390, ' ');
+        // REGISTRO TIPO 2 (Liquidación - Hoja DR 13001)
+        let r2 = "<T";    // Pos 1 (Lon 2)
+        r2 += "130";      // Pos 3 (Lon 3)
+        r2 += "01";       // Pos 6 (Lon 2) - Página 1
+        r2 += "000>";     // Pos 8 (Lon 4) - Fin identificador
+        r2 += " ";        // Pos 12 (Lon 1) - Complementaria
+        r2 += "I";        // Pos 13 (Lon 1) - Tipo declaración
+        r2 += u.padText(nif, 9);   // Pos 14 (Lon 9)
+        r2 += u.padText(nombre.split(' ')[0], 60); // Apellidos (Aprox)
+        r2 += u.padText(nombre.split(' ').slice(1).join(' '), 20); // Nombre
+        r2 += year;       // Pos 103 (Lon 4)
+        r2 += periodo.padStart(2, '0'); // Pos 107 (Lon 2)
+
+        let r2_liq = "".padEnd(600, ' ');
+        const setCasilla = (pos, valor) => {
+            const formatted = u.padNumber(valor, 17);
+            r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + 16);
+        };
+
+        setCasilla(109, modelo130.ingresos);    // [01]
+        setCasilla(126, modelo130.gastos);      // [02]
+        setCasilla(143, modelo130.rendimiento); // [03] (Con signo N)
+        setCasilla(160, Math.max(0, modelo130.rendimiento * 0.20)); // [04]
+        setCasilla(415, modelo130.a_ingresar);  // [19] Resultado (Con signo N)
+
+        r2 += r2_liq.substring(108, 588);
+        r2 += "</T13001000>"; // Fin registro tipo 2
 
         return r1 + "\n" + r2;
     },
 
     /**
-     * Generar fichero BOE para Modelo 111
+     * Generar fichero BOE para Modelo 111 (Retenciones IRPF)
      */
     generarBOE111(datos) {
         const { year, trimestre, nif, nombre, modelo111 } = datos;
         const u = BOE_UTILS;
+        const periodo = trimestre.padStart(2, '0');
 
-        let r1 = "1111" + year + trimestre.padStart(2, '0') + u.padText(nif, 9) + u.padText(nombre, 40);
-        r1 = r1.padEnd(390, ' ');
+        // REGISTRO TIPO 1 (Cabecera - Hoja M11100)
+        let r1 = "<T"; // Pos 1 (Lon 2)
+        r1 += "111";   // Pos 3 (Lon 3)
+        r1 += "0";     // Pos 6 (Lon 1)
+        r1 += year;    // Pos 7 (Lon 4)
+        r1 += periodo; // Pos 11 (Lon 2)
+        r1 += "0000>"; // Pos 13 (Lon 5)
+        r1 += "<AUX>"; // Pos 18 (Lon 5)
+        r1 = r1.padEnd(322, ' ');
+        r1 += "</AUX>"; // Pos 323 (Lon 6)
+        r1 = r1.padEnd(1000, ' '); // Relleno cabecera (Spec 111 es de 1000)
 
-        let r2 = "2111";
-        // Trabajo
-        r2 += u.padInt(modelo111.trabajo.perceptores, 8);
-        r2 += u.padNumber(modelo111.trabajo.rendimientos, 15);
-        r2 += u.padNumber(modelo111.trabajo.retenciones, 15);
-        // Actividades
-        r2 += u.padInt(modelo111.actividades.perceptores, 8);
-        r2 += u.padNumber(modelo111.actividades.rendimientos, 15);
-        r2 += u.padNumber(modelo111.actividades.retenciones, 15);
+        // REGISTRO TIPO 2 (Liquidación - Hoja dr M11101)
+        let r2 = "<T";    // Pos 1 (Lon 2)
+        r2 += "111";      // Pos 3 (Lon 3)
+        r2 += "01";       // Pos 6 (Lon 2) - Página 1
+        r2 += "000>";     // Pos 8 (Lon 4)
+        r2 += " ";        // Pos 12 (Lon 1) - Complementaria
+        r2 += "I";        // Pos 13 (Lon 1) - Tipo declaración
+        r2 += u.padText(nif, 9);   // Pos 14 (Lon 9)
+        r2 += u.padText(nombre.split(' ')[0], 60); // Apellidos
+        r2 += u.padText(nombre.split(' ').slice(1).join(' '), 20); // Nombre
+        r2 += year;       // Pos 103 (Lon 4)
+        r2 += periodo;    // Pos 107 (Lon 2)
 
-        r2 = r2.padEnd(390, ' ');
+        let r2_liq = "".padEnd(1000, ' ');
+        const setNum = (pos, valor, lon) => {
+            const formatted = u.padInt(valor, lon);
+            r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + lon - 1);
+        };
+        const setImporte = (pos, valor) => {
+            const formatted = u.padNumber(valor, 17);
+            r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + 16);
+        };
+
+        // Rendimientos del trabajo (Nóminas)
+        setNum(109, modelo111.trabajo.perceptores, 8);
+        setImporte(117, modelo111.trabajo.rendimientos);
+        setImporte(134, modelo111.trabajo.retenciones);
+
+        // Rendimientos Actividades Económicas (Profesionales)
+        setNum(193, modelo111.actividades.perceptores, 8);
+        setImporte(201, modelo111.actividades.rendimientos);
+        setImporte(218, modelo111.actividades.retenciones);
+
+        // Totales (Casilla 41 - Resultado a ingresar)
+        setImporte(521, modelo111.total_retenciones);
+
+        r2 += r2_liq.substring(108, 988);
+        r2 += "</T11101000>"; // Fin registro tipo 2
 
         return r1 + "\n" + r2;
     },
