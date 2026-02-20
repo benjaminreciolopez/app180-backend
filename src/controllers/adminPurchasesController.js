@@ -73,8 +73,39 @@ export async function ocrGasto(req, res) {
         });
 
         const data = JSON.parse(completion.choices[0].message.content);
+        const { empresa_id } = req.user;
 
-        // Devolver SOLO datos estructurados (sin guardar archivo aún)
+        // 3. Verificar duplicados para cada factura extraída
+        if (data.invoices && Array.isArray(data.invoices)) {
+            for (let inv of data.invoices) {
+                inv.es_duplicado = false;
+
+                if (inv.numero_factura && inv.proveedor) {
+                    const [existing] = await sql`
+                        SELECT id FROM purchases_180 
+                        WHERE empresa_id = ${empresa_id} 
+                        AND LOWER(numero_factura) = LOWER(${inv.numero_factura}) 
+                        AND LOWER(proveedor) = LOWER(${inv.proveedor})
+                        AND activo = true
+                        LIMIT 1
+                    `;
+                    if (existing) inv.es_duplicado = true;
+                } else if (inv.proveedor && inv.total && inv.fecha_compra) {
+                    const [existing] = await sql`
+                        SELECT id FROM purchases_180 
+                        WHERE empresa_id = ${empresa_id} 
+                        AND LOWER(proveedor) = LOWER(${inv.proveedor})
+                        AND total = ${inv.total}
+                        AND fecha_compra = ${inv.fecha_compra}
+                        AND activo = true
+                        LIMIT 1
+                    `;
+                    if (existing) inv.es_duplicado = true;
+                }
+            }
+        }
+
+        // Devolver datos estructurados con flags de duplicados
         res.json({
             success: true,
             data: data
