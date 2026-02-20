@@ -18,6 +18,8 @@ const TABLES_CONFIG = [
 
     { name: "empresa_calendar_config_180", strategy: "direct" },
     { name: "empresa_email_config_180", strategy: "direct" },
+    { name: "calendario_empresa_180", strategy: "direct" },
+
 
     // Clientes y Facturación
     { name: "clients_180", strategy: "direct" },
@@ -36,10 +38,14 @@ const TABLES_CONFIG = [
     { name: "jornadas_180", strategy: "direct" },
     { name: "plantillas_jornada_180", strategy: "direct" },
     { name: "plantilla_dias_180", strategy: "join", parent: "plantillas_jornada_180", fk: "plantilla_id" },
-    { name: "plantilla_bloques_180", strategy: "join", parent: "plantilla_dias_180", fk: "dia_id" },
-    { name: "asignaciones_plantilla_jornada_180", strategy: "direct" },
+    { name: "plantilla_bloques_180", strategy: "join", parent: "plantilla_dias_180", fk: "plantilla_dia_id" },
+    { name: "plantilla_excepciones_180", strategy: "join", parent: "plantillas_jornada_180", fk: "plantilla_id" },
+    { name: "plantilla_excepcion_bloques_180", strategy: "join", parent: "plantilla_excepciones_180", fk: "excepcion_id" },
+    { name: "empleado_plantillas_180", strategy: "direct" },
+    { name: "empleado_clientes_180", strategy: "direct" },
     { name: "ausencias_180", strategy: "direct" },
     { name: "ausencias_adjuntos_180", strategy: "join", parent: "ausencias_180", fk: "ausencia_id" },
+
 
     // Trabajo y Fichajes
     { name: "work_logs_180", strategy: "direct" },
