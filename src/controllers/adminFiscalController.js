@@ -83,7 +83,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         SELECT 
             COUNT(*) as perceptores,
             COALESCE(SUM(bruto), 0) as rendimientos,
-            COALESCE(SUM(irpf), 0) as retenciones
+            COALESCE(SUM(irpf_retencion), 0) as retenciones
         FROM nominas_180
         WHERE empresa_id = ${empresaId}
         AND anio = ${year}
