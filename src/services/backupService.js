@@ -14,7 +14,8 @@ import { registrarEventoVerifactu } from "../controllers/verifactuEventosControl
 const TABLES_CONFIG = [
     { name: "configuracionsistema_180", strategy: "direct" },
     { name: "emisor_180", strategy: "direct" },
-    { name: "empresa_180", strategy: "direct" },
+    { name: "empresa_180", strategy: "direct", pk: "id" },
+
     { name: "empresa_calendar_config_180", strategy: "direct" },
     { name: "empresa_email_config_180", strategy: "direct" },
 
@@ -83,8 +84,10 @@ export const backupService = {
                 let rows = [];
 
                 if (config.strategy === 'direct') {
-                    rows = await sql`SELECT * FROM ${sql(table)} WHERE empresa_id = ${empresaId}`;
+                    const filterCol = config.pk || 'empresa_id';
+                    rows = await sql`SELECT * FROM ${sql(table)} WHERE ${sql(filterCol)} = ${empresaId}`;
                 } else if (config.strategy === 'join') {
+
                     // Subquery para obtener registros hijos
                     rows = await sql`
                         SELECT t.* 
