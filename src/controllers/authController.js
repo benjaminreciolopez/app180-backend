@@ -152,6 +152,7 @@ export const login = async (req, res) => {
         password,
         nombre,
         role,
+        avatar_url,
         password_forced
       FROM users_180
       WHERE email = ${email}
@@ -359,6 +360,7 @@ export const login = async (req, res) => {
         nombre: user.nombre,
         empresa_id: empresaId,
         empleado_id: empleadoId,
+        avatar_url: user.avatar_url || null,
         modulos,
         device_hash: device_hash || null,
         password_forced: user.password_forced === true, // 👈 CLAVE
@@ -375,6 +377,7 @@ export const login = async (req, res) => {
         email: user.email,
         nombre: user.nombre,
         role: user.role,
+        avatar_url: user.avatar_url || null,
         empresa_id: empresaId,
         empleado_id: empleadoId,
         modulos,
@@ -900,6 +903,7 @@ export const getMe = async (req, res) => {
         u.email,
         u.nombre,
         u.role,
+        u.avatar_url,
         u.password_forced,
 
         e.id AS empleado_id,
@@ -947,10 +951,9 @@ export const getMe = async (req, res) => {
 
       empresa_id: r.empresa_id,
       empleado_id: r.empleado_id,
-
+      avatar_url: r.avatar_url || null,
       modulos: r.modulos || {},
       modulos_mobile: r.modulos_mobile || null,
-
       password_forced: r.password_forced === true,
     });
   } catch (err) {
