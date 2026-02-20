@@ -234,18 +234,34 @@ export async function getLibroNominas(req, res) {
         const { year } = req.query;
         const empresaId = req.user.empresa_id;
 
+        if (!year) return res.status(400).json({ error: "Año requerido" });
+
         const nominas = await sql`
-            SELECT 
-                n.*, e.nombre, e.apellidos
-            FROM nominas_180 n
-            LEFT JOIN employees_180 em ON n.empleado_id = em.id
-            LEFT JOIN users_180 e ON em.user_id = e.id
-            WHERE n.empresa_id = ${empresaId}
-            AND n.anio = ${year}
-            ORDER BY n.mes ASC, e.apellidos ASC
+            SELECT *
+            FROM nominas_180
+            WHERE empresa_id = ${empresaId}
+            AND anio = ${parseInt(year)}
+            ORDER BY mes ASC
         `;
 
-        res.json({ success: true, data: nominas });
+        const nominasConNombres = await Promise.all(nominas.map(async n => {
+            if (!n.empleado_id) return { ...n, nombre: 'Sin asignar', apellidos: '' };
+
+            const [emp] = await sql`
+                SELECT u.nombre, u.apellidos 
+                FROM users_180 u
+                JOIN employees_180 e ON e.user_id = u.id
+                WHERE e.id = ${n.empleado_id}
+            `;
+
+            return {
+                ...n,
+                nombre: emp?.nombre || 'Desconocido',
+                apellidos: emp?.apellidos || ''
+            };
+        }));
+
+        res.json({ success: true, data: nominasConNombres });
     } catch (error) {
         console.error("Error getLibroNominas:", error);
         res.status(500).json({ success: false, error: "Error obteniendo libro nóminas" });
