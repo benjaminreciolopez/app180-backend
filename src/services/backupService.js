@@ -77,7 +77,9 @@ export const backupService = {
             tables: {}
         };
 
-        // 1. Leer datos de cada tabla
+        // 1. Leer datos de cada tabla con seguimiento de IDs para relaciones
+        const loadedIdsByTable = {};
+
         for (const config of TABLES_CONFIG) {
             const table = config.name;
             try {
@@ -87,27 +89,28 @@ export const backupService = {
                     const filterCol = config.pk || 'empresa_id';
                     rows = await sql`SELECT * FROM ${sql(table)} WHERE ${sql(filterCol)} = ${empresaId}`;
                 } else if (config.strategy === 'join') {
+                    const parentIds = loadedIdsByTable[config.parent] || [];
 
-                    // Subquery para obtener registros hijos
-                    rows = await sql`
-                        SELECT t.* 
-                        FROM ${sql(table)} t
-                        WHERE t.${sql(config.fk)} IN (
-                            SELECT p.id 
-                            FROM ${sql(config.parent)} p 
-                            WHERE p.empresa_id = ${empresaId}
-                        )
-                    `;
+                    if (parentIds.length === 0) {
+                        console.warn(`⚠️ [Backup] Saltando tabla ${table} porque no hay registros cargados del padre ${config.parent}`);
+                        rows = [];
+                    } else {
+                        // Filtrar por los IDs ya cargados del padre
+                        rows = await sql`
+                            SELECT * 
+                            FROM ${sql(table)} 
+                            WHERE ${sql(config.fk)} IN ${sql(parentIds)}
+                        `;
+                    }
                 }
 
                 backupData.tables[table] = rows;
-            } catch (err) {
-                if (err.code === '42P01') {
-                    console.warn(`   ⚠️ Tabla ${table} no encontrada, saltando.`);
-                } else {
-                    console.error(`   ❌ Error leyendo tabla ${table}:`, err.message);
-                    throw err;
-                }
+                // Guardar los IDs cargados para que las tablas hijas puedan usarlos
+                loadedIdsByTable[table] = rows.map(r => r.id);
+            } catch (error) {
+                console.error(`   ❌ Error leyendo tabla ${table}:`, error.message);
+                backupData.tables[table] = []; // Fallback para no romper todo el backup
+                loadedIdsByTable[table] = [];
             }
         }
         return backupData;
