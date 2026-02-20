@@ -10,6 +10,7 @@ import { OAuth2Client } from "google-auth-library";
 import { encrypt } from "../utils/encryption.js";
 import { backupService } from "../services/backupService.js";
 import { seedKnowledge } from "../services/knowledgeSeedService.js";
+import { registrarEventoVerifactu } from "./verifactuEventosController.js";
 
 export const registerFirstAdmin = async (req, res) => {
   try {
@@ -185,6 +186,14 @@ export const login = async (req, res) => {
       // No usamos await para no bloquear el login
       backupService.generateBackup(empresaId).catch(err => {
         console.error("⚠️ Error en backup silencioso post-login:", err.message);
+      });
+
+      // 🔒 Registro Veri*Factu: Inicio Sesión Admin
+      registrarEventoVerifactu({
+        empresaId,
+        userId: user.id,
+        tipo_evento: 'INICIO_SESION',
+        descripcion: `Inicio de sesión administrativo: ${user.email}`
       });
     }
     let empleadoId = null;

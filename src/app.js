@@ -58,6 +58,7 @@ import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
 import adminPurchasesRoutes from "./routes/adminPurchasesRoutes.js";
 import adminFiscalRoutes from "./routes/adminFiscalRoutes.js";
 import nominasRoutes from "./routes/nominasRoutes.js";
+import { verifactuEventosController } from "./controllers/verifactuEventosController.js";
 
 const app = express();
 
@@ -205,6 +206,10 @@ app.use("/api/admin/purchases", adminPurchasesRoutes);
 app.use("/api/admin/fiscal", adminFiscalRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 
+// Veri*Factu Eventos
+app.use("/api/admin/verifactu/eventos", authRequired, verifactuEventosController.getEventos);
+app.use("/api/admin/verifactu/eventos/export", authRequired, verifactuEventosController.exportXML);
+
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario
 app.use("/admin/facturacion", facturacionRoutes);
 app.use("/admin/fiscal", adminFiscalRoutes);
@@ -298,6 +303,34 @@ process.on("uncaughtException", (err) => {
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='configuracionsistema_180' AND column_name='migracion_last_total') THEN
                 ALTER TABLE configuracionsistema_180 ADD COLUMN migracion_last_total NUMERIC(15,2);
             END IF;
+
+            -- Tabla de Eventos Veri*Factu
+            CREATE TABLE IF NOT EXISTS registroverifactueventos_180 (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                empresa_id UUID NOT NULL,
+                user_id UUID,
+                tipo_evento VARCHAR(50) NOT NULL,
+                descripcion TEXT,
+                fecha_evento TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                hash_anterior VARCHAR(300),
+                hash_actual VARCHAR(300),
+                meta_data JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+
+            -- Habilitar RLS si no está habilitado
+            ALTER TABLE registroverifactueventos_180 ENABLE ROW LEVEL SECURITY;
+            
+            -- Políticas de RLS (usando DO para evitar errores si ya existen)
+            DO $policy$ 
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'registroverifactueventos_180' AND policyname = 'rls_verifactueventos_select') THEN
+                    CREATE POLICY rls_verifactueventos_select ON registroverifactueventos_180 FOR SELECT USING (empresa_id = (SELECT empresa_id FROM users_180 WHERE id = auth.uid()));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'registroverifactueventos_180' AND policyname = 'rls_verifactueventos_insert') THEN
+                    CREATE POLICY rls_verifactueventos_insert ON registroverifactueventos_180 FOR INSERT WITH CHECK (empresa_id = (SELECT empresa_id FROM users_180 WHERE id = auth.uid()));
+                END IF;
+            END $policy$;
         EXCEPTION WHEN OTHERS THEN
             RAISE NOTICE 'Error en migración automática: %', SQLERRM;
         END $$;
