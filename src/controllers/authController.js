@@ -1175,7 +1175,7 @@ export const googleAuth = async (req, res) => {
         password_forced: false,
       },
       config.jwtSecret,
-      { expiresIn: "4h" },
+      { expiresIn: "4h" }
     );
 
     return res.json({
