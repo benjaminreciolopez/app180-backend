@@ -5,9 +5,11 @@ import crypto from 'crypto';
  * Registra un evento de auditoría técnica Veri*Factu
  * @param {object} params - { empresaId, userId, tipoEvento, descripcion, metaData }
  */
-export async function registrarEventoVerifactu({ empresaId, userId, tipoEvento, descripcion, metaData = {} }) {
+export async function registrarEventoVerifactu({ empresaId, userId, tipoEvento, tipo_evento, descripcion, metaData = {} }) {
     try {
+        const evType = tipoEvento || tipo_evento;
         if (!empresaId) throw new Error("empresaId es obligatorio para registrar evento Veri*Factu");
+        if (!evType) throw new Error("tipoEvento es obligatorio para registrar evento Veri*Factu");
 
         // 1. Obtener hash anterior encadenado
         const [ultimo] = await sql`
@@ -21,7 +23,7 @@ export async function registrarEventoVerifactu({ empresaId, userId, tipoEvento, 
         // 2. Generar payload canónico para el hash
         const fechaEvento = new Date();
         const payload = {
-            tipo_evento: tipoEvento,
+            tipo_evento: evType,
             descripcion: descripcion || "",
             fecha: fechaEvento.toISOString(),
             empresa_id: empresaId,
@@ -38,12 +40,12 @@ export async function registrarEventoVerifactu({ empresaId, userId, tipoEvento, 
                 empresa_id, user_id, tipo_evento, descripcion, 
                 fecha_evento, hash_anterior, hash_actual, meta_data
             ) VALUES (
-                ${empresaId}, ${userId || null}, ${tipoEvento}, ${descripcion || ""},
+                ${empresaId}, ${userId || null}, ${evType}, ${descripcion || ""},
                 ${fechaEvento}, ${hashAnterior}, ${hashActual}, ${sql.json(metaData)}
             )
         `;
 
-        console.log(`🔒 [Veri*Factu Evento] Registrado: ${tipoEvento} para empresa ${empresaId}`);
+        console.log(`🔒 [Veri*Factu Evento] Registrado: ${evType} para empresa ${empresaId}`);
 
     } catch (error) {
         console.error("❌ Error en registrarEventoVerifactu:", error.message);
@@ -143,6 +145,31 @@ export const verifactuEventosController = {
             res.send(xml);
         } catch (error) {
             res.status(500).json({ success: false, error: "Error exportando XML" });
+        }
+    },
+
+    async registrarEventoManual(req, res) {
+        try {
+            const { tipoEvento, descripcion, metaData } = req.body;
+            const empresaId = req.user.empresa_id;
+
+            if (!tipoEvento) {
+                return res.status(400).json({ error: "tipoEvento es obligatorio" });
+            }
+
+            // Llamamos a la función interna que ya tiene la lógica de hash encadenado
+            await registrarEventoVerifactu({
+                empresaId,
+                userId: req.user.id,
+                tipoEvento,
+                descripcion: descripcion || "Evento registrado desde el frontend",
+                metaData: metaData || {}
+            });
+
+            return res.json({ success: true });
+        } catch (error) {
+            console.error("❌ Error en registrarEventoManual:", error.message);
+            return res.status(500).json({ error: "Error registrando evento" });
         }
     }
 };

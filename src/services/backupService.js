@@ -148,7 +148,7 @@ export const backupService = {
             // 🔒 Registro Veri*Factu: Backup Generado
             registrarEventoVerifactu({
                 empresaId,
-                tipo_evento: 'BACKUP_GENERADO',
+                tipoEvento: 'BACKUP_GENERADO',
                 descripcion: `Copia de seguridad integral generada. Path: ${saved?.storage_path}`,
                 meta_data: { storage_path: saved?.storage_path, method: 'auto' }
             });
@@ -265,7 +265,7 @@ export const backupService = {
             // 🔒 Registro Veri*Factu: Restauración Sistema
             registrarEventoVerifactu({
                 empresaId,
-                tipo_evento: 'RESTAURACION_SISTEMA',
+                tipoEvento: 'RESTAURACION_SISTEMA',
                 descripcion: `Restauración completa del sistema realizada con éxito.`
             });
 

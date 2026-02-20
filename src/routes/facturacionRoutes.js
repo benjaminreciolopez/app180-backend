@@ -61,6 +61,7 @@ router.post("/configuracion/generar-texto", configuracionController.generateLega
 
 import { verifactuEventosController } from "../controllers/verifactuEventosController.js";
 router.get("/configuracion/verifactu/eventos", verifactuEventosController.getEventos);
+router.post("/configuracion/verifactu/eventos", verifactuEventosController.registrarEventoManual);
 router.get("/configuracion/verifactu/eventos/export/json", verifactuEventosController.exportJSON);
 router.get("/configuracion/verifactu/eventos/export/xml", verifactuEventosController.exportXML);
 
