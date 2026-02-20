@@ -170,39 +170,42 @@ export async function crearCompra(req, res) {
             trimestre,
             numero_factura,
             retencion_porcentaje,
-            retencion_importe
+            retencion_importe,
+            ignorar_duplicado
         } = req.body;
 
         // 1. Detección de duplicados
-        if (numero_factura && proveedor) {
-            const [existing] = await sql`
-                SELECT id FROM purchases_180 
-                WHERE empresa_id = ${empresa_id} 
-                AND LOWER(numero_factura) = LOWER(${numero_factura}) 
-                AND LOWER(proveedor) = LOWER(${proveedor})
-                AND activo = true
-                LIMIT 1
-            `;
-            if (existing) {
-                return res.status(409).json({
-                    error: `Ya existe un gasto con el número de factura ${numero_factura} para el proveedor ${proveedor}.`
-                });
-            }
-        } else if (proveedor && total && fecha_compra) {
-            // Si no hay número de factura, buscamos coincidencia exacta de proveedor, total y fecha
-            const [existing] = await sql`
-                SELECT id FROM purchases_180 
-                WHERE empresa_id = ${empresa_id} 
-                AND LOWER(proveedor) = LOWER(${proveedor})
-                AND total = ${total}
-                AND fecha_compra = ${fecha_compra}
-                AND activo = true
-                LIMIT 1
-            `;
-            if (existing) {
-                return res.status(409).json({
-                    error: `Parece que este gasto ya está registrado (Proveedor: ${proveedor}, Total: ${total}, Fecha: ${fecha_compra}).`
-                });
+        if (!ignorar_duplicado) {
+            if (numero_factura && proveedor) {
+                const [existing] = await sql`
+                    SELECT id FROM purchases_180 
+                    WHERE empresa_id = ${empresa_id} 
+                    AND LOWER(numero_factura) = LOWER(${numero_factura}) 
+                    AND LOWER(proveedor) = LOWER(${proveedor})
+                    AND activo = true
+                    LIMIT 1
+                `;
+                if (existing) {
+                    return res.status(409).json({
+                        error: `Ya existe un gasto con el número de factura ${numero_factura} para el proveedor ${proveedor}.`
+                    });
+                }
+            } else if (proveedor && total && fecha_compra) {
+                // Si no hay número de factura, buscamos coincidencia exacta de proveedor, total y fecha
+                const [existing] = await sql`
+                    SELECT id FROM purchases_180 
+                    WHERE empresa_id = ${empresa_id} 
+                    AND LOWER(proveedor) = LOWER(${proveedor})
+                    AND total = ${total}
+                    AND fecha_compra = ${fecha_compra}
+                    AND activo = true
+                    LIMIT 1
+                `;
+                if (existing) {
+                    return res.status(409).json({
+                        error: `Parece que este gasto ya está registrado (Proveedor: ${proveedor}, Total: ${total}, Fecha: ${fecha_compra}).`
+                    });
+                }
             }
         }
 
