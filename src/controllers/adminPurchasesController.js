@@ -33,31 +33,35 @@ export async function ocrGasto(req, res) {
             messages: [
                 {
                     role: "system",
-                    content: `Eres un experto contable español. Tu tarea es extraer datos de un ticket o factura.
+                    content: `Eres un experto contable español. Tu tarea es extraer datos de un texto obtenido por OCR de uno o varios tickets/facturas que pueden venir en el mismo documento.
                     
-                    REGLAS CRÍTICAS:
-                    1. Caso Amazon: Las facturas de Amazon a veces muestran el total en lugares inusuales. Busca 'Total general'.
-                    2. Proveedor: Identifica el nombre legal.
+                    INSTRUCCIONES CRÍTICAS:
+                    1. Si detectas que hay más de una factura o ticket en el texto, extráelas TODAS como elementos independientes en el array "invoices".
+                    2. Proveedor: Identifica el nombre legal o comercial.
                     3. Fecha: Formato YYYY-MM-DD.
                     4. Numero de Factura: Busca 'Nº de factura', 'Factura nº', 'Invoice #', etc.
                     5. Base Imponible: El importe antes de impuestos.
                     6. IVA: Extrae el porcentaje (ej: 21) y el importe del impuesto.
                     7. Total: Importe final con impuestos.
                     8. Retención (IRPF): Si existe, el porcentaje e importe.
-                    9. Descripción: Resumen breve.
+                    9. Descripción: Resumen breve de lo comprado.
                     
-                    Responde EXCLUSIVAMENTE un objeto JSON: 
+                    Responde EXCLUSIVAMENTE un objeto JSON con este formato:
                     {
-                        "proveedor": string,
-                        "total": number,
-                        "fecha_compra": "YYYY-MM-DD",
-                        "descripcion": string,
-                        "numero_factura": string,
-                        "base_imponible": number,
-                        "iva_porcentaje": number,
-                        "iva_importe": number,
-                        "retencion_porcentaje": number,
-                        "retencion_importe": number
+                        "invoices": [
+                            {
+                                "proveedor": string,
+                                "total": number,
+                                "fecha_compra": "YYYY-MM-DD",
+                                "descripcion": string,
+                                "numero_factura": string,
+                                "base_imponible": number,
+                                "iva_porcentaje": number,
+                                "iva_importe": number,
+                                "retencion_porcentaje": number,
+                                "retencion_importe": number
+                            }
+                        ]
                     }`
                 },
                 {
@@ -168,6 +172,39 @@ export async function crearCompra(req, res) {
             retencion_porcentaje,
             retencion_importe
         } = req.body;
+
+        // 1. Detección de duplicados
+        if (numero_factura && proveedor) {
+            const [existing] = await sql`
+                SELECT id FROM purchases_180 
+                WHERE empresa_id = ${empresa_id} 
+                AND LOWER(numero_factura) = LOWER(${numero_factura}) 
+                AND LOWER(proveedor) = LOWER(${proveedor})
+                AND activo = true
+                LIMIT 1
+            `;
+            if (existing) {
+                return res.status(409).json({
+                    error: `Ya existe un gasto con el número de factura ${numero_factura} para el proveedor ${proveedor}.`
+                });
+            }
+        } else if (proveedor && total && fecha_compra) {
+            // Si no hay número de factura, buscamos coincidencia exacta de proveedor, total y fecha
+            const [existing] = await sql`
+                SELECT id FROM purchases_180 
+                WHERE empresa_id = ${empresa_id} 
+                AND LOWER(proveedor) = LOWER(${proveedor})
+                AND total = ${total}
+                AND fecha_compra = ${fecha_compra}
+                AND activo = true
+                LIMIT 1
+            `;
+            if (existing) {
+                return res.status(409).json({
+                    error: `Parece que este gasto ya está registrado (Proveedor: ${proveedor}, Total: ${total}, Fecha: ${fecha_compra}).`
+                });
+            }
+        }
 
         if (!descripcion || total === undefined) {
             return res.status(400).json({ error: "Descripción e importe total son obligatorios." });
