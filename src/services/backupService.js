@@ -2,6 +2,7 @@ import { sql } from "../db.js";
 import { saveToStorage } from "../controllers/storageController.js";
 import path from "path";
 import fs from "fs";
+import { registrarEventoVerifactu } from "../controllers/verifactuEventosController.js";
 
 /**
  * Configuración de tablas para Backup/Restore
@@ -13,18 +14,47 @@ import fs from "fs";
 const TABLES_CONFIG = [
     { name: "configuracionsistema_180", strategy: "direct" },
     { name: "emisor_180", strategy: "direct" },
+    { name: "empresa_180", strategy: "direct" },
     { name: "empresa_calendar_config_180", strategy: "direct" },
-    { name: "empresa_email_config_180", strategy: "direct" }, // Añadido
+    { name: "empresa_email_config_180", strategy: "direct" },
+
+    // Clientes y Facturación
     { name: "clients_180", strategy: "direct" },
     { name: "client_fiscal_data_180", strategy: "join", parent: "clients_180", fk: "cliente_id" },
-    { name: "employees_180", strategy: "direct" },
-    { name: "employee_devices_180", strategy: "direct" }, // Añadido
     { name: "concepto_180", strategy: "direct" },
+    { name: "factura_180", strategy: "direct" },
+    { name: "lineafactura_180", strategy: "join", parent: "factura_180", fk: "factura_id" },
+    { name: "iva_180", strategy: "direct" },
+
+    // Compras y Gastos
+    { name: "purchases_180", strategy: "direct" },
+
+    // Empleados y Jornadas
+    { name: "employees_180", strategy: "direct" },
+    { name: "employee_devices_180", strategy: "direct" },
+    { name: "jornadas_180", strategy: "direct" },
+    { name: "plantillas_jornada_180", strategy: "direct" },
+    { name: "plantilla_dias_180", strategy: "join", parent: "plantillas_jornada_180", fk: "plantilla_id" },
+    { name: "plantilla_bloques_180", strategy: "join", parent: "plantilla_dias_180", fk: "dia_id" },
+    { name: "asignaciones_plantilla_jornada_180", strategy: "direct" },
+    { name: "ausencias_180", strategy: "direct" },
+    { name: "ausencias_adjuntos_180", strategy: "join", parent: "ausencias_180", fk: "ausencia_id" },
+
+    // Trabajo y Fichajes
     { name: "work_logs_180", strategy: "direct" },
     { name: "partes_dia_180", strategy: "direct" },
     { name: "fichajes_180", strategy: "direct" },
-    { name: "factura_180", strategy: "direct" },
-    { name: "lineafactura_180", strategy: "join", parent: "factura_180", fk: "factura_id" },
+
+    // Nóminas
+    { name: "nominas_180", strategy: "direct" },
+
+    // Auditoría y Veri*Factu
+    { name: "auditoria_180", strategy: "direct" },
+    { name: "audit_log_180", strategy: "direct" },
+    { name: "registroverifactu_180", strategy: "direct" },
+    { name: "registroverifactueventos_180", strategy: "direct" },
+
+    // Archivos
     { name: "storage_180", strategy: "direct" }
 ];
 
@@ -102,6 +132,14 @@ export const backupService = {
             });
 
             console.log(`✅ [Backup] Completado en Storage. Guardado en: ${saved?.storage_path}`);
+
+            // 🔒 Registro Veri*Factu: Backup Generado
+            registrarEventoVerifactu({
+                empresaId,
+                tipo_evento: 'BACKUP_GENERADO',
+                descripcion: `Copia de seguridad integral generada. Path: ${saved?.storage_path}`,
+                meta_data: { storage_path: saved?.storage_path, method: 'auto' }
+            });
 
             // 4. Guardado Local (Sincronización solicitada por usuario)
             try {
@@ -211,6 +249,14 @@ export const backupService = {
                     }
                 }
             }
+
+            // 🔒 Registro Veri*Factu: Restauración Sistema
+            registrarEventoVerifactu({
+                empresaId,
+                tipo_evento: 'RESTAURACION_SISTEMA',
+                descripcion: `Restauración completa del sistema realizada con éxito.`
+            });
+
             return true;
         });
     },
