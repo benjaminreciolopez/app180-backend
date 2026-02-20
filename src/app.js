@@ -207,9 +207,6 @@ app.use("/api/admin/purchases", adminPurchasesRoutes);
 app.use("/api/admin/fiscal", adminFiscalRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 
-// Veri*Factu Eventos
-app.use("/api/admin/verifactu/eventos", authRequired, verifactuEventosController.getEventos);
-app.use("/api/admin/verifactu/eventos/export", authRequired, verifactuEventosController.exportXML);
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario
 app.use("/admin/facturacion", facturacionRoutes);
