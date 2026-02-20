@@ -58,26 +58,91 @@ export const verifactuEventosController = {
     async getEventos(req, res) {
         try {
             const empresaId = req.user.empresa_id;
-            const { limit = 50, offset = 0 } = req.query;
+            const { limit = 50, offset = 0, fecha_desde, fecha_hasta, tipo_evento, sort = 'desc' } = req.query;
+
+            const query = sql`
+                SELECT e.*, u.nombre as user_nombre 
+                FROM registroverifactueventos_180 e
+                LEFT JOIN users_180 u ON u.id = e.user_id
+                WHERE e.empresa_id = ${empresaId}
+                ${fecha_desde ? sql`AND e.fecha_evento >= ${fecha_desde}` : sql``}
+                ${fecha_hasta ? sql`AND e.fecha_evento <= ${fecha_hasta}` : sql``}
+                ${tipo_evento ? sql`AND e.tipo_evento = ${tipo_evento}` : sql``}
+                ORDER BY e.fecha_evento ${sort === 'asc' ? sql`ASC` : sql`DESC`}
+                LIMIT ${parseInt(limit)}
+                OFFSET ${parseInt(offset)}
+            `;
+
+            const eventos = await query;
+
+            res.json({ success: true, data: eventos });
+        } catch (error) {
+            console.error("Error getEventos:", error);
+            res.status(500).json({ success: false, error: "Error obteniendo eventos" });
+        }
+    },
+
+    async exportJSON(req, res) {
+        try {
+            const empresaId = req.user.empresa_id;
+            const { fecha_desde, fecha_hasta, tipo_evento } = req.query;
 
             const eventos = await sql`
                 SELECT e.*, u.nombre as user_nombre 
                 FROM registroverifactueventos_180 e
                 LEFT JOIN users_180 u ON u.id = e.user_id
                 WHERE e.empresa_id = ${empresaId}
-                ORDER BY e.fecha_evento DESC
-                LIMIT ${parseInt(limit)}
-                OFFSET ${parseInt(offset)}
+                ${fecha_desde ? sql`AND e.fecha_evento >= ${fecha_desde}` : sql``}
+                ${fecha_hasta ? sql`AND e.fecha_evento <= ${fecha_hasta}` : sql``}
+                ${tipo_evento ? sql`AND e.tipo_evento = ${tipo_evento}` : sql``}
+                ORDER BY e.fecha_evento ASC
             `;
 
-            res.json({ success: true, data: eventos });
+            res.header("Content-Type", "application/json");
+            res.attachment(`auditoria_fiscal_${new Date().toISOString().slice(0, 10)}.json`);
+            res.send(JSON.stringify(eventos, null, 2));
         } catch (error) {
-            res.status(500).json({ success: false, error: "Error obteniendo eventos" });
+            res.status(500).json({ success: false, error: "Error exportando JSON" });
         }
     },
 
     async exportXML(req, res) {
-        // TODO: Implementar generación XML según esquema AEAT
-        res.status(501).json({ success: false, message: "Exportación XML no implementada aún" });
+        try {
+            const empresaId = req.user.empresa_id;
+            const { fecha_desde, fecha_hasta, tipo_evento } = req.query;
+
+            const eventos = await sql`
+                SELECT e.*, u.nombre as user_nombre 
+                FROM registroverifactueventos_180 e
+                LEFT JOIN users_180 u ON u.id = e.user_id
+                WHERE e.empresa_id = ${empresaId}
+                ${fecha_desde ? sql`AND e.fecha_evento >= ${fecha_desde}` : sql``}
+                ${fecha_hasta ? sql`AND e.fecha_evento <= ${fecha_hasta}` : sql``}
+                ${tipo_evento ? sql`AND e.tipo_evento = ${tipo_evento}` : sql``}
+                ORDER BY e.fecha_evento ASC
+            `;
+
+            // Generación XML simple (Esquema Veri*Factu básico)
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+            xml += '<AuditoriaFiscalVerifactu>\n';
+            eventos.forEach(ev => {
+                xml += '  <Evento>\n';
+                xml += `    <ID>${ev.id}</ID>\n`;
+                xml += `    <Fecha>${ev.fecha_evento.toISOString()}</Fecha>\n`;
+                xml += `    <Tipo>${ev.tipo_evento}</Tipo>\n`;
+                xml += `    <Usuario>${ev.user_nombre || 'Sistema'}</Usuario>\n`;
+                xml += `    <Descripcion>${ev.descripcion || ''}</Descripcion>\n`;
+                xml += `    <HashActual>${ev.hash_actual}</HashActual>\n`;
+                xml += `    <HashAnterior>${ev.hash_anterior || ''}</HashAnterior>\n`;
+                xml += '  </Evento>\n';
+            });
+            xml += '</AuditoriaFiscalVerifactu>';
+
+            res.header("Content-Type", "application/xml");
+            res.attachment(`auditoria_fiscal_${new Date().toISOString().slice(0, 10)}.xml`);
+            res.send(xml);
+        } catch (error) {
+            res.status(500).json({ success: false, error: "Error exportando XML" });
+        }
     }
 };

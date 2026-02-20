@@ -59,6 +59,11 @@ router.get("/configuracion/sistema", configuracionController.getSistemaConfig);
 router.put("/configuracion/sistema", configuracionController.updateSistemaConfig);
 router.post("/configuracion/generar-texto", configuracionController.generateLegalText);
 
+import { verifactuEventosController } from "../controllers/verifactuEventosController.js";
+router.get("/configuracion/verifactu/eventos", verifactuEventosController.getEventos);
+router.get("/configuracion/verifactu/eventos/export/json", verifactuEventosController.exportJSON);
+router.get("/configuracion/verifactu/eventos/export/xml", verifactuEventosController.exportXML);
+
 /* ================= DASHBOARD & INFORMES ================= */
 
 router.get("/dashboard", dashboardController.getDashboardData);
