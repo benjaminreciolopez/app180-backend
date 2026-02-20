@@ -7,7 +7,7 @@ import {
     getLibroVentas,
     getLibroGastos,
     getLibroNominas,
-    presentModelo303
+    downloadBOE
 } from "../controllers/adminFiscalController.js";
 
 const router = Router();
@@ -41,9 +41,9 @@ router.get("/libro-gastos", getLibroGastos);
 router.get("/libro-nominas", getLibroNominas);
 
 /**
- * @route POST /admin/fiscal/presentar-303
- * @body year, trimestre
+ * @route GET /admin/fiscal/download-boe
+ * @query year, trimestre, modelo
  */
-router.post("/presentar-303", presentModelo303);
+router.get("/download-boe", downloadBOE);
 
 export default router;
