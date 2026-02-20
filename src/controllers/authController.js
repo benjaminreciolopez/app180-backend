@@ -192,7 +192,7 @@ export const login = async (req, res) => {
       registrarEventoVerifactu({
         empresaId,
         userId: user.id,
-        tipo_evento: 'INICIO_SESION',
+        tipoEvento: 'INICIO_SESION',
         descripcion: `Inicio de sesión administrativo: ${user.email}`
       });
     }
@@ -929,6 +929,16 @@ export const getMe = async (req, res) => {
 
     const r = rows[0];
 
+    // 🔒 Registro Veri*Factu: Acceso al sistema (Apertura de App)
+    if (r.empresa_id) {
+      registrarEventoVerifactu({
+        empresaId: r.empresa_id,
+        userId: r.id,
+        tipoEvento: 'ACCESO_SISTEMA',
+        descripcion: `Acceso al sistema (sesion persistente): ${r.email}`
+      });
+    }
+
     return res.json({
       id: r.id,
       email: r.email,
@@ -1141,6 +1151,14 @@ export const googleAuth = async (req, res) => {
       // No esperamos a que termine
       backupService.generateBackup(empresaId).catch(err => {
         console.error("⚠️ Error en backup silencioso (Google Auth):", err.message);
+      });
+
+      // 🔒 Registro Veri*Factu: Inicio Sesión Google
+      registrarEventoVerifactu({
+        empresaId,
+        userId: user.id,
+        tipoEvento: 'INICIO_SESION',
+        descripcion: `Inicio de sesión vía Google: ${user.email}`
       });
     }
 
