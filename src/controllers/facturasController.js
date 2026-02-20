@@ -276,7 +276,7 @@ export async function getFactura(req, res) {
 export async function createFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [] } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [], retencion_porcentaje = 0 } = req.body;
 
     if (!cliente_id) {
       return res.status(400).json({ success: false, error: "Cliente requerido" });
@@ -310,7 +310,9 @@ export async function createFactura(req, res) {
       const [factura] = await tx`
         insert into factura_180 (
           empresa_id, cliente_id, fecha, estado, iva_global, mensaje_iva, metodo_pago,
-          subtotal, iva_total, total, created_at
+          subtotal, iva_total, total, 
+          retencion_porcentaje, retencion_importe,
+          created_at
         ) values (
           ${empresaId},
           ${cliente_id},
@@ -320,6 +322,7 @@ export async function createFactura(req, res) {
           ${n(mensaje_iva)},
           ${n(metodo_pago) || 'TRANSFERENCIA'},
           0, 0, 0,
+          ${retencion_porcentaje}, 0,
           now()
         )
         returning *
@@ -356,11 +359,16 @@ export async function createFactura(req, res) {
       }
 
       // Actualizar totales
+      // Actualizar totales
+      const retencion_importe = (subtotal * retencion_porcentaje) / 100;
+      const total = subtotal + iva_total - retencion_importe;
+
       const [updated] = await tx`
         update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
-            total = ${Math.round((subtotal + iva_total) * 100) / 100}
+            retencion_importe = ${Math.round(retencion_importe * 100) / 100},
+            total = ${Math.round(total * 100) / 100}
         where id = ${factura.id}
         returning *
       `;
@@ -422,7 +430,7 @@ export async function updateFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
     const { id } = req.params;
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [] } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [], retencion_porcentaje = 0 } = req.body;
 
     // Validar que la factura existe y es borrador
     const [factura] = await sql`
@@ -454,7 +462,8 @@ export async function updateFactura(req, res) {
             fecha = ${n(fecha) || factura.fecha}::date,
             iva_global = ${n(iva_global) || factura.iva_global},
             mensaje_iva = ${n(mensaje_iva) || factura.mensaje_iva},
-            metodo_pago = ${n(metodo_pago) || factura.metodo_pago}
+            metodo_pago = ${n(metodo_pago) || factura.metodo_pago},
+            retencion_porcentaje = ${retencion_porcentaje}
         where id = ${id}
       `;
 
@@ -495,11 +504,16 @@ export async function updateFactura(req, res) {
 
       // Actualizar totales
       // Actualizar totales
+      // Actualizar totales
+      const retencion_importe = (subtotal * retencion_porcentaje) / 100;
+      const total = subtotal + iva_total - retencion_importe;
+
       await tx`
         update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
-            total = ${Math.round((subtotal + iva_total) * 100) / 100}
+            retencion_importe = ${Math.round(retencion_importe * 100) / 100},
+            total = ${Math.round(total * 100) / 100}
         where id = ${id}
       `;
 
@@ -622,10 +636,16 @@ export async function validarFactura(req, res) {
         subtotal += base;
         iva_total += (base * (l.iva_percent || factura.iva_global || 0) / 100);
       }
-      const total = Math.round((subtotal + iva_total) * 100) / 100;
+      subtotal += base;
+      iva_total += (base * (l.iva_percent || factura.iva_global || 0) / 100);
+    }
+      
+      const retencion_porcentaje = factura.retencion_porcentaje || 0;
+    const retencion_importe = (subtotal * retencion_porcentaje) / 100;
+    const total = Math.round((subtotal + iva_total - retencion_importe) * 100) / 100;
 
-      // Actualizar factura
-      const [updatedRecord] = await tx`
+    // Actualizar factura
+    const [updatedRecord] = await tx`
         update factura_180
         set estado = 'VALIDADA',
             numero = ${numero},
@@ -633,69 +653,71 @@ export async function validarFactura(req, res) {
             fecha_validacion = current_date,
             mensaje_iva = ${mensaje_iva !== undefined ? n(mensaje_iva) : sql`mensaje_iva`},
             subtotal = ${Math.round(subtotal * 100) / 100},
+            subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
+            retencion_importe = ${Math.round(retencion_importe * 100) / 100},
             total = ${total}
         where id = ${id}
         returning *
       `;
 
-      // Verificar Veri*Factu (si aplica) con el registro actualizado
-      await verificarVerifactu(updatedRecord, tx);
+    // Verificar Veri*Factu (si aplica) con el registro actualizado
+    await verificarVerifactu(updatedRecord, tx);
 
-      // Bloquear numeración (actualizar emisor)
-      const year = new Date(fecha).getFullYear();
-      await tx`
+    // Bloquear numeración (actualizar emisor)
+    const year = new Date(fecha).getFullYear();
+    await tx`
         update emisor_180
         set ultimo_anio_numerado = ${year}
         where empresa_id = ${empresaId}
       `;
-    });
+  });
 
-    // Auditoría
-    await auditFactura({
+  // Auditoría
+  await auditFactura({
+    empresaId,
+    userId: req.user.id,
+    accion: 'factura_validada',
+    entidadTipo: 'factura',
+    entidadId: id,
+    req,
+    datosNuevos: { numero, fecha, estado: 'VALIDADA' }
+  });
+
+  // --- AUTO-GENERAR Y GUARDAR EN STORAGE ---
+  try {
+    console.log(`📑 Generando PDF para auto-almacenamiento: ${numero}`);
+    const pdfBuffer = await generarPdfFactura(id);
+    const baseFolder = await getInvoiceStorageFolder(empresaId);
+
+    const savedFile = await saveToStorage({
       empresaId,
-      userId: req.user.id,
-      accion: 'factura_validada',
-      entidadTipo: 'factura',
-      entidadId: id,
-      req,
-      datosNuevos: { numero, fecha, estado: 'VALIDADA' }
+      nombre: `Factura_${numero.replace(/\//g, '-')}.pdf`,
+      buffer: pdfBuffer,
+      folder: getStoragePath(fecha, baseFolder),
+      mimeType: 'application/pdf',
+      useTimestamp: false
     });
 
-    // --- AUTO-GENERAR Y GUARDAR EN STORAGE ---
-    try {
-      console.log(`📑 Generando PDF para auto-almacenamiento: ${numero}`);
-      const pdfBuffer = await generarPdfFactura(id);
-      const baseFolder = await getInvoiceStorageFolder(empresaId);
-
-      const savedFile = await saveToStorage({
-        empresaId,
-        nombre: `Factura_${numero.replace(/\//g, '-')}.pdf`,
-        buffer: pdfBuffer,
-        folder: getStoragePath(fecha, baseFolder),
-        mimeType: 'application/pdf',
-        useTimestamp: false
-      });
-
-      // Actualizar path en la factura
-      if (savedFile && savedFile.storage_path) {
-        await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${id}`;
-      }
-
-      console.log(`✅ PDF guardado en Storage para: ${numero}`);
-    } catch (storageErr) {
-      console.error("⚠️ No se pudo auto-almacenar el PDF:", storageErr);
+    // Actualizar path en la factura
+    if (savedFile && savedFile.storage_path) {
+      await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${id}`;
     }
 
-    res.json({
-      success: true,
-      message: "Factura validada correctamente",
-      numero,
-    });
-  } catch (err) {
-    console.error("❌ validarFactura:", err);
-    res.status(500).json({ success: false, error: err.message || "Error validando factura" });
+    console.log(`✅ PDF guardado en Storage para: ${numero}`);
+  } catch (storageErr) {
+    console.error("⚠️ No se pudo auto-almacenar el PDF:", storageErr);
   }
+
+  res.json({
+    success: true,
+    message: "Factura validada correctamente",
+    numero,
+  });
+} catch (err) {
+  console.error("❌ validarFactura:", err);
+  res.status(500).json({ success: false, error: err.message || "Error validando factura" });
+}
 }
 
 /* =========================
