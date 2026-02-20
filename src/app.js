@@ -189,6 +189,8 @@ app.use("/admin/auditoria", auditRoutes);
 app.use("/admin", emailConfigRoutes); // Email configuration routes
 app.use("/admin/reportes", adminReportesRoutes);
 app.use("/admin/export", exportRoutes);
+app.use("/api/admin/reportes", adminReportesRoutes);
+app.use("/api/admin/export", exportRoutes);
 app.use("/system", systemRoutes);
 app.use("/api/admin/facturacion", facturacionRoutes);
 app.use("/api/admin/storage", adminStorageRoutes);
