@@ -188,8 +188,8 @@ export async function getLibroVentas(req, res) {
         `;
 
         const facturasWithClientName = await Promise.all(facturas.map(async f => {
-            const [client] = await sql`SELECT nombre_fiscal FROM clients_180 WHERE id = ${f.cliente_id}`;
-            return { ...f, cliente_nombre: client?.nombre_fiscal || 'Desconocido' };
+            const [client] = await sql`SELECT nombre FROM clients_180 WHERE id = ${f.cliente_id}`;
+            return { ...f, cliente_nombre: client?.nombre || 'Desconocido' };
         }));
 
         res.json({ success: true, data: facturasWithClientName });
