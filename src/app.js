@@ -166,7 +166,8 @@ app.use("/turnos", turnosRoutes);
 app.use("/empleado", empleadoRoutes);
 app.use("/empleado", authRequired, empleadoAusenciasRoutes);
 
-app.use("/admin", authRequired, adminRoutes);
+app.use("/api/admin", authRequired, adminRoutes);
+app.use("/admin", authRequired, adminRoutes); // Mantener por compatibilidad legacy
 app.use("/admin/ausencias", authRequired, adminAusenciasRoutes);
 app.use("/empleado", authRequired, empleadoAdjuntosRoutes);
 app.use("/admin", authRequired, adminAdjuntosRoutes);
