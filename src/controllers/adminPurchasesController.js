@@ -55,14 +55,15 @@ export async function ocrGasto(req, res) {
                                 "fecha_compra": "YYYY-MM-DD",
                                 "descripcion": string,
                                 "numero_factura": string,
-                                "base_imponible": number,
-                                "iva_porcentaje": number,
-                                "iva_importe": number,
+                                "base_imponible": number (OBLIGATORIO),
+                                "iva_porcentaje": number (ej: 21, 10, 4, 0),
+                                "iva_importe": number (OBLIGATORIO),
                                 "retencion_porcentaje": number,
                                 "retencion_importe": number
                             }
                         ]
-                    }`
+                    }
+                    NOTA: Si la cuota de IVA no es cero, es IMPRESCINDIBLE que intentes desglosar la base imponible y el importe del IVA.`
                 },
                 {
                     role: "user",
@@ -242,6 +243,14 @@ export async function crearCompra(req, res) {
 
         if (!descripcion || total === undefined) {
             return res.status(400).json({ error: "Descripción e importe total son obligatorios." });
+        }
+
+        // Validación fiscal estricta
+        if (!base_imponible || parseFloat(base_imponible) === 0) {
+            return res.status(400).json({ error: "La Base Imponible es obligatoria para la declaración fiscal." });
+        }
+        if (iva_importe === undefined || iva_importe === null) {
+            return res.status(400).json({ error: "La Cuota de IVA es obligatoria." });
         }
 
         let finalDocumentUrl = documento_url || null;

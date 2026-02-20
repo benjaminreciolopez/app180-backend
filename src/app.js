@@ -190,17 +190,23 @@ app.use("/admin", emailConfigRoutes); // Email configuration routes
 app.use("/admin/reportes", adminReportesRoutes);
 app.use("/admin/export", exportRoutes);
 app.use("/system", systemRoutes);
-app.use("/admin/facturacion", facturacionRoutes);
-app.use("/admin/storage", adminStorageRoutes);
-app.use("/admin", aiRoutes);
-app.use("/admin/backup", adminBackupRoutes);
-app.use("/admin", adminKnowledgeRoutes);
-app.use("/admin", calendarConfigRoutes); // Google Calendar configuration
-app.use("/admin", calendarSyncRoutes); // Google Calendar sync
+app.use("/api/admin/facturacion", facturacionRoutes);
+app.use("/api/admin/storage", adminStorageRoutes);
+app.use("/api/admin", aiRoutes);
+app.use("/api/admin/backup", adminBackupRoutes);
+app.use("/api/admin", adminKnowledgeRoutes);
+app.use("/api/admin", calendarConfigRoutes); // Google Calendar configuration
+app.use("/api/admin", calendarSyncRoutes); // Google Calendar sync
 app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
-app.use("/admin", authRequired, adminPartesDiaRoutes);
-app.use("/admin", adminPurchasesRoutes);
+app.use("/api/admin", authRequired, adminPartesDiaRoutes);
+app.use("/api/admin/purchases", adminPurchasesRoutes);
+app.use("/api/admin/fiscal", adminFiscalRoutes);
+app.use("/api/admin/nominas", nominasRoutes);
+
+// Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario
+app.use("/admin/facturacion", facturacionRoutes);
 app.use("/admin/fiscal", adminFiscalRoutes);
+app.use("/admin/purchases", adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
 
 // =========================
