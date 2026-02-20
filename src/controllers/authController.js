@@ -1012,14 +1012,12 @@ export const googleAuth = async (req, res) => {
       // ---- EXISTING USER → LOGIN ----
       user = userRows[0];
 
-      // Update google_id and avatar if not set
-      if (!user.google_id) {
-        await sql`
-          UPDATE users_180
-          SET google_id = ${googleId}, avatar_url = ${avatarUrl}, updated_at = now()
-          WHERE id = ${user.id}
-        `;
-      }
+      // Update google_id and always sync avatar_url
+      await sql`
+        UPDATE users_180
+        SET google_id = ${googleId}, avatar_url = ${avatarUrl}, updated_at = now()
+        WHERE id = ${user.id}
+      `;
 
       // Get empresa
       if (user.role === "admin") {
