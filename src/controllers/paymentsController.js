@@ -120,21 +120,7 @@ export async function crearPago(req, res) {
         // Determinar el ID para búsqueda en invoices_180
         const invIdForSearch = invoiceIdForAllocation || workLogIdForAllocation || facturaIdForAllocation;
 
-        // Actualizar tabla de consolidación (invoices_180) - Buscamos por ID real o por ID de item de trabajo
-        if (invIdForSearch) {
-          await sql`
-            UPDATE invoices_180
-            SET
-              importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
-              saldo = GREATEST(0, saldo - ${item.importe}),
-              estado = CASE
-                  WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
-                  ELSE 'parcial'
-              END
-            WHERE id::text = ${invIdForSearch}::text
-              AND empresa_id = ${empresaId}
-          `;
-        }
+
 
         // Actualización Legacy (Opcional pero recomendada si hay otras partes del app usándolas)
         if (workLogIdForAllocation || item.work_log_id) {
@@ -165,19 +151,7 @@ export async function crearPago(req, res) {
             RETURNING pagado, total, work_log_id
           `;
 
-          // 2. Sincronizar invoices_180 (Consolidación)
-          await sql`
-            UPDATE invoices_180
-            SET
-              importe_pagado = COALESCE(importe_pagado, 0) + ${item.importe},
-              saldo = GREATEST(0, saldo - ${item.importe}),
-              estado = CASE
-                  WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
-                  ELSE 'parcial'
-              END
-            WHERE id::text = ${facturaId}::text
-              AND empresa_id = ${empresaId}
-          `;
+
 
           // 3. Sincronizar Trabajos vinculados (USANDO EL DATO ACTUALIZADO)
           console.log(`[DEBUG] Factura ${facturaId}: Pagado=${facturaActualizada?.pagado}, Total=${facturaActualizada?.total}, WorkLogID=${facturaActualizada?.work_log_id}`);
@@ -473,22 +447,7 @@ export async function eliminarPago(req, res) {
       `;
 
       for (const a of asignaciones) {
-        // 1. Revertir en tabla de consolidación (invoices_180)
-        const invId = a.invoice_id || a.work_log_id || a.factura_id;
-        if (invId) {
-          await sql`
-            UPDATE invoices_180
-            SET
-                importe_pagado = GREATEST(0, COALESCE(importe_pagado, 0) - ${a.importe}),
-                saldo = GREATEST(0, saldo + ${a.importe}),
-                estado = CASE
-                    WHEN (COALESCE(importe_pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
-                    ELSE 'parcial'
-                END
-            WHERE id::text = ${invId}::text
-              AND empresa_id = ${empresaId}
-          `;
-        }
+
 
         // 2. Revertir en tablas Legacy
         if (a.work_log_id) {

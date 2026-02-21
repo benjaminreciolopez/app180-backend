@@ -107,9 +107,9 @@ export async function asignarPago({
         throw e;
       }
 
-      // Bloqueo invoice
+      // Item simple: solo verificamos existencia básica si no hay columnas de saldo
       const invR = await tx`
-        select id, cliente_id, importe_total, importe_pagado, saldo, estado
+        select id, cliente_id, total as importe_total, estado
         from invoices_180
         where id=${invoiceId}
           and empresa_id=${empresaId}
@@ -127,14 +127,7 @@ export async function asignarPago({
         throw e;
       }
 
-      const saldoActual = Number(inv.saldo);
-      if (saldoActual <= 0) {
-        const e = new Error("Este item ya está pagado");
-        e.status = 409;
-        throw e;
-      }
-
-      const aplicar = Math.min(imp, saldoActual);
+      const aplicar = imp;
 
       // Insert allocation
       await tx`
@@ -146,17 +139,11 @@ export async function asignarPago({
         )
       `;
 
-      // Update invoice
-      const nuevoPagado = Number(inv.importe_pagado) + aplicar;
-      const nuevoSaldo = Math.max(0, Number(inv.importe_total) - nuevoPagado);
-      const nuevoEstado = nuevoSaldo <= 0 ? "pagada" : "parcial";
-
+      // Update invoice (Solo estado si es necesario, pero invoices_180 no tiene importe_pagado)
       await tx`
         update invoices_180
         set
-          importe_pagado = ${nuevoPagado},
-          saldo = ${nuevoSaldo},
-          estado = ${nuevoEstado}
+          estado = 'parcial'
         where id=${invoiceId}
           and empresa_id=${empresaId}
       `;
