@@ -143,27 +143,34 @@ export async function getDashboardWidgets(req, res) {
     if (!empresaId) return res.status(403).json({ error: "No empresa" });
 
     const rows = await sql`
-      SELECT dashboard_widgets
+      SELECT dashboard_widgets, dashboard_widgets_mobile
       FROM empresa_config_180
       WHERE empresa_id = ${empresaId}
       LIMIT 1
     `;
 
     let widgets = rows[0]?.dashboard_widgets || [];
+    let widgets_mobile = rows[0]?.dashboard_widgets_mobile || [];
 
     // Fix: Si se guardó como string JSON dentro de JSONB (doble codificación), parsear.
-    if (typeof widgets === 'string') {
-      try {
-        widgets = JSON.parse(widgets);
-      } catch (e) {
-        console.error("Error parsing widgets JSON", e);
-        widgets = [];
+    const parseWidgets = (w) => {
+      if (typeof w === 'string') {
+        try {
+          return JSON.parse(w);
+        } catch (e) {
+          console.error("Error parsing widgets JSON", e);
+          return [];
+        }
       }
-    }
+      return Array.isArray(w) ? w : [];
+    };
 
-    console.log(`📊 [getDashboardWidgets] Empresa: ${empresaId}, Widgets count: ${widgets.length}`);
+    widgets = parseWidgets(widgets);
+    widgets_mobile = parseWidgets(widgets_mobile);
 
-    return res.json({ widgets });
+    console.log(`📊 [getDashboardWidgets] Empresa: ${empresaId}, Desktop: ${widgets.length}, Mobile: ${widgets_mobile.length}`);
+
+    return res.json({ widgets, widgets_mobile });
   } catch (err) {
     console.error("❌ getDashboardWidgets:", err);
     res.status(500).json({ error: "Error obteniendo widgets" });
@@ -178,23 +185,41 @@ export async function updateDashboardWidgets(req, res) {
     const empresaId = req.user.empresa_id;
     if (!empresaId) return res.status(403).json({ error: "No empresa" });
 
-    const { widgets } = req.body;
-    if (!Array.isArray(widgets)) {
-      return res.status(400).json({ error: "Formato inválido" });
+    const { widgets, widgets_mobile } = req.body;
+
+    // Si viene cualquiera de los dos, actualizamos. 
+    // Si uno no viene, mantenemos el actual para evitar borrados accidentales si una vista no envía todo.
+    if (widgets && !Array.isArray(widgets)) return res.status(400).json({ error: "Formato widgets escritorio inválido" });
+    if (widgets_mobile && !Array.isArray(widgets_mobile)) return res.status(400).json({ error: "Formato widgets móvil inválido" });
+
+    if (widgets && widgets_mobile) {
+      await sql`
+        INSERT INTO empresa_config_180 (empresa_id, dashboard_widgets, dashboard_widgets_mobile)
+        VALUES (${empresaId}, ${widgets}::jsonb, ${widgets_mobile}::jsonb)
+        ON CONFLICT (empresa_id)
+        DO UPDATE SET
+          dashboard_widgets = EXCLUDED.dashboard_widgets,
+          dashboard_widgets_mobile = EXCLUDED.dashboard_widgets_mobile,
+          updated_at = NOW()
+      `;
+    } else if (widgets) {
+      await sql`
+        UPDATE empresa_config_180 SET
+          dashboard_widgets = ${widgets}::jsonb,
+          updated_at = NOW()
+        WHERE empresa_id = ${empresaId}
+      `;
+    } else if (widgets_mobile) {
+      await sql`
+        UPDATE empresa_config_180 SET
+          dashboard_widgets_mobile = ${widgets_mobile}::jsonb,
+          updated_at = NOW()
+        WHERE empresa_id = ${empresaId}
+      `;
     }
 
-    // UPSERT: Insertar si no existe, actualizar si existe
-    await sql`
-      INSERT INTO empresa_config_180 (empresa_id, dashboard_widgets)
-      VALUES (${empresaId}, ${widgets}::jsonb)
-      ON CONFLICT (empresa_id)
-      DO UPDATE SET
-        dashboard_widgets = EXCLUDED.dashboard_widgets,
-        updated_at = NOW()
-    `;
-
-    console.log(`✅ Widgets guardados para empresa: ${empresaId}, Total: ${widgets.length}`);
-    return res.json({ success: true, widgets });
+    console.log(`✅ Widgets guardados para empresa: ${empresaId}`);
+    return res.json({ success: true });
   } catch (err) {
     console.error("❌ updateDashboardWidgets:", err);
     res.status(500).json({ error: "Error guardando widgets" });
