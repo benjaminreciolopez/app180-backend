@@ -131,7 +131,7 @@ export async function crearPago(req, res) {
                   WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
                   ELSE 'parcial'
               END
-            WHERE (id::text = ${invIdForSearch}::text OR (tipo = 'factura' AND work_item_id::text = ${invIdForSearch}::text) OR (tipo = 'trabajo' AND work_item_id::text = ${invIdForSearch}::text))
+            WHERE id::text = ${invIdForSearch}::text
               AND empresa_id = ${empresaId}
           `;
         }
@@ -175,7 +175,7 @@ export async function crearPago(req, res) {
                   WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
                   ELSE 'parcial'
               END
-            WHERE ((work_item_id::text = ${facturaId}::text AND tipo = 'factura') OR id::text = ${facturaId}::text)
+            WHERE id::text = ${facturaId}::text
               AND empresa_id = ${empresaId}
           `;
 
@@ -485,7 +485,7 @@ export async function eliminarPago(req, res) {
                     WHEN (COALESCE(importe_pagado, 0) - ${a.importe}) <= 0 THEN 'pendiente'
                     ELSE 'parcial'
                 END
-            WHERE (id::text = ${invId}::text OR work_item_id::text = ${invId}::text)
+            WHERE id::text = ${invId}::text
               AND empresa_id = ${empresaId}
           `;
         }
