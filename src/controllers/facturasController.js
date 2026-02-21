@@ -622,6 +622,10 @@ export async function validarFactura(req, res) {
       });
     }
 
+    // Obtener configuración para la serie
+    const [config] = await sql`select serie from configuracionsistema_180 where empresa_id=${empresaId}`;
+    const serie = config?.serie || null;
+
     // Generar número de factura
     const numero = await generarNumeroFactura(empresaId, fecha);
 
@@ -646,6 +650,7 @@ export async function validarFactura(req, res) {
         update factura_180
         set estado = 'VALIDADA',
             numero = ${numero},
+            serie = ${serie},
             fecha = ${fecha}::date,
             fecha_validacion = current_date,
             mensaje_iva = ${mensaje_iva !== undefined ? n(mensaje_iva) : sql`mensaje_iva`},
