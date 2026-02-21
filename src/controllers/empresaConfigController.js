@@ -120,7 +120,8 @@ export async function updateEmpresaConfig(req, res) {
       ON CONFLICT (empresa_id)
       DO UPDATE SET 
         modulos = EXCLUDED.modulos,
-        modulos_mobile = EXCLUDED.modulos_mobile
+        modulos_mobile = EXCLUDED.modulos_mobile,
+        actualizado_at = now()
     `;
 
     return res.json({
