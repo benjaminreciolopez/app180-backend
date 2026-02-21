@@ -112,6 +112,7 @@ export const authRequired = async (req, res, next) => {
         ausencias: true,
         facturacion: false,
         pagos: false,
+        fiscal: false,
       };
     }
     // ==========================
