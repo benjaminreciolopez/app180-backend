@@ -1,7 +1,7 @@
 -- Tabla para memoria de conversaciones de CONTENDO
 CREATE TABLE IF NOT EXISTS contendo_memory_180 (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id UUID NOT NULL REFERENCES empresas_180(id) ON DELETE CASCADE,
+  empresa_id UUID NOT NULL REFERENCES empresa_180(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users_180(id) ON DELETE CASCADE,
   role VARCHAR(50) NOT NULL,
   mensaje TEXT NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS contendo_memory_180 (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   -- Índices para búsqueda rápida
-  CONSTRAINT fk_empresa FOREIGN KEY (empresa_id) REFERENCES empresas_180(id),
+  CONSTRAINT fk_empresa FOREIGN KEY (empresa_id) REFERENCES empresa_180(id),
   CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users_180(id)
 );
 
