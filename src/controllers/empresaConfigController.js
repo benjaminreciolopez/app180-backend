@@ -28,7 +28,7 @@ export async function getEmpresaConfig(req, res) {
     }
 
     let rows = await sql`
-      SELECT modulos, modulos_mobile, ai_tokens, user_id as creator_id
+      SELECT c.modulos, c.modulos_mobile, c.ai_tokens, e.user_id as creator_id
       FROM empresa_config_180 c
       JOIN empresa_180 e ON c.empresa_id = e.id
       WHERE c.empresa_id = ${empresaId}
@@ -44,12 +44,20 @@ export async function getEmpresaConfig(req, res) {
       `;
 
       rows = await sql`
-        SELECT modulos, modulos_mobile
-        FROM empresa_config_180
-        WHERE empresa_id = ${empresaId}
+        SELECT c.modulos, c.modulos_mobile
+        FROM empresa_config_180 c
+        WHERE c.empresa_id = ${empresaId}
         LIMIT 1
       `;
     }
+
+    // Leer backup_local_path desde configuracionsistema_180
+    const [sysConfig] = await sql`
+      SELECT backup_local_path
+      FROM configuracionsistema_180
+      WHERE empresa_id = ${empresaId}
+      LIMIT 1
+    `;
 
     const stored = rows[0]?.modulos || {};
     const mobile = rows[0]?.modulos_mobile || null;
@@ -59,7 +67,8 @@ export async function getEmpresaConfig(req, res) {
       ...stored,
       modulos_mobile: mobile,
       ai_tokens: rows[0]?.ai_tokens || 0,
-      es_creador: rows[0]?.creator_id === req.user.id
+      es_creador: rows[0]?.creator_id === req.user.id,
+      backup_local_path: sysConfig?.backup_local_path || null
     });
   } catch (err) {
     console.error("❌ getEmpresaConfig:", err);

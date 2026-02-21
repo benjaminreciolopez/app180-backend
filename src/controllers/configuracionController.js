@@ -79,7 +79,9 @@ export async function updateEmisorConfig(req, res) {
                     registro_mercantil=${data.registro_mercantil || null},
                     texto_pie=${data.texto_pie || null},
                     texto_exento=${data.texto_exento || null},
-                    texto_rectificativa=${data.texto_rectificativa || null}
+                    texto_rectificativa=${data.texto_rectificativa || null},
+                    terminos_legales=${data.terminos_legales || null},
+                    mensaje_iva=${data.mensaje_iva || null}
                 where empresa_id=${empresaId}
                 returning *
             `;
@@ -87,11 +89,12 @@ export async function updateEmisorConfig(req, res) {
             [result] = await sql`
                 insert into emisor_180 (
                     empresa_id, nombre, nombre_comercial, nif, direccion, poblacion, provincia, cp, pais, telefono, email, web, iban,
-                    registro_mercantil, texto_pie, texto_exento, texto_rectificativa
+                    registro_mercantil, texto_pie, texto_exento, texto_rectificativa, terminos_legales, mensaje_iva
                 ) values (
                     ${empresaId}, ${data.nombre}, ${data.nombre_comercial || null}, ${data.nif}, ${data.direccion}, ${data.poblacion}, ${data.provincia},
                     ${data.cp}, ${data.pais || "España"}, ${data.telefono}, ${data.email}, ${data.web}, ${data.iban},
-                    ${data.registro_mercantil || null}, ${data.texto_pie}, ${data.texto_exento}, ${data.texto_rectificativa}
+                    ${data.registro_mercantil || null}, ${data.texto_pie}, ${data.texto_exento}, ${data.texto_rectificativa},
+                    ${data.terminos_legales || null}, ${data.mensaje_iva || null}
                 )
                 returning *
             `;
@@ -303,6 +306,15 @@ export async function getSistemaConfig(req, res) {
         const empresaId = await getEmpresaId(req.user.id);
         const [config] = await sql`select * from configuracionsistema_180 where empresa_id=${empresaId}`;
 
+        // Textos legales viven en emisor_180 — los recuperamos aquí para que el frontend
+        // los reciba en la misma respuesta que el resto de configuración del sistema
+        const [emisor] = await sql`
+            SELECT texto_pie, texto_exento, texto_rectificativa, terminos_legales, mensaje_iva
+            FROM emisor_180
+            WHERE empresa_id=${empresaId}
+            LIMIT 1
+        `;
+
         // Check if invoices exist for current year to lock numbering
         const currentYear = new Date().getFullYear();
         const [hasInvoices] = await sql`
@@ -318,6 +330,12 @@ export async function getSistemaConfig(req, res) {
             success: true,
             data: {
                 ...(config || {}),
+                // Fusionar textos legales del emisor
+                texto_pie: emisor?.texto_pie || config?.texto_pie || null,
+                texto_exento: emisor?.texto_exento || config?.texto_exento || null,
+                texto_rectificativa: emisor?.texto_rectificativa || config?.texto_rectificativa || null,
+                terminos_legales: emisor?.terminos_legales || null,
+                mensaje_iva: emisor?.mensaje_iva || null,
                 numeracion_locked: !!hasInvoices
             }
         });
@@ -349,6 +367,11 @@ export async function updateSistemaConfig(req, res) {
                     storage_facturas_folder=${data.storage_facturas_folder || 'Facturas emitidas'},
                     backup_local_path=${data.backup_local_path || null},
                     correlativo_inicial=${parseInt(data.correlativo_inicial) || 0},
+                    facturas_inmutables=${data.facturas_inmutables !== undefined ? Boolean(data.facturas_inmutables) : true},
+                    prohibir_borrado_facturas=${data.prohibir_borrado_facturas !== undefined ? Boolean(data.prohibir_borrado_facturas) : true},
+                    bloquear_fechas_pasadas=${data.bloquear_fechas_pasadas !== undefined ? Boolean(data.bloquear_fechas_pasadas) : true},
+                    auditoria_activa=${data.auditoria_activa !== undefined ? Boolean(data.auditoria_activa) : true},
+                    nivel_auditoria=${data.nivel_auditoria || 'BASICA'},
                     migracion_last_pdf=${data.migracion_last_pdf || null},
                     migracion_last_serie=${data.migracion_last_serie || null},
                     migracion_last_emisor_nif=${data.migracion_last_emisor_nif || null},
@@ -357,6 +380,7 @@ export async function updateSistemaConfig(req, res) {
                     migracion_last_iva=${parseFloat(data.migracion_last_iva) || 0},
                     migracion_last_total=${parseFloat(data.migracion_last_total) || 0},
                     migracion_legal_aceptado=${Boolean(data.migracion_legal_aceptado)},
+                    actualizado_en=now(),
                     migracion_fecha_aceptacion=CASE 
                         WHEN ${Boolean(data.migracion_legal_aceptado)} = TRUE AND (SELECT migracion_legal_aceptado FROM configuracionsistema_180 WHERE empresa_id=${empresaId}) = FALSE THEN now()
                         WHEN ${Boolean(data.migracion_legal_aceptado)} = TRUE THEN (SELECT migracion_fecha_aceptacion FROM configuracionsistema_180 WHERE empresa_id=${empresaId})
@@ -368,18 +392,74 @@ export async function updateSistemaConfig(req, res) {
         } else {
             [result] = await sql`
                 insert into configuracionsistema_180 (
-                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, numeracion_formato, serie, storage_facturas_folder, backup_local_path, correlativo_inicial,
+                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo,
+                    numeracion_tipo, numeracion_formato, serie, storage_facturas_folder,
+                    backup_local_path, correlativo_inicial,
+                    facturas_inmutables, prohibir_borrado_facturas, bloquear_fechas_pasadas,
+                    auditoria_activa, nivel_auditoria,
                     migracion_last_pdf, migracion_legal_aceptado, migracion_fecha_aceptacion
                 ) values (
-                    ${empresaId}, ${Boolean(data.verifactu_activo)}, ${data.verifactu_modo || 'OFF'}, 
+                    ${empresaId}, ${Boolean(data.verifactu_activo)}, ${data.verifactu_modo || 'OFF'},
                     ${Boolean(data.ticket_bai_activo)}, ${data.numeracion_tipo || 'STANDARD'},
-                    ${data.numeracion_formato || null}, ${data.serie || null}, ${data.storage_facturas_folder || 'Facturas emitidas'},
+                    ${data.numeracion_formato || null}, ${data.serie || null},
+                    ${data.storage_facturas_folder || 'Facturas emitidas'},
                     ${data.backup_local_path || null}, ${parseInt(data.correlativo_inicial) || 0},
+                    ${data.facturas_inmutables !== undefined ? Boolean(data.facturas_inmutables) : true},
+                    ${data.prohibir_borrado_facturas !== undefined ? Boolean(data.prohibir_borrado_facturas) : true},
+                    ${data.bloquear_fechas_pasadas !== undefined ? Boolean(data.bloquear_fechas_pasadas) : true},
+                    ${data.auditoria_activa !== undefined ? Boolean(data.auditoria_activa) : true},
+                    ${data.nivel_auditoria || 'BASICA'},
                     ${data.migracion_last_pdf || null}, ${Boolean(data.migracion_legal_aceptado)},
                     ${data.migracion_legal_aceptado ? sql`now()` : null}
                 )
                 returning *
             `;
+        }
+
+        // ---------------------------------------------------------------
+        // Los textos legales + modo_numeracion/siguiente_numero → emisor_180
+        // El frontend los envía en facturacionData a este endpoint,
+        // pero esos campos viven en emisor_180, no en configuracionsistema_180
+        // ---------------------------------------------------------------
+        const textosLegales = {
+            texto_pie: data.texto_pie ?? null,
+            texto_exento: data.texto_exento ?? null,
+            texto_rectificativa: data.texto_rectificativa ?? null,
+            terminos_legales: data.terminos_legales ?? null,
+            mensaje_iva: data.mensaje_iva ?? null,
+        };
+        const algunTexto = Object.values(textosLegales).some(v => v !== null && v !== undefined);
+        const tieneModoNumeracion = data.modo_numeracion !== undefined || data.siguiente_numero !== undefined;
+
+        if (algunTexto || tieneModoNumeracion) {
+            const [emisorExists] = await sql`SELECT id FROM emisor_180 WHERE empresa_id=${empresaId}`;
+            if (emisorExists) {
+                await sql`
+                    UPDATE emisor_180 SET
+                        texto_pie=${textosLegales.texto_pie},
+                        texto_exento=${textosLegales.texto_exento},
+                        texto_rectificativa=${textosLegales.texto_rectificativa},
+                        terminos_legales=${textosLegales.terminos_legales},
+                        mensaje_iva=${textosLegales.mensaje_iva},
+                        modo_numeracion=${data.modo_numeracion || 'BASICO'},
+                        siguiente_numero=${parseInt(data.siguiente_numero) || 1}
+                    WHERE empresa_id=${empresaId}
+                `;
+            } else {
+                // Crear registro de emisor mínimo para guardar los textos
+                await sql`
+                    INSERT INTO emisor_180 (empresa_id, texto_pie, texto_exento, texto_rectificativa, terminos_legales, mensaje_iva, modo_numeracion, siguiente_numero)
+                    VALUES (${empresaId}, ${textosLegales.texto_pie}, ${textosLegales.texto_exento}, ${textosLegales.texto_rectificativa}, ${textosLegales.terminos_legales}, ${textosLegales.mensaje_iva}, ${data.modo_numeracion || 'BASICO'}, ${parseInt(data.siguiente_numero) || 1})
+                    ON CONFLICT (empresa_id) DO UPDATE SET
+                        texto_pie = EXCLUDED.texto_pie,
+                        texto_exento = EXCLUDED.texto_exento,
+                        texto_rectificativa = EXCLUDED.texto_rectificativa,
+                        terminos_legales = EXCLUDED.terminos_legales,
+                        mensaje_iva = EXCLUDED.mensaje_iva,
+                        modo_numeracion = EXCLUDED.modo_numeracion,
+                        siguiente_numero = EXCLUDED.siguiente_numero
+                `;
+            }
         }
 
         res.json({ success: true, data: result });
