@@ -343,6 +343,7 @@ export async function updateSistemaConfig(req, res) {
                     ticket_bai_activo=${Boolean(data.ticket_bai_activo)},
                     numeracion_tipo=${data.numeracion_tipo || 'STANDARD'},
                     numeracion_formato=${data.numeracion_formato || null},
+                    serie=${data.serie || null},
                     storage_facturas_folder=${data.storage_facturas_folder || 'Facturas emitidas'},
                     backup_local_path=${data.backup_local_path || null},
                     correlativo_inicial=${parseInt(data.correlativo_inicial) || 0},
@@ -365,12 +366,12 @@ export async function updateSistemaConfig(req, res) {
         } else {
             [result] = await sql`
                 insert into configuracionsistema_180 (
-                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, numeracion_formato, storage_facturas_folder, backup_local_path, correlativo_inicial,
+                    empresa_id, verifactu_activo, verifactu_modo, ticket_bai_activo, numeracion_tipo, numeracion_formato, serie, storage_facturas_folder, backup_local_path, correlativo_inicial,
                     migracion_last_pdf, migracion_legal_aceptado, migracion_fecha_aceptacion
                 ) values (
                     ${empresaId}, ${Boolean(data.verifactu_activo)}, ${data.verifactu_modo || 'OFF'}, 
                     ${Boolean(data.ticket_bai_activo)}, ${data.numeracion_tipo || 'STANDARD'},
-                    ${data.numeracion_formato || null}, ${data.storage_facturas_folder || 'Facturas emitidas'},
+                    ${data.numeracion_formato || null}, ${data.serie || null}, ${data.storage_facturas_folder || 'Facturas emitidas'},
                     ${data.backup_local_path || null}, ${parseInt(data.correlativo_inicial) || 0},
                     ${data.migracion_last_pdf || null}, ${Boolean(data.migracion_legal_aceptado)},
                     ${data.migracion_legal_aceptado ? sql`now()` : null}
