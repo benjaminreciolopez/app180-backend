@@ -8,7 +8,8 @@ const DEFAULT_MODULOS = {
   worklogs: true,
   empleados: true,
   facturacion: false,
-  pagos: false,  // Cobros y Pagos independiente de Facturación
+  pagos: false,
+  fiscal: false,
 };
 
 /**
@@ -83,6 +84,7 @@ export async function updateEmpresaConfig(req, res) {
 
     const input = req.body.modulos;
     const inputMobile = req.body.modulos_mobile; // puede ser null o objeto
+    const backupLocalPath = req.body.backup_local_path ?? null;
 
     if (!input || typeof input !== "object") {
       return res.status(400).json({ error: "Formato inválido" });
@@ -125,6 +127,19 @@ export async function updateEmpresaConfig(req, res) {
         modulos_mobile = EXCLUDED.modulos_mobile,
         updated_at = now()
     `;
+
+    // Guardar backup_local_path en configuracionsistema_180 (independiente del módulo facturación)
+    if (backupLocalPath !== null) {
+      await sql`
+        INSERT INTO configuracionsistema_180 (empresa_id, backup_local_path)
+        VALUES (${empresaId}, ${backupLocalPath})
+        ON CONFLICT (empresa_id)
+        DO UPDATE SET
+          backup_local_path = EXCLUDED.backup_local_path,
+          actualizado_en = now(),
+          updated_at = now()
+      `;
+    }
 
     return res.json({
       success: true,

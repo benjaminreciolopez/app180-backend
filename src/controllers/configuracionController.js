@@ -65,6 +65,7 @@ export async function updateEmisorConfig(req, res) {
             [result] = await sql`
                 update emisor_180 set 
                     nombre=${data.nombre || null},
+                    nombre_comercial=${data.nombre_comercial || null},
                     nif=${data.nif || null},
                     direccion=${data.direccion || null},
                     poblacion=${data.poblacion || null},
@@ -75,6 +76,7 @@ export async function updateEmisorConfig(req, res) {
                     email=${data.email || null},
                     web=${data.web || null},
                     iban=${data.iban || null},
+                    registro_mercantil=${data.registro_mercantil || null},
                     texto_pie=${data.texto_pie || null},
                     texto_exento=${data.texto_exento || null},
                     texto_rectificativa=${data.texto_rectificativa || null}
@@ -84,12 +86,12 @@ export async function updateEmisorConfig(req, res) {
         } else {
             [result] = await sql`
                 insert into emisor_180 (
-                    empresa_id, nombre, nif, direccion, poblacion, provincia, cp, pais, telefono, email, web, iban,
-                    texto_pie, texto_exento, texto_rectificativa
+                    empresa_id, nombre, nombre_comercial, nif, direccion, poblacion, provincia, cp, pais, telefono, email, web, iban,
+                    registro_mercantil, texto_pie, texto_exento, texto_rectificativa
                 ) values (
-                    ${empresaId}, ${data.nombre}, ${data.nif}, ${data.direccion}, ${data.poblacion}, ${data.provincia},
+                    ${empresaId}, ${data.nombre}, ${data.nombre_comercial || null}, ${data.nif}, ${data.direccion}, ${data.poblacion}, ${data.provincia},
                     ${data.cp}, ${data.pais || "España"}, ${data.telefono}, ${data.email}, ${data.web}, ${data.iban},
-                    ${data.texto_pie}, ${data.texto_exento}, ${data.texto_rectificativa}
+                    ${data.registro_mercantil || null}, ${data.texto_pie}, ${data.texto_exento}, ${data.texto_rectificativa}
                 )
                 returning *
             `;
