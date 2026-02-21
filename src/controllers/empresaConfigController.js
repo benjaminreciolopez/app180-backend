@@ -121,7 +121,7 @@ export async function updateEmpresaConfig(req, res) {
       DO UPDATE SET 
         modulos = EXCLUDED.modulos,
         modulos_mobile = EXCLUDED.modulos_mobile,
-        actualizado_at = now()
+        actualizado_en = now()
     `;
 
     return res.json({
