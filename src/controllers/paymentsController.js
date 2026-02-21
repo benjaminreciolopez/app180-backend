@@ -131,7 +131,7 @@ export async function crearPago(req, res) {
                   WHEN (COALESCE(importe_pagado, 0) + ${item.importe}) >= importe_total - 0.01 THEN 'pagada'
                   ELSE 'parcial'
               END
-            WHERE (id::text = ${invIdForSearch}::text OR work_item_id::text = ${invIdForSearch}::text)
+            WHERE (id::text = ${invIdForSearch}::text OR (tipo = 'factura' AND work_item_id::text = ${invIdForSearch}::text) OR (tipo = 'trabajo' AND work_item_id::text = ${invIdForSearch}::text))
               AND empresa_id = ${empresaId}
           `;
         }
