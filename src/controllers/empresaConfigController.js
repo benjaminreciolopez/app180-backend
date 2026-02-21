@@ -97,6 +97,7 @@ export async function updateEmpresaConfig(req, res) {
       empleados: !!input.empleados,
       facturacion: !!input.facturacion,
       pagos: !!input.pagos,
+      fiscal: !!input.fiscal,
     };
 
     // Validar safeMobile solo si viene definido
@@ -111,6 +112,7 @@ export async function updateEmpresaConfig(req, res) {
         empleados: !!inputMobile.empleados,
         facturacion: !!inputMobile.facturacion,
         pagos: !!inputMobile.pagos,
+        fiscal: !!inputMobile.fiscal,
       };
     }
 
