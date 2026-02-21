@@ -734,7 +734,7 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   // 1. Obtener configuración del sistema de facturación
   const [config] = await sql`
-        select numeracion_tipo, numeracion_formato, correlativo_inicial, migracion_legal_aceptado, migracion_last_pdf 
+        select numeracion_tipo, numeracion_formato, correlativo_inicial, migracion_legal_aceptado, migracion_last_pdf, serie
         from configuracionsistema_180 
         where empresa_id=${empresaId}
   `;
@@ -750,6 +750,7 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   const tipo = config?.numeracion_tipo || 'STANDARD';
   const formato = config?.numeracion_formato || 'FAC-{YEAR}-';
+  const serieBase = config?.serie || 'F';
 
   let correlativoBase = (config?.correlativo_inicial || 0);
   let correlativo = 1;
@@ -757,25 +758,24 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   // 2. Determinar correlativo según el tipo
   if (tipo === 'STANDARD') {
-    // Numeración continua global: F-0001, F-0002...
-    // Buscamos la última factura global válida
-    // Numeración continua global: F-0001, F-0002...
+    // Numeración continua global: SERIE-0001, SERIE-0002...
+    const prefix = `${serieBase}-`;
+    // Buscamos la última factura global válida con ese prefijo
     const [max] = await sql`
         SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
         FROM factura_180 
         WHERE empresa_id = ${empresaId} 
         AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
-        AND numero LIKE 'F-%'
+        AND numero LIKE ${prefix + '%'}
     `;
     if (max && max.ultimo) correlativo = Math.max(correlativoBase, max.ultimo) + 1;
     else correlativo = correlativoBase + 1;
-    numeroFinal = `F-${String(correlativo).padStart(4, '0')}`;
+    numeroFinal = `${prefix}${String(correlativo).padStart(4, '0')}`;
 
   } else if (tipo === 'BY_YEAR') {
-    // Numeración por año: F-2026-0001
+    // Numeración por año: SERIE-2026-0001
     // Buscamos la última de ESTE año
-    // Numeración por año: F-2026-0001
-    const prefix = `F-${year}-`;
+    const prefix = `${serieBase}-${year}-`;
     const [max] = await sql`
         SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
         FROM factura_180 
