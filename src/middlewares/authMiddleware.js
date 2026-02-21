@@ -44,7 +44,8 @@ export const authRequired = async (req, res, next) => {
       token = parts[1];
     }
   } else if (req.query.token) {
-    // Permitir token en query string para iframes/proxies
+    // Permitir token en query string para iframes/proxies (ej: proxy de documentos)
+    // NOTA: Solo usar para endpoints que lo necesiten (proxy, descargas)
     token = req.query.token;
   }
 

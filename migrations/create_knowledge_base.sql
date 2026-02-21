@@ -1,7 +1,7 @@
 -- Tabla para almacenar conocimiento general y tokens para el agente IA
 CREATE TABLE IF NOT EXISTS conocimiento_180 (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    empresa_id UUID NOT NULL REFERENCES empresas_180(id) ON DELETE CASCADE,
+    empresa_id UUID NOT NULL REFERENCES empresa_180(id) ON DELETE CASCADE,
     token TEXT NOT NULL,          -- Palabra clave o frase de búsqueda
     respuesta TEXT NOT NULL,      -- Respuesta asociada al token
     categoria VARCHAR(100),       -- Categoría opcional (ej: 'horarios', 'politicas', 'productos')

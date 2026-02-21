@@ -339,6 +339,29 @@ process.on("uncaughtException", (err) => {
   }
 })();
 
-app.listen(config.port, () =>
+const server = app.listen(config.port, () =>
   console.log(`Servidor iniciado en puerto ${config.port}`),
 );
+
+// Graceful shutdown
+const gracefulShutdown = (signal) => {
+  console.log(`\n${signal} recibido. Cerrando servidor...`);
+  server.close(async () => {
+    try {
+      const { sql } = await import("./db.js");
+      await sql.end({ timeout: 5 });
+      console.log("Conexiones DB cerradas.");
+    } catch (e) {
+      console.error("Error cerrando DB:", e.message);
+    }
+    process.exit(0);
+  });
+  // Forzar cierre si tarda más de 10s
+  setTimeout(() => {
+    console.error("Forzando cierre tras 10s...");
+    process.exit(1);
+  }, 10000);
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
