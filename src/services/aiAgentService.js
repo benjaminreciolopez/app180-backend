@@ -773,6 +773,401 @@ const TOOLS = [
       }
     }
   },
+
+  // ===== FICHAJES =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_fichajes_sospechosos",
+      description: "Lista fichajes marcados como sospechosos (ubicación extraña, horario inusual, etc). Incluye datos del empleado y motivo de sospecha.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_fichaje_manual",
+      description: "Registra un fichaje manual para un empleado (entrada, salida, descanso). Para corregir errores u olvidos.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado (alternativa)" },
+          tipo: { type: "string", enum: ["entrada", "salida", "descanso_inicio", "descanso_fin"], description: "Tipo de fichaje" },
+          fecha_hora: { type: "string", description: "Fecha y hora YYYY-MM-DD HH:MM" },
+          motivo: { type: "string", description: "Motivo del fichaje manual" }
+        },
+        required: ["tipo", "fecha_hora"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "validar_fichaje",
+      description: "Valida o rechaza un fichaje sospechoso. Requiere el ID del fichaje.",
+      parameters: {
+        type: "object",
+        properties: {
+          fichaje_id: { type: "string", description: "ID del fichaje" },
+          accion: { type: "string", enum: ["confirmar", "rechazar"], description: "Accion a tomar" },
+          nota: { type: "string", description: "Nota explicativa (opcional)" }
+        },
+        required: ["fichaje_id", "accion"]
+      }
+    }
+  },
+
+  // ===== JORNADAS =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_jornadas",
+      description: "Lista jornadas laborales de empleados con horas trabajadas, descansos, extras e incidencias.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha: { type: "string", description: "Fecha específica YYYY-MM-DD" },
+          empleado_id: { type: "string", description: "ID del empleado" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado" },
+          estado: { type: "string", enum: ["abierta", "cerrada", "todos"], description: "Estado de la jornada" }
+        }
+      }
+    }
+  },
+
+  // ===== PLANTILLAS =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_plantillas",
+      description: "Lista las plantillas de jornada laboral configuradas en la empresa.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_plantilla",
+      description: "Crea una nueva plantilla de jornada laboral.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombre: { type: "string", description: "Nombre de la plantilla" },
+          descripcion: { type: "string", description: "Descripción" },
+          tipo: { type: "string", description: "Tipo (default: semanal)" }
+        },
+        required: ["nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "asignar_plantilla",
+      description: "Asigna una plantilla de jornada a un empleado. Cierra asignaciones anteriores automáticamente.",
+      parameters: {
+        type: "object",
+        properties: {
+          plantilla_id: { type: "string", description: "ID de la plantilla" },
+          empleado_id: { type: "string", description: "ID del empleado" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado" },
+          fecha_inicio: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin YYYY-MM-DD (opcional, null=indefinido)" }
+        },
+        required: ["plantilla_id", "fecha_inicio"]
+      }
+    }
+  },
+
+  // ===== NÓMINAS =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_nominas",
+      description: "Lista nóminas registradas, con filtro por año y mes. Incluye datos de empleado.",
+      parameters: {
+        type: "object",
+        properties: {
+          anio: { type: "number", description: "Año (default: actual)" },
+          mes: { type: "number", description: "Mes 1-12 (todos si vacío)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_nomina",
+      description: "Registra una nómina manualmente con los datos de salario.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado" },
+          anio: { type: "number", description: "Año" },
+          mes: { type: "number", description: "Mes (1-12)" },
+          bruto: { type: "number", description: "Salario bruto" },
+          seguridad_social_empresa: { type: "number", description: "SS empresa" },
+          seguridad_social_empleado: { type: "number", description: "SS empleado" },
+          irpf_retencion: { type: "number", description: "Retención IRPF" },
+          liquido: { type: "number", description: "Salario líquido/neto" }
+        },
+        required: ["anio", "mes", "bruto", "liquido"]
+      }
+    }
+  },
+
+  // ===== PARTES DE DÍA =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_partes_dia",
+      description: "Lista partes de día (registros de trabajo diario) con filtros. Incluye empleado y cliente.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha: { type: "string", description: "Fecha específica YYYY-MM-DD" },
+          fecha_inicio: { type: "string", description: "Rango inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Rango fin YYYY-MM-DD" },
+          cliente_id: { type: "string", description: "ID del cliente" },
+          nombre_cliente: { type: "string", description: "Nombre del cliente" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "validar_parte_dia",
+      description: "Valida o rechaza un parte de día de un empleado.",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "ID del empleado" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado" },
+          fecha: { type: "string", description: "Fecha del parte YYYY-MM-DD" },
+          validado: { type: "string", enum: ["true", "false"], description: "true=aprobar, false=rechazar" },
+          nota: { type: "string", description: "Nota del admin" }
+        },
+        required: ["fecha", "validado"]
+      }
+    }
+  },
+
+  // ===== KNOWLEDGE BASE (WRITE) =====
+  {
+    type: "function",
+    function: {
+      name: "crear_conocimiento",
+      description: "Añade una nueva entrada al knowledge base de la empresa. Token = palabra clave, respuesta = contenido.",
+      parameters: {
+        type: "object",
+        properties: {
+          token: { type: "string", description: "Palabra clave o tema (ej: 'horario', 'vacaciones')" },
+          respuesta: { type: "string", description: "Contenido/respuesta completa" },
+          categoria: { type: "string", description: "Categoría (opcional)" },
+          prioridad: { type: "number", description: "Prioridad (mayor = más importante, default: 0)" }
+        },
+        required: ["token", "respuesta"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "actualizar_conocimiento",
+      description: "Actualiza una entrada existente del knowledge base.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID de la entrada" },
+          token: { type: "string", description: "Nueva palabra clave" },
+          respuesta: { type: "string", description: "Nuevo contenido" },
+          categoria: { type: "string", description: "Nueva categoría" },
+          activo: { type: "string", enum: ["true", "false"], description: "Activar/desactivar" }
+        },
+        required: ["id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_conocimiento",
+      description: "Elimina una entrada del knowledge base.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID de la entrada a eliminar" }
+        },
+        required: ["id"]
+      }
+    }
+  },
+
+  // ===== CONFIGURACIÓN =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_configuracion",
+      description: "Obtiene la configuración actual de la empresa: datos del emisor, numeración de facturas, VeriFactu, auditoría, etc.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_modulos",
+      description: "Lista los módulos activos de la empresa (facturación, fichajes, jornadas, nóminas, etc).",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+
+  // ===== STORAGE =====
+  {
+    type: "function",
+    function: {
+      name: "listar_archivos",
+      description: "Lista archivos almacenados en una carpeta específica (nóminas, facturas, etc). Incluye espacio usado.",
+      parameters: {
+        type: "object",
+        properties: {
+          folder: { type: "string", description: "Carpeta (nominas, facturas, etc). Si vacío, lista todas las carpetas." }
+        }
+      }
+    }
+  },
+
+  // ===== AUDITORÍA =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_audit_log",
+      description: "Consulta el registro de auditoría: acciones realizadas por usuarios (fichajes validados/rechazados, facturas creadas, etc).",
+      parameters: {
+        type: "object",
+        properties: {
+          empleado_id: { type: "string", description: "Filtrar por empleado" },
+          accion: { type: "string", description: "Tipo de acción (fichaje_validado, fichaje_rechazado, etc)" },
+          fecha_desde: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_hasta: { type: "string", description: "Fecha fin YYYY-MM-DD" },
+          limite: { type: "number", description: "Max resultados (default 20)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_estadisticas_audit",
+      description: "Estadísticas de auditoría: acciones por tipo, empleados con más rechazos, actividad diaria (últimos 30 días).",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+
+  // ===== REPORTES AVANZADOS =====
+  {
+    type: "function",
+    function: {
+      name: "reporte_rentabilidad",
+      description: "Análisis de rentabilidad: ingresos vs gastos por cliente, margen por empleado, beneficio neto.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_inicio: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin YYYY-MM-DD" },
+          por: { type: "string", enum: ["cliente", "empleado", "global"], description: "Agrupar por (default: global)" }
+        },
+        required: ["fecha_inicio", "fecha_fin"]
+      }
+    }
+  },
+
+  // ===== FISCAL (Modelos) =====
+  {
+    type: "function",
+    function: {
+      name: "calcular_modelo_fiscal",
+      description: "Calcula un borrador de modelo fiscal trimestral. Modelo 303 (IVA), 130 (IRPF), 111 (retenciones nóminas). Genera los cálculos a partir de facturas y gastos registrados.",
+      parameters: {
+        type: "object",
+        properties: {
+          modelo: { type: "string", enum: ["303", "130", "111"], description: "Número de modelo fiscal" },
+          trimestre: { type: "number", description: "Trimestre (1-4)" },
+          anio: { type: "number", description: "Año" }
+        },
+        required: ["modelo", "trimestre", "anio"]
+      }
+    }
+  },
+
+  // ===== BANCO - MATCHING =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_movimientos_banco",
+      description: "Lista movimientos bancarios importados con filtros. Incluye estado de match con facturas/gastos.",
+      parameters: {
+        type: "object",
+        properties: {
+          estado_match: { type: "string", enum: ["pendiente", "matched", "manual", "descartado", "todos"], description: "Filtrar por estado" },
+          fecha_inicio: { type: "string", description: "Fecha inicio YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin YYYY-MM-DD" },
+          limite: { type: "number", description: "Max resultados (default 30)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "match_pago_banco",
+      description: "Vincula un movimiento bancario con una factura pendiente de cobro, creando el pago automáticamente. El sistema calcula la confianza del match.",
+      parameters: {
+        type: "object",
+        properties: {
+          bank_transaction_id: { type: "string", description: "ID del movimiento bancario" },
+          factura_id: { type: "string", description: "ID de la factura a vincular" }
+        },
+        required: ["bank_transaction_id", "factura_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "sugerir_matches_banco",
+      description: "Analiza movimientos bancarios pendientes y sugiere matches automáticos con facturas/gastos. Usa algoritmo de confianza (importe, concepto, fechas).",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+
+  // ===== CONFIGURACIÓN FISCAL (QR) =====
+  {
+    type: "function",
+    function: {
+      name: "configurar_facturacion_qr",
+      description: "Configura los datos de facturación del emisor (empresa) a partir de datos extraídos de un QR de factura o del texto OCR del documento. Usa esta herramienta cuando el usuario suba un PDF/imagen de factura y quiera configurar su modelo de facturación. Actualiza: NIF, nombre, serie, numeración, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          nif: { type: "string", description: "NIF/CIF del emisor" },
+          nombre: { type: "string", description: "Razón social o nombre comercial" },
+          serie: { type: "string", description: "Serie de facturación (ej: F, FAC, SERIE-A)" },
+          siguiente_numero: { type: "number", description: "Siguiente número de factura a emitir" },
+          numeracion_plantilla: { type: "string", description: "Plantilla de numeración (ej: {YYYY}-{NUM})" },
+          direccion: { type: "string", description: "Dirección fiscal" },
+          poblacion: { type: "string", description: "Población/ciudad" },
+          provincia: { type: "string", description: "Provincia" },
+          cp: { type: "string", description: "Código postal" },
+          telefono: { type: "string", description: "Teléfono" },
+          email: { type: "string", description: "Email" },
+          iban: { type: "string", description: "IBAN bancario" }
+        }
+      }
+    }
+  },
 ];
 
 // ============================
@@ -1045,6 +1440,44 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       // Nuevos skills: Automatización
       case "facturar_trabajos_pendientes": return await facturarTrabajosPendientes(args, empresaId);
       case "cierre_mensual": return await cierreMensual(args, empresaId);
+      // Fichajes
+      case "consultar_fichajes_sospechosos": return await consultarFichajesSospechosos(args, empresaId);
+      case "crear_fichaje_manual": return await crearFichajeManual(args, empresaId);
+      case "validar_fichaje": return await validarFichajeIA(args, empresaId);
+      // Jornadas
+      case "consultar_jornadas": return await consultarJornadas(args, empresaId);
+      // Plantillas
+      case "consultar_plantillas": return await consultarPlantillas(args, empresaId);
+      case "crear_plantilla": return await crearPlantillaIA(args, empresaId);
+      case "asignar_plantilla": return await asignarPlantillaIA(args, empresaId);
+      // Nóminas
+      case "consultar_nominas": return await consultarNominas(args, empresaId);
+      case "crear_nomina": return await crearNominaIA(args, empresaId);
+      // Partes de día
+      case "consultar_partes_dia": return await consultarPartesDia(args, empresaId);
+      case "validar_parte_dia": return await validarParteDiaIA(args, empresaId);
+      // Knowledge Base
+      case "crear_conocimiento": return await crearConocimientoIA(args, empresaId);
+      case "actualizar_conocimiento": return await actualizarConocimientoIA(args, empresaId);
+      case "eliminar_conocimiento": return await eliminarConocimientoIA(args, empresaId);
+      // Configuración
+      case "consultar_configuracion": return await consultarConfiguracion(args, empresaId);
+      case "consultar_modulos": return await consultarModulos(args, empresaId);
+      // Storage
+      case "listar_archivos": return await listarArchivos(args, empresaId);
+      // Auditoría
+      case "consultar_audit_log": return await consultarAuditLog(args, empresaId);
+      case "consultar_estadisticas_audit": return await consultarEstadisticasAudit(args, empresaId);
+      // Reportes avanzados
+      case "reporte_rentabilidad": return await reporteRentabilidad(args, empresaId);
+      // Fiscal
+      case "calcular_modelo_fiscal": return await calcularModeloFiscal(args, empresaId);
+      // Banco
+      case "consultar_movimientos_banco": return await consultarMovimientosBanco(args, empresaId);
+      case "match_pago_banco": return await matchPagoBanco(args, empresaId);
+      case "sugerir_matches_banco": return await sugerirMatchesBanco(args, empresaId);
+      // Configuración fiscal QR
+      case "configurar_facturacion_qr": return await configurarFacturacionQR(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -2252,6 +2685,673 @@ async function cierreMensual({ mes, anio }, empresaId) {
 }
 
 // ============================
+// FICHAJES
+// ============================
+
+async function consultarFichajesSospechosos(args, empresaId) {
+  const rows = await sql`
+    SELECT f.id, f.fecha, f.tipo, f.nota, f.sospecha_motivo, f.geo_direccion,
+      e.nombre AS empleado_nombre, c.nombre AS cliente_nombre
+    FROM fichajes_180 f
+    JOIN employees_180 e ON e.id = f.empleado_id
+    LEFT JOIN clients_180 c ON c.id = f.cliente_id
+    WHERE f.empresa_id = ${empresaId} AND f.sospechoso = true
+    ORDER BY f.fecha DESC LIMIT 20
+  `;
+  return { total: rows.length, fichajes: rows };
+}
+
+async function crearFichajeManual(args, empresaId) {
+  const { empleado_id, tipo, fecha_hora, motivo } = args;
+  if (!empleado_id) return { error: "Se necesita empleado_id o nombre_empleado" };
+  // Verificar empleado pertenece a empresa
+  const [emp] = await sql`SELECT id, user_id FROM employees_180 WHERE id = ${empleado_id} AND empresa_id = ${empresaId}`;
+  if (!emp) return { error: "Empleado no encontrado" };
+  // Buscar jornada activa
+  const fecha = fecha_hora.split(" ")[0];
+  const [jornada] = await sql`SELECT id FROM jornadas_180 WHERE empleado_id = ${empleado_id} AND fecha = ${fecha}::date LIMIT 1`;
+  const [nuevo] = await sql`
+    INSERT INTO fichajes_180 (empleado_id, empresa_id, user_id, jornada_id, tipo, fecha, estado, origen, nota, sospechoso, creado_manual)
+    VALUES (${empleado_id}, ${empresaId}, ${emp.user_id}, ${jornada?.id || null}, ${tipo}, ${fecha_hora}::timestamp, 'confirmado', 'app', ${motivo || null}, false, true)
+    RETURNING *
+  `;
+  return { success: true, fichaje: nuevo };
+}
+
+async function validarFichajeIA({ fichaje_id, accion, nota }, empresaId) {
+  const nuevoEstado = accion === "confirmar" ? "confirmado" : "rechazado";
+  const [updated] = await sql`
+    UPDATE fichajes_180 SET estado = ${nuevoEstado}, sospechoso = false, sospecha_motivo = null,
+      nota = CASE WHEN ${nota || null} IS NULL THEN nota ELSE concat_ws(' | ', NULLIF(nota, ''), ${nota || null}) END
+    WHERE id = ${fichaje_id} AND empresa_id = ${empresaId}
+    RETURNING id, tipo, fecha, estado
+  `;
+  if (!updated) return { error: "Fichaje no encontrado" };
+  return { success: true, fichaje: updated };
+}
+
+// ============================
+// JORNADAS
+// ============================
+
+async function consultarJornadas({ fecha, empleado_id, estado }, empresaId) {
+  const rows = await sql`
+    SELECT j.id, j.fecha, j.inicio, j.fin, j.estado, j.minutos_trabajados,
+      j.minutos_descanso, j.minutos_extra, j.incidencia,
+      e.nombre AS empleado_nombre
+    FROM jornadas_180 j
+    JOIN employees_180 e ON e.id = j.empleado_id
+    WHERE j.empresa_id = ${empresaId}
+      ${fecha ? sql`AND j.fecha = ${fecha}::date` : sql``}
+      ${empleado_id ? sql`AND j.empleado_id = ${empleado_id}::uuid` : sql``}
+      ${estado && estado !== 'todos' ? sql`AND j.estado = ${estado}` : sql``}
+    ORDER BY j.fecha DESC, j.inicio DESC LIMIT 50
+  `;
+  return { total: rows.length, jornadas: rows };
+}
+
+// ============================
+// PLANTILLAS
+// ============================
+
+async function consultarPlantillas(args, empresaId) {
+  const rows = await sql`SELECT * FROM plantillas_jornada_180 WHERE empresa_id = ${empresaId} ORDER BY created_at DESC`;
+  return { total: rows.length, plantillas: rows };
+}
+
+async function crearPlantillaIA({ nombre, descripcion, tipo }, empresaId) {
+  const [nueva] = await sql`
+    INSERT INTO plantillas_jornada_180 (empresa_id, nombre, descripcion, tipo)
+    VALUES (${empresaId}, ${nombre}, ${descripcion || null}, ${tipo || 'semanal'})
+    RETURNING *
+  `;
+  return { success: true, plantilla: nueva };
+}
+
+async function asignarPlantillaIA({ plantilla_id, empleado_id, fecha_inicio, fecha_fin }, empresaId) {
+  if (!empleado_id) return { error: "Se necesita empleado_id o nombre_empleado" };
+  const [asig] = await sql`
+    INSERT INTO empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin, empresa_id)
+    VALUES (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${fecha_fin || null}::date, ${empresaId})
+    RETURNING *
+  `;
+  return { success: true, asignacion: asig };
+}
+
+// ============================
+// NÓMINAS
+// ============================
+
+async function consultarNominas({ anio, mes }, empresaId) {
+  const year = anio || new Date().getFullYear();
+  const rows = await sql`
+    SELECT n.*, e.nombre as empleado_nombre
+    FROM nominas_180 n
+    LEFT JOIN employees_180 em ON n.empleado_id = em.id
+    LEFT JOIN users_180 e ON em.user_id = e.id
+    WHERE n.empresa_id = ${empresaId} AND n.anio = ${year}
+      ${mes ? sql`AND n.mes = ${mes}` : sql``}
+    ORDER BY n.mes DESC
+  `;
+  return { total: rows.length, nominas: rows };
+}
+
+async function crearNominaIA(args, empresaId) {
+  const { empleado_id, anio, mes, bruto, seguridad_social_empresa, seguridad_social_empleado, irpf_retencion, liquido } = args;
+  const [nueva] = await sql`
+    INSERT INTO nominas_180 (empresa_id, empleado_id, anio, mes, bruto, seguridad_social_empresa, seguridad_social_empleado, irpf_retencion, liquido)
+    VALUES (${empresaId}, ${empleado_id || null}, ${anio}, ${mes}, ${bruto}, ${seguridad_social_empresa || 0}, ${seguridad_social_empleado || 0}, ${irpf_retencion || 0}, ${liquido || 0})
+    RETURNING *
+  `;
+  return { success: true, nomina: nueva };
+}
+
+// ============================
+// PARTES DE DÍA
+// ============================
+
+async function consultarPartesDia({ fecha, fecha_inicio, fecha_fin, cliente_id }, empresaId) {
+  const rows = await sql`
+    SELECT pd.*, e.nombre as empleado_nombre, c.nombre as cliente_nombre
+    FROM partes_dia_180 pd
+    JOIN employees_180 e ON pd.empleado_id = e.id
+    LEFT JOIN clients_180 c ON pd.cliente_id = c.id
+    WHERE pd.empresa_id = ${empresaId}
+      ${fecha ? sql`AND pd.fecha = ${fecha}::date` : sql``}
+      ${fecha_inicio ? sql`AND pd.fecha >= ${fecha_inicio}::date` : sql``}
+      ${fecha_fin ? sql`AND pd.fecha <= ${fecha_fin}::date` : sql``}
+      ${cliente_id ? sql`AND pd.cliente_id = ${cliente_id}::uuid` : sql``}
+    ORDER BY pd.fecha DESC LIMIT 50
+  `;
+  return { total: rows.length, partes: rows };
+}
+
+async function validarParteDiaIA({ empleado_id, fecha, validado, nota }, empresaId) {
+  if (!empleado_id) return { error: "Se necesita empleado_id o nombre_empleado" };
+  const val = validado === "true" || validado === true;
+  await sql`
+    UPDATE partes_dia_180 SET validado = ${val}, nota_admin = ${nota || null}, validado_at = now()
+    WHERE empresa_id = ${empresaId} AND empleado_id = ${empleado_id} AND fecha = ${fecha}::date
+  `;
+  return { success: true, mensaje: val ? "Parte validado" : "Parte rechazado" };
+}
+
+// ============================
+// KNOWLEDGE BASE (WRITE)
+// ============================
+
+async function crearConocimientoIA({ token, respuesta, categoria, prioridad }, empresaId) {
+  // Check duplicate
+  const [dup] = await sql`SELECT 1 FROM conocimiento_180 WHERE empresa_id = ${empresaId} AND LOWER(token) = LOWER(${token.trim()})`;
+  if (dup) return { error: `Ya existe una entrada con el token "${token}". Usa actualizar_conocimiento.` };
+  const [nuevo] = await sql`
+    INSERT INTO conocimiento_180 (empresa_id, token, respuesta, categoria, prioridad)
+    VALUES (${empresaId}, ${token.trim()}, ${respuesta.trim()}, ${categoria || null}, ${prioridad || 0})
+    RETURNING *
+  `;
+  return { success: true, entrada: nuevo };
+}
+
+async function actualizarConocimientoIA(args, empresaId) {
+  const { id } = args;
+  const fields = {};
+  if (args.token) fields.token = args.token.trim();
+  if (args.respuesta) fields.respuesta = args.respuesta.trim();
+  if (args.categoria !== undefined) fields.categoria = args.categoria;
+  if (args.activo !== undefined) fields.activo = args.activo === "true" || args.activo === true;
+  fields.updated_at = new Date();
+  if (Object.keys(fields).length <= 1) return { error: "No hay campos para actualizar" };
+  const [updated] = await sql`UPDATE conocimiento_180 SET ${sql(fields, ...Object.keys(fields))} WHERE id = ${id} AND empresa_id = ${empresaId} RETURNING *`;
+  if (!updated) return { error: "Entrada no encontrada" };
+  return { success: true, entrada: updated };
+}
+
+async function eliminarConocimientoIA({ id }, empresaId) {
+  const [deleted] = await sql`DELETE FROM conocimiento_180 WHERE id = ${id} AND empresa_id = ${empresaId} RETURNING id`;
+  if (!deleted) return { error: "Entrada no encontrada" };
+  return { success: true, mensaje: "Entrada eliminada" };
+}
+
+// ============================
+// CONFIGURACIÓN
+// ============================
+
+async function consultarConfiguracion(args, empresaId) {
+  const [emisor] = await sql`SELECT * FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+  const [sistema] = await sql`SELECT * FROM configuracionsistema_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+  return {
+    emisor: emisor || { mensaje: "No configurado" },
+    sistema: sistema || { mensaje: "No configurado" },
+    resumen: emisor ? `${emisor.nombre || 'Sin nombre'} - NIF: ${emisor.nif || 'Sin NIF'} - Serie: ${emisor.serie || sistema?.serie || 'Sin serie'}` : "Configuración pendiente"
+  };
+}
+
+async function consultarModulos(args, empresaId) {
+  const [config] = await sql`SELECT * FROM empresa_config_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+  if (!config) return { error: "Configuración no encontrada" };
+  const modulos = {
+    facturacion: config.facturacion !== false,
+    fichajes: config.fichajes !== false,
+    jornadas: config.jornadas !== false,
+    nominas: config.nominas !== false,
+    gastos: config.gastos !== false,
+    calendario: config.calendario !== false,
+    conocimiento: config.conocimiento !== false,
+    storage: config.storage !== false,
+    auditoria: config.auditoria !== false,
+  };
+  return { modulos, empresa_id: empresaId };
+}
+
+// ============================
+// STORAGE
+// ============================
+
+async function listarArchivos({ folder }, empresaId) {
+  if (!folder) {
+    const folders = await sql`SELECT DISTINCT folder FROM storage_180 WHERE empresa_id = ${empresaId} ORDER BY folder ASC`;
+    const [stats] = await sql`SELECT SUM(size_bytes) as used_bytes FROM storage_180 WHERE empresa_id = ${empresaId}`;
+    return { carpetas: folders.map(f => f.folder), espacio_usado_mb: Math.round((Number(stats?.used_bytes || 0)) / 1024 / 1024 * 100) / 100 };
+  }
+  const files = await sql`
+    SELECT id, nombre, folder, mime_type, size_bytes, created_at
+    FROM storage_180 WHERE empresa_id = ${empresaId} AND folder = ${folder}
+    ORDER BY created_at DESC
+  `;
+  return { total: files.length, archivos: files };
+}
+
+// ============================
+// AUDITORÍA
+// ============================
+
+async function consultarAuditLog({ empleado_id, accion, fecha_desde, fecha_hasta, limite }, empresaId) {
+  const lim = limite || 20;
+  const rows = await sql`
+    SELECT a.*, e.nombre as empleado_nombre
+    FROM audit_log_180 a
+    LEFT JOIN employees_180 e ON e.id = a.empleado_id
+    WHERE a.empresa_id = ${empresaId}
+      ${empleado_id ? sql`AND a.empleado_id = ${empleado_id}::uuid` : sql``}
+      ${accion ? sql`AND a.accion = ${accion}` : sql``}
+      ${fecha_desde ? sql`AND a.created_at >= ${fecha_desde}::timestamptz` : sql``}
+      ${fecha_hasta ? sql`AND a.created_at <= ${fecha_hasta}::timestamptz + interval '1 day'` : sql``}
+    ORDER BY a.created_at DESC LIMIT ${lim}
+  `;
+  return { total: rows.length, logs: rows };
+}
+
+async function consultarEstadisticasAudit(args, empresaId) {
+  const porAccion = await sql`
+    SELECT accion, COUNT(*)::int as total
+    FROM audit_log_180 WHERE empresa_id = ${empresaId} AND created_at >= NOW() - INTERVAL '30 days'
+    GROUP BY accion ORDER BY total DESC
+  `;
+  const porEmpleado = await sql`
+    SELECT e.nombre, COUNT(*)::int as total_rechazados
+    FROM audit_log_180 a JOIN employees_180 e ON e.id = a.empleado_id
+    WHERE a.empresa_id = ${empresaId} AND a.accion = 'fichaje_rechazado' AND a.created_at >= NOW() - INTERVAL '30 days'
+    GROUP BY e.nombre ORDER BY total_rechazados DESC LIMIT 10
+  `;
+  const porDia = await sql`
+    SELECT DATE(created_at)::text as fecha, COUNT(*)::int as total
+    FROM audit_log_180 WHERE empresa_id = ${empresaId} AND created_at >= NOW() - INTERVAL '7 days'
+    GROUP BY DATE(created_at) ORDER BY fecha DESC
+  `;
+  return { por_accion: porAccion, empleados_mas_rechazos: porEmpleado, actividad_diaria: porDia };
+}
+
+// ============================
+// REPORTES AVANZADOS
+// ============================
+
+async function reporteRentabilidad({ fecha_inicio, fecha_fin, por }, empresaId) {
+  const agrupacion = por || "global";
+
+  // Ingresos (facturas validadas)
+  const ingresos = await sql`
+    SELECT ${agrupacion === 'cliente' ? sql`c.nombre as grupo` : sql`'Total' as grupo`},
+      SUM(f.total)::numeric(12,2) as total_facturado,
+      COUNT(*)::int as num_facturas
+    FROM factura_180 f
+    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+    WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
+      AND f.fecha >= ${fecha_inicio}::date AND f.fecha <= ${fecha_fin}::date
+    ${agrupacion === 'cliente' ? sql`GROUP BY c.nombre` : sql`GROUP BY 1`}
+    ORDER BY total_facturado DESC
+  `;
+
+  // Gastos
+  const gastos = await sql`
+    SELECT SUM(total)::numeric(12,2) as total_gastos, COUNT(*)::int as num_gastos
+    FROM purchases_180
+    WHERE empresa_id = ${empresaId} AND activo = true
+      AND fecha_compra >= ${fecha_inicio}::date AND fecha_compra <= ${fecha_fin}::date
+  `;
+
+  // Nóminas
+  const nominas = await sql`
+    SELECT SUM(bruto)::numeric(12,2) as total_nominas
+    FROM nominas_180
+    WHERE empresa_id = ${empresaId}
+      AND (anio * 100 + mes) >= ${parseInt(fecha_inicio.substring(0,4)) * 100 + parseInt(fecha_inicio.substring(5,7))}
+      AND (anio * 100 + mes) <= ${parseInt(fecha_fin.substring(0,4)) * 100 + parseInt(fecha_fin.substring(5,7))}
+  `;
+
+  const totalIngreso = ingresos.reduce((s, r) => s + Number(r.total_facturado || 0), 0);
+  const totalGasto = Number(gastos[0]?.total_gastos || 0);
+  const totalNomina = Number(nominas[0]?.total_nominas || 0);
+
+  return {
+    periodo: `${fecha_inicio} — ${fecha_fin}`,
+    ingresos: agrupacion === 'cliente' ? ingresos : totalIngreso,
+    total_gastos: totalGasto,
+    total_nominas: totalNomina,
+    beneficio_bruto: Math.round((totalIngreso - totalGasto) * 100) / 100,
+    beneficio_neto: Math.round((totalIngreso - totalGasto - totalNomina) * 100) / 100,
+    margen_pct: totalIngreso > 0 ? Math.round((totalIngreso - totalGasto - totalNomina) / totalIngreso * 10000) / 100 : 0
+  };
+}
+
+// ============================
+// MODELOS FISCALES
+// ============================
+
+async function calcularModeloFiscal({ modelo, trimestre, anio }, empresaId) {
+  const t = Number(trimestre);
+  const mesInicio = (t - 1) * 3 + 1;
+  const mesFin = t * 3;
+  const fechaInicio = `${anio}-${String(mesInicio).padStart(2, '0')}-01`;
+  const fechaFin = `${anio}-${String(mesFin).padStart(2, '0')}-${mesFin === 2 ? 28 : (mesFin % 2 === 0 && mesFin <= 6 || mesFin % 2 === 1 && mesFin > 6) ? 30 : 31}`;
+
+  if (modelo === "303") {
+    // IVA: repercutido (facturas emitidas) - soportado (gastos)
+    const [repercutido] = await sql`
+      SELECT COALESCE(SUM(iva_total), 0)::numeric(12,2) as iva_repercutido,
+        COALESCE(SUM(subtotal), 0)::numeric(12,2) as base_imponible_ventas,
+        COUNT(*)::int as num_facturas
+      FROM factura_180
+      WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+        AND fecha >= ${fechaInicio}::date AND fecha <= ${fechaFin}::date
+    `;
+    const [soportado] = await sql`
+      SELECT COALESCE(SUM(iva_importe), 0)::numeric(12,2) as iva_soportado,
+        COALESCE(SUM(base_imponible), 0)::numeric(12,2) as base_imponible_gastos,
+        COUNT(*)::int as num_gastos
+      FROM purchases_180
+      WHERE empresa_id = ${empresaId} AND activo = true AND iva_porcentaje > 0
+        AND fecha_compra >= ${fechaInicio}::date AND fecha_compra <= ${fechaFin}::date
+    `;
+    const resultado = Number(repercutido.iva_repercutido) - Number(soportado.iva_soportado);
+    return {
+      modelo: "303", trimestre: t, anio,
+      iva_repercutido: Number(repercutido.iva_repercutido),
+      base_ventas: Number(repercutido.base_imponible_ventas),
+      num_facturas: repercutido.num_facturas,
+      iva_soportado: Number(soportado.iva_soportado),
+      base_gastos: Number(soportado.base_imponible_gastos),
+      num_gastos: soportado.num_gastos,
+      resultado: Math.round(resultado * 100) / 100,
+      a_pagar: resultado > 0,
+      nota: "BORRADOR - Debe ser revisado por un asesor fiscal antes de presentar."
+    };
+  }
+
+  if (modelo === "130") {
+    // IRPF autónomos: (ingresos - gastos) * 20%
+    const [ingresos] = await sql`
+      SELECT COALESCE(SUM(total), 0)::numeric(12,2) as total_ingresos
+      FROM factura_180 WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+        AND fecha >= ${fechaInicio}::date AND fecha <= ${fechaFin}::date
+    `;
+    const [gastos] = await sql`
+      SELECT COALESCE(SUM(total), 0)::numeric(12,2) as total_gastos
+      FROM purchases_180 WHERE empresa_id = ${empresaId} AND activo = true
+        AND fecha_compra >= ${fechaInicio}::date AND fecha_compra <= ${fechaFin}::date
+    `;
+    const rendimiento = Number(ingresos.total_ingresos) - Number(gastos.total_gastos);
+    const pago = Math.max(0, rendimiento * 0.20);
+    return {
+      modelo: "130", trimestre: t, anio,
+      ingresos: Number(ingresos.total_ingresos),
+      gastos: Number(gastos.total_gastos),
+      rendimiento_neto: Math.round(rendimiento * 100) / 100,
+      porcentaje: 20,
+      pago_fraccionado: Math.round(pago * 100) / 100,
+      nota: "BORRADOR - Debe ser revisado por un asesor fiscal antes de presentar."
+    };
+  }
+
+  if (modelo === "111") {
+    // Retenciones IRPF nóminas
+    const [datos] = await sql`
+      SELECT COALESCE(SUM(irpf_retencion), 0)::numeric(12,2) as total_retenciones,
+        COALESCE(SUM(bruto), 0)::numeric(12,2) as total_bruto,
+        COUNT(*)::int as num_nominas
+      FROM nominas_180
+      WHERE empresa_id = ${empresaId} AND anio = ${anio} AND mes >= ${mesInicio} AND mes <= ${mesFin}
+    `;
+    return {
+      modelo: "111", trimestre: t, anio,
+      total_retenciones: Number(datos.total_retenciones),
+      total_bruto: Number(datos.total_bruto),
+      num_nominas: datos.num_nominas,
+      a_ingresar: Number(datos.total_retenciones),
+      nota: "BORRADOR - Debe ser revisado por un asesor fiscal antes de presentar."
+    };
+  }
+
+  return { error: `Modelo ${modelo} no soportado. Modelos disponibles: 303, 130, 111.` };
+}
+
+// ============================
+// BANCO - MATCHING
+// ============================
+
+async function consultarMovimientosBanco({ estado_match, fecha_inicio, fecha_fin, limite }, empresaId) {
+  const lim = limite || 30;
+  const rows = await sql`
+    SELECT bt.*, f.numero as factura_numero, f.total as factura_total
+    FROM bank_transactions_180 bt
+    LEFT JOIN factura_180 f ON bt.factura_id = f.id
+    WHERE bt.empresa_id = ${empresaId}
+      ${estado_match && estado_match !== 'todos' ? sql`AND bt.estado_match = ${estado_match}` : sql``}
+      ${fecha_inicio ? sql`AND bt.fecha >= ${fecha_inicio}::date` : sql``}
+      ${fecha_fin ? sql`AND bt.fecha <= ${fecha_fin}::date` : sql``}
+    ORDER BY bt.fecha DESC LIMIT ${lim}
+  `;
+  const [stats] = await sql`
+    SELECT
+      COUNT(*)::int as total,
+      COUNT(*) FILTER (WHERE estado_match = 'pendiente')::int as pendientes,
+      COUNT(*) FILTER (WHERE estado_match = 'matched')::int as matched
+    FROM bank_transactions_180 WHERE empresa_id = ${empresaId}
+  `;
+  return { movimientos: rows, estadisticas: stats };
+}
+
+async function matchPagoBanco({ bank_transaction_id, factura_id }, empresaId) {
+  // Obtener movimiento bancario
+  const [tx] = await sql`SELECT * FROM bank_transactions_180 WHERE id = ${bank_transaction_id} AND empresa_id = ${empresaId}`;
+  if (!tx) return { error: "Movimiento bancario no encontrado" };
+
+  // Obtener factura
+  const [factura] = await sql`SELECT * FROM factura_180 WHERE id = ${factura_id} AND empresa_id = ${empresaId}`;
+  if (!factura) return { error: "Factura no encontrada" };
+
+  // Calcular confianza
+  let confianza = 0;
+  const importe = Math.abs(tx.importe);
+  if (Math.abs(importe - Number(factura.total)) < 0.01) confianza += 0.40;
+  else if (Math.abs(importe - Number(factura.total)) < 1) confianza += 0.20;
+  if (tx.concepto?.includes(factura.numero)) confianza += 0.40;
+  const diasDiff = Math.abs((new Date(tx.fecha) - new Date(factura.fecha)) / 86400000);
+  if (diasDiff <= 30) confianza += 0.10;
+  if (diasDiff <= 7) confianza += 0.10;
+
+  // Crear pago
+  const [pago] = await sql`
+    INSERT INTO payments_180 (empresa_id, factura_id, monto, fecha, metodo, notas)
+    VALUES (${empresaId}, ${factura_id}, ${importe}, ${tx.fecha}, 'transferencia', ${'Match bancario automático: ' + tx.concepto})
+    RETURNING id
+  `;
+
+  // Actualizar estado factura
+  const pagado = Number(factura.pagado || 0) + importe;
+  const nuevoEstado = pagado >= Number(factura.total) ? 'pagado' : 'parcial';
+  await sql`UPDATE factura_180 SET pagado = ${pagado}, estado_pago = ${nuevoEstado} WHERE id = ${factura_id}`;
+
+  // Actualizar movimiento bancario
+  await sql`
+    UPDATE bank_transactions_180
+    SET estado_match = 'matched', factura_id = ${factura_id}, payment_id = ${pago.id},
+        confianza_match = ${Math.round(confianza * 100) / 100},
+        match_detalles = ${JSON.stringify({ factura_numero: factura.numero, importe_factura: factura.total, dias_diferencia: diasDiff })}
+    WHERE id = ${bank_transaction_id}
+  `;
+
+  return {
+    success: true,
+    pago_id: pago.id,
+    factura_numero: factura.numero,
+    importe: importe,
+    confianza: Math.round(confianza * 100),
+    estado_factura: nuevoEstado
+  };
+}
+
+async function sugerirMatchesBanco(args, empresaId) {
+  // Obtener movimientos pendientes (ingresos = importe > 0)
+  const pendientes = await sql`
+    SELECT * FROM bank_transactions_180
+    WHERE empresa_id = ${empresaId} AND estado_match = 'pendiente' AND importe > 0
+    ORDER BY fecha DESC LIMIT 50
+  `;
+
+  // Obtener facturas pendientes de cobro
+  const facturasPendientes = await sql`
+    SELECT f.id, f.numero, f.total, f.pagado, f.fecha, c.nombre as cliente_nombre
+    FROM factura_180 f
+    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+    WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA' AND f.estado_pago != 'pagado'
+    ORDER BY f.fecha DESC LIMIT 100
+  `;
+
+  const sugerencias = [];
+
+  for (const tx of pendientes) {
+    const importe = Number(tx.importe);
+    let bestMatch = null;
+    let bestConfianza = 0;
+
+    for (const f of facturasPendientes) {
+      let confianza = 0;
+      const pendiente = Number(f.total) - Number(f.pagado || 0);
+
+      // Factor 1: Importe exacto (40%)
+      if (Math.abs(importe - pendiente) < 0.01) confianza += 0.40;
+      else if (Math.abs(importe - Number(f.total)) < 0.01) confianza += 0.35;
+      else if (Math.abs(importe - pendiente) < 1) confianza += 0.15;
+
+      // Factor 2: Número de factura en concepto (40%)
+      if (f.numero && tx.concepto?.toUpperCase().includes(f.numero)) confianza += 0.40;
+
+      // Factor 3: Nombre cliente en concepto (10%)
+      if (f.cliente_nombre && tx.concepto?.toUpperCase().includes(f.cliente_nombre.toUpperCase())) confianza += 0.10;
+
+      // Factor 4: Proximidad temporal (10%)
+      const diasDiff = Math.abs((new Date(tx.fecha) - new Date(f.fecha)) / 86400000);
+      if (diasDiff <= 7) confianza += 0.10;
+      else if (diasDiff <= 30) confianza += 0.05;
+
+      if (confianza > bestConfianza) {
+        bestConfianza = confianza;
+        bestMatch = { factura_id: f.id, factura_numero: f.numero, factura_total: f.total, cliente: f.cliente_nombre, pendiente };
+      }
+    }
+
+    if (bestMatch && bestConfianza >= 0.30) {
+      sugerencias.push({
+        bank_tx_id: tx.id,
+        fecha: tx.fecha,
+        importe: importe,
+        concepto: tx.concepto,
+        match: bestMatch,
+        confianza: Math.round(bestConfianza * 100),
+        accion_recomendada: bestConfianza >= 0.85 ? "automatico" : bestConfianza >= 0.50 ? "revisar" : "manual"
+      });
+    }
+  }
+
+  return {
+    total_pendientes: pendientes.length,
+    sugerencias: sugerencias.length,
+    matches: sugerencias.sort((a, b) => b.confianza - a.confianza)
+  };
+}
+
+// ============================
+// CONFIGURACIÓN FISCAL (QR)
+// ============================
+
+async function configurarFacturacionQR(args, empresaId) {
+  try {
+    // Leer configuración actual del emisor
+    const [emisor] = await sql`
+      SELECT * FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1
+    `;
+
+    const updates = {};
+    const cambios = [];
+
+    if (args.nif && args.nif !== emisor?.nif) {
+      updates.nif = args.nif;
+      cambios.push(`NIF: ${args.nif}`);
+    }
+    if (args.nombre && args.nombre !== emisor?.nombre) {
+      updates.nombre = args.nombre;
+      cambios.push(`Nombre: ${args.nombre}`);
+    }
+    if (args.serie) {
+      updates.serie = args.serie;
+      cambios.push(`Serie: ${args.serie}`);
+    }
+    if (args.siguiente_numero) {
+      updates.siguiente_numero = Number(args.siguiente_numero);
+      cambios.push(`Siguiente número: ${args.siguiente_numero}`);
+    }
+    if (args.numeracion_plantilla) {
+      updates.numeracion_plantilla = args.numeracion_plantilla;
+      cambios.push(`Plantilla numeración: ${args.numeracion_plantilla}`);
+    }
+    if (args.direccion) {
+      updates.direccion = args.direccion;
+      cambios.push(`Dirección: ${args.direccion}`);
+    }
+    if (args.poblacion) {
+      updates.poblacion = args.poblacion;
+      cambios.push(`Población: ${args.poblacion}`);
+    }
+    if (args.provincia) {
+      updates.provincia = args.provincia;
+      cambios.push(`Provincia: ${args.provincia}`);
+    }
+    if (args.cp) {
+      updates.cp = args.cp;
+      cambios.push(`CP: ${args.cp}`);
+    }
+    if (args.telefono) {
+      updates.telefono = args.telefono;
+      cambios.push(`Teléfono: ${args.telefono}`);
+    }
+    if (args.email) {
+      updates.email = args.email;
+      cambios.push(`Email: ${args.email}`);
+    }
+    if (args.iban) {
+      updates.iban = args.iban;
+      cambios.push(`IBAN: ${args.iban}`);
+    }
+
+    if (cambios.length === 0) {
+      return { success: false, mensaje: "No se proporcionaron datos para actualizar." };
+    }
+
+    // Actualizar emisor usando postgres helper para update dinámico
+    if (emisor) {
+      await sql`
+        UPDATE emisor_180 SET ${sql(updates, ...Object.keys(updates))}
+        WHERE empresa_id = ${empresaId}
+      `;
+    } else {
+      // Crear emisor si no existe
+      await sql`
+        INSERT INTO emisor_180 ${sql({ empresa_id: empresaId, ...updates })}
+      `;
+    }
+
+    // Si se proporcionó serie, actualizar también configuracionsistema_180
+    if (args.serie) {
+      await sql`
+        UPDATE configuracionsistema_180
+        SET serie = ${args.serie}
+        WHERE empresa_id = ${empresaId}
+      `;
+    }
+
+    return {
+      success: true,
+      mensaje: "Configuración de facturación actualizada correctamente.",
+      cambios,
+      datos_actuales: { ...emisor, ...updates }
+    };
+  } catch (err) {
+    console.error("[AI] Error configurar facturación QR:", err);
+    return { error: err.message || "Error al configurar facturación" };
+  }
+}
+
+// ============================
 // MEMORIA
 // ============================
 
@@ -2311,6 +3411,15 @@ SOBRE APP180 (lo que puedes hacer):
 - Ausencias: consulta y resumen por empleado
 - Calendario: festivos, cierres, eventos
 - Conocimiento: procedimientos y FAQ de la empresa
+- Fichajes sospechosos: consultar y validar/rechazar
+- Jornadas: horas trabajadas, descansos, extras, incidencias
+- Plantillas: plantillas de jornada laboral
+- Nóminas: listados por año/mes, datos salariales
+- Partes de día: registros diarios de trabajo
+- Configuración: datos empresa, numeración, VeriFactu
+- Módulos activos/inactivos
+- Archivos almacenados y espacio usado
+- Auditoría: log de acciones, estadísticas
 
 📈 ANÁLISIS:
 - Resumen ejecutivo del negocio
@@ -2330,6 +3439,17 @@ SOBRE APP180 (lo que puedes hacer):
 - Crear/eliminar eventos del calendario
 - Facturar automáticamente todos los trabajos pendientes de un cliente
 
+📈 REPORTES Y FISCAL:
+- Rentabilidad: por cliente, empleado o global
+- Modelos fiscales: 303 (IVA), 130 (IRPF autónomos), 111 (retenciones nóminas) — BORRADORES que debe revisar un asesor fiscal
+
+📎 DOCUMENTOS (cuando el usuario adjunta un PDF/imagen):
+- Si el documento contiene un QR de factura (VeriFactu, TicketBAI), los datos del QR aparecerán en el mensaje.
+- Si el usuario pide configurar su facturación desde el documento, usa configurar_facturacion_qr con los datos extraídos.
+- Combina datos del QR (NIF, serie, número) con el texto OCR (dirección, email, teléfono) para ofrecer la configuración más completa.
+- SIEMPRE muestra al usuario qué datos vas a configurar y pide confirmación ANTES de ejecutar configurar_facturacion_qr.
+- Si el QR contiene un número de factura (ej: F-2025-0042), sugiere que el siguiente número sea el consecutivo (F-2025-0043).
+
 CUÁNDO USAR HERRAMIENTAS:
 - "¿Qué necesitas para...?" / "¿Cómo hago...?" → consultar_requisitos (SIEMPRE)
 - Facturas → consultar_facturas, estadisticas_facturacion
@@ -2343,7 +3463,14 @@ CUÁNDO USAR HERRAMIENTAS:
 - "¿Algún problema?" → alertas_negocio
 - Cierre de mes → cierre_mensual
 - Fichajes/asistencia → consultar_fichajes
+- Fichajes sospechosos → consultar_fichajes_sospechosos
+- Validar fichaje → validar_fichaje
+- Fichaje manual → crear_fichaje_manual
 - Horas trabajadas → resumen_horas_empleado
+- Jornadas → consultar_jornadas
+- Plantillas horarias → consultar_plantillas, crear_plantilla, asignar_plantilla
+- Nóminas → consultar_nominas, crear_nomina
+- Partes de día → consultar_partes_dia, validar_parte_dia
 - Productividad → productividad_empleado
 - Ausencias/vacaciones → consultar_ausencias o consultar_ausencias_resumen
 - Empleados → consultar_empleados
@@ -2352,6 +3479,13 @@ CUÁNDO USAR HERRAMIENTAS:
 - "Factura todo lo de X" → facturar_trabajos_pendientes
 - Calendario → consultar_calendario
 - Info empresa → consultar_conocimiento
+- Añadir al KB → crear_conocimiento, actualizar_conocimiento, eliminar_conocimiento
+- Config empresa → consultar_configuracion
+- Módulos → consultar_modulos
+- Archivos → listar_archivos
+- Auditoría → consultar_audit_log, consultar_estadisticas_audit
+- Rentabilidad → reporte_rentabilidad
+- Modelo 303/130/111 → calcular_modelo_fiscal
 
 RESOLUCIÓN AUTOMÁTICA DE NOMBRES:
 - Puedes usar nombre_cliente en vez de cliente_id en CUALQUIER herramienta. El sistema buscará automáticamente el ID.
@@ -2470,7 +3604,10 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       'eliminar_factura', 'enviar_factura_email', 'crear_cliente', 'actualizar_cliente',
       'desactivar_cliente', 'crear_pago', 'eliminar_pago', 'actualizar_empleado',
       'crear_trabajo', 'crear_ausencia', 'crear_evento_calendario', 'eliminar_evento_calendario',
-      'facturar_trabajos_pendientes'
+      'facturar_trabajos_pendientes', 'configurar_facturacion_qr',
+      'crear_fichaje_manual', 'validar_fichaje', 'crear_plantilla', 'asignar_plantilla',
+      'crear_nomina', 'validar_parte_dia', 'crear_conocimiento', 'actualizar_conocimiento',
+      'eliminar_conocimiento', 'match_pago_banco'
     ]);
     let accionRealizada = false;
 

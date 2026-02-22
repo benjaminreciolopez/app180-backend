@@ -25,6 +25,7 @@
     "googleapis": "^171.0.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "luxon": "^3.7.2",
     "multer": "^2.0.2",
