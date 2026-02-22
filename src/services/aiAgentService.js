@@ -1143,6 +1143,178 @@ const TOOLS = [
     }
   },
 
+  // ===== FASE 2: HERRAMIENTAS ADICIONALES =====
+  {
+    type: "function",
+    function: {
+      name: "crear_excepcion_jornada",
+      description: "Crea una excepción en la plantilla de jornada laboral para un día específico (ej: festivo, día especial, cambio de horario). Modifica el horario habitual de la plantilla para esa fecha concreta.",
+      parameters: {
+        type: "object",
+        properties: {
+          plantilla_id: { type: "string", description: "ID de la plantilla de jornada" },
+          fecha: { type: "string", description: "Fecha de la excepción (YYYY-MM-DD)" },
+          hora_inicio: { type: "string", description: "Nueva hora de inicio (HH:MM)" },
+          hora_fin: { type: "string", description: "Nueva hora de fin (HH:MM)" },
+          nota: { type: "string", description: "Motivo de la excepción (ej: 'Festivo local', 'Jornada reducida')" },
+          activo: { type: "boolean", description: "Si false, el día se marca como libre/festivo. Default true." }
+        },
+        required: ["plantilla_id", "fecha"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "actualizar_configuracion",
+      description: "Actualiza la configuración de la empresa: módulos activos/inactivos, widgets del dashboard, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          modulos: { type: "object", description: "Módulos a activar/desactivar. Ej: {\"facturacion\": true, \"nominas\": false}" },
+          dashboard_widgets: { type: "object", description: "Configuración de widgets del dashboard" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_archivo",
+      description: "Elimina un archivo del almacenamiento de la empresa.",
+      parameters: {
+        type: "object",
+        properties: {
+          archivo_id: { type: "string", description: "ID del archivo a eliminar" }
+        },
+        required: ["archivo_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "exportar_modulo",
+      description: "Exporta datos de un módulo en formato resumido. Módulos: facturas, clientes, empleados, gastos, nominas, pagos, trabajos.",
+      parameters: {
+        type: "object",
+        properties: {
+          modulo: { type: "string", description: "Nombre del módulo: facturas, clientes, empleados, gastos, nominas, pagos, trabajos" },
+          fecha_inicio: { type: "string", description: "Fecha inicio del rango (YYYY-MM-DD)" },
+          fecha_fin: { type: "string", description: "Fecha fin del rango (YYYY-MM-DD)" },
+          formato: { type: "string", description: "Formato: resumen (default) o detalle" }
+        },
+        required: ["modulo"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "reporte_desviacion",
+      description: "Genera un reporte de desviación de horas: compara horas presupuestadas vs reales por cliente o empleado. Útil para detectar proyectos que se pasan de tiempo.",
+      parameters: {
+        type: "object",
+        properties: {
+          agrupacion: { type: "string", description: "Agrupar por: cliente o empleado (default: cliente)" },
+          fecha_inicio: { type: "string", description: "Fecha inicio (YYYY-MM-DD)" },
+          fecha_fin: { type: "string", description: "Fecha fin (YYYY-MM-DD)" }
+        }
+      }
+    }
+  },
+
+  // ===== FASE 3: HERRAMIENTAS FISCALES =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_modelos_fiscales",
+      description: "Consulta los modelos fiscales generados previamente. Filtra por modelo (303, 130, 111, 115, 349), trimestre y año.",
+      parameters: {
+        type: "object",
+        properties: {
+          modelo: { type: "string", description: "Tipo de modelo: 303, 130, 111, 115, 349 (opcional, todos si no se indica)" },
+          anio: { type: "number", description: "Año (ej: 2026)" },
+          trimestre: { type: "number", description: "Trimestre 1-4 (opcional)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_libro_ventas",
+      description: "Genera el libro registro de facturas emitidas para un periodo. Muestra cada factura con base imponible, IVA, total, cliente y fecha.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_inicio: { type: "string", description: "Fecha inicio (YYYY-MM-DD)" },
+          fecha_fin: { type: "string", description: "Fecha fin (YYYY-MM-DD)" },
+          trimestre: { type: "number", description: "Trimestre 1-4 (alternativa a fechas)" },
+          anio: { type: "number", description: "Año (requerido si se usa trimestre)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_libro_gastos",
+      description: "Genera el libro registro de facturas recibidas (gastos) para un periodo. Muestra cada gasto con base imponible, IVA soportado, total y proveedor.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_inicio: { type: "string", description: "Fecha inicio (YYYY-MM-DD)" },
+          fecha_fin: { type: "string", description: "Fecha fin (YYYY-MM-DD)" },
+          trimestre: { type: "number", description: "Trimestre 1-4 (alternativa a fechas)" },
+          anio: { type: "number", description: "Año (requerido si se usa trimestre)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_libro_nominas",
+      description: "Genera el libro registro de nóminas para un periodo. Muestra cada nómina con bruto, IRPF, seguridad social y neto por empleado.",
+      parameters: {
+        type: "object",
+        properties: {
+          anio: { type: "number", description: "Año (requerido)" },
+          mes: { type: "number", description: "Mes 1-12 (opcional, si no se indica muestra todo el año)" },
+          trimestre: { type: "number", description: "Trimestre 1-4 (alternativa a mes)" }
+        },
+        required: ["anio"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "alertas_fiscales",
+      description: "Muestra alertas y plazos fiscales próximos: modelos pendientes de presentar, plazos de Hacienda, y advertencias basadas en los datos de la empresa.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+
+  // ===== FASE 4: RECONCILIACIÓN BANCARIA =====
+  {
+    type: "function",
+    function: {
+      name: "reconciliar_extracto",
+      description: "Realiza una reconciliación completa de un periodo: cruza todos los movimientos bancarios pendientes con facturas/gastos y genera un informe de estado. Los matches con confianza >= 85% se aplican automáticamente.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_inicio: { type: "string", description: "Fecha inicio del periodo (YYYY-MM-DD)" },
+          fecha_fin: { type: "string", description: "Fecha fin del periodo (YYYY-MM-DD)" },
+          auto_match: { type: "boolean", description: "Si true, aplica matches automáticos >= 85% confianza. Default: false (solo sugiere)" }
+        },
+        required: ["fecha_inicio", "fecha_fin"]
+      }
+    }
+  },
+
   // ===== CONFIGURACIÓN FISCAL (QR) =====
   {
     type: "function",
@@ -1478,6 +1650,20 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       case "sugerir_matches_banco": return await sugerirMatchesBanco(args, empresaId);
       // Configuración fiscal QR
       case "configurar_facturacion_qr": return await configurarFacturacionQR(args, empresaId);
+      // FASE 2 adicionales
+      case "crear_excepcion_jornada": return await crearExcepcionJornada(args, empresaId);
+      case "actualizar_configuracion": return await actualizarConfiguracion(args, empresaId);
+      case "eliminar_archivo": return await eliminarArchivo(args, empresaId);
+      case "exportar_modulo": return await exportarModulo(args, empresaId);
+      case "reporte_desviacion": return await reporteDesviacion(args, empresaId);
+      // FASE 3 fiscales
+      case "consultar_modelos_fiscales": return await consultarModelosFiscales(args, empresaId);
+      case "consultar_libro_ventas": return await consultarLibroVentas(args, empresaId);
+      case "consultar_libro_gastos": return await consultarLibroGastos(args, empresaId);
+      case "consultar_libro_nominas": return await consultarLibroNominas(args, empresaId);
+      case "alertas_fiscales": return await alertasFiscales(args, empresaId);
+      // FASE 4 reconciliación
+      case "reconciliar_extracto": return await reconciliarExtracto(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -3101,7 +3287,58 @@ async function calcularModeloFiscal({ modelo, trimestre, anio }, empresaId) {
     };
   }
 
-  return { error: `Modelo ${modelo} no soportado. Modelos disponibles: 303, 130, 111.` };
+  if (modelo === "115") {
+    // Retenciones por alquileres
+    const rows = await sql`
+      SELECT COALESCE(SUM(total), 0)::numeric(12,2) as total_alquileres,
+        COALESCE(SUM(irpf_retencion), 0)::numeric(12,2) as total_retenciones,
+        COUNT(*)::int as num_gastos
+      FROM purchases_180
+      WHERE empresa_id = ${empresaId} AND activo = true
+        AND LOWER(categoria) IN ('alquiler', 'arrendamiento', 'local', 'oficina')
+        AND fecha_compra >= ${fechaInicio}::date AND fecha_compra <= ${fechaFin}::date
+    `;
+    return {
+      modelo: "115", trimestre: t, anio,
+      total_alquileres: Number(rows.total_alquileres),
+      total_retenciones: Number(rows.total_retenciones),
+      num_gastos: rows.num_gastos,
+      a_ingresar: Number(rows.total_retenciones),
+      nota: "BORRADOR - Solo incluye gastos con categoría alquiler/arrendamiento. Revisar con asesor fiscal."
+    };
+  }
+
+  if (modelo === "349") {
+    // Operaciones intracomunitarias
+    const ventas = await sql`
+      SELECT c.nombre as cliente, c.nif_cif, COALESCE(SUM(f.total), 0)::numeric(12,2) as total
+      FROM factura_180 f
+      LEFT JOIN clients_180 c ON f.cliente_id = c.id
+      LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
+      WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
+        AND f.fecha >= ${fechaInicio}::date AND f.fecha <= ${fechaFin}::date
+        AND (cfd.es_intracomunitario = true OR c.pais != 'ES')
+      GROUP BY c.id, c.nombre, c.nif_cif
+    `;
+    const [totales] = await sql`
+      SELECT COALESCE(SUM(f.total), 0)::numeric(12,2) as total_intracomunitario
+      FROM factura_180 f
+      LEFT JOIN clients_180 c ON f.cliente_id = c.id
+      LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
+      WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
+        AND f.fecha >= ${fechaInicio}::date AND f.fecha <= ${fechaFin}::date
+        AND (cfd.es_intracomunitario = true OR c.pais != 'ES')
+    `;
+    return {
+      modelo: "349", trimestre: t, anio,
+      total_intracomunitario: Number(totales.total_intracomunitario),
+      operaciones: ventas,
+      num_clientes: ventas.length,
+      nota: "BORRADOR - Solo detecta clientes con flag intracomunitario o país != ES. Revisar con asesor fiscal."
+    };
+  }
+
+  return { error: `Modelo ${modelo} no soportado. Modelos disponibles: 303, 130, 111, 115, 349.` };
 }
 
 // ============================
@@ -3248,6 +3485,569 @@ async function sugerirMatchesBanco(args, empresaId) {
     sugerencias: sugerencias.length,
     matches: sugerencias.sort((a, b) => b.confianza - a.confianza)
   };
+}
+
+// ============================
+// FASE 2: HERRAMIENTAS ADICIONALES
+// ============================
+
+async function crearExcepcionJornada({ plantilla_id, fecha, hora_inicio, hora_fin, nota, activo }, empresaId) {
+  // Verificar que la plantilla pertenece a la empresa
+  const [plantilla] = await sql`
+    SELECT id, nombre FROM plantillas_jornada_180
+    WHERE id = ${plantilla_id} AND empresa_id = ${empresaId}
+  `;
+  if (!plantilla) return { error: "Plantilla no encontrada" };
+
+  const esActivo = activo !== false;
+  const [exc] = await sql`
+    INSERT INTO plantilla_excepciones_180 (plantilla_id, fecha, activo, hora_inicio, hora_fin, nota)
+    VALUES (${plantilla_id}, ${fecha}, ${esActivo}, ${hora_inicio || null}, ${hora_fin || null}, ${nota || null})
+    RETURNING id, fecha, activo, nota
+  `;
+
+  return {
+    success: true,
+    excepcion: exc,
+    plantilla: plantilla.nombre,
+    mensaje: esActivo
+      ? `Excepción creada para ${fecha}: horario ${hora_inicio || '?'} - ${hora_fin || '?'}`
+      : `Día ${fecha} marcado como libre/festivo en plantilla "${plantilla.nombre}"`
+  };
+}
+
+async function actualizarConfiguracion({ modulos, dashboard_widgets }, empresaId) {
+  const updates = {};
+  const cambios = [];
+
+  if (modulos) {
+    // Leer config actual y merge
+    const [cfg] = await sql`SELECT modulos FROM empresa_config_180 WHERE empresa_id = ${empresaId}`;
+    const modulosActuales = cfg?.modulos || {};
+    const merged = { ...modulosActuales, ...modulos };
+    updates.modulos = JSON.stringify(merged);
+    cambios.push(`Módulos actualizados: ${Object.entries(modulos).map(([k, v]) => `${k}=${v ? 'ON' : 'OFF'}`).join(', ')}`);
+  }
+
+  if (dashboard_widgets) {
+    updates.dashboard_widgets = JSON.stringify(dashboard_widgets);
+    cambios.push("Widgets del dashboard actualizados");
+  }
+
+  if (cambios.length === 0) return { error: "No se proporcionaron datos para actualizar" };
+
+  await sql`
+    UPDATE empresa_config_180 SET ${sql(updates, ...Object.keys(updates))}, updated_at = NOW()
+    WHERE empresa_id = ${empresaId}
+  `;
+
+  return { success: true, cambios };
+}
+
+async function eliminarArchivo({ archivo_id }, empresaId) {
+  const [file] = await sql`
+    SELECT id, nombre, folder FROM storage_180
+    WHERE id = ${archivo_id} AND empresa_id = ${empresaId}
+  `;
+  if (!file) return { error: "Archivo no encontrado" };
+
+  await sql`DELETE FROM storage_180 WHERE id = ${archivo_id} AND empresa_id = ${empresaId}`;
+
+  return { success: true, mensaje: `Archivo "${file.nombre}" eliminado de la carpeta "${file.folder}"` };
+}
+
+async function exportarModulo({ modulo, fecha_inicio, fecha_fin, formato }, empresaId) {
+  const esDetalle = formato === 'detalle';
+  const fi = fecha_inicio || '2000-01-01';
+  const ff = fecha_fin || '2099-12-31';
+
+  if (modulo === 'facturas') {
+    const rows = await sql`
+      SELECT f.numero, f.fecha, f.subtotal, f.iva_total, f.total, f.estado, f.estado_pago,
+        c.nombre as cliente
+      FROM factura_180 f LEFT JOIN clients_180 c ON f.cliente_id = c.id
+      WHERE f.empresa_id = ${empresaId} AND f.fecha >= ${fi}::date AND f.fecha <= ${ff}::date
+      ORDER BY f.fecha
+    `;
+    const [totales] = await sql`
+      SELECT COUNT(*)::int as total, COALESCE(SUM(total),0)::numeric(12,2) as importe_total
+      FROM factura_180 WHERE empresa_id = ${empresaId} AND fecha >= ${fi}::date AND fecha <= ${ff}::date
+    `;
+    return { modulo: 'facturas', periodo: `${fi} — ${ff}`, registros: rows.length, totales, datos: esDetalle ? rows : undefined };
+  }
+
+  if (modulo === 'clientes') {
+    const rows = await sql`
+      SELECT codigo, nombre, email, telefono, activo, created_at
+      FROM clients_180 WHERE empresa_id = ${empresaId} ORDER BY nombre
+    `;
+    return { modulo: 'clientes', total: rows.length, datos: esDetalle ? rows : undefined };
+  }
+
+  if (modulo === 'empleados') {
+    const rows = await sql`
+      SELECT nombre, email, puesto, activo, created_at
+      FROM employees_180 WHERE empresa_id = ${empresaId} ORDER BY nombre
+    `;
+    return { modulo: 'empleados', total: rows.length, datos: esDetalle ? rows : undefined };
+  }
+
+  if (modulo === 'gastos') {
+    const rows = await sql`
+      SELECT concepto, proveedor, fecha_compra, base_imponible, iva_porcentaje, iva_importe, total, categoria
+      FROM purchases_180 WHERE empresa_id = ${empresaId} AND activo = true
+        AND fecha_compra >= ${fi}::date AND fecha_compra <= ${ff}::date
+      ORDER BY fecha_compra
+    `;
+    const [totales] = await sql`
+      SELECT COUNT(*)::int as total, COALESCE(SUM(total),0)::numeric(12,2) as importe_total
+      FROM purchases_180 WHERE empresa_id = ${empresaId} AND activo = true
+        AND fecha_compra >= ${fi}::date AND fecha_compra <= ${ff}::date
+    `;
+    return { modulo: 'gastos', periodo: `${fi} — ${ff}`, registros: rows.length, totales, datos: esDetalle ? rows : undefined };
+  }
+
+  if (modulo === 'nominas') {
+    const rows = await sql`
+      SELECT n.anio, n.mes, e.nombre as empleado, n.bruto, n.irpf_retencion, n.ss_empleado, n.neto
+      FROM nominas_180 n LEFT JOIN employees_180 e ON n.empleado_id = e.id
+      WHERE n.empresa_id = ${empresaId} ORDER BY n.anio DESC, n.mes DESC
+    `;
+    return { modulo: 'nominas', total: rows.length, datos: esDetalle ? rows : undefined };
+  }
+
+  if (modulo === 'pagos') {
+    const rows = await sql`
+      SELECT p.fecha, p.monto, p.metodo, f.numero as factura, c.nombre as cliente
+      FROM payments_180 p
+      LEFT JOIN factura_180 f ON p.factura_id = f.id
+      LEFT JOIN clients_180 c ON f.cliente_id = c.id
+      WHERE p.empresa_id = ${empresaId} AND p.fecha >= ${fi}::date AND p.fecha <= ${ff}::date
+      ORDER BY p.fecha DESC
+    `;
+    const [totales] = await sql`
+      SELECT COUNT(*)::int as total, COALESCE(SUM(monto),0)::numeric(12,2) as importe_total
+      FROM payments_180 WHERE empresa_id = ${empresaId} AND fecha >= ${fi}::date AND fecha <= ${ff}::date
+    `;
+    return { modulo: 'pagos', periodo: `${fi} — ${ff}`, registros: rows.length, totales, datos: esDetalle ? rows : undefined };
+  }
+
+  if (modulo === 'trabajos') {
+    const rows = await sql`
+      SELECT w.fecha, w.descripcion, w.horas, w.precio_hora, w.total, w.facturado,
+        c.nombre as cliente, e.nombre as empleado
+      FROM worklogs_180 w
+      LEFT JOIN clients_180 c ON w.cliente_id = c.id
+      LEFT JOIN employees_180 e ON w.empleado_id = e.id
+      WHERE w.empresa_id = ${empresaId} AND w.fecha >= ${fi}::date AND w.fecha <= ${ff}::date
+      ORDER BY w.fecha DESC
+    `;
+    return { modulo: 'trabajos', periodo: `${fi} — ${ff}`, registros: rows.length, datos: esDetalle ? rows : undefined };
+  }
+
+  return { error: `Módulo "${modulo}" no disponible. Módulos: facturas, clientes, empleados, gastos, nominas, pagos, trabajos` };
+}
+
+async function reporteDesviacion({ agrupacion, fecha_inicio, fecha_fin }, empresaId) {
+  const grupo = agrupacion || 'cliente';
+  const fi = fecha_inicio || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+  const ff = fecha_fin || new Date().toISOString().split('T')[0];
+
+  if (grupo === 'cliente') {
+    const rows = await sql`
+      SELECT c.nombre as cliente,
+        COALESCE(SUM(w.horas), 0)::numeric(10,2) as horas_reales,
+        COUNT(DISTINCT w.id)::int as num_trabajos,
+        COALESCE(SUM(w.total), 0)::numeric(12,2) as importe_trabajos,
+        COALESCE(SUM(f_totals.total_facturado), 0)::numeric(12,2) as total_facturado
+      FROM clients_180 c
+      LEFT JOIN worklogs_180 w ON w.cliente_id = c.id AND w.empresa_id = ${empresaId}
+        AND w.fecha >= ${fi}::date AND w.fecha <= ${ff}::date
+      LEFT JOIN LATERAL (
+        SELECT SUM(f.total) as total_facturado
+        FROM factura_180 f WHERE f.cliente_id = c.id AND f.empresa_id = ${empresaId}
+          AND f.fecha >= ${fi}::date AND f.fecha <= ${ff}::date AND f.estado = 'VALIDADA'
+      ) f_totals ON true
+      WHERE c.empresa_id = ${empresaId} AND c.activo = true
+      GROUP BY c.id, c.nombre
+      HAVING SUM(w.horas) > 0 OR SUM(f_totals.total_facturado) > 0
+      ORDER BY horas_reales DESC
+    `;
+    return { agrupacion: 'cliente', periodo: `${fi} — ${ff}`, datos: rows };
+  }
+
+  if (grupo === 'empleado') {
+    const rows = await sql`
+      SELECT e.nombre as empleado,
+        COALESCE(SUM(w.horas), 0)::numeric(10,2) as horas_trabajadas,
+        COUNT(DISTINCT w.id)::int as num_trabajos,
+        COALESCE(SUM(w.total), 0)::numeric(12,2) as importe_generado,
+        COALESCE(SUM(pd.horas_trabajadas), 0)::numeric(10,2) as horas_partes_dia
+      FROM employees_180 e
+      LEFT JOIN worklogs_180 w ON w.empleado_id = e.id AND w.empresa_id = ${empresaId}
+        AND w.fecha >= ${fi}::date AND w.fecha <= ${ff}::date
+      LEFT JOIN partes_dia_180 pd ON pd.empleado_id = e.id AND pd.empresa_id = ${empresaId}
+        AND pd.fecha >= ${fi}::date AND pd.fecha <= ${ff}::date
+      WHERE e.empresa_id = ${empresaId} AND e.activo = true
+      GROUP BY e.id, e.nombre
+      HAVING SUM(w.horas) > 0 OR SUM(pd.horas_trabajadas) > 0
+      ORDER BY horas_trabajadas DESC
+    `;
+    return { agrupacion: 'empleado', periodo: `${fi} — ${ff}`, datos: rows };
+  }
+
+  return { error: "Agrupación no válida. Usa: cliente o empleado" };
+}
+
+// ============================
+// FASE 3: LIBROS Y MODELOS FISCALES
+// ============================
+
+async function consultarModelosFiscales({ modelo, anio, trimestre }, empresaId) {
+  const rows = await sql`
+    SELECT id, modelo, trimestre, anio, datos, estado, notas, created_at
+    FROM modelos_fiscales_180
+    WHERE empresa_id = ${empresaId}
+      ${modelo ? sql`AND modelo = ${modelo}` : sql``}
+      ${anio ? sql`AND anio = ${Number(anio)}` : sql``}
+      ${trimestre ? sql`AND trimestre = ${Number(trimestre)}` : sql``}
+    ORDER BY anio DESC, trimestre DESC, modelo
+  `;
+  return { total: rows.length, modelos: rows };
+}
+
+function resolverFechasFiscales(args) {
+  let fi, ff;
+  if (args.trimestre && args.anio) {
+    const t = Number(args.trimestre);
+    const mesInicio = (t - 1) * 3 + 1;
+    const mesFin = t * 3;
+    fi = `${args.anio}-${String(mesInicio).padStart(2, '0')}-01`;
+    const ultimoDia = new Date(args.anio, mesFin, 0).getDate();
+    ff = `${args.anio}-${String(mesFin).padStart(2, '0')}-${ultimoDia}`;
+  } else {
+    fi = args.fecha_inicio || `${new Date().getFullYear()}-01-01`;
+    ff = args.fecha_fin || new Date().toISOString().split('T')[0];
+  }
+  return { fi, ff };
+}
+
+async function consultarLibroVentas(args, empresaId) {
+  const { fi, ff } = resolverFechasFiscales(args);
+  const rows = await sql`
+    SELECT f.numero, f.fecha, c.nombre as cliente, c.nif_cif as nif_cliente,
+      f.subtotal as base_imponible, f.iva_porcentaje, f.iva_total, f.total,
+      f.estado, f.estado_pago
+    FROM factura_180 f
+    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+    WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
+      AND f.fecha >= ${fi}::date AND f.fecha <= ${ff}::date
+    ORDER BY f.fecha, f.numero
+  `;
+  const [totales] = await sql`
+    SELECT COUNT(*)::int as num_facturas,
+      COALESCE(SUM(subtotal), 0)::numeric(12,2) as total_base,
+      COALESCE(SUM(iva_total), 0)::numeric(12,2) as total_iva,
+      COALESCE(SUM(total), 0)::numeric(12,2) as total_facturado
+    FROM factura_180
+    WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+      AND fecha >= ${fi}::date AND fecha <= ${ff}::date
+  `;
+  return { libro: "ventas", periodo: `${fi} — ${ff}`, totales, registros: rows };
+}
+
+async function consultarLibroGastos(args, empresaId) {
+  const { fi, ff } = resolverFechasFiscales(args);
+  const rows = await sql`
+    SELECT p.numero_factura, p.fecha_compra as fecha, p.proveedor, p.nif_proveedor,
+      p.base_imponible, p.iva_porcentaje, p.iva_importe, p.total,
+      p.concepto, p.categoria
+    FROM purchases_180 p
+    WHERE p.empresa_id = ${empresaId} AND p.activo = true
+      AND p.fecha_compra >= ${fi}::date AND p.fecha_compra <= ${ff}::date
+    ORDER BY p.fecha_compra, p.numero_factura
+  `;
+  const [totales] = await sql`
+    SELECT COUNT(*)::int as num_gastos,
+      COALESCE(SUM(base_imponible), 0)::numeric(12,2) as total_base,
+      COALESCE(SUM(iva_importe), 0)::numeric(12,2) as total_iva,
+      COALESCE(SUM(total), 0)::numeric(12,2) as total_gastos
+    FROM purchases_180
+    WHERE empresa_id = ${empresaId} AND activo = true
+      AND fecha_compra >= ${fi}::date AND fecha_compra <= ${ff}::date
+  `;
+  return { libro: "gastos", periodo: `${fi} — ${ff}`, totales, registros: rows };
+}
+
+async function consultarLibroNominas({ anio, mes, trimestre }, empresaId) {
+  let mesInicio, mesFin;
+  if (trimestre) {
+    mesInicio = (Number(trimestre) - 1) * 3 + 1;
+    mesFin = Number(trimestre) * 3;
+  } else if (mes) {
+    mesInicio = Number(mes);
+    mesFin = Number(mes);
+  } else {
+    mesInicio = 1;
+    mesFin = 12;
+  }
+
+  const rows = await sql`
+    SELECT n.mes, n.anio, e.nombre as empleado, e.nif_nie,
+      n.bruto, n.irpf_retencion, n.ss_empleado, n.ss_empresa, n.neto,
+      n.horas_extra, n.complementos
+    FROM nominas_180 n
+    LEFT JOIN employees_180 e ON n.empleado_id = e.id
+    WHERE n.empresa_id = ${empresaId} AND n.anio = ${Number(anio)}
+      AND n.mes >= ${mesInicio} AND n.mes <= ${mesFin}
+    ORDER BY n.mes, e.nombre
+  `;
+  const [totales] = await sql`
+    SELECT COUNT(*)::int as num_nominas,
+      COALESCE(SUM(bruto), 0)::numeric(12,2) as total_bruto,
+      COALESCE(SUM(irpf_retencion), 0)::numeric(12,2) as total_irpf,
+      COALESCE(SUM(ss_empleado), 0)::numeric(12,2) as total_ss_empleado,
+      COALESCE(SUM(ss_empresa), 0)::numeric(12,2) as total_ss_empresa,
+      COALESCE(SUM(neto), 0)::numeric(12,2) as total_neto
+    FROM nominas_180
+    WHERE empresa_id = ${empresaId} AND anio = ${Number(anio)}
+      AND mes >= ${mesInicio} AND mes <= ${mesFin}
+  `;
+  return { libro: "nominas", anio, periodo_meses: `${mesInicio}-${mesFin}`, totales, registros: rows };
+}
+
+async function alertasFiscales(args, empresaId) {
+  const hoy = new Date();
+  const anio = hoy.getFullYear();
+  const mes = hoy.getMonth() + 1;
+  const trimActual = Math.ceil(mes / 3);
+
+  const alertas = [];
+
+  // Plazos de presentación de modelos (España)
+  const plazos = [
+    { modelo: "303", desc: "IVA trimestral", dia_limite: 20 },
+    { modelo: "130", desc: "IRPF autónomos", dia_limite: 20 },
+    { modelo: "111", desc: "Retenciones IRPF nóminas", dia_limite: 20 },
+    { modelo: "115", desc: "Retenciones alquileres", dia_limite: 20 },
+  ];
+
+  // Comprobar si estamos en mes de presentación (abril, julio, octubre, enero)
+  const mesesPresentacion = [1, 4, 7, 10];
+  const esMesPresentacion = mesesPresentacion.includes(mes);
+  const trimPresentar = mes === 1 ? 4 : trimActual - 1;
+  const anioPresentar = mes === 1 ? anio - 1 : anio;
+
+  if (esMesPresentacion) {
+    // Verificar qué modelos ya se calcularon
+    const calculados = await sql`
+      SELECT modelo FROM modelos_fiscales_180
+      WHERE empresa_id = ${empresaId} AND trimestre = ${trimPresentar} AND anio = ${anioPresentar}
+    `;
+    const modelosCalculados = new Set(calculados.map(r => r.modelo));
+
+    for (const p of plazos) {
+      const plazoFecha = new Date(anio, mes - 1, p.dia_limite);
+      const diasRestantes = Math.ceil((plazoFecha - hoy) / 86400000);
+
+      if (diasRestantes > 0) {
+        alertas.push({
+          tipo: "plazo",
+          urgencia: diasRestantes <= 5 ? "URGENTE" : diasRestantes <= 10 ? "PRONTO" : "OK",
+          modelo: p.modelo,
+          descripcion: p.desc,
+          trimestre: `T${trimPresentar} ${anioPresentar}`,
+          fecha_limite: plazoFecha.toISOString().split('T')[0],
+          dias_restantes: diasRestantes,
+          calculado: modelosCalculados.has(p.modelo)
+        });
+      }
+    }
+  }
+
+  // Verificar facturas sin IVA (posible error)
+  const [sinIva] = await sql`
+    SELECT COUNT(*)::int as total
+    FROM factura_180
+    WHERE empresa_id = ${empresaId} AND estado = 'VALIDADA'
+      AND (iva_porcentaje IS NULL OR iva_porcentaje = 0)
+      AND fecha >= ${anio + '-01-01'}::date
+  `;
+  if (sinIva.total > 0) {
+    alertas.push({
+      tipo: "advertencia",
+      urgencia: "REVISAR",
+      descripcion: `${sinIva.total} facturas validadas sin IVA en ${anio}. Verificar si es correcto (exenciones, intracomunitarias).`
+    });
+  }
+
+  // Verificar gastos sin factura (sin número)
+  const [sinFactura] = await sql`
+    SELECT COUNT(*)::int as total
+    FROM purchases_180
+    WHERE empresa_id = ${empresaId} AND activo = true
+      AND (numero_factura IS NULL OR numero_factura = '')
+      AND fecha_compra >= ${anio + '-01-01'}::date
+  `;
+  if (sinFactura.total > 0) {
+    alertas.push({
+      tipo: "advertencia",
+      urgencia: "REVISAR",
+      descripcion: `${sinFactura.total} gastos sin número de factura en ${anio}. Sin factura no son deducibles fiscalmente.`
+    });
+  }
+
+  return {
+    fecha: hoy.toISOString().split('T')[0],
+    trimestre_actual: `T${trimActual} ${anio}`,
+    es_mes_presentacion: esMesPresentacion,
+    alertas
+  };
+}
+
+// ============================
+// FASE 4: RECONCILIACIÓN BANCARIA
+// ============================
+
+async function reconciliarExtracto({ fecha_inicio, fecha_fin, auto_match }, empresaId) {
+  // Obtener movimientos pendientes del periodo
+  const movimientos = await sql`
+    SELECT * FROM bank_transactions_180
+    WHERE empresa_id = ${empresaId} AND estado_match = 'pendiente'
+      AND fecha >= ${fecha_inicio}::date AND fecha <= ${fecha_fin}::date
+    ORDER BY fecha
+  `;
+
+  // Obtener facturas pendientes de cobro
+  const facturasPendientes = await sql`
+    SELECT f.id, f.numero, f.total, f.pagado, f.fecha, c.nombre as cliente_nombre
+    FROM factura_180 f
+    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+    WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA' AND f.estado_pago != 'pagado'
+  `;
+
+  // Obtener gastos pendientes (para pagos salientes)
+  const gastosPendientes = await sql`
+    SELECT id, concepto, proveedor, total, fecha_compra
+    FROM purchases_180
+    WHERE empresa_id = ${empresaId} AND activo = true AND pagado = false
+  `;
+
+  const resultados = {
+    periodo: `${fecha_inicio} — ${fecha_fin}`,
+    total_movimientos: movimientos.length,
+    matches_automaticos: [],
+    sugerencias_revisar: [],
+    sin_match: [],
+    ya_matched: 0,
+    errores: []
+  };
+
+  for (const tx of movimientos) {
+    const importe = Number(tx.importe);
+    let bestMatch = null;
+    let bestConfianza = 0;
+    let bestTipo = null;
+
+    // Match con facturas (ingresos: importe > 0)
+    if (importe > 0) {
+      for (const f of facturasPendientes) {
+        let confianza = 0;
+        const pendiente = Number(f.total) - Number(f.pagado || 0);
+
+        if (Math.abs(importe - pendiente) < 0.01) confianza += 0.40;
+        else if (Math.abs(importe - Number(f.total)) < 0.01) confianza += 0.35;
+        if (f.numero && tx.concepto?.toUpperCase().includes(f.numero)) confianza += 0.40;
+        if (f.cliente_nombre && tx.concepto?.toUpperCase().includes(f.cliente_nombre.toUpperCase())) confianza += 0.10;
+        const diasDiff = Math.abs((new Date(tx.fecha) - new Date(f.fecha)) / 86400000);
+        if (diasDiff <= 7) confianza += 0.10;
+        else if (diasDiff <= 30) confianza += 0.05;
+
+        if (confianza > bestConfianza) {
+          bestConfianza = confianza;
+          bestMatch = { id: f.id, referencia: f.numero, nombre: f.cliente_nombre, importe: f.total };
+          bestTipo = 'factura';
+        }
+      }
+    }
+
+    // Match con gastos (pagos salientes: importe < 0)
+    if (importe < 0) {
+      const importeAbs = Math.abs(importe);
+      for (const g of gastosPendientes) {
+        let confianza = 0;
+        if (Math.abs(importeAbs - Number(g.total)) < 0.01) confianza += 0.40;
+        if (g.proveedor && tx.concepto?.toUpperCase().includes(g.proveedor.toUpperCase())) confianza += 0.30;
+        if (g.concepto && tx.concepto?.toUpperCase().includes(g.concepto.toUpperCase())) confianza += 0.20;
+        const diasDiff = Math.abs((new Date(tx.fecha) - new Date(g.fecha_compra)) / 86400000);
+        if (diasDiff <= 7) confianza += 0.10;
+
+        if (confianza > bestConfianza) {
+          bestConfianza = confianza;
+          bestMatch = { id: g.id, referencia: g.concepto, nombre: g.proveedor, importe: g.total };
+          bestTipo = 'gasto';
+        }
+      }
+    }
+
+    const confianzaPct = Math.round(bestConfianza * 100);
+
+    if (bestMatch && confianzaPct >= 85 && auto_match) {
+      // Auto-match
+      try {
+        if (bestTipo === 'factura') {
+          const result = await matchPagoBanco({ bank_transaction_id: tx.id, factura_id: bestMatch.id }, empresaId);
+          if (result.success) {
+            resultados.matches_automaticos.push({
+              movimiento: { fecha: tx.fecha, importe, concepto: tx.concepto },
+              match: bestMatch,
+              confianza: confianzaPct
+            });
+          }
+        } else {
+          // Para gastos solo marcamos el movimiento
+          await sql`
+            UPDATE bank_transactions_180
+            SET estado_match = 'matched', purchase_id = ${bestMatch.id},
+                confianza_match = ${bestConfianza},
+                match_detalles = ${JSON.stringify({ tipo: 'gasto', proveedor: bestMatch.nombre, importe_gasto: bestMatch.importe })}
+            WHERE id = ${tx.id}
+          `;
+          await sql`UPDATE purchases_180 SET pagado = true WHERE id = ${bestMatch.id}`;
+          resultados.matches_automaticos.push({
+            movimiento: { fecha: tx.fecha, importe, concepto: tx.concepto },
+            match: bestMatch,
+            tipo: 'gasto',
+            confianza: confianzaPct
+          });
+        }
+      } catch (err) {
+        resultados.errores.push({ movimiento_id: tx.id, error: err.message });
+      }
+    } else if (bestMatch && confianzaPct >= 50) {
+      resultados.sugerencias_revisar.push({
+        movimiento_id: tx.id,
+        fecha: tx.fecha, importe, concepto: tx.concepto,
+        match_sugerido: bestMatch,
+        tipo: bestTipo,
+        confianza: confianzaPct
+      });
+    } else {
+      resultados.sin_match.push({
+        movimiento_id: tx.id,
+        fecha: tx.fecha, importe, concepto: tx.concepto
+      });
+    }
+  }
+
+  resultados.resumen = {
+    automaticos: resultados.matches_automaticos.length,
+    para_revisar: resultados.sugerencias_revisar.length,
+    sin_match: resultados.sin_match.length,
+    errores: resultados.errores.length
+  };
+
+  return resultados;
 }
 
 // ============================
@@ -3441,7 +4241,18 @@ SOBRE APP180 (lo que puedes hacer):
 
 📈 REPORTES Y FISCAL:
 - Rentabilidad: por cliente, empleado o global
-- Modelos fiscales: 303 (IVA), 130 (IRPF autónomos), 111 (retenciones nóminas) — BORRADORES que debe revisar un asesor fiscal
+- Desviación: horas reales vs facturado, por cliente o empleado
+- Exportar datos de cualquier módulo (facturas, clientes, empleados, gastos, nóminas, pagos, trabajos)
+- Modelos fiscales: 303 (IVA), 130 (IRPF autónomos), 111 (retenciones nóminas), 115 (alquileres), 349 (intracomunitarias) — BORRADORES que debe revisar un asesor fiscal
+- Libros registro: ventas, gastos, nóminas — por trimestre o rango de fechas
+- Modelos fiscales ya calculados: consultar historial
+- Alertas fiscales: plazos de presentación, advertencias de datos incompletos
+
+🏦 BANCO:
+- Consultar movimientos bancarios importados
+- Sugerir matches automáticos entre movimientos y facturas/gastos
+- Aplicar match manual (movimiento → factura)
+- Reconciliación completa de un periodo: cruza todos los pendientes y aplica matches automáticos si la confianza es >= 85%
 
 📎 DOCUMENTOS (cuando el usuario adjunta un PDF/imagen):
 - Si el documento contiene un QR de factura (VeriFactu, TicketBAI), los datos del QR aparecerán en el mensaje.
@@ -3485,7 +4296,20 @@ CUÁNDO USAR HERRAMIENTAS:
 - Archivos → listar_archivos
 - Auditoría → consultar_audit_log, consultar_estadisticas_audit
 - Rentabilidad → reporte_rentabilidad
-- Modelo 303/130/111 → calcular_modelo_fiscal
+- Desviación horas → reporte_desviacion
+- Exportar datos → exportar_modulo
+- Modelo 303/130/111/115/349 → calcular_modelo_fiscal
+- Modelos ya calculados → consultar_modelos_fiscales
+- Libro de ventas → consultar_libro_ventas
+- Libro de gastos → consultar_libro_gastos
+- Libro de nóminas → consultar_libro_nominas
+- Plazos fiscales → alertas_fiscales
+- Excepciones jornada → crear_excepcion_jornada
+- Cambiar config empresa → actualizar_configuracion
+- Borrar archivo → eliminar_archivo
+- Movimientos banco → consultar_movimientos_banco
+- Match bancario → match_pago_banco / sugerir_matches_banco
+- Reconciliar extracto → reconciliar_extracto
 
 RESOLUCIÓN AUTOMÁTICA DE NOMBRES:
 - Puedes usar nombre_cliente en vez de cliente_id en CUALQUIER herramienta. El sistema buscará automáticamente el ID.
@@ -3607,7 +4431,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       'facturar_trabajos_pendientes', 'configurar_facturacion_qr',
       'crear_fichaje_manual', 'validar_fichaje', 'crear_plantilla', 'asignar_plantilla',
       'crear_nomina', 'validar_parte_dia', 'crear_conocimiento', 'actualizar_conocimiento',
-      'eliminar_conocimiento', 'match_pago_banco'
+      'eliminar_conocimiento', 'match_pago_banco', 'crear_excepcion_jornada',
+      'actualizar_configuracion', 'eliminar_archivo', 'reconciliar_extracto'
     ]);
     let accionRealizada = false;
 
