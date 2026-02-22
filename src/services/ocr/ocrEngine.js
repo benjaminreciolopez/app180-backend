@@ -43,10 +43,23 @@ async function convertPdfToImage(pdfBuffer) {
 /**
  * Extrae texto de TODAS las páginas de un PDF (para extractos bancarios)
  */
-export async function extractFullPdfText(buffer, maxPages = 20) {
+export async function extractFullPdfText(buffer, maxPages = 20, password = null) {
   const data = new Uint8Array(buffer);
-  const loadingTask = pdfjs.getDocument({ data });
-  const pdf = await loadingTask.promise;
+  const opts = { data };
+  if (password) opts.password = password;
+  const loadingTask = pdfjs.getDocument(opts);
+  let pdf;
+  try {
+    pdf = await loadingTask.promise;
+  } catch (err) {
+    if (err?.name === "PasswordException") {
+      const e = new Error("El PDF está protegido con contraseña. Introduce la contraseña para continuar.");
+      e.code = "PDF_PASSWORD_REQUIRED";
+      e.status = 400;
+      throw e;
+    }
+    throw err;
+  }
   let fullText = "";
   const numPages = Math.min(pdf.numPages, maxPages);
   for (let i = 1; i <= numPages; i++) {

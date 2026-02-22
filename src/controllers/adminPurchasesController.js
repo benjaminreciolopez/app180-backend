@@ -566,7 +566,8 @@ export async function bankImportPreview(req, res) {
             else if (textLower.includes("bankinter")) bankName = "Bankinter";
 
         } else if (isPDF) {
-            const fullText = await extractFullPdfText(file.buffer, 20);
+            const password = req.body?.password || null;
+            const fullText = await extractFullPdfText(file.buffer, 20, password);
             if (fullText.length < 30) {
                 return res.status(400).json({ error: "No se pudo extraer texto del PDF. Puede ser un documento escaneado." });
             }
@@ -692,7 +693,10 @@ Responde SOLO un JSON array:
         });
     } catch (error) {
         console.error("[BankImport] Error preview:", error);
-        res.status(500).json({ error: error.message || "Error al procesar el extracto bancario." });
+        if (error.code === "PDF_PASSWORD_REQUIRED") {
+            return res.status(400).json({ error: error.message, code: "PDF_PASSWORD_REQUIRED" });
+        }
+        res.status(error.status || 500).json({ error: error.message || "Error al procesar el extracto bancario." });
     }
 }
 
