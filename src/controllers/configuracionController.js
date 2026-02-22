@@ -352,12 +352,47 @@ export async function updateSistemaConfig(req, res) {
 
         console.log("📝 Update Sistema Config:", { empresaId, ...data });
 
+        // --- Validacion VeriFactu modo ---
+        if (data.verifactu_modo !== undefined) {
+            const nuevoModo = data.verifactu_modo;
+
+            // Obtener tipo_contribuyente de la empresa
+            const [emp] = await sql`SELECT tipo_contribuyente FROM empresa_180 WHERE id=${empresaId}`;
+            const tipo = emp?.tipo_contribuyente || 'autonomo';
+            const deadline = tipo === 'sociedad' ? new Date('2027-01-01') : new Date('2027-07-01');
+            const ahora = new Date();
+
+            // Regla 1: Si pasó el deadline, solo PRODUCCION permitido
+            if (ahora >= deadline && (nuevoModo === 'OFF' || nuevoModo === 'TEST')) {
+                const fechaStr = tipo === 'sociedad' ? '1 de enero de 2027' : '1 de julio de 2027';
+                return res.status(400).json({
+                    success: false,
+                    error: `Desde el ${fechaStr}, VeriFactu es obligatorio para ${tipo === 'sociedad' ? 'sociedades' : 'autónomos'}. No puedes desactivarlo.`
+                });
+            }
+
+            // Regla 2: Si hay facturas emitidas con VeriFactu, no se puede volver a OFF/TEST
+            if (nuevoModo === 'OFF' || nuevoModo === 'TEST') {
+                const [reg] = await sql`
+                    SELECT COUNT(*)::int as total FROM registroverifactu_180
+                    WHERE empresa_id=${empresaId}
+                `;
+                if (reg && reg.total > 0) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `No puedes cambiar a ${nuevoModo}. Ya has emitido ${reg.total} factura(s) con VeriFactu registradas en la AEAT. Este cambio es irreversible.`,
+                        es_irreversible: true
+                    });
+                }
+            }
+        }
+
         const [exists] = await sql`select id from configuracionsistema_180 where empresa_id=${empresaId}`;
         let result;
 
         if (exists) {
             [result] = await sql`
-                update configuracionsistema_180 set 
+                update configuracionsistema_180 set
                     verifactu_activo=${Boolean(data.verifactu_activo)},
                     verifactu_modo=${data.verifactu_modo || 'OFF'},
                     ticket_bai_activo=${Boolean(data.ticket_bai_activo)},
@@ -531,5 +566,74 @@ export async function ocrMigracion(req, res) {
     } catch (err) {
         console.error("❌ Error en ocrMigracion:", err);
         res.status(500).json({ success: false, error: "Error al procesar el OCR de la factura" });
+    }
+}
+
+/**
+ * GET /admin/facturacion/configuracion/verifactu/status
+ * Estado completo de VeriFactu: modo actual, modos disponibles, deadline, irreversibilidad
+ */
+export async function getVerifactuStatus(req, res) {
+    try {
+        const empresaId = await getEmpresaId(req.user.id);
+
+        // Obtener tipo contribuyente
+        const [emp] = await sql`SELECT tipo_contribuyente FROM empresa_180 WHERE id=${empresaId}`;
+        const tipo = emp?.tipo_contribuyente || 'autonomo';
+
+        // Obtener config actual
+        const [cfg] = await sql`SELECT verifactu_activo, verifactu_modo FROM configuracionsistema_180 WHERE empresa_id=${empresaId}`;
+        const modoActual = cfg?.verifactu_modo || 'OFF';
+
+        // Contar facturas emitidas con VeriFactu
+        const [reg] = await sql`SELECT COUNT(*)::int as total FROM registroverifactu_180 WHERE empresa_id=${empresaId}`;
+        const facturasVerifactu = reg?.total || 0;
+
+        // Calcular deadline segun tipo
+        const deadline = tipo === 'sociedad' ? new Date('2027-01-01') : new Date('2027-07-01');
+        const ahora = new Date();
+        const diasRestantes = Math.max(0, Math.ceil((deadline - ahora) / (1000 * 60 * 60 * 24)));
+        const pasadoDeadline = ahora >= deadline;
+
+        // Determinar modos disponibles
+        const esIrreversible = facturasVerifactu > 0;
+        let modosDisponibles = [];
+
+        if (pasadoDeadline) {
+            modosDisponibles = ['PRODUCCION'];
+        } else if (esIrreversible) {
+            modosDisponibles = ['PRODUCCION'];
+        } else {
+            modosDisponibles = ['OFF', 'TEST', 'PRODUCCION'];
+        }
+
+        // Nivel de alerta
+        let alerta = null;
+        if (pasadoDeadline && modoActual !== 'PRODUCCION') {
+            alerta = 'critico';
+        } else if (diasRestantes <= 30) {
+            alerta = 'rojo';
+        } else if (diasRestantes <= 90) {
+            alerta = 'amarillo';
+        }
+
+        res.json({
+            success: true,
+            data: {
+                modo_actual: modoActual,
+                verifactu_activo: cfg?.verifactu_activo || false,
+                tipo_contribuyente: tipo,
+                modos_disponibles: modosDisponibles,
+                deadline: deadline.toISOString().split('T')[0],
+                dias_restantes: diasRestantes,
+                pasado_deadline: pasadoDeadline,
+                facturas_verifactu: facturasVerifactu,
+                es_irreversible: esIrreversible,
+                alerta
+            }
+        });
+    } catch (err) {
+        console.error("Error en getVerifactuStatus:", err);
+        res.status(500).json({ success: false, error: "Error obteniendo estado VeriFactu" });
     }
 }

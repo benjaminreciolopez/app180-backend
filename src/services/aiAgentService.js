@@ -4363,20 +4363,64 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const memoriaReciente = await cargarMemoria(empresaId, userId, 3);
 
     // ==========================================
-    // CONTROL DE TOKENS (SISTEMA DE CRÉDITOS)
+    // CONTROL DE CONSULTAS IA (SISTEMA DE CRÉDITOS)
     // ==========================================
     const [empresaCfg] = await sql`
-      SELECT c.ai_tokens, e.user_id as creator_id
+      SELECT c.ai_consultas_hoy, c.ai_consultas_mes, c.ai_consultas_fecha,
+             c.ai_consultas_mes_reset, c.ai_limite_diario, c.ai_limite_mensual,
+             c.ai_creditos_extra, c.ai_tokens,
+             e.user_id as creator_id, e.es_vip
       FROM empresa_config_180 c
       JOIN empresa_180 e ON c.empresa_id = e.id
       WHERE c.empresa_id = ${empresaId}
     `;
 
     const esCreador = empresaCfg?.creator_id === userId;
-    const tokensDisponibles = empresaCfg?.ai_tokens || 0;
+    const esVip = empresaCfg?.es_vip === true;
+    const hoyStr = new Date().toISOString().split('T')[0];
+    const mesActualStr = hoyStr.substring(0, 7) + '-01';
 
-    if (!esCreador && tokensDisponibles <= 0) {
-      return { mensaje: "Has agotado tu saldo de tokens de IA para este periodo. Contacta con soporte para ampliar tu plan." };
+    // Reset diario si cambió el día
+    let consultasHoy = empresaCfg?.ai_consultas_hoy || 0;
+    let consultasMes = empresaCfg?.ai_consultas_mes || 0;
+    if (empresaCfg?.ai_consultas_fecha?.toISOString?.()?.split('T')[0] !== hoyStr &&
+        String(empresaCfg?.ai_consultas_fecha) !== hoyStr) {
+      consultasHoy = 0;
+    }
+    // Reset mensual si cambió el mes
+    const mesResetStr = empresaCfg?.ai_consultas_mes_reset?.toISOString?.()?.split('T')[0] ||
+                        String(empresaCfg?.ai_consultas_mes_reset || '');
+    if (!mesResetStr.startsWith(hoyStr.substring(0, 7))) {
+      consultasMes = 0;
+    }
+
+    const limiteDiario = empresaCfg?.ai_limite_diario || 10;
+    const limiteMensual = empresaCfg?.ai_limite_mensual || 300;
+    const creditosExtra = empresaCfg?.ai_creditos_extra || 0;
+
+    // Verificar límites (creador y VIP no tienen límites)
+    if (!esCreador && !esVip) {
+      const superaDiario = consultasHoy >= limiteDiario;
+      const superaMensual = consultasMes >= limiteMensual;
+
+      if (superaDiario && creditosExtra <= 0) {
+        return {
+          mensaje: `Has alcanzado tu límite de ${limiteDiario} consultas diarias. Puedes recargar créditos desde tu perfil para seguir usando CONTENDO.`,
+          limite_alcanzado: true,
+          tipo_limite: 'diario',
+          consultas_hoy: consultasHoy,
+          limite_diario: limiteDiario
+        };
+      }
+      if (superaMensual && creditosExtra <= 0) {
+        return {
+          mensaje: `Has alcanzado tu límite de ${limiteMensual} consultas mensuales. Puedes recargar créditos desde tu perfil para seguir usando CONTENDO.`,
+          limite_alcanzado: true,
+          tipo_limite: 'mensual',
+          consultas_mes: consultasMes,
+          limite_mensual: limiteMensual
+        };
+      }
     }
 
     // Obtener nombre del usuario para contexto
@@ -4489,18 +4533,18 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const respuestaFinal = textBlocks.map(b => b.text).join("\n") || "No pude generar una respuesta.";
     await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFinal);
 
-    // Descontar tokens si no es el creador
-    if (!esCreador) {
-      const tokensUsados = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
-      if (tokensUsados > 0) {
-        await sql`
-          UPDATE empresa_config_180
-          SET ai_tokens = GREATEST(0, ai_tokens - ${tokensUsados})
-          WHERE empresa_id = ${empresaId}
-        `;
-        console.log(`[AI] Tokens descontados: ${tokensUsados}. Empresa: ${empresaId}`);
-      }
-    }
+    // Incrementar contadores de consultas (incluso para creador, para estadísticas)
+    const usaCredito = !esCreador && !esVip && consultasHoy >= limiteDiario;
+    await sql`
+      UPDATE empresa_config_180
+      SET ai_consultas_hoy = ${consultasHoy + 1},
+          ai_consultas_mes = ${consultasMes + 1},
+          ai_consultas_fecha = ${hoyStr}::date,
+          ai_consultas_mes_reset = ${mesActualStr}::date
+          ${usaCredito ? sql`, ai_creditos_extra = GREATEST(0, ai_creditos_extra - 1)` : sql``}
+      WHERE empresa_id = ${empresaId}
+    `;
+    console.log(`[AI] Consulta #${consultasHoy + 1}/${limiteDiario} (mes: ${consultasMes + 1}/${limiteMensual})${usaCredito ? ' [crédito extra]' : ''}. Empresa: ${empresaId}`);
 
     return { mensaje: respuestaFinal, accion_realizada: accionRealizada };
 

@@ -41,6 +41,15 @@ export async function chat(req, res) {
       historial: historial || []
     });
 
+    // Si se alcanzo el limite, devolver 429
+    if (respuesta.limite_alcanzado) {
+      return res.status(429).json({
+        error: respuesta.mensaje,
+        limite_alcanzado: true,
+        tipo_limite: respuesta.tipo_limite
+      });
+    }
+
     res.json({
       mensaje: respuesta.mensaje,
       timestamp: new Date().toISOString(),
@@ -140,6 +149,15 @@ export async function chatWithFile(req, res) {
       historial
     });
 
+    // Si se alcanzo el limite, devolver 429
+    if (respuesta.limite_alcanzado) {
+      return res.status(429).json({
+        error: respuesta.mensaje,
+        limite_alcanzado: true,
+        tipo_limite: respuesta.tipo_limite
+      });
+    }
+
     res.json({
       mensaje: respuesta.mensaje,
       timestamp: new Date().toISOString(),
@@ -153,6 +171,60 @@ export async function chatWithFile(req, res) {
     res.status(500).json({
       error: error.message || "Error al procesar el archivo"
     });
+  }
+}
+
+/**
+ * GET /admin/ai/usage
+ * Devuelve el estado de consumo de IA del usuario
+ */
+export async function usage(req, res) {
+  try {
+    const userId = req.user.id;
+    const empresaId = await getEmpresaId(userId);
+    const hoyStr = new Date().toISOString().split('T')[0];
+
+    const [cfg] = await sql`
+      SELECT c.ai_consultas_hoy, c.ai_consultas_mes, c.ai_consultas_fecha,
+             c.ai_consultas_mes_reset, c.ai_limite_diario, c.ai_limite_mensual,
+             c.ai_creditos_extra, e.user_id as creator_id, e.es_vip
+      FROM empresa_config_180 c
+      JOIN empresa_180 e ON c.empresa_id = e.id
+      WHERE c.empresa_id = ${empresaId}
+    `;
+
+    const esCreador = cfg?.creator_id === userId;
+    const esVip = cfg?.es_vip === true;
+
+    // Ajustar si el día/mes cambió
+    let consultasHoy = cfg?.ai_consultas_hoy || 0;
+    let consultasMes = cfg?.ai_consultas_mes || 0;
+    const fechaStr = cfg?.ai_consultas_fecha?.toISOString?.()?.split('T')[0] ||
+                     String(cfg?.ai_consultas_fecha || '');
+    if (fechaStr !== hoyStr) consultasHoy = 0;
+    const mesResetStr = cfg?.ai_consultas_mes_reset?.toISOString?.()?.split('T')[0] ||
+                        String(cfg?.ai_consultas_mes_reset || '');
+    if (!mesResetStr.startsWith(hoyStr.substring(0, 7))) consultasMes = 0;
+
+    const limiteDiario = cfg?.ai_limite_diario || 10;
+    const limiteMensual = cfg?.ai_limite_mensual || 300;
+    const creditosExtra = cfg?.ai_creditos_extra || 0;
+
+    res.json({
+      consultas_hoy: consultasHoy,
+      limite_diario: limiteDiario,
+      consultas_mes: consultasMes,
+      limite_mensual: limiteMensual,
+      creditos_extra: creditosExtra,
+      es_vip: esVip,
+      es_creador: esCreador,
+      sin_limites: esCreador || esVip,
+      pct_diario: Math.min(100, Math.round((consultasHoy / limiteDiario) * 100)),
+      pct_mensual: Math.min(100, Math.round((consultasMes / limiteMensual) * 100))
+    });
+  } catch (error) {
+    console.error("[AI Controller] Error en usage:", error);
+    res.status(500).json({ error: error.message });
   }
 }
 

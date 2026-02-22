@@ -59,6 +59,8 @@ router.get("/configuracion/sistema", configuracionController.getSistemaConfig);
 router.put("/configuracion/sistema", configuracionController.updateSistemaConfig);
 router.post("/configuracion/generar-texto", configuracionController.generateLegalText);
 
+router.get("/configuracion/verifactu/status", configuracionController.getVerifactuStatus);
+
 import { verifactuEventosController } from "../controllers/verifactuEventosController.js";
 router.get("/configuracion/verifactu/eventos", verifactuEventosController.getEventos);
 router.post("/configuracion/verifactu/eventos", verifactuEventosController.registrarEventoManual);
