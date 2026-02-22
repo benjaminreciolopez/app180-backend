@@ -1,10 +1,10 @@
-import Stripe from "stripe";
 import {
   createCheckoutSession,
   cancelSubscription,
   getSubscriptionInfo,
   getAvailablePlans,
   handleStripeWebhook,
+  getStripe,
 } from "../services/stripeService.js";
 
 /**
@@ -82,8 +82,7 @@ export async function stripeWebhook(req, res) {
 
   let event;
   try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
     console.error("Webhook signature verification failed:", err.message);
     return res.status(400).json({ error: "Firma inválida" });
