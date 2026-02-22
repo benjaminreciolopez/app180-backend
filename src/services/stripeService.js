@@ -1,13 +1,26 @@
 import Stripe from "stripe";
 import { sql } from "../db.js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// Inicialización lazy: Stripe solo se instancia cuando se necesita,
+// evitando que el servidor crashee si STRIPE_SECRET_KEY no está configurada.
+let _stripe = null;
+export function getStripe() {
+  if (!_stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error(
+        "STRIPE_SECRET_KEY no está configurada en las variables de entorno."
+      );
+    }
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  }
+  return _stripe;
+}
 
 /**
  * Crear cliente en Stripe
  */
 export async function createStripeCustomer(empresa) {
-  const customer = await stripe.customers.create({
+  const customer = await getStripe().customers.create({
     email: empresa.email || empresa.nombre,
     name: empresa.nombre,
     metadata: { empresa_id: empresa.id },
@@ -53,7 +66,7 @@ export async function createCheckoutSession(empresaId, planNombre, successUrl, c
   }
 
   // Crear sesión de checkout
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripe().checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
     payment_method_types: ["card"],
@@ -96,7 +109,7 @@ export async function cancelSubscription(empresaId) {
   }
 
   // Cancelar al final del período
-  await stripe.subscriptions.update(empresa.stripe_subscription_id, {
+  await getStripe().subscriptions.update(empresa.stripe_subscription_id, {
     cancel_at_period_end: true,
   });
 
@@ -130,7 +143,7 @@ export async function getSubscriptionInfo(empresaId) {
   let stripeSubscription = null;
   if (empresa.stripe_subscription_id) {
     try {
-      stripeSubscription = await stripe.subscriptions.retrieve(empresa.stripe_subscription_id);
+      stripeSubscription = await getStripe().subscriptions.retrieve(empresa.stripe_subscription_id);
     } catch (e) {
       // Suscripción no encontrada en Stripe
     }
@@ -153,10 +166,10 @@ export async function getSubscriptionInfo(empresaId) {
     vip_motivo: empresa.vip_motivo,
     stripe: stripeSubscription
       ? {
-          current_period_end: new Date(stripeSubscription.current_period_end * 1000),
-          cancel_at_period_end: stripeSubscription.cancel_at_period_end,
-          status: stripeSubscription.status,
-        }
+        current_period_end: new Date(stripeSubscription.current_period_end * 1000),
+        cancel_at_period_end: stripeSubscription.cancel_at_period_end,
+        status: stripeSubscription.status,
+      }
       : null,
   };
 }
