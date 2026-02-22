@@ -121,9 +121,11 @@ app.use(
         "http://localhost:5173",
         "https://app180-frontend.vercel.app",
         "https://app180.vercel.app",
+        "https://contendo.es",
+        "https://www.contendo.es",
       ];
 
-      if (allowed.includes(origin) || origin.endsWith(".vercel.app") || origin.includes("localhost")) {
+      if (allowed.includes(origin) || origin.endsWith(".vercel.app") || origin.endsWith(".contendo.es") || origin.includes("localhost")) {
         return callback(null, true);
       }
 
