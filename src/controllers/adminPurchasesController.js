@@ -1,6 +1,6 @@
 import { sql } from "../db.js";
 import Anthropic from "@anthropic-ai/sdk";
-import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
+import { ocrExtractTextFromUpload, extractFullPdfText } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
 
 const anthropic = new Anthropic({
@@ -445,5 +445,302 @@ export async function getUniqueValues(req, res) {
     } catch (error) {
         console.error("Error getUniqueValues:", error);
         res.status(500).json({ error: "Error al obtener valores únicos" });
+    }
+}
+
+// ============================
+// IMPORTACIÓN BANCARIA
+// ============================
+
+function parseDateDMY(str) {
+    const m = str.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (!m) return null;
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = "20" + y;
+    return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+function parseSpanishNumber(str) {
+    if (!str || typeof str !== "string") return NaN;
+    return parseFloat(str.replace(/\s/g, "").replace(/\./g, "").replace(",", "."));
+}
+
+function classifyDocument(text) {
+    const lower = text.toLowerCase();
+    const bankKeywords = ["extracto", "movimientos", "saldo", "fecha valor", "debe", "haber", "bbva", "santander", "caixabank", "bankinter", "iban", "cuenta corriente", "disponible"];
+    const invoiceKeywords = ["factura", "nif", "base imponible", "iva", "total factura", "cif", "razón social"];
+    const bankScore = bankKeywords.filter(k => lower.includes(k)).length;
+    const invoiceScore = invoiceKeywords.filter(k => lower.includes(k)).length;
+    if (bankScore > invoiceScore) return "bank_statement_pdf";
+    if (invoiceScore > 0) return "invoice";
+    return "bank_statement_pdf"; // default: assume bank statement
+}
+
+function parseBankCSV(buffer) {
+    let text;
+    try {
+        text = buffer.toString("utf-8");
+        if (text.includes("�")) text = buffer.toString("latin1");
+    } catch {
+        text = buffer.toString("latin1");
+    }
+
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    const separator = lines.some(l => l.split(";").length > 3) ? ";" : ",";
+
+    // Find header row
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(lines.length, 15); i++) {
+        const lower = lines[i].toLowerCase();
+        if ((lower.includes("fecha") && (lower.includes("concepto") || lower.includes("importe") || lower.includes("movimiento"))) ||
+            (lower.includes("date") && lower.includes("amount"))) {
+            headerIdx = i;
+            break;
+        }
+    }
+    if (headerIdx === -1) throw new Error("No se detectó la cabecera del CSV. Asegúrate de que el archivo tiene columnas como Fecha, Concepto, Importe.");
+
+    const headers = lines[headerIdx].split(separator).map(h => h.trim().toLowerCase().replace(/"/g, ""));
+    const fechaCol = headers.findIndex(h => h.includes("fecha") && !h.includes("valor"));
+    const conceptoCol = headers.findIndex(h => h.includes("concepto") || h.includes("descripci"));
+    const importeCol = headers.findIndex(h => h.includes("importe") || h.includes("movimiento") || h.includes("amount"));
+    const saldoCol = headers.findIndex(h => h.includes("saldo") || h.includes("disponible"));
+
+    if (fechaCol === -1 || importeCol === -1) throw new Error("No se encontraron las columnas de Fecha e Importe en el CSV.");
+
+    const transactions = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+        const cols = lines[i].split(separator).map(c => c.trim().replace(/^"|"$/g, ""));
+        if (cols.length < 3) continue;
+
+        const fechaRaw = cols[fechaCol];
+        const concepto = conceptoCol >= 0 ? cols[conceptoCol] : "Movimiento bancario";
+        const importeRaw = cols[importeCol];
+
+        if (!fechaRaw || !importeRaw) continue;
+        const fecha = parseDateDMY(fechaRaw);
+        if (!fecha) continue;
+
+        const importe = parseSpanishNumber(importeRaw);
+        if (isNaN(importe)) continue;
+
+        const saldo = saldoCol >= 0 ? parseSpanishNumber(cols[saldoCol]) : null;
+
+        transactions.push({
+            idx: transactions.length,
+            fecha,
+            concepto: concepto || "Movimiento bancario",
+            importe,
+            saldo: isNaN(saldo) ? null : saldo,
+            es_gasto: importe < 0,
+            total_abs: Math.round(Math.abs(importe) * 100) / 100
+        });
+    }
+    return transactions;
+}
+
+/**
+ * POST /api/admin/purchases/bank-import — Preview de extracto bancario
+ */
+export async function bankImportPreview(req, res) {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: "No se subió ningún archivo" });
+        const { empresa_id } = req.user;
+
+        const mime = file.mimetype || "";
+        const name = (file.originalname || "").toLowerCase();
+        const isCSV = mime.includes("csv") || name.endsWith(".csv") || (mime === "text/plain" && name.endsWith(".csv"));
+        const isPDF = mime.includes("pdf") || name.endsWith(".pdf");
+
+        let transactions = [];
+        let documentType, bankName = "desconocido";
+
+        if (isCSV) {
+            documentType = "bank_statement_csv";
+            transactions = parseBankCSV(file.buffer);
+            const textLower = file.buffer.toString("utf-8").toLowerCase();
+            if (textLower.includes("bbva")) bankName = "BBVA";
+            else if (textLower.includes("santander")) bankName = "Santander";
+            else if (textLower.includes("caixabank") || textLower.includes("caixa")) bankName = "CaixaBank";
+            else if (textLower.includes("bankinter")) bankName = "Bankinter";
+
+        } else if (isPDF) {
+            const fullText = await extractFullPdfText(file.buffer, 20);
+            if (fullText.length < 30) {
+                return res.status(400).json({ error: "No se pudo extraer texto del PDF. Puede ser un documento escaneado." });
+            }
+
+            documentType = classifyDocument(fullText);
+
+            if (documentType === "invoice") {
+                return res.json({ success: true, document_type: "invoice", redirect_ocr: true });
+            }
+
+            // Parse bank statement with Claude
+            const bankPrompt = `Eres un experto financiero español. Extrae TODOS los movimientos bancarios de este extracto de cuenta.
+
+INSTRUCCIONES:
+1. Extrae CADA línea de movimiento individual.
+2. Fecha: Formato YYYY-MM-DD.
+3. Concepto: El texto descriptivo del movimiento.
+4. Importe: Negativo para cargos/gastos, positivo para abonos/ingresos.
+5. Saldo: Si está disponible, el saldo tras el movimiento.
+
+Responde EXCLUSIVAMENTE un JSON:
+{
+  "bank_name": string,
+  "movements": [
+    { "fecha": "YYYY-MM-DD", "concepto": string, "importe": number, "saldo": number | null }
+  ]
+}`;
+
+            const response = await anthropic.messages.create({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 4096,
+                system: bankPrompt,
+                messages: [{ role: "user", content: `Extracto bancario:\n${fullText}` }]
+            });
+
+            const textContent = response.content.find(b => b.type === "text")?.text || "{}";
+            const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+            const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
+            bankName = parsed.bank_name || "desconocido";
+
+            transactions = (parsed.movements || []).map((m, i) => ({
+                idx: i,
+                fecha: m.fecha,
+                concepto: m.concepto || "Movimiento",
+                importe: m.importe,
+                saldo: m.saldo,
+                es_gasto: m.importe < 0,
+                total_abs: Math.round(Math.abs(m.importe) * 100) / 100
+            }));
+        } else {
+            return res.status(400).json({ error: "Formato no soportado. Sube un CSV o PDF." });
+        }
+
+        // Duplicate detection
+        for (const tx of transactions) {
+            tx.es_duplicado = false;
+            tx.duplicado_id = null;
+            const [existing] = await sql`
+                SELECT id FROM purchases_180
+                WHERE empresa_id = ${empresa_id}
+                AND total = ${tx.total_abs}
+                AND fecha_compra = ${tx.fecha}
+                AND activo = true
+                LIMIT 1
+            `;
+            if (existing) {
+                tx.es_duplicado = true;
+                tx.duplicado_id = existing.id;
+            }
+        }
+
+        // AI enrichment: suggest proveedor and category
+        const gastosParaEnriquecer = transactions.filter(t => t.es_gasto).slice(0, 50);
+        if (gastosParaEnriquecer.length > 0 && process.env.ANTHROPIC_API_KEY) {
+            try {
+                const enrichPrompt = `Para cada movimiento bancario, sugiere un nombre de proveedor corto y una categoría.
+Categorías válidas: suministros, alquiler, telefonia, seguros, material, transporte, formacion, publicidad, software, comisiones_bancarias, impuestos, general.
+
+Movimientos:
+${gastosParaEnriquecer.map((t, i) => `${i}. "${t.concepto}" (${t.total_abs}€)`).join("\n")}
+
+Responde SOLO un JSON array:
+[{ "idx": number, "proveedor": string, "categoria": string }]`;
+
+                const enrichResp = await anthropic.messages.create({
+                    model: "claude-haiku-4-5-20251001",
+                    max_tokens: 2048,
+                    messages: [{ role: "user", content: enrichPrompt }]
+                });
+                const enrichText = enrichResp.content.find(b => b.type === "text")?.text || "[]";
+                const enrichMatch = enrichText.match(/\[[\s\S]*\]/);
+                const enriched = JSON.parse(enrichMatch ? enrichMatch[0] : "[]");
+
+                for (const e of enriched) {
+                    const tx = gastosParaEnriquecer[e.idx];
+                    if (tx) {
+                        tx.proveedor_sugerido = e.proveedor || "";
+                        tx.categoria_sugerida = e.categoria || "general";
+                    }
+                }
+            } catch (err) {
+                console.warn("[BankImport] Error enriching:", err.message);
+            }
+        }
+
+        const gastos = transactions.filter(t => t.es_gasto);
+        const ingresos = transactions.filter(t => !t.es_gasto);
+
+        res.json({
+            success: true,
+            document_type: documentType,
+            bank_name: bankName,
+            transactions,
+            resumen: {
+                total_movimientos: transactions.length,
+                total_gastos: gastos.length,
+                total_ingresos: ingresos.length,
+                suma_gastos: Math.round(gastos.reduce((s, t) => s + t.importe, 0) * 100) / 100,
+                periodo: transactions.length > 0
+                    ? `${transactions[transactions.length - 1].fecha} — ${transactions[0].fecha}`
+                    : null
+            }
+        });
+    } catch (error) {
+        console.error("[BankImport] Error preview:", error);
+        res.status(500).json({ error: error.message || "Error al procesar el extracto bancario." });
+    }
+}
+
+/**
+ * POST /api/admin/purchases/bank-import/confirm — Importar transacciones seleccionadas
+ */
+export async function bankImportConfirm(req, res) {
+    try {
+        const { empresa_id } = req.user;
+        const { transactions, source_file_name } = req.body;
+
+        if (!Array.isArray(transactions) || transactions.length === 0) {
+            return res.status(400).json({ error: "No hay transacciones para importar" });
+        }
+
+        const imported = [];
+        const errors = [];
+
+        for (const tx of transactions) {
+            try {
+                const fecha = tx.fecha_compra;
+                const anio = new Date(fecha).getFullYear();
+                const trimestre = getTrimestre(fecha);
+
+                const [newPurchase] = await sql`
+                    INSERT INTO purchases_180 (
+                        empresa_id, proveedor, descripcion, total, fecha_compra,
+                        categoria, metodo_pago, base_imponible, iva_importe, iva_porcentaje,
+                        anio, trimestre, numero_factura, ocr_data, activo
+                    ) VALUES (
+                        ${empresa_id}, ${tx.proveedor || null}, ${tx.descripcion},
+                        ${tx.total}, ${fecha},
+                        ${tx.categoria || 'general'}, ${tx.metodo_pago || 'domiciliacion'},
+                        ${tx.base_imponible || tx.total}, ${tx.iva_importe || 0}, ${tx.iva_porcentaje || 0},
+                        ${anio}, ${trimestre}, ${tx.numero_factura || null},
+                        ${JSON.stringify({ origen: "bank_import", source_file: source_file_name || null, concepto_original: tx.concepto_original || null })},
+                        true
+                    ) RETURNING id
+                `;
+                imported.push(newPurchase.id);
+            } catch (e) {
+                errors.push({ descripcion: tx.descripcion, error: e.message });
+            }
+        }
+
+        res.json({ success: true, imported: imported.length, errors });
+    } catch (error) {
+        console.error("[BankImport] Error confirm:", error);
+        res.status(500).json({ error: "Error al importar las transacciones." });
     }
 }
