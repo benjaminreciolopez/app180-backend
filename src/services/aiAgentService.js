@@ -1127,7 +1127,7 @@ async function trabajosPendientesFacturar({ cliente_id }, empresaId) {
   let query = sql`
     SELECT w.id, w.descripcion, w.fecha, w.valor, c.nombre as cliente_nombre
     FROM work_logs_180 w LEFT JOIN clients_180 c ON w.cliente_id = c.id
-    WHERE w.empresa_id = ${empresaId} AND w.factura_id IS NULL
+    WHERE w.empresa_id = ${empresaId} AND w.factura_id IS NULL AND COALESCE(w.estado_pago, 'pendiente') != 'pagado'
   `;
   if (cliente_id) query = sql`${query} AND w.cliente_id = ${cliente_id}`;
   query = sql`${query} ORDER BY w.fecha DESC LIMIT 20`;
@@ -1788,7 +1788,7 @@ async function resumenEjecutivo(_args, empresaId) {
 
   const [clientes] = await sql`SELECT COUNT(*) as total FROM clients_180 WHERE empresa_id = ${empresaId} AND activo = true`;
   const [empleados] = await sql`SELECT COUNT(*) as total FROM employees_180 WHERE empresa_id = ${empresaId} AND activo = true`;
-  const [trabajosPend] = await sql`SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL`;
+  const [trabajosPend] = await sql`SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL AND COALESCE(estado_pago, 'pendiente') != 'pagado'`;
 
   const [vencidas] = await sql`
     SELECT COUNT(*) as total, COALESCE(SUM(total - COALESCE(pagado, 0)), 0) as importe
@@ -1992,7 +1992,7 @@ async function alertasNegocio(_args, empresaId) {
   const [trabajos] = await sql`
     SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor
     FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL
-      AND fecha < NOW() - INTERVAL '15 days'
+      AND COALESCE(estado_pago, 'pendiente') != 'pagado' AND fecha < NOW() - INTERVAL '15 days'
   `;
   if (Number(trabajos.total) > 0) {
     alertas.push({ tipo: "aviso", icono: "🟡", mensaje: `${trabajos.total} trabajos sin facturar (>15 días) por ${Number(trabajos.valor).toFixed(2)} €` });
@@ -2221,6 +2221,7 @@ async function cierreMensual({ mes, anio }, empresaId) {
   const [trabajosPend] = await sql`
     SELECT COUNT(*) as total, COALESCE(SUM(valor), 0) as valor
     FROM work_logs_180 WHERE empresa_id = ${empresaId} AND factura_id IS NULL
+      AND COALESCE(estado_pago, 'pendiente') != 'pagado'
       AND EXTRACT(MONTH FROM fecha) = ${m} AND EXTRACT(YEAR FROM fecha) = ${a}
   `;
 
