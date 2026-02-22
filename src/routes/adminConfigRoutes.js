@@ -8,6 +8,7 @@ import {
   updateEmpresaConfig,
   getDashboardWidgets,
   updateDashboardWidgets,
+  updateTipoContribuyente,
 } from "../controllers/empresaConfigController.js";
 
 const router = Router();
@@ -18,5 +19,6 @@ router.get("/configuracion", getEmpresaConfig);
 router.put("/configuracion", securityAlert("config_change"), updateEmpresaConfig);
 router.get("/configuracion/widgets", getDashboardWidgets);
 router.put("/configuracion/widgets", updateDashboardWidgets);
+router.put("/empresa/tipo-contribuyente", updateTipoContribuyente);
 
 export default router;

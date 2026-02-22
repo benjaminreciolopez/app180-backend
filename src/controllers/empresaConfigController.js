@@ -28,7 +28,9 @@ export async function getEmpresaConfig(req, res) {
     }
 
     let rows = await sql`
-      SELECT c.modulos, c.modulos_mobile, c.ai_tokens, e.user_id as creator_id
+      SELECT c.modulos, c.modulos_mobile, c.ai_tokens, e.user_id as creator_id,
+             c.pin_lock_enabled, c.pin_code, c.pin_timeout_minutes,
+             c.screensaver_enabled, c.screensaver_style
       FROM empresa_config_180 c
       JOIN empresa_180 e ON c.empresa_id = e.id
       WHERE c.empresa_id = ${empresaId}
@@ -68,7 +70,12 @@ export async function getEmpresaConfig(req, res) {
       modulos_mobile: mobile,
       ai_tokens: rows[0]?.ai_tokens || 0,
       es_creador: rows[0]?.creator_id === req.user.id,
-      backup_local_path: sysConfig?.backup_local_path || null
+      backup_local_path: sysConfig?.backup_local_path || null,
+      pin_lock_enabled: rows[0]?.pin_lock_enabled || false,
+      pin_code: rows[0]?.pin_code || null,
+      pin_timeout_minutes: rows[0]?.pin_timeout_minutes || 5,
+      screensaver_enabled: rows[0]?.screensaver_enabled || false,
+      screensaver_style: rows[0]?.screensaver_style || 'clock',
     });
   } catch (err) {
     console.error("❌ getEmpresaConfig:", err);
@@ -94,6 +101,7 @@ export async function updateEmpresaConfig(req, res) {
     const input = req.body.modulos;
     const inputMobile = req.body.modulos_mobile; // puede ser null o objeto
     const backupLocalPath = req.body.backup_local_path ?? null;
+    const pinConfig = req.body.pin_config; // optional PIN settings
 
     if (!input || typeof input !== "object") {
       return res.status(400).json({ error: "Formato inválido" });
@@ -147,6 +155,21 @@ export async function updateEmpresaConfig(req, res) {
           backup_local_path = EXCLUDED.backup_local_path,
           actualizado_en = now(),
           updated_at = now()
+      `;
+    }
+
+    // Guardar PIN config si viene
+    if (pinConfig && typeof pinConfig === 'object') {
+      const timeout = Math.max(1, Math.min(60, parseInt(pinConfig.pin_timeout_minutes) || 5));
+      const style = ['clock', 'logo', 'minimal'].includes(pinConfig.screensaver_style) ? pinConfig.screensaver_style : 'clock';
+      await sql`
+        UPDATE empresa_config_180 SET
+          pin_lock_enabled = ${!!pinConfig.pin_lock_enabled},
+          pin_code = ${pinConfig.pin_code || null},
+          pin_timeout_minutes = ${timeout},
+          screensaver_enabled = ${!!pinConfig.screensaver_enabled},
+          screensaver_style = ${style}
+        WHERE empresa_id = ${empresaId}
       `;
     }
 
@@ -250,5 +273,30 @@ export async function updateDashboardWidgets(req, res) {
   } catch (err) {
     console.error("❌ updateDashboardWidgets:", err);
     res.status(500).json({ error: "Error guardando widgets" });
+  }
+}
+
+/**
+ * PUT /admin/empresa/tipo-contribuyente
+ * Actualiza el tipo de contribuyente (autonomo/sociedad)
+ */
+export async function updateTipoContribuyente(req, res) {
+  try {
+    const userId = req.user.id;
+    const { tipo_contribuyente } = req.body;
+
+    if (!['autonomo', 'sociedad'].includes(tipo_contribuyente)) {
+      return res.status(400).json({ error: "Tipo invalido. Usa 'autonomo' o 'sociedad'." });
+    }
+
+    const [empresa] = await sql`SELECT id FROM empresa_180 WHERE user_id=${userId} LIMIT 1`;
+    if (!empresa) return res.status(404).json({ error: "Empresa no encontrada" });
+
+    await sql`UPDATE empresa_180 SET tipo_contribuyente=${tipo_contribuyente} WHERE id=${empresa.id}`;
+
+    res.json({ success: true, tipo_contribuyente });
+  } catch (err) {
+    console.error("Error updateTipoContribuyente:", err);
+    res.status(500).json({ error: "Error actualizando tipo de contribuyente" });
   }
 }

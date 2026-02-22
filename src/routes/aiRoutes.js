@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
-import { chat, chatWithFile, status } from "../controllers/aiController.js";
+import { chat, chatWithFile, status, usage } from "../controllers/aiController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -15,6 +15,9 @@ router.post("/ai/chat", chat);
 
 // POST /admin/ai/chat-file - Chat con archivo adjunto (QR + OCR)
 router.post("/ai/chat-file", upload.single("file"), chatWithFile);
+
+// GET /admin/ai/usage - Consumo de IA del usuario
+router.get("/ai/usage", usage);
 
 // GET /admin/ai/status - Estado del servicio de IA
 router.get("/ai/status", status);
