@@ -6,6 +6,7 @@ import { roleRequired } from "../middlewares/roleRequired.js";
 import { inviteEmpleado, sendInviteEmail } from "../controllers/authController.js";
 import { updateEmployee } from "../controllers/employeeController.js";
 import { requireModule } from "../middlewares/requireModule.js";
+import { securityAlert } from "../middlewares/securityAlert.js";
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.post(
   "/employees/:id/invite",
   authRequired,
   roleRequired("admin"),
+  securityAlert("new_user"),
   inviteEmpleado,
 );
 

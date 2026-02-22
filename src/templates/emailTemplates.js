@@ -255,3 +255,59 @@ Por favor, no respondas a este mensaje.
     `.trim()
   };
 }
+
+/**
+ * Template de bienvenida para nuevos registros
+ */
+export function getWelcomeEmailTemplate({ nombre, empresa_nombre }) {
+  return {
+    subject: "Bienvenido a CONTENDO GESTIONES",
+    html: `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
+    .container { background-color: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #0f172a; }
+    h1 { color: #0f172a; margin: 0; font-size: 24px; }
+    .highlight { background-color: #f0f9ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; border-radius: 4px; }
+    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 12px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>CONTENDO GESTIONES</h1>
+    </div>
+    <p>Hola <strong>${nombre}</strong>,</p>
+    <p>Tu cuenta para <strong>${empresa_nombre}</strong> ha sido creada correctamente.</p>
+    <div class="highlight">
+      <p><strong>Tu plan actual: Gratis</strong></p>
+      <p>Ya puedes empezar a gestionar tu empresa. Explora los m&oacute;dulos disponibles y configura tu cuenta desde el panel de administraci&oacute;n.</p>
+    </div>
+    <p>Si necesitas m&aacute;s funcionalidades, puedes mejorar tu plan en cualquier momento desde <strong>Configuraci&oacute;n &gt; Suscripci&oacute;n</strong>.</p>
+    <div class="footer">
+      <p>Este es un email autom&aacute;tico de CONTENDO GESTIONES.</p>
+    </div>
+  </div>
+</body>
+</html>
+    `,
+    text: `Hola ${nombre},
+
+Tu cuenta para "${empresa_nombre}" ha sido creada correctamente.
+
+Tu plan actual: Gratis
+
+Ya puedes empezar a gestionar tu empresa. Explora los módulos disponibles y configura tu cuenta desde el panel de administración.
+
+Si necesitas más funcionalidades, puedes mejorar tu plan en cualquier momento desde Configuración > Suscripción.
+
+---
+Este es un email automático de CONTENDO GESTIONES.
+    `.trim()
+  };
+}

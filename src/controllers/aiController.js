@@ -66,12 +66,12 @@ export async function chat(req, res) {
  */
 export async function status(req, res) {
   try {
-    const apiKey = process.env.GROQ_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
 
     res.json({
       disponible: !!apiKey && apiKey.length > 10,
-      modelo: "llama-3.3-70b-versatile",
-      proveedor: "Groq"
+      modelo: "claude-haiku-4-5-20251001",
+      proveedor: "Anthropic"
     });
   } catch (error) {
     console.error("[AI Controller] Error en status:", error);
