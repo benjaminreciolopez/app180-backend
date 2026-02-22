@@ -8,7 +8,9 @@ import {
     actualizarCompra,
     eliminarCompra,
     ocrGasto,
-    getUniqueValues
+    getUniqueValues,
+    bankImportPreview,
+    bankImportConfirm
 } from "../controllers/adminPurchasesController.js";
 import { storageController } from "../controllers/storageController.js";
 
@@ -43,6 +45,18 @@ router.get("/", listarCompras);
  * @desc Procesar OCR para un gasto
  */
 router.post("/ocr", upload.single("file"), ocrGasto);
+
+/**
+ * @route POST /admin/purchases/bank-import
+ * @desc Preview de extracto bancario (CSV o PDF)
+ */
+router.post("/bank-import", upload.single("file"), bankImportPreview);
+
+/**
+ * @route POST /admin/purchases/bank-import/confirm
+ * @desc Confirmar importación de transacciones seleccionadas
+ */
+router.post("/bank-import/confirm", bankImportConfirm);
 
 /**
  * @route POST /admin/purchases

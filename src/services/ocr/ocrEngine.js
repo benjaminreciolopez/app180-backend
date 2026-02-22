@@ -40,6 +40,26 @@ async function convertPdfToImage(pdfBuffer) {
 /**
  * Extrae texto de imágenes o PDFs
  */
+/**
+ * Extrae texto de TODAS las páginas de un PDF (para extractos bancarios)
+ */
+export async function extractFullPdfText(buffer, maxPages = 20) {
+  const data = new Uint8Array(buffer);
+  const loadingTask = pdfjs.getDocument({ data });
+  const pdf = await loadingTask.promise;
+  let fullText = "";
+  const numPages = Math.min(pdf.numPages, maxPages);
+  for (let i = 1; i <= numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    fullText += textContent.items.map(item => item.str).join(" ") + "\n";
+  }
+  return fullText.trim();
+}
+
+/**
+ * Extrae texto de imágenes o PDFs
+ */
 export async function ocrExtractTextFromUpload(file) {
   const mime = file.mimetype || "";
   const original = (file.originalname || "").toLowerCase();
