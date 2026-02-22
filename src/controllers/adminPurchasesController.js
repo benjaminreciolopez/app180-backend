@@ -1,10 +1,10 @@
 import { sql } from "../db.js";
-import Groq from "groq-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
 
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY || ""
+const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY || ""
 });
 
 /**
@@ -16,7 +16,7 @@ function getTrimestre(fechaStr) {
 }
 
 /**
- * OCR para gastos: Extrae texto, usa Groq para estructurar y sube a carpeta dinámica
+ * OCR para gastos: Extrae texto, usa Claude para estructurar y sube a carpeta dinámica
  */
 export async function ocrGasto(req, res) {
     try {
@@ -27,53 +27,55 @@ export async function ocrGasto(req, res) {
         // 1. Extraer texto bruto (Tesseract)
         const rawText = await ocrExtractTextFromUpload(file);
 
-        // 2. Usar Groq para estructurar los datos
-        const completion = await groq.chat.completions.create({
-            model: "llama-3.3-70b-versatile",
+        // 2. Usar Claude para estructurar los datos
+        const systemPrompt = `Eres un experto contable español. Tu tarea es extraer datos de un texto obtenido por OCR de uno o varios tickets/facturas que pueden venir en el mismo documento.
+
+INSTRUCCIONES CRÍTICAS:
+1. Si detectas que hay más de una factura o ticket en el texto, extráelas TODAS como elementos independientes en el array "invoices".
+2. Proveedor: Identifica el nombre legal o comercial.
+3. Fecha: Formato YYYY-MM-DD.
+4. Numero de Factura: Busca 'Nº de factura', 'Factura nº', 'Invoice #', etc.
+5. Base Imponible: El importe antes de impuestos.
+6. IVA: Extrae el porcentaje (ej: 21) y el importe del impuesto.
+7. Total: Importe final con impuestos.
+8. Retención (IRPF): Si existe, el porcentaje e importe.
+9. Descripción: Resumen breve de lo comprado.
+
+Responde EXCLUSIVAMENTE un objeto JSON con este formato:
+{
+    "invoices": [
+        {
+            "proveedor": string,
+            "total": number,
+            "fecha_compra": "YYYY-MM-DD",
+            "descripcion": string,
+            "numero_factura": string,
+            "base_imponible": number,
+            "iva_porcentaje": number,
+            "iva_importe": number,
+            "retencion_porcentaje": number,
+            "retencion_importe": number
+        }
+    ]
+}
+NOTA: base_imponible e iva_importe son OBLIGATORIOS. Si la cuota de IVA no es cero, es IMPRESCINDIBLE que intentes desglosar la base imponible y el importe del IVA.`;
+
+        const response = await anthropic.messages.create({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 2048,
+            system: systemPrompt,
             messages: [
-                {
-                    role: "system",
-                    content: `Eres un experto contable español. Tu tarea es extraer datos de un texto obtenido por OCR de uno o varios tickets/facturas que pueden venir en el mismo documento.
-                    
-                    INSTRUCCIONES CRÍTICAS:
-                    1. Si detectas que hay más de una factura o ticket en el texto, extráelas TODAS como elementos independientes en el array "invoices".
-                    2. Proveedor: Identifica el nombre legal o comercial.
-                    3. Fecha: Formato YYYY-MM-DD.
-                    4. Numero de Factura: Busca 'Nº de factura', 'Factura nº', 'Invoice #', etc.
-                    5. Base Imponible: El importe antes de impuestos.
-                    6. IVA: Extrae el porcentaje (ej: 21) y el importe del impuesto.
-                    7. Total: Importe final con impuestos.
-                    8. Retención (IRPF): Si existe, el porcentaje e importe.
-                    9. Descripción: Resumen breve de lo comprado.
-                    
-                    Responde EXCLUSIVAMENTE un objeto JSON con este formato:
-                    {
-                        "invoices": [
-                            {
-                                "proveedor": string,
-                                "total": number,
-                                "fecha_compra": "YYYY-MM-DD",
-                                "descripcion": string,
-                                "numero_factura": string,
-                                "base_imponible": number (OBLIGATORIO),
-                                "iva_porcentaje": number (ej: 21, 10, 4, 0),
-                                "iva_importe": number (OBLIGATORIO),
-                                "retencion_porcentaje": number,
-                                "retencion_importe": number
-                            }
-                        ]
-                    }
-                    NOTA: Si la cuota de IVA no es cero, es IMPRESCINDIBLE que intentes desglosar la base imponible y el importe del IVA.`
-                },
                 {
                     role: "user",
                     content: `Texto extraído por OCR:\n${rawText}`
                 }
-            ],
-            response_format: { type: "json_object" }
+            ]
         });
 
-        const data = JSON.parse(completion.choices[0].message.content);
+        const textContent = response.content.find(b => b.type === "text")?.text || "{}";
+        // Extraer JSON del texto (puede venir envuelto en ```json ... ```)
+        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+        const data = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
         const { empresa_id } = req.user;
 
         // 3. Verificar duplicados para cada factura extraída

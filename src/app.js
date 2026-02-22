@@ -59,6 +59,8 @@ import adminPurchasesRoutes from "./routes/adminPurchasesRoutes.js";
 import adminFiscalRoutes from "./routes/adminFiscalRoutes.js";
 import nominasRoutes from "./routes/nominasRoutes.js";
 import { verifactuEventosController } from "./controllers/verifactuEventosController.js";
+import subscriptionRoutes from "./routes/subscriptionRoutes.js";
+import { stripeWebhook } from "./controllers/subscriptionController.js";
 
 const app = express();
 
@@ -136,6 +138,9 @@ app.use(
 );
 
 
+// Stripe webhook DEBE ir ANTES de express.json() porque necesita raw body
+app.post("/api/webhook/stripe", express.raw({ type: "application/json" }), stripeWebhook);
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
@@ -206,6 +211,7 @@ app.use("/api/admin", authRequired, adminPartesDiaRoutes);
 app.use("/api/admin/purchases", adminPurchasesRoutes);
 app.use("/api/admin/fiscal", adminFiscalRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
+app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
 
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario

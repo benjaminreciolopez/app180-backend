@@ -1,12 +1,25 @@
-import Groq from "groq-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { sql } from "../db.js";
 import { getCalendarConfig } from "./googleCalendarService.js";
 import { syncToGoogle, syncFromGoogle, syncBidirectional } from "./calendarSyncService.js";
 import { createGoogleEvent, app180ToGoogleEvent } from "./googleCalendarService.js";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY || ""
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY || ""
 });
+
+/**
+ * Convierte tools del formato OpenAI/Groq al formato Anthropic
+ */
+function convertToolsToAnthropic(tools) {
+  return tools.map(t => ({
+    name: t.function.name,
+    description: t.function.description,
+    input_schema: t.function.parameters || { type: "object", properties: {} }
+  }));
+}
+
+const ANTHROPIC_TOOLS = null; // Se inicializa lazy
 
 /**
  * Herramientas disponibles para el agente IA
@@ -2384,17 +2397,17 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
   try {
     console.log(`[AI] Chat - Empresa: ${empresaId}, Mensaje: ${mensaje}`);
 
-    if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.length < 10) {
+    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.length < 10) {
       return { mensaje: "El servicio de IA no está configurado. Contacta al administrador." };
     }
 
     const memoriaReciente = await cargarMemoria(empresaId, userId, 3);
 
     // ==========================================
-    // 🛡️ CONTROL DE TOKENS (SISTEMA DE CRÉDITOS)
+    // CONTROL DE TOKENS (SISTEMA DE CRÉDITOS)
     // ==========================================
     const [empresaCfg] = await sql`
-      SELECT c.ai_tokens, e.user_id as creator_id 
+      SELECT c.ai_tokens, e.user_id as creator_id
       FROM empresa_config_180 c
       JOIN empresa_180 e ON c.empresa_id = e.id
       WHERE c.empresa_id = ${empresaId}
@@ -2411,74 +2424,43 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const [userInfo] = await sql`SELECT nombre FROM users_180 WHERE id = ${userId} LIMIT 1`;
     const userName = userInfo?.nombre || null;
 
-    const mensajes = [
-      { role: "system", content: buildSystemPrompt(userRole, { userName, userId }) },
-      ...memoriaReciente,
-      ...historial,
-      { role: "user", content: mensaje }
-    ];
+    const systemPrompt = buildSystemPrompt(userRole, { userName, userId });
+
+    // Convertir historial al formato Anthropic (sin role: "system")
+    const anthropicMessages = [];
+    for (const m of [...memoriaReciente, ...historial]) {
+      if (m.role === "system") continue;
+      if (m.role === "user" || m.role === "assistant") {
+        anthropicMessages.push({ role: m.role, content: m.content });
+      }
+    }
+    anthropicMessages.push({ role: "user", content: mensaje });
+
+    // Convertir tools al formato Anthropic (lazy init)
+    const anthropicTools = convertToolsToAnthropic(TOOLS);
 
     // Primera llamada con tools
     let response;
     try {
-      response = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: mensajes,
-        tools: TOOLS,
-        tool_choice: "auto",
+      response = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: anthropicMessages,
+        tools: anthropicTools,
+        tool_choice: { type: "auto" },
         temperature: 0.3,
-        max_tokens: 1024
       });
     } catch (apiErr) {
-      console.error("[AI] Error API Groq:", apiErr.message);
+      console.error("[AI] Error API Anthropic:", apiErr.message);
 
-      // Intentar recuperar tool calls con tipos incorrectos (ej: string en vez de number)
-      const parsed = parseFailedGeneration(apiErr.message);
-      if (parsed) {
-        console.log(`[AI] Recuperando tool call fallida: ${parsed.name}`, parsed.args);
-        const resultado = await ejecutarHerramienta(parsed.name, parsed.args, empresaId);
-
-        const toolCallId = "recovered_" + Date.now();
-        const toolHistory = [
-          { role: "assistant", content: null, tool_calls: [{ id: toolCallId, type: "function", function: { name: parsed.name, arguments: JSON.stringify(parsed.args) } }] },
-          { role: "tool", tool_call_id: toolCallId, content: JSON.stringify(resultado) }
-        ];
-
-        try {
-          const recoveryResponse = await groq.chat.completions.create({
-            model: "llama-3.3-70b-versatile",
-            messages: [...mensajes, ...toolHistory],
-            tools: TOOLS,
-            tool_choice: "none",
-            temperature: 0.1,
-            max_tokens: 1024
-          });
-          const recoveryMsg = recoveryResponse.choices?.[0]?.message?.content;
-          if (recoveryMsg) {
-            await guardarConversacion(empresaId, userId, userRole, mensaje, recoveryMsg);
-            return { mensaje: recoveryMsg };
-          }
-        } catch (retryErr) {
-          console.error("[AI] Error en recovery:", retryErr.message);
-        }
-      }
-
-      console.log("[AI] Activando modo fallback local...");
+      // Fallback a knowledge base
       const fallback = await consultarConocimiento({ busqueda: mensaje }, empresaId);
       if (fallback.respuesta_directa) {
         await guardarConversacion(empresaId, userId, userRole, mensaje, fallback.respuesta_directa);
         return { mensaje: fallback.respuesta_directa };
       }
       return { mensaje: "No pude procesar tu mensaje en este momento. Inténtalo de nuevo en unos minutos." };
-    }
-
-    let msg = response.choices?.[0]?.message;
-    if (!msg) {
-      const fallback = await consultarConocimiento({ busqueda: mensaje }, empresaId);
-      if (fallback.respuesta_directa) {
-        return { mensaje: fallback.respuesta_directa };
-      }
-      return { mensaje: "No pude procesar tu mensaje." };
     }
 
     // Tools de escritura que modifican datos
@@ -2491,94 +2473,65 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     ]);
     let accionRealizada = false;
 
-    // Procesar tool calls (máximo 3 iteraciones)
+    // Procesar tool calls (máximo 5 iteraciones - Claude es más fiable)
     let iterations = 0;
-    const toolHistory = [];
-    while (msg.tool_calls && msg.tool_calls.length > 0 && iterations < 3) {
+    while (response.stop_reason === "tool_use" && iterations < 5) {
       iterations++;
-      console.log(`[AI] Iteración ${iterations}: ${msg.tool_calls.length} herramientas`);
 
-      toolHistory.push(msg);
-      for (const tc of msg.tool_calls) {
-        let args = {};
-        try {
-          args = JSON.parse(tc.function.arguments || "{}");
-        } catch {
-          args = {};
-        }
-        const resultado = await ejecutarHerramienta(tc.function.name, args, empresaId);
+      // Extraer tool_use blocks de la respuesta
+      const toolUseBlocks = response.content.filter(b => b.type === "tool_use");
+      console.log(`[AI] Iteración ${iterations}: ${toolUseBlocks.length} herramientas`);
 
-        // Detectar si se ejecutó una acción de escritura con éxito
-        if (WRITE_TOOLS.has(tc.function.name) && resultado?.success) {
+      // Añadir respuesta del assistant al historial
+      anthropicMessages.push({ role: "assistant", content: response.content });
+
+      // Ejecutar cada tool y construir tool_results
+      const toolResults = [];
+      for (const toolUse of toolUseBlocks) {
+        const resultado = await ejecutarHerramienta(toolUse.name, toolUse.input || {}, empresaId);
+
+        if (WRITE_TOOLS.has(toolUse.name) && resultado?.success) {
           accionRealizada = true;
         }
 
-        toolHistory.push({
-          role: "tool",
-          tool_call_id: tc.id,
-          content: JSON.stringify(resultado)
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: JSON.stringify(resultado),
         });
       }
 
-      // Llamada con historial completo de herramientas
+      // Añadir resultados como mensaje user
+      anthropicMessages.push({ role: "user", content: toolResults });
+
+      // Siguiente llamada
       try {
-        response = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          messages: [...mensajes, ...toolHistory],
-          tools: TOOLS,
-          tool_choice: "auto",
+        response = await anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: anthropicMessages,
+          tools: anthropicTools,
+          tool_choice: { type: "auto" },
           temperature: 0.1,
-          max_tokens: 1024
         });
       } catch (apiErr) {
-        console.error("[AI] Error API Groq (tool response):", apiErr.message || apiErr);
-
-        // Intentar recuperar tool call con tipos incorrectos
-        const parsed = parseFailedGeneration(apiErr.message || String(apiErr));
-        if (parsed) {
-          console.log(`[AI] Recuperando tool call fallida (loop): ${parsed.name}`, parsed.args);
-          const resultado = await ejecutarHerramienta(parsed.name, parsed.args, empresaId);
-
-          const toolCallId = "recovered_" + Date.now();
-          toolHistory.push(
-            { role: "assistant", content: null, tool_calls: [{ id: toolCallId, type: "function", function: { name: parsed.name, arguments: JSON.stringify(parsed.args) } }] },
-            { role: "tool", tool_call_id: toolCallId, content: JSON.stringify(resultado) }
-          );
-
-          try {
-            response = await groq.chat.completions.create({
-              model: "llama-3.3-70b-versatile",
-              messages: [...mensajes, ...toolHistory],
-              tools: TOOLS,
-              tool_choice: "none",
-              temperature: 0.1,
-              max_tokens: 1024
-            });
-            msg = response.choices?.[0]?.message;
-            if (msg) break;
-          } catch (retryErr) {
-            console.error("[AI] Error en recovery (loop):", retryErr.message);
-          }
-        }
-
+        console.error("[AI] Error API Anthropic (tool loop):", apiErr.message);
         return { mensaje: "Error al procesar los datos. Inténtalo de nuevo." };
-      }
-
-      msg = response.choices?.[0]?.message;
-      if (!msg) {
-        return { mensaje: "No pude generar una respuesta con los datos obtenidos." };
       }
     }
 
-    const respuestaFinal = msg.content || "No pude generar una respuesta.";
+    // Extraer texto de la respuesta final
+    const textBlocks = response.content.filter(b => b.type === "text");
+    const respuestaFinal = textBlocks.map(b => b.text).join("\n") || "No pude generar una respuesta.";
     await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFinal);
 
     // Descontar tokens si no es el creador
     if (!esCreador) {
-      const tokensUsados = response.usage?.total_tokens || 0;
+      const tokensUsados = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
       if (tokensUsados > 0) {
         await sql`
-          UPDATE empresa_config_180 
+          UPDATE empresa_config_180
           SET ai_tokens = GREATEST(0, ai_tokens - ${tokensUsados})
           WHERE empresa_id = ${empresaId}
         `;

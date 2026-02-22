@@ -56,10 +56,15 @@ export const registerFirstAdmin = async (req, res) => {
 
     const userId = user[0].id;
 
-    // Crear empresa (ya queda asociada por user_id)
+    // Obtener plan gratis
+    const [planGratis] = await sql`
+      SELECT id FROM plans_180 WHERE nombre = 'gratis' LIMIT 1
+    `;
+
+    // Crear empresa con plan gratis
     const empresa = await sql`
-  INSERT INTO empresa_180 (user_id, nombre)
-  VALUES (${userId}, ${empresa_nombre})
+  INSERT INTO empresa_180 (user_id, nombre, plan_id)
+  VALUES (${userId}, ${empresa_nombre}, ${planGratis?.id || null})
   RETURNING id
 `;
     await sql`
@@ -82,12 +87,129 @@ export const registerFirstAdmin = async (req, res) => {
 };
 
 // =====================
-// REGISTRO DE USUARIO
+// REGISTRO DE USUARIO (PÚBLICO)
 // =====================
 export const register = async (req, res) => {
-  return res.status(403).json({
-    error: "Registro público deshabilitado",
-  });
+  try {
+    const { email, password, nombre, empresa_nombre } = req.body;
+
+    if (!email || !password || !nombre || !empresa_nombre) {
+      return res.status(400).json({ error: "Todos los campos son obligatorios" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+    }
+
+    // Verificar email duplicado
+    const [existing] = await sql`
+      SELECT id FROM users_180 WHERE email = ${email} LIMIT 1
+    `;
+    if (existing) {
+      return res.status(409).json({ error: "Ya existe una cuenta con este email" });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+
+    // Obtener plan gratis
+    const [planGratis] = await sql`
+      SELECT id FROM plans_180 WHERE nombre = 'gratis' LIMIT 1
+    `;
+
+    // Crear usuario admin
+    const [user] = await sql`
+      INSERT INTO users_180 (email, password, nombre, role, password_forced)
+      VALUES (${email}, ${hash}, ${nombre}, 'admin', false)
+      RETURNING id, email, nombre, role
+    `;
+
+    // Crear empresa con plan gratis
+    const [empresa] = await sql`
+      INSERT INTO empresa_180 (user_id, nombre, plan_id)
+      VALUES (${user.id}, ${empresa_nombre}, ${planGratis?.id || null})
+      RETURNING id
+    `;
+
+    // Crear config por defecto
+    const defaultModulos = {
+      clientes: true,
+      fichajes: true,
+      calendario: true,
+      calendario_import: true,
+      worklogs: true,
+      empleados: true,
+      facturacion: false,
+      pagos: false,
+    };
+    await sql`
+      INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
+      VALUES (${empresa.id}, ${defaultModulos}::jsonb, 1000)
+    `;
+
+    // Inicializar Base de Conocimiento
+    await seedKnowledge(empresa.id);
+
+    // Crear empleado para el admin
+    const empleadoId = await ensureSelfEmployee({
+      userId: user.id,
+      empresaId: empresa.id,
+      nombre: user.nombre,
+    });
+
+    // Cargar módulos para el token
+    let modulos = defaultModulos;
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        nombre: user.nombre,
+        empresa_id: empresa.id,
+        empleado_id: empleadoId,
+        modulos,
+        password_forced: false,
+      },
+      config.jwtSecret,
+      { expiresIn: "10h" }
+    );
+
+    // Email de bienvenida (no bloqueante)
+    try {
+      const { getWelcomeEmailTemplate } = await import("../templates/emailTemplates.js");
+      if (getWelcomeEmailTemplate) {
+        const emailContent = getWelcomeEmailTemplate({ nombre, empresa_nombre });
+        sendEmail({
+          to: email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text,
+        }, empresa.id).catch(err => {
+          console.warn("No se pudo enviar email de bienvenida:", err.message);
+        });
+      }
+    } catch (e) {
+      // Template no existe aún, no bloquear el registro
+    }
+
+    return res.status(201).json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        nombre: user.nombre,
+        role: user.role,
+        empresa_id: empresa.id,
+        empleado_id: empleadoId,
+        modulos,
+        password_forced: false,
+      },
+      is_new_user: true,
+    });
+  } catch (err) {
+    console.error("❌ Error en register:", err);
+    return res.status(500).json({ error: "Error al crear la cuenta" });
+  }
 };
 
 // GET /empleado/device-hash
@@ -1041,13 +1163,18 @@ export const googleAuth = async (req, res) => {
 
       user = newUser[0];
 
-      // Create empresa
+      // Obtener plan gratis
+      const [planGratis] = await sql`
+        SELECT id FROM plans_180 WHERE nombre = 'gratis' LIMIT 1
+      `;
+
+      // Create empresa con plan gratis
       const domain = email.split("@")[1]?.split(".")[0] || nombre;
       const empresaNombre = domain.charAt(0).toUpperCase() + domain.slice(1);
 
       const empresa = await sql`
-        INSERT INTO empresa_180 (user_id, nombre)
-        VALUES (${user.id}, ${empresaNombre})
+        INSERT INTO empresa_180 (user_id, nombre, plan_id)
+        VALUES (${user.id}, ${empresaNombre}, ${planGratis?.id || null})
         RETURNING id
       `;
 
@@ -1065,9 +1192,14 @@ export const googleAuth = async (req, res) => {
         pagos: false,
       };
       await sql`
-        INSERT INTO empresa_config_180 (empresa_id, modulos)
-        VALUES (${empresaId}, ${defaultModulos}::jsonb)
+        INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
+        VALUES (${empresaId}, ${defaultModulos}::jsonb, 1000)
       `;
+
+      // Inicializar Base de Conocimiento
+      seedKnowledge(empresaId).catch(err => {
+        console.warn("Error seeding knowledge (Google signup):", err.message);
+      });
 
       console.log(`✅ Google Signup: ${email} → empresa "${empresaNombre}" created`);
     }

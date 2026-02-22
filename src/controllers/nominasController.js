@@ -1,10 +1,10 @@
 
 import { sql } from "../db.js";
-import Groq from "groq-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
 
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY || ""
+const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY || ""
 });
 
 /**
@@ -19,43 +19,42 @@ export const ocrNomina = async (req, res) => {
         // 1. Extraer texto base
         const rawText = await ocrExtractTextFromUpload(file);
 
-        // 2. Usar Groq para estructurar
-        const completion = await groq.chat.completions.create({
-            model: "llama-3.3-70b-versatile",
+        // 2. Usar Claude para estructurar
+        const response = await anthropic.messages.create({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 1024,
+            system: `Eres un experto laboral. Tu tarea es extraer datos de una nómina española.
+
+EXTRAE LOS SIGUIENTES CAMPOS:
+1. anio: Año de devengo (ej: 2024).
+2. mes: Mes de devengo (1-12).
+3. bruto: Total Devengado (Salario Bruto).
+4. seguridad_social_empleado: Aportación trabajador a la SS.
+5. irpf_retencion: Importe de la retención IRPF.
+6. liquido: Líquido a Percibir (Neto).
+7. seguridad_social_empresa: Coste empresa o total aportación empresa (si aparece). Si no aparece, pon 0.
+
+Responde EXCLUSIVAMENTE un objeto JSON:
+{
+    "anio": number,
+    "mes": number,
+    "bruto": number,
+    "seguridad_social_empleado": number,
+    "irpf_retencion": number,
+    "liquido": number,
+    "seguridad_social_empresa": number
+}`,
             messages: [
-                {
-                    role: "system",
-                    content: `Eres un experto laboral. Tu tarea es extraer datos de una nómina española.
-                    
-                    EXTRAE LOS SIGUIENTES CAMPOS:
-                    1. anio: Año de devengo (ej: 2024).
-                    2. mes: Mes de devengo (1-12).
-                    3. bruto: Total Devengado (Salario Bruto).
-                    4. seguridad_social_empleado: Aportación trabajador a la SS.
-                    5. irpf_retencion: Importe de la retención IRPF.
-                    6. liquido: Líquido a Percibir (Neto).
-                    7. seguridad_social_empresa: Coste empresa o total aportación empresa (si aparece). Si no aparece, pon 0.
-                    
-                    Responde EXCLUSIVAMENTE un objeto JSON:
-                    {
-                        "anio": number,
-                        "mes": number,
-                        "bruto": number,
-                        "seguridad_social_empleado": number,
-                        "irpf_retencion": number,
-                        "liquido": number,
-                        "seguridad_social_empresa": number
-                    }`
-                },
                 {
                     role: "user",
                     content: `Texto de la nómina:\n${rawText}`
                 }
-            ],
-            response_format: { type: "json_object" }
+            ]
         });
 
-        const data = JSON.parse(completion.choices[0].message.content);
+        const textContent = response.content.find(b => b.type === "text")?.text || "{}";
+        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+        const data = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
 
         // Calcular SS Empresa estimado si es 0 (aprox 30% del bruto) como fallback visual
         // Pero mejor dejarlo en 0 para que el usuario lo rellene si no está en el PDF

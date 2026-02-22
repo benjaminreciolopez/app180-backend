@@ -15,11 +15,12 @@ import {
 } from "../controllers/authController.js";
 
 import { authRequired } from "../middlewares/authMiddleware.js";
+import { securityAlert } from "../middlewares/securityAlert.js";
 
 const router = express.Router();
 
 router.post("/register", register);
-router.post("/login", login);
+router.post("/login", securityAlert("login"), login);
 router.post("/activate-install", activateInstall);
 router.post("/register-first-admin", registerFirstAdmin);
 
