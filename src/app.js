@@ -47,6 +47,7 @@ import { handleGoogleCallback } from "./controllers/emailConfigController.js";
 import { handleGoogleCallback as handleCalendarCallback } from "./controllers/calendarConfigController.js";
 import { handleUnifiedCallback } from "./controllers/authController.js";
 import facturacionRoutes from "./routes/facturacionRoutes.js";
+import adminVerifactuAeatRoutes from "./routes/adminVerifactuAeatRoutes.js";
 import adminStorageRoutes from "./routes/adminStorageRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import adminBackupRoutes from "./routes/adminBackupRoutes.js";
@@ -203,6 +204,7 @@ app.use("/api/admin/reportes", adminReportesRoutes);
 app.use("/api/admin/export", exportRoutes);
 app.use("/system", systemRoutes);
 app.use("/api/admin/facturacion", facturacionRoutes);
+app.use("/api/admin/verifactu", adminVerifactuAeatRoutes);
 app.use("/api/admin/storage", adminStorageRoutes);
 app.use("/api/admin", aiRoutes);
 app.use("/api/admin/backup", adminBackupRoutes);
@@ -219,6 +221,7 @@ app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario
 app.use("/admin/facturacion", facturacionRoutes);
+app.use("/admin/verifactu", adminVerifactuAeatRoutes);
 app.use("/admin/fiscal", adminFiscalRoutes);
 app.use("/admin/purchases", adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
