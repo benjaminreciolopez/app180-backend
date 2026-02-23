@@ -180,6 +180,84 @@ export async function configurarCertificadoFabricante(req, res) {
 }
 
 /**
+ * POST /admin/verifactu/certificado/configurar-auto
+ * Configura el MISMO certificado para cliente Y fabricante (para autónomos)
+ *
+ * Caso de uso: El fabricante del software es autónomo y usa el mismo
+ * certificado digital para ambas cosas
+ */
+export async function configurarCertificadoAuto(req, res) {
+  try {
+    const {
+      certificado_path,
+      certificado_password,
+      nombre_fabricante,
+      nif_fabricante
+    } = req.body;
+
+    const empresaId = req.empresaId;
+    const usuarioId = req.userId;
+
+    if (!certificado_path || !certificado_password) {
+      return res.status(400).json({
+        error: 'Faltan certificado_path y/o certificado_password'
+      });
+    }
+
+    // Validar certificado antes de guardarlo
+    const validacion = await validarCertificado(certificado_path, certificado_password);
+
+    if (!validacion.valido) {
+      return res.status(400).json({
+        error: 'Certificado inválido o expirado',
+        detalle: validacion.mensaje
+      });
+    }
+
+    // Obtener NIF del certificado
+    const nifCert = await obtenerNIFCertificado(certificado_path, certificado_password);
+
+    // Configurar AMBOS con el mismo certificado
+    await sql`
+      UPDATE configuracionsistema_180
+      SET
+        -- Certificado del CLIENTE
+        verifactu_certificado_path = ${certificado_path},
+        verifactu_certificado_password = ${certificado_password},
+
+        -- Certificado del FABRICANTE (el mismo)
+        verifactu_cert_fabricante_path = ${certificado_path},
+        verifactu_cert_fabricante_password = ${certificado_password},
+        verifactu_info_fabricante = ${JSON.stringify({
+          nombre: nombre_fabricante || validacion.info?.subject?.CN || '',
+          nif: nif_fabricante || nifCert,
+          certificado_info: validacion.info,
+          fecha_configuracion: new Date().toISOString(),
+          configurado_por_usuario: usuarioId
+        })}
+      WHERE empresa_id = ${empresaId}
+    `;
+
+    res.json({
+      success: true,
+      mensaje: '✅ Certificado configurado para CLIENTE y FABRICANTE',
+      info: {
+        certificado: validacion.info,
+        nif: nifCert,
+        configuraciones: {
+          cliente: true,
+          fabricante: true
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error al configurar certificado automático:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
  * GET /admin/verifactu/certificado/estado
  * Obtiene el estado de ambos certificados (cliente + fabricante)
  */
