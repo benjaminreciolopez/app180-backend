@@ -1,5 +1,6 @@
 import { sql } from '../db.js';
 import crypto from 'crypto';
+import { firmarRegistroDoble } from './firmaDigitalService.js';
 
 /**
  * Servicio de Veri*Factu (Sistema de Emisión de Facturas Verificables)
@@ -140,11 +141,33 @@ export async function verificarVerifactu(factura, tx = sql) {
             hashAnterior
         );
 
+        // Firma digital (si ambos certificados están configurados)
+        let firmaData = null;
+        if (config.verifactu_certificado_path && config.verifactu_cert_fabricante_path) {
+            try {
+                firmaData = await firmarRegistroDoble(
+                    nuevoHash,
+                    config.verifactu_certificado_path,
+                    config.verifactu_certificado_password,
+                    config.verifactu_cert_fabricante_path,
+                    config.verifactu_cert_fabricante_password
+                );
+                console.log('✅ Registro firmado digitalmente (cliente + fabricante)');
+            } catch (error) {
+                console.warn('⚠️ Error al firmar registro:', error.message);
+                // No fallar la transacción por fallo de firma (aún puede enviarse sin firma)
+            }
+        } else {
+            console.log('ℹ️ Firma digital no configurada, registro sin firmar');
+        }
+
         // Guardar registro
         await tx`
       INSERT INTO registroverifactu_180 (
         factura_id, numero_factura, fecha_factura, total_factura,
-        hash_actual, hash_anterior, fecha_registro, estado_envio, empresa_id
+        hash_actual, hash_anterior, fecha_registro, estado_envio, empresa_id,
+        firma_cliente, firma_fabricante, info_cert_cliente, info_cert_fabricante,
+        fecha_firma, algoritmo_firma
       ) VALUES (
         ${factura.id},
         ${factura.numero},
@@ -154,7 +177,13 @@ export async function verificarVerifactu(factura, tx = sql) {
         ${hashAnterior},
         ${fechaGeneracion},
         'PENDIENTE',
-        ${empresaId}
+        ${empresaId},
+        ${firmaData?.firmaCliente || null},
+        ${firmaData?.firmaFabricante || null},
+        ${firmaData ? JSON.stringify(firmaData.infoCliente) : null},
+        ${firmaData ? JSON.stringify(firmaData.infoFabricante) : null},
+        ${firmaData?.fechaFirma || null},
+        ${firmaData?.algoritmo || 'SHA-256-RSA'}
       )
     `;
 

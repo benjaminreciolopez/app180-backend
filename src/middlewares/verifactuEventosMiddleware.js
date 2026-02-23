@@ -1,8 +1,8 @@
 import { sql } from '../db.js';
 import {
   registrarCambioModo,
-  registrarActivacion,
-  registrarDesactivacion
+  registrarActivacionVerifactu,
+  registrarDesactivacionVerifactu
 } from '../services/eventosVerifactuService.js';
 
 /**
@@ -39,9 +39,9 @@ export async function logCambiosVerifactu(req, res, next) {
           // Registrar eventos automáticamente
           if (cambioActivo) {
             if (verifactu_activo === true) {
-              await registrarActivacion(req.empresaId, verifactu_modo || 'TEST', req.userId);
+              await registrarActivacionVerifactu(req.empresaId, verifactu_modo || 'TEST', req.userId);
             } else {
-              await registrarDesactivacion(req.empresaId, req.userId);
+              await registrarDesactivacionVerifactu(req.empresaId, 'Desactivación manual', req.userId);
             }
           } else if (cambioModo) {
             await registrarCambioModo(
