@@ -1340,6 +1340,37 @@ const TOOLS = [
       }
     }
   },
+
+  // ===== CERTIFICADOS DIGITALES (VERIFACTU) =====
+  {
+    type: "function",
+    function: {
+      name: "verificar_certificado_renovacion",
+      description: "Verifica el estado de renovación de los certificados digitales del usuario (cliente y fabricante). Muestra días restantes hasta caducidad, nivel de urgencia, y link directo para renovar online. Úsala cuando el usuario pregunte por el estado de sus certificados o si necesita renovarlos.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "obtener_instrucciones_renovacion",
+      description: "Obtiene instrucciones paso a paso para renovar un certificado digital (FNMT o AEAT). Incluye tiempo estimado, pasos detallados y links directos. Úsala cuando el usuario necesite ayuda específica para renovar su certificado.",
+      parameters: {
+        type: "object",
+        properties: {
+          tipo: {
+            type: "string",
+            enum: ["cliente", "fabricante"],
+            description: "Tipo de certificado a renovar: 'cliente' (usuario final) o 'fabricante' (software producer)"
+          }
+        },
+        required: ["tipo"]
+      }
+    }
+  },
 ];
 
 // ============================
@@ -1664,6 +1695,9 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       case "alertas_fiscales": return await alertasFiscales(args, empresaId);
       // FASE 4 reconciliación
       case "reconciliar_extracto": return await reconciliarExtracto(args, empresaId);
+      // Certificados digitales (VeriFactu)
+      case "verificar_certificado_renovacion": return await verificarCertificadoRenovacion(empresaId);
+      case "obtener_instrucciones_renovacion": return await obtenerInstruccionesRenovacion(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -4148,6 +4182,127 @@ async function configurarFacturacionQR(args, empresaId) {
   } catch (err) {
     console.error("[AI] Error configurar facturación QR:", err);
     return { error: err.message || "Error al configurar facturación" };
+  }
+}
+
+// ============================
+// CERTIFICADOS DIGITALES (VERIFACTU)
+// ============================
+
+/**
+ * Verifica el estado de renovación de certificados digitales
+ */
+async function verificarCertificadoRenovacion(empresaId) {
+  try {
+    // Importar servicio de renovación
+    const { verificarEstadoCertificados } = await import('./certificadoRenovacionService.js');
+
+    const estado = await verificarEstadoCertificados(empresaId);
+
+    if (!estado.cliente && !estado.fabricante) {
+      return {
+        mensaje: "⚠️ No tienes certificados digitales configurados. Necesitas configurar tus certificados para usar VeriFactu.",
+        configurados: false
+      };
+    }
+
+    const respuesta = {
+      configurados: true,
+      necesitaRenovacion: estado.necesitaRenovacion,
+      certificados: []
+    };
+
+    // Certificado del cliente
+    if (estado.cliente) {
+      respuesta.certificados.push({
+        tipo: 'cliente',
+        diasRestantes: estado.cliente.diasRestantes,
+        fechaCaducidad: estado.cliente.fechaCaducidad,
+        urgencia: estado.cliente.urgencia,
+        linkRenovacion: estado.cliente.linkRenovacion,
+        mensaje: estado.cliente.urgencia
+          ? `${estado.cliente.urgencia.mensaje} - ${estado.cliente.diasRestantes} días restantes`
+          : `✅ Certificado válido (${estado.cliente.diasRestantes} días restantes)`
+      });
+    }
+
+    // Certificado del fabricante (si es diferente)
+    if (estado.fabricante && estado.fabricante !== estado.cliente) {
+      respuesta.certificados.push({
+        tipo: 'fabricante',
+        diasRestantes: estado.fabricante.diasRestantes,
+        fechaCaducidad: estado.fabricante.fechaCaducidad,
+        urgencia: estado.fabricante.urgencia,
+        linkRenovacion: estado.fabricante.linkRenovacion,
+        mensaje: estado.fabricante.urgencia
+          ? `${estado.fabricante.urgencia.mensaje} - ${estado.fabricante.diasRestantes} días restantes`
+          : `✅ Certificado válido (${estado.fabricante.diasRestantes} días restantes)`
+      });
+    }
+
+    // Mensaje resumen
+    if (estado.necesitaRenovacion) {
+      respuesta.mensajeGeneral = "⚠️ Necesitas renovar uno o más certificados. Te proporcionaré los links directos para renovarlos online.";
+    } else {
+      respuesta.mensajeGeneral = "✅ Todos tus certificados están en buen estado.";
+    }
+
+    return respuesta;
+
+  } catch (err) {
+    console.error("[AI] Error verificar certificado:", err);
+    return { error: err.message || "Error al verificar certificados" };
+  }
+}
+
+/**
+ * Obtiene instrucciones paso a paso para renovar certificado
+ */
+async function obtenerInstruccionesRenovacion(args, empresaId) {
+  try {
+    const { tipo } = args;
+
+    if (!tipo || !['cliente', 'fabricante'].includes(tipo)) {
+      return { error: "Debes especificar el tipo de certificado: 'cliente' o 'fabricante'" };
+    }
+
+    // Importar servicio de renovación
+    const { verificarEstadoCertificados, generarInstruccionesRenovacion } = await import('./certificadoRenovacionService.js');
+
+    const estado = await verificarEstadoCertificados(empresaId);
+
+    const certificado = tipo === 'fabricante' ? estado.fabricante : estado.cliente;
+
+    if (!certificado) {
+      return {
+        error: `No tienes configurado un certificado de ${tipo}. Primero debes importar tu certificado digital.`
+      };
+    }
+
+    const instrucciones = generarInstruccionesRenovacion(
+      certificado.tipoCertificado,
+      certificado.diasRestantes
+    );
+
+    return {
+      tipo,
+      tipoCertificado: certificado.tipoCertificado,
+      diasRestantes: certificado.diasRestantes,
+      fechaCaducidad: certificado.fechaCaducidad,
+      urgencia: certificado.urgencia?.mensaje || "Certificado válido",
+      linkRenovacion: certificado.linkRenovacion,
+      instrucciones: {
+        urgencia: instrucciones.urgencia,
+        pasos: instrucciones.pasos,
+        estimacionTiempo: instrucciones.estimacionTiempo,
+        requierePresencial: instrucciones.requierePresencial
+      },
+      mensaje: `📋 Aquí tienes las instrucciones para renovar tu certificado ${tipo}. El proceso es completamente online y tarda aproximadamente ${instrucciones.estimacionTiempo}.`
+    };
+
+  } catch (err) {
+    console.error("[AI] Error obtener instrucciones:", err);
+    return { error: err.message || "Error al obtener instrucciones" };
   }
 }
 
