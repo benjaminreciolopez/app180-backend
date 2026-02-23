@@ -31,6 +31,9 @@ yarn-error.log*
 .pnpm-debug.log*
 npm-debug.log*
 
+# puppeteer cache
+.cache/
+
 
 # env files (can opt-in for committing if needed)
 .env*
