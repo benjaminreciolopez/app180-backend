@@ -8,6 +8,10 @@ import {
   configurarCertificadoAuto,
   obtenerEstadoCertificados
 } from '../controllers/firmaDigitalController.js';
+import {
+  obtenerEstadoRenovacion,
+  obtenerInstruccionesRenovacion
+} from '../controllers/certificadoRenovacionController.js';
 
 const router = express.Router();
 
@@ -28,5 +32,11 @@ router.post('/certificado/fabricante/configurar', configurarCertificadoFabricant
 
 // POST - Configurar el MISMO certificado para CLIENTE y FABRICANTE (autónomos)
 router.post('/certificado/configurar-auto', configurarCertificadoAuto);
+
+// GET - Estado de renovación de certificados
+router.get('/certificado/renovacion/estado', obtenerEstadoRenovacion);
+
+// GET - Instrucciones de renovación paso a paso
+router.get('/certificado/renovacion/instrucciones', obtenerInstruccionesRenovacion);
 
 export default router;
