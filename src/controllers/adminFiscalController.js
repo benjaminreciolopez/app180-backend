@@ -101,6 +101,32 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         AND fecha_compra BETWEEN ${startDate} AND ${endDate}
     `;
 
+    // 5. DATOS MODELO 115 (Retenciones alquileres)
+    const [alquileres115] = await sql`
+        SELECT
+            COALESCE(SUM(total), 0) as total_alquileres,
+            COALESCE(SUM(retencion_importe), 0) as total_retenciones,
+            COUNT(*) as num_gastos
+        FROM purchases_180
+        WHERE empresa_id = ${empresaId}
+        AND activo = true
+        AND LOWER(categoria) IN ('alquiler', 'arrendamiento', 'local', 'oficina')
+        AND fecha_compra BETWEEN ${startDate} AND ${endDate}
+    `;
+
+    // 6. DATOS MODELO 349 (Operaciones intracomunitarias)
+    const operaciones349 = await sql`
+        SELECT c.nombre as cliente, c.nif_cif, COALESCE(SUM(f.total), 0)::numeric(12,2) as total
+        FROM factura_180 f
+        LEFT JOIN clients_180 c ON f.cliente_id = c.id
+        LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
+        WHERE f.empresa_id = ${empresaId} AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND f.fecha BETWEEN ${startDate} AND ${endDate}
+        AND (cfd.es_intracomunitario = true OR c.pais != 'ES')
+        GROUP BY c.id, c.nombre, c.nif_cif
+    `;
+    const total349 = operaciones349.reduce((sum, op) => sum + parseFloat(op.total), 0);
+
     const [emisor] = await sql`SELECT nif, nombre FROM emisor_180 WHERE empresa_id = ${empresaId}`;
 
     const modelo303 = {
@@ -140,11 +166,24 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         total_retenciones: parseFloat(nominas111.retenciones) + parseFloat(actividades111.retenciones)
     };
 
+    const modelo115 = {
+        total_alquileres: parseFloat(alquileres115.total_alquileres),
+        total_retenciones: parseFloat(alquileres115.total_retenciones),
+        num_gastos: parseInt(alquileres115.num_gastos),
+        a_ingresar: parseFloat(alquileres115.total_retenciones)
+    };
+
+    const modelo349 = {
+        total_intracomunitario: total349,
+        operaciones: operaciones349,
+        num_clientes: operaciones349.length
+    };
+
     return {
         year, trimestre, startDate, endDate,
         nif: emisor?.nif || '',
         nombre: emisor?.nombre || '',
-        modelo303, modelo130, modelo111
+        modelo303, modelo130, modelo111, modelo115, modelo349
     };
 }
 
@@ -292,6 +331,12 @@ export async function downloadBOE(req, res) {
                 break;
             case '111':
                 boe = aeatService.generarBOE111(data);
+                break;
+            case '115':
+                boe = aeatService.generarBOE115 ? aeatService.generarBOE115(data) : JSON.stringify(data.modelo115, null, 2);
+                break;
+            case '349':
+                boe = aeatService.generarBOE349 ? aeatService.generarBOE349(data) : JSON.stringify(data.modelo349, null, 2);
                 break;
             default:
                 return res.status(400).json({ error: "Modelo no soportado para descarga" });

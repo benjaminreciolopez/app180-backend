@@ -1298,6 +1298,43 @@ const TOOLS = [
     }
   },
 
+  // ===== DECLARACIÓN DE LA RENTA =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_renta_historica",
+      description: "Consulta las declaraciones de la renta importadas. Muestra casillas clave, resultado y datos extraídos de PDFs de rentas anteriores.",
+      parameters: {
+        type: "object",
+        properties: {
+          ejercicio: { type: "number", description: "Año fiscal de la renta a consultar. Si no se indica, muestra todas." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_datos_personales_renta",
+      description: "Consulta los datos personales y familiares almacenados para la declaración de la renta: estado civil, hijos, ascendientes, vivienda, plan de pensiones, donaciones.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "generar_dossier_prerenta",
+      description: "Genera un dossier completo pre-renta para un ejercicio fiscal. Combina datos de CONTENDO (facturas, gastos, nóminas, retenciones, pagos fraccionados) con renta anterior y datos personales. Útil para preparar la declaración anual.",
+      parameters: {
+        type: "object",
+        properties: {
+          ejercicio: { type: "number", description: "Año fiscal del dossier (ej: 2025)" }
+        },
+        required: ["ejercicio"]
+      }
+    }
+  },
+
   // ===== FASE 4: RECONCILIACIÓN BANCARIA =====
   {
     type: "function",
@@ -1694,6 +1731,10 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       case "consultar_libro_gastos": return await consultarLibroGastos(args, empresaId);
       case "consultar_libro_nominas": return await consultarLibroNominas(args, empresaId);
       case "alertas_fiscales": return await alertasFiscales(args, empresaId);
+      // Declaración de la Renta
+      case "consultar_renta_historica": return await consultarRentaHistorica(args, empresaId);
+      case "consultar_datos_personales_renta": return await consultarDatosPersonalesRenta(args, empresaId);
+      case "generar_dossier_prerenta": return await generarDossierPrerenta(args, empresaId);
       // FASE 4 reconciliación
       case "reconciliar_extracto": return await reconciliarExtracto(args, empresaId);
       // Certificados digitales (VeriFactu)
@@ -3942,6 +3983,200 @@ async function alertasFiscales(args, empresaId) {
 }
 
 // ============================
+// DECLARACIÓN DE LA RENTA
+// ============================
+
+async function consultarRentaHistorica(args, empresaId) {
+  const { ejercicio } = args;
+
+  if (ejercicio) {
+    const [renta] = await sql`
+      SELECT * FROM renta_historica_180
+      WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio}
+    `;
+    if (!renta) return { mensaje: `No hay renta importada para el ejercicio ${ejercicio}. El usuario puede importar el PDF desde Fiscalidad > Declaración Renta.` };
+
+    return {
+      ejercicio: renta.ejercicio,
+      tipo_declaracion: renta.tipo_declaracion,
+      resultado: parseFloat(renta.resultado_declaracion),
+      resultado_texto: parseFloat(renta.resultado_declaracion) >= 0 ? 'A ingresar' : 'A devolver',
+      casillas_clave: {
+        rendimientos_trabajo: parseFloat(renta.rendimientos_trabajo),
+        rendimientos_actividades: parseFloat(renta.rendimientos_actividades),
+        rendimientos_capital_inmob: parseFloat(renta.rendimientos_capital_inmob),
+        rendimientos_capital_mob: parseFloat(renta.rendimientos_capital_mob),
+        base_imponible_general: parseFloat(renta.casilla_505),
+        base_imponible_ahorro: parseFloat(renta.casilla_510),
+        cuota_integra_estatal: parseFloat(renta.casilla_595),
+        cuota_integra_autonomica: parseFloat(renta.casilla_600),
+        cuota_liquida: parseFloat(renta.casilla_610),
+        deducciones: parseFloat(renta.casilla_611),
+      },
+      retenciones: {
+        trabajo: parseFloat(renta.retenciones_trabajo),
+        actividades: parseFloat(renta.retenciones_actividades),
+        pagos_fraccionados: parseFloat(renta.pagos_fraccionados),
+      },
+      confianza_extraccion: parseFloat(renta.confianza_extraccion),
+      pdf: renta.pdf_nombre_archivo || null
+    };
+  }
+
+  // Lista todas
+  const rentas = await sql`
+    SELECT ejercicio, tipo_declaracion, resultado_declaracion, casilla_505, casilla_610,
+           rendimientos_trabajo, rendimientos_actividades, confianza_extraccion, pdf_nombre_archivo
+    FROM renta_historica_180
+    WHERE empresa_id = ${empresaId}
+    ORDER BY ejercicio DESC
+  `;
+
+  if (rentas.length === 0) return { mensaje: "No hay rentas importadas. El usuario puede importar PDFs de rentas anteriores desde Fiscalidad > Declaración Renta." };
+
+  return {
+    total: rentas.length,
+    rentas: rentas.map(r => ({
+      ejercicio: r.ejercicio,
+      tipo: r.tipo_declaracion,
+      resultado: parseFloat(r.resultado_declaracion),
+      base_imponible: parseFloat(r.casilla_505),
+      cuota_liquida: parseFloat(r.casilla_610),
+      confianza: parseFloat(r.confianza_extraccion),
+    }))
+  };
+}
+
+async function consultarDatosPersonalesRenta(args, empresaId) {
+  const [datos] = await sql`
+    SELECT * FROM renta_datos_personales_180 WHERE empresa_id = ${empresaId}
+  `;
+
+  if (!datos) return { mensaje: "No hay datos personales guardados para la renta. El usuario puede completarlos en Fiscalidad > Declaración Renta > Datos Personales." };
+
+  return {
+    declarante: {
+      estado_civil: datos.estado_civil,
+      fecha_nacimiento: datos.fecha_nacimiento,
+      discapacidad: datos.discapacidad_porcentaje + '%',
+    },
+    conyuge: datos.conyuge_nif ? {
+      nif: datos.conyuge_nif,
+      nombre: datos.conyuge_nombre,
+      rendimientos: parseFloat(datos.conyuge_rendimientos),
+    } : null,
+    descendientes: datos.descendientes || [],
+    ascendientes: datos.ascendientes || [],
+    vivienda: {
+      tipo: datos.vivienda_tipo,
+      ref_catastral: datos.vivienda_referencia_catastral,
+      alquiler_anual: parseFloat(datos.alquiler_anual),
+      hipoteca_anual: parseFloat(datos.hipoteca_anual),
+    },
+    deducciones: {
+      plan_pensiones: parseFloat(datos.aportacion_plan_pensiones),
+      donaciones_ong: parseFloat(datos.donaciones_ong),
+      donaciones_otras: parseFloat(datos.donaciones_otras),
+    },
+    tipo_declaracion_preferida: datos.tipo_declaracion_preferida,
+  };
+}
+
+async function generarDossierPrerenta(args, empresaId) {
+  const { ejercicio } = args;
+  const year = parseInt(ejercicio);
+
+  // Datos personales
+  const [datosPersonales] = await sql`
+    SELECT * FROM renta_datos_personales_180 WHERE empresa_id = ${empresaId}
+  `;
+
+  // Renta anterior
+  const [rentaAnterior] = await sql`
+    SELECT * FROM renta_historica_180
+    WHERE empresa_id = ${empresaId} AND ejercicio = ${year - 1}
+  `;
+
+  // Emisor
+  const [emisor] = await sql`SELECT * FROM emisor_180 WHERE empresa_id = ${empresaId}`;
+
+  // Facturación del ejercicio
+  const [facturacion] = await sql`
+    SELECT
+      COALESCE(SUM(subtotal), 0) as base_total,
+      COALESCE(SUM(iva_total), 0) as iva_total,
+      COALESCE(SUM(total), 0) as total,
+      COALESCE(SUM(retencion_importe), 0) as retenciones_clientes,
+      COUNT(*) as num_facturas
+    FROM factura_180
+    WHERE empresa_id = ${empresaId}
+    AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+    AND EXTRACT(YEAR FROM fecha) = ${year}
+  `;
+
+  // Gastos
+  const [gastos] = await sql`
+    SELECT
+      COALESCE(SUM(base_imponible), 0) as base_total,
+      COALESCE(SUM(cuota_iva), 0) as iva_soportado,
+      COUNT(*) as num_gastos
+    FROM purchases_180
+    WHERE empresa_id = ${empresaId}
+    AND activo = true
+    AND EXTRACT(YEAR FROM fecha_compra) = ${year}
+  `;
+
+  // Nóminas
+  const [nominas] = await sql`
+    SELECT
+      COALESCE(SUM(bruto), 0) as bruto_total,
+      COALESCE(SUM(irpf_retencion), 0) as irpf_total,
+      COALESCE(SUM(seguridad_social_empresa), 0) as ss_empresa
+    FROM nominas_180
+    WHERE empresa_id = ${empresaId} AND anio = ${year}
+  `;
+
+  const ingresos = parseFloat(facturacion.base_total);
+  const gastosDeducibles = parseFloat(gastos.base_total) + parseFloat(nominas.bruto_total) + parseFloat(nominas.ss_empresa);
+  const rendimientoNeto = ingresos - gastosDeducibles;
+  const totalAnticipado = parseFloat(facturacion.retenciones_clientes);
+
+  return {
+    ejercicio: year,
+    empresa: { nombre: emisor?.nombre || '', nif: emisor?.nif || '' },
+    rendimientos_actividades: {
+      ingresos,
+      gastos_deducibles: gastosDeducibles,
+      rendimiento_neto: rendimientoNeto,
+      num_facturas: parseInt(facturacion.num_facturas),
+      num_gastos: parseInt(gastos.num_gastos),
+    },
+    retenciones_y_pagos: {
+      retenciones_clientes: parseFloat(facturacion.retenciones_clientes),
+      total_anticipado: totalAnticipado,
+    },
+    iva_anual: {
+      repercutido: parseFloat(facturacion.iva_total),
+      soportado: parseFloat(gastos.iva_soportado),
+      diferencia: parseFloat(facturacion.iva_total) - parseFloat(gastos.iva_soportado),
+    },
+    renta_anterior: rentaAnterior ? {
+      ejercicio: rentaAnterior.ejercicio,
+      resultado: parseFloat(rentaAnterior.resultado_declaracion),
+      base_imponible: parseFloat(rentaAnterior.casilla_505),
+    } : null,
+    datos_personales: datosPersonales ? {
+      estado_civil: datosPersonales.estado_civil,
+      descendientes: (datosPersonales.descendientes || []).length,
+      plan_pensiones: parseFloat(datosPersonales.aportacion_plan_pensiones),
+      tipo_declaracion: datosPersonales.tipo_declaracion_preferida,
+    } : null,
+    resumen: `Rendimiento neto: ${rendimientoNeto.toFixed(2)}€. Anticipado: ${totalAnticipado.toFixed(2)}€. ${rentaAnterior ? `Renta ${year-1}: ${parseFloat(rentaAnterior.resultado_declaracion).toFixed(2)}€` : 'Sin renta anterior importada.'}`,
+    nota: "DOSSIER ORIENTATIVO - Los cálculos definitivos dependen de la legislación vigente, mínimos personales y deducciones aplicables."
+  };
+}
+
+// ============================
 // FASE 4: RECONCILIACIÓN BANCARIA
 // ============================
 
@@ -4404,6 +4639,7 @@ SOBRE APP180 (lo que puedes hacer):
 - Libros registro: ventas, gastos, nóminas — por trimestre o rango de fechas
 - Modelos fiscales ya calculados: consultar historial
 - Alertas fiscales: plazos de presentación, advertencias de datos incompletos
+- Declaración de la Renta: consultar rentas anteriores importadas (casillas clave), datos personales/familiares, generar dossier pre-renta completo
 
 🏦 BANCO:
 - Consultar movimientos bancarios importados
@@ -4461,6 +4697,9 @@ CUÁNDO USAR HERRAMIENTAS:
 - Libro de gastos → consultar_libro_gastos
 - Libro de nóminas → consultar_libro_nominas
 - Plazos fiscales → alertas_fiscales
+- Renta anterior / declaración renta → consultar_renta_historica
+- Datos personales renta (hijos, vivienda, etc.) → consultar_datos_personales_renta
+- Dossier pre-renta / preparar declaración → generar_dossier_prerenta
 - Excepciones jornada → crear_excepcion_jornada
 - Cambiar config empresa → actualizar_configuracion
 - Borrar archivo → eliminar_archivo
