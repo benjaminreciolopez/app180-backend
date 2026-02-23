@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Declaración Responsable - Sistema Veri*Factu</title>
+    <style>
+        @page {
+            margin: 2cm;
+            size: A4;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            color: #000;
+            margin: 0;
+            padding: 2cm;
+            line-height: 1.6;
+            font-size: 12pt;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 16pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 2cm;
+            border-bottom: 2pt solid #000;
+            padding-bottom: 0.5cm;
+        }
+
+        h2 {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-top: 1cm;
+            margin-bottom: 0.5cm;
+        }
+
+        .fecha-lugar {
+            text-align: right;
+            font-size: 11pt;
+            margin-bottom: 1cm;
+        }
+
+        .declarante {
+            margin: 1cm 0;
+            padding: 0.5cm;
+            border: 1pt solid #333;
+            background-color: #f9f9f9;
+        }
+
+        .declarante p {
+            margin: 0.3cm 0;
+        }
+
+        .declarante strong {
+            display: inline-block;
+            min-width: 150pt;
+        }
+
+        .clausula {
+            margin: 0.5cm 0;
+            text-align: justify;
+        }
+
+        .clausula-numero {
+            font-weight: bold;
+            display: inline-block;
+            min-width: 50pt;
+        }
+
+        .firma-section {
+            margin-top: 2cm;
+            text-align: center;
+        }
+
+        .firma-box {
+            border: 1pt solid #000;
+            min-height: 100pt;
+            margin: 0.5cm auto;
+            width: 300pt;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+        }
+
+        .firma-label {
+            font-size: 10pt;
+            margin-top: 0.3cm;
+            font-weight: bold;
+        }
+
+        .advertencia {
+            background-color: #fff3cd;
+            border: 1pt solid #ffc107;
+            padding: 0.5cm;
+            margin: 1cm 0;
+            border-radius: 4pt;
+        }
+
+        .advertencia-titulo {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 0.3cm;
+        }
+
+        ul {
+            margin: 0.5cm 0;
+            padding-left: 1cm;
+        }
+
+        li {
+            margin: 0.3cm 0;
+        }
+
+        .footer {
+            position: fixed;
+            bottom: 1cm;
+            left: 2cm;
+            right: 2cm;
+            text-align: center;
+            font-size: 9pt;
+            color: #666;
+            border-top: 1pt solid #ccc;
+            padding-top: 0.3cm;
+        }
+    </style>
+</head>
+<body>
+    <h1>Declaración Responsable<br>Sistema de Facturación Verificable (Veri*Factu)</h1>
+
+    <div class="fecha-lugar">
+        En <strong>{{MUNICIPIO}}</strong>, a <strong>{{DIA}}</strong> de <strong>{{MES}}</strong> de <strong>{{ANIO}}</strong>
+    </div>
+
+    <h2>I. DATOS DEL DECLARANTE</h2>
+
+    <div class="declarante">
+        <p><strong>Razón Social:</strong> {{RAZON_SOCIAL}}</p>
+        <p><strong>NIF/CIF:</strong> {{NIF_CIF}}</p>
+        <p><strong>Dirección Fiscal:</strong> {{DIRECCION_FISCAL}}</p>
+        <p><strong>Municipio:</strong> {{MUNICIPIO}}</p>
+        <p><strong>Provincia:</strong> {{PROVINCIA}}</p>
+        <p><strong>Código Postal:</strong> {{CODIGO_POSTAL}}</p>
+        <p><strong>Representante Legal:</strong> {{REPRESENTANTE_LEGAL}}</p>
+        <p><strong>DNI Representante:</strong> {{DNI_REPRESENTANTE}}</p>
+    </div>
+
+    <h2>II. DECLARACIÓN</h2>
+
+    <p class="clausula">
+        <span class="clausula-numero">PRIMERO.</span>
+        El/La declarante, actuando en nombre y representación de la entidad arriba indicada, declara conocer y comprender las obligaciones establecidas en el <strong>Reglamento por el que se regulan las obligaciones de facturación aprobado por el Real Decreto 1619/2012</strong>, en su redacción modificada por el <strong>Real Decreto 1007/2023</strong>, relativo al Sistema de Facturación Verificable (Veri*Factu).
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">SEGUNDO.</span>
+        Declara expresamente que el <strong>software de facturación CONTENDO (APP180)</strong> que se dispone a utilizar cumple con los requisitos técnicos establecidos en la normativa vigente para sistemas informáticos de facturación verificables, incluyendo:
+    </p>
+
+    <ul>
+        <li>Integridad, conservación, accesibilidad, legibilidad, trazabilidad e inalterabilidad de los registros de facturación.</li>
+        <li>Generación de huella o hash encadenado según especificaciones técnicas.</li>
+        <li>Emisión de QR con datos de verificación según formato oficial.</li>
+        <li>Conservación de registros de facturación durante el período legalmente establecido.</li>
+        <li>Bloqueo de numeración correlativa una vez validada la primera factura del ejercicio.</li>
+    </ul>
+
+    <p class="clausula">
+        <span class="clausula-numero">TERCERO.</span>
+        Declara conocer y aceptar que, una vez activado el sistema Veri*Factu en <strong>MODO PRODUCCIÓN</strong>, la numeración de facturas quedará <strong>irreversiblemente bloqueada</strong> conforme a la normativa, no siendo posible su alteración, eliminación o modificación retroactiva.
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">CUARTO.</span>
+        Se compromete a utilizar el sistema de facturación verificable conforme a la normativa aplicable, asumiendo la plena responsabilidad sobre:
+    </p>
+
+    <ul>
+        <li>La exactitud y veracidad de los datos introducidos en el sistema.</li>
+        <li>El cumplimiento de los plazos legales de envío de información a la AEAT.</li>
+        <li>La correcta configuración y uso del sistema.</li>
+        <li>La conservación y custodia de los archivos de facturas y registros generados.</li>
+        <li>El cumplimiento de las obligaciones fiscales derivadas de las facturas emitidas.</li>
+    </ul>
+
+    <p class="clausula">
+        <span class="clausula-numero">QUINTO.</span>
+        Declara conocer los plazos obligatorios de implantación del sistema Veri*Factu:
+    </p>
+
+    <ul>
+        <li><strong>Sociedades (Impuesto sobre Sociedades):</strong> 1 de enero de 2027</li>
+        <li><strong>Autónomos (IRPF):</strong> 1 de julio de 2027</li>
+    </ul>
+
+    <div class="advertencia">
+        <div class="advertencia-titulo">⚠️ ADVERTENCIA IMPORTANTE</div>
+        <p>
+            El incumplimiento de las obligaciones establecidas en el Reglamento de facturación puede dar lugar a sanciones administrativas conforme a la <strong>Ley 58/2003, General Tributaria</strong>, que pueden oscilar entre 150 € y 6.000 € por cada factura incorrectamente emitida, además de otras sanciones accesorias.
+        </p>
+    </div>
+
+    <p class="clausula">
+        <span class="clausula-numero">SEXTO.</span>
+        El declarante manifiesta que ha sido debidamente informado sobre el funcionamiento del sistema, sus implicaciones legales y fiscales, y declara actuar con pleno conocimiento de causa y de forma totalmente voluntaria.
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">SÉPTIMO.</span>
+        Autoriza expresamente a <strong>CONTENDO GESTIONES SL</strong>, como proveedor del software de facturación, a activar el sistema Veri*Factu en modo PRODUCCIÓN para la entidad declarante, asumiendo todas las consecuencias y responsabilidades derivadas de dicha activación.
+    </p>
+
+    <div class="firma-section">
+        <p><strong>El/La declarante</strong></p>
+        <div class="firma-box">
+            {{FIRMA_DIGITAL}}
+        </div>
+        <p class="firma-label">Fdo.: {{REPRESENTANTE_LEGAL}}</p>
+    </div>
+
+    <div class="footer">
+        <p>Documento generado electrónicamente por CONTENDO (APP180) - Sistema de Facturación Verificable</p>
+        <p>ID Documento: {{DOCUMENTO_ID}} | Fecha generación: {{FECHA_GENERACION}}</p>
+    </div>
+</body>
+</html>

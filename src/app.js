@@ -58,6 +58,7 @@ import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
 import adminPurchasesRoutes from "./routes/adminPurchasesRoutes.js";
 import adminFiscalRoutes from "./routes/adminFiscalRoutes.js";
 import nominasRoutes from "./routes/nominasRoutes.js";
+import notificacionesRoutes from "./routes/notificacionesRoutes.js";
 import { verifactuEventosController } from "./controllers/verifactuEventosController.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import { stripeWebhook } from "./controllers/subscriptionController.js";
@@ -221,6 +222,7 @@ app.use("/admin/facturacion", facturacionRoutes);
 app.use("/admin/fiscal", adminFiscalRoutes);
 app.use("/admin/purchases", adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
+app.use("/admin/notificaciones", notificacionesRoutes);
 app.use("/admin", aiRoutes);
 app.use("/admin", adminKnowledgeRoutes);
 

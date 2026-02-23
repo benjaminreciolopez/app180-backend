@@ -1,0 +1,157 @@
+import { sql } from "../db.js";
+
+/**
+ * GET /admin/notificaciones
+ * Lista las notificaciones del usuario (empresa)
+ */
+export async function getNotificaciones(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { limit = 20, offset = 0, solo_no_leidas = false } = req.query;
+
+    let query = sql`
+      SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
+             metadata, created_at, leida_at
+      FROM notificaciones_180
+      WHERE empresa_id = ${empresaId}
+    `;
+
+    if (solo_no_leidas === 'true' || solo_no_leidas === true) {
+      query = sql`${query} AND leida = FALSE`;
+    }
+
+    query = sql`${query} ORDER BY created_at DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
+
+    const notificaciones = await query;
+
+    // Contar no leídas
+    const [count] = await sql`
+      SELECT COUNT(*)::int as total FROM notificaciones_180
+      WHERE empresa_id = ${empresaId} AND leida = FALSE
+    `;
+
+    res.json({
+      notificaciones,
+      no_leidas: count?.total || 0
+    });
+  } catch (err) {
+    console.error("Error getNotificaciones:", err);
+    res.status(500).json({ error: "Error obteniendo notificaciones" });
+  }
+}
+
+/**
+ * PUT /admin/notificaciones/:id/marcar-leida
+ * Marca una notificación como leída
+ */
+export async function marcarLeida(req, res) {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+
+    await sql`
+      UPDATE notificaciones_180
+      SET leida = TRUE, leida_at = NOW()
+      WHERE id = ${id} AND empresa_id = ${empresaId}
+    `;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error marcarLeida:", err);
+    res.status(500).json({ error: "Error marcando notificación" });
+  }
+}
+
+/**
+ * PUT /admin/notificaciones/marcar-todas-leidas
+ * Marca todas las notificaciones como leídas
+ */
+export async function marcarTodasLeidas(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+
+    await sql`
+      UPDATE notificaciones_180
+      SET leida = TRUE, leida_at = NOW()
+      WHERE empresa_id = ${empresaId} AND leida = FALSE
+    `;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error marcarTodasLeidas:", err);
+    res.status(500).json({ error: "Error marcando notificaciones" });
+  }
+}
+
+/**
+ * DELETE /admin/notificaciones/:id
+ * Elimina una notificación (solo admin)
+ */
+export async function deleteNotificacion(req, res) {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Solo administradores pueden eliminar notificaciones" });
+    }
+
+    await sql`DELETE FROM notificaciones_180 WHERE id = ${id} AND empresa_id = ${empresaId}`;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleteNotificacion:", err);
+    res.status(500).json({ error: "Error eliminando notificación" });
+  }
+}
+
+/**
+ * POST /admin/notificaciones (interno / service role)
+ * Crea una nueva notificación
+ */
+export async function crearNotificacion(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { tipo, titulo, mensaje, accion_url, accion_label, metadata, user_id } = req.body;
+
+    if (!tipo || !titulo || !mensaje) {
+      return res.status(400).json({ error: "Faltan campos obligatorios: tipo, titulo, mensaje" });
+    }
+
+    const [notif] = await sql`
+      INSERT INTO notificaciones_180 (
+        empresa_id, user_id, tipo, titulo, mensaje,
+        accion_url, accion_label, metadata
+      ) VALUES (
+        ${empresaId}, ${user_id || null}, ${tipo}, ${titulo}, ${mensaje},
+        ${accion_url || null}, ${accion_label || null}, ${metadata ? JSON.stringify(metadata) : null}
+      )
+      RETURNING *
+    `;
+
+    res.json({ success: true, notificacion: notif });
+  } catch (err) {
+    console.error("Error crearNotificacion:", err);
+    res.status(500).json({ error: "Error creando notificación" });
+  }
+}
+
+/**
+ * Helper: Crear notificación del sistema (sin req/res)
+ * Usado internamente por otros controladores
+ */
+export async function crearNotificacionSistema({ empresaId, userId = null, tipo, titulo, mensaje, accionUrl = null, accionLabel = null, metadata = null }) {
+  try {
+    await sql`
+      INSERT INTO notificaciones_180 (
+        empresa_id, user_id, tipo, titulo, mensaje,
+        accion_url, accion_label, metadata
+      ) VALUES (
+        ${empresaId}, ${userId}, ${tipo}, ${titulo}, ${mensaje},
+        ${accionUrl}, ${accionLabel}, ${metadata ? JSON.stringify(metadata) : null}
+      )
+    `;
+  } catch (err) {
+    console.error("Error crearNotificacionSistema:", err);
+  }
+}

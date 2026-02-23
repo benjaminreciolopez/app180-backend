@@ -666,13 +666,38 @@ export async function validarFactura(req, res) {
       // Verificar Veri*Factu (si aplica) con el registro actualizado
       await verificarVerifactu(updatedRecord, tx);
 
-      // Bloquear numeración (actualizar emisor)
-      const year = new Date(fecha).getFullYear();
-      await tx`
-        update emisor_180
-        set ultimo_anio_numerado = ${year}
+      // Bloquear numeración SOLO si VeriFactu está en PRODUCCION (o desactivado)
+      // En modo TEST NO se bloquea para permitir pruebas
+      const [verifactuConfig] = await tx`
+        select verifactu_activo, verifactu_modo
+        from configuracionsistema_180
         where empresa_id = ${empresaId}
+        limit 1
       `;
+
+      const year = new Date(fecha).getFullYear();
+      const esProduccion = !verifactuConfig?.verifactu_activo || verifactuConfig?.verifactu_modo !== 'TEST';
+
+      if (esProduccion) {
+        // PRODUCCION o VeriFactu OFF: Bloquear numeración irreversiblemente
+        await tx`
+          update emisor_180
+          set
+            numeracion_bloqueada = true,
+            anio_numeracion_bloqueada = ${year},
+            ultimo_anio_numerado = ${year}
+          where empresa_id = ${empresaId}
+        `;
+        console.log(`🔒 Numeración bloqueada para año ${year} (PRODUCCION)`);
+      } else {
+        // TEST: Solo actualizar el año, NO bloquear
+        await tx`
+          update emisor_180
+          set ultimo_anio_numerado = ${year}
+          where empresa_id = ${empresaId}
+        `;
+        console.log(`⚠️ Modo TEST: Numeración NO bloqueada (año ${year})`);
+      }
     });
 
     // Auditoría
@@ -732,10 +757,10 @@ async function generarNumeroFactura(empresaId, fecha) {
   const month = dateObj.getMonth() + 1;
   const day = dateObj.getDate();
 
-  // 1. Obtener configuración del sistema de facturación
+  // 1. Obtener configuración del sistema de facturación (incluyendo VeriFactu)
   const [config] = await sql`
-        select numeracion_tipo, numeracion_formato, correlativo_inicial, migracion_legal_aceptado, migracion_last_pdf, serie
-        from configuracionsistema_180 
+        select numeracion_tipo, numeracion_formato, correlativo_inicial, migracion_legal_aceptado, migracion_last_pdf, serie, verifactu_activo, verifactu_modo
+        from configuracionsistema_180
         where empresa_id=${empresaId}
   `;
 
@@ -750,7 +775,14 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   const tipo = config?.numeracion_tipo || 'STANDARD';
   const formato = config?.numeracion_formato || 'FAC-{YEAR}-';
-  const serieBase = config?.serie || 'F';
+  let serieBase = config?.serie || 'F';
+
+  // VeriFactu MODE TEST: Usar serie diferente para no consumir numeración oficial
+  const esModoTest = config?.verifactu_activo && config?.verifactu_modo === 'TEST';
+  if (esModoTest) {
+    serieBase = 'TEST';
+    console.log('⚠️ Modo TEST VeriFactu: Usando serie TEST para no afectar numeración oficial');
+  }
 
   let correlativoBase = (config?.correlativo_inicial || 0);
   let correlativo = 1;

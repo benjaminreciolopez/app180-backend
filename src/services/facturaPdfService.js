@@ -53,10 +53,10 @@ const FACTURA_STYLES = `
     text-transform: uppercase;
   }
 
-  /* TÍTULO - alto - 60pts */
+  /* TÍTULO - alto - alineado con logo */
   .header-title {
     position: absolute;
-    top: 60pt; 
+    top: 20pt;
     left: 0;
     width: 100%;
     text-align: center;
@@ -300,7 +300,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   // 2. QR Code y Aviso Veri*Factu
   let qrHtml = '';
   let verifactuNoticeHtml = '';
-  const verifactuText = "Factura emitida bajo el sistema Veri*Factu de la AEAT. Gracias por su confianza.";
+  const verifactuText = "Factura expedida por un sistema informático de facturación conforme al Reglamento de facturación aprobado por el Real Decreto 1619/2012 (Veri*Factu).";
 
   if (config && config.verifactu_activo) {
     verifactuNoticeHtml = `<div class="verifactu-notice">${verifactuText}</div>`;
@@ -312,7 +312,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
         qrHtml = `
               <div class="qr-block">
                   <img src="${qrDataUrl}" class="qr-img" />
-                  <div class="verifactu-label">SISTEMA DE FACTURACIÓN VERIFICABLE</div>
+                  <div class="verifactu-label">VERI*FACTU</div>
               </div>
           `;
       } catch (err) {
