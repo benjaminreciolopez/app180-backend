@@ -196,13 +196,14 @@ const TOOLS = [
     type: "function",
     function: {
       name: "crear_factura",
-      description: "Crea una factura en borrador. Requiere cliente_id o nombre_cliente, fecha y al menos una linea con descripcion, cantidad y precio_unitario.",
+      description: "Crea una factura en borrador. Puede ser NORMAL (numerada, oficial) o PROFORMA (sin número oficial, para presupuestos). Requiere cliente_id o nombre_cliente, fecha y al menos una linea con descripcion, cantidad y precio_unitario.",
       parameters: {
         type: "object",
         properties: {
           cliente_id: { type: "string", description: "ID del cliente (integer)" },
           nombre_cliente: { type: "string", description: "Nombre del cliente (alternativa a cliente_id)" },
           fecha: { type: "string", description: "Fecha YYYY-MM-DD" },
+          tipo_factura: { type: "string", enum: ["NORMAL", "PROFORMA"], description: "Tipo: NORMAL (numerada) o PROFORMA (sin número oficial, para presupuestos). Default: NORMAL" },
           lineas: {
             type: "array",
             items: {
@@ -1892,19 +1893,20 @@ async function sincronizarGoogleCalendar({ direccion = "bidirectional" }, empres
 // HERRAMIENTAS DE ESCRITURA - FACTURAS
 // ============================
 
-async function crearFactura({ cliente_id, fecha, lineas, iva_global = 0 }, empresaId) {
+async function crearFactura({ cliente_id, fecha, lineas, iva_global = 0, tipo_factura = 'NORMAL' }, empresaId) {
   const [cliente] = await sql`SELECT id, nombre FROM clients_180 WHERE id = ${cliente_id} AND empresa_id = ${empresaId}`;
   if (!cliente) return { error: "Cliente no encontrado" };
   if (!Array.isArray(lineas) || lineas.length === 0) return { error: "Debe incluir al menos una linea" };
 
   let createdId;
   let total;
+  const tipoTexto = tipo_factura === 'PROFORMA' ? ' PROFORMA' : '';
   await sql.begin(async (tx) => {
     let subtotal = 0;
     let iva_total = 0;
     const [factura] = await tx`
-      INSERT INTO factura_180 (empresa_id, cliente_id, fecha, estado, iva_global, subtotal, iva_total, total, created_at)
-      VALUES (${empresaId}, ${cliente_id}, ${fecha}::date, 'BORRADOR', ${iva_global || 0}, 0, 0, 0, now())
+      INSERT INTO factura_180 (empresa_id, cliente_id, fecha, estado, iva_global, tipo_factura, subtotal, iva_total, total, created_at)
+      VALUES (${empresaId}, ${cliente_id}, ${fecha}::date, 'BORRADOR', ${iva_global || 0}, ${tipo_factura}, 0, 0, 0, now())
       RETURNING id
     `;
     createdId = factura.id;
@@ -1932,7 +1934,7 @@ async function crearFactura({ cliente_id, fecha, lineas, iva_global = 0 }, empre
     `;
   });
 
-  return { success: true, mensaje: `Factura borrador creada para ${cliente.nombre}. Total: ${total.toFixed(2)} EUR. ID: ${createdId}`, factura: { id: createdId, cliente: cliente.nombre, total, estado: "BORRADOR" } };
+  return { success: true, mensaje: `Factura${tipoTexto} borrador creada para ${cliente.nombre}. Total: ${total.toFixed(2)} EUR. ID: ${createdId}${tipo_factura === 'PROFORMA' ? ' (No consumirá numeración oficial)' : ''}`, factura: { id: createdId, cliente: cliente.nombre, total, estado: "BORRADOR", tipo: tipo_factura } };
 }
 
 async function actualizarFactura({ factura_id, cliente_id, fecha, lineas }, empresaId) {

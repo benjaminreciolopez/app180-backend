@@ -26,6 +26,7 @@ router.delete("/facturas/:id", facturasController.deleteFactura);
 // Acciones sobre facturas
 router.post("/facturas/:id/validar", facturasController.validarFactura);
 router.post("/facturas/:id/anular", facturasController.anularFactura);
+router.post("/facturas/:id/convertir-a-normal", facturasController.convertirProformaANormal);
 router.get("/facturas/:id/pdf", facturasController.generarPdf); // changed to GET for download
 router.post("/facturas/:id/email", facturasController.enviarEmail);
 

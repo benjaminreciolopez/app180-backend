@@ -276,7 +276,7 @@ export async function getFactura(req, res) {
 export async function createFactura(req, res) {
   try {
     const empresaId = await getEmpresaId(req.user.id);
-    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [], retencion_porcentaje = 0 } = req.body;
+    const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [], retencion_porcentaje = 0, tipo_factura = 'NORMAL' } = req.body;
 
     if (!cliente_id) {
       return res.status(400).json({ success: false, error: "Cliente requerido" });
@@ -310,8 +310,9 @@ export async function createFactura(req, res) {
       const [factura] = await tx`
         insert into factura_180 (
           empresa_id, cliente_id, fecha, estado, iva_global, mensaje_iva, metodo_pago,
-          subtotal, iva_total, total, 
+          subtotal, iva_total, total,
           retencion_porcentaje, retencion_importe,
+          tipo_factura,
           created_at
         ) values (
           ${empresaId},
@@ -323,6 +324,7 @@ export async function createFactura(req, res) {
           ${n(metodo_pago) || 'TRANSFERENCIA'},
           0, 0, 0,
           ${retencion_porcentaje}, 0,
+          ${tipo_factura},
           now()
         )
         returning *
@@ -627,7 +629,23 @@ export async function validarFactura(req, res) {
     const serie = config?.serie || null;
 
     // Generar número de factura
-    const numero = await generarNumeroFactura(empresaId, fecha);
+    // PROFORMA: número especial sin consumir numeración oficial
+    let numero;
+    if (factura.tipo_factura === 'PROFORMA') {
+      // Generar número único de proforma: PRO-YYYY-XXXXXX
+      const year = new Date(fecha).getFullYear();
+      const count = await sql`
+        SELECT COUNT(*) as total FROM factura_180
+        WHERE empresa_id = ${empresaId}
+          AND tipo_factura = 'PROFORMA'
+          AND EXTRACT(YEAR FROM fecha) = ${year}
+      `;
+      const nextNum = (parseInt(count[0]?.total || 0) + 1).toString().padStart(6, '0');
+      numero = `PRO-${year}-${nextNum}`;
+    } else {
+      // Factura NORMAL: usa numeración oficial
+      numero = await generarNumeroFactura(empresaId, fecha);
+    }
 
     await sql.begin(async (tx) => {
       // Obtener líneas para recalcular
@@ -664,24 +682,29 @@ export async function validarFactura(req, res) {
       `;
 
       // Verificar Veri*Factu (si aplica) con el registro actualizado
-      await verificarVerifactu(updatedRecord, tx);
+      // PROFORMA: NO se envía a VeriFactu
+      if (factura.tipo_factura !== 'PROFORMA') {
+        await verificarVerifactu(updatedRecord, tx);
+      }
 
       // Bloquear numeración SOLO si VeriFactu está en PRODUCCION (o desactivado)
       // En modo TEST NO se bloquea para permitir pruebas
-      const [verifactuConfig] = await tx`
-        select verifactu_activo, verifactu_modo
-        from configuracionsistema_180
-        where empresa_id = ${empresaId}
-        limit 1
-      `;
+      // PROFORMA: NUNCA bloquea numeración
+      if (factura.tipo_factura !== 'PROFORMA') {
+        const [verifactuConfig] = await tx`
+          select verifactu_activo, verifactu_modo
+          from configuracionsistema_180
+          where empresa_id = ${empresaId}
+          limit 1
+        `;
 
-      const year = new Date(fecha).getFullYear();
-      const esProduccion = !verifactuConfig?.verifactu_activo || verifactuConfig?.verifactu_modo !== 'TEST';
+        const year = new Date(fecha).getFullYear();
+        const esProduccion = !verifactuConfig?.verifactu_activo || verifactuConfig?.verifactu_modo !== 'TEST';
 
-      if (esProduccion) {
-        // PRODUCCION o VeriFactu OFF: Bloquear numeración irreversiblemente
-        await tx`
-          update emisor_180
+        if (esProduccion) {
+          // PRODUCCION o VeriFactu OFF: Bloquear numeración irreversiblemente
+          await tx`
+            update emisor_180
           set
             numeracion_bloqueada = true,
             anio_numeracion_bloqueada = ${year},
@@ -697,7 +720,8 @@ export async function validarFactura(req, res) {
           where empresa_id = ${empresaId}
         `;
         console.log(`⚠️ Modo TEST: Numeración NO bloqueada (año ${year})`);
-      }
+        }
+      } // Cierre del if para factura no-proforma
     });
 
     // Auditoría
@@ -1184,5 +1208,68 @@ export async function deleteFactura(req, res) {
   } catch (err) {
     console.error("❌ deleteFactura:", err);
     res.status(500).json({ success: false, error: "Error eliminando factura" });
+  }
+}
+
+/* =========================
+   CONVERTIR PROFORMA A FACTURA NORMAL
+========================= */
+
+export async function convertirProformaANormal(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req.user.id);
+    const { id } = req.params;
+    const { fecha } = req.body;
+
+    if (!fecha) {
+      return res.status(400).json({ success: false, error: "Fecha requerida" });
+    }
+
+    const [factura] = await sql`
+      select * from factura_180
+      where id=${id} and empresa_id=${empresaId}
+      limit 1
+    `;
+
+    if (!factura) {
+      return res.status(404).json({ success: false, error: "Factura no encontrada" });
+    }
+
+    if (factura.tipo_factura !== 'PROFORMA') {
+      return res.status(400).json({ success: false, error: "Solo se pueden convertir facturas proforma" });
+    }
+
+    if (factura.estado !== 'VALIDADA') {
+      return res.status(400).json({ success: false, error: "La proforma debe estar validada primero" });
+    }
+
+    // Cambiar a factura normal y volver a borrador para que se valide con número oficial
+    await sql`
+      update factura_180
+      set tipo_factura = 'NORMAL',
+          estado = 'BORRADOR',
+          numero = null,
+          fecha = ${fecha}::date
+      where id = ${id}
+    `;
+
+    // Auditoría
+    await registrarAuditoria({
+      empresaId,
+      userId: req.user.id,
+      accion: 'proforma_convertida',
+      entidadTipo: 'factura',
+      entidadId: id,
+      req,
+      motivo: `Proforma convertida a factura normal`
+    });
+
+    res.json({
+      success: true,
+      message: "Proforma convertida a factura normal. Ahora debes validarla para asignarle número oficial."
+    });
+  } catch (err) {
+    console.error("❌ convertirProformaANormal:", err);
+    res.status(500).json({ success: false, error: "Error convirtiendo proforma" });
   }
 }
