@@ -1,5 +1,6 @@
 import express from 'express';
-import { authRequired, roleRequired } from '../middlewares/authMiddleware.js';
+import { authRequired } from '../middlewares/authMiddleware.js';
+import { roleRequired } from '../middlewares/roleRequired.js';
 import {
   listarEventos,
   obtenerEstadisticas,
