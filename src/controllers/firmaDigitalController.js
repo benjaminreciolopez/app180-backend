@@ -132,10 +132,27 @@ export async function configurarCertificadoFabricante(req, res) {
     } = req.body;
 
     const empresaId = req.empresaId;
+    const usuarioId = req.userId;
 
     if (!certificado_path || !certificado_password) {
       return res.status(400).json({
         error: 'Faltan certificado_path y/o certificado_password'
+      });
+    }
+
+    // VALIDAR QUE ES EL PROPIETARIO/FABRICANTE
+    const [empresa] = await sql`
+      SELECT user_id FROM empresa_180 WHERE id = ${empresaId}
+    `;
+
+    if (!empresa) {
+      return res.status(404).json({ error: 'Empresa no encontrada' });
+    }
+
+    if (empresa.user_id !== usuarioId) {
+      return res.status(403).json({
+        error: '❌ ACCESO DENEGADO',
+        mensaje: 'Solo el propietario/fabricante puede configurar este certificado'
       });
     }
 
@@ -203,6 +220,26 @@ export async function configurarCertificadoAuto(req, res) {
         error: 'Faltan certificado_path y/o certificado_password'
       });
     }
+
+    // VALIDAR QUE ES EL PROPIETARIO/FABRICANTE
+    // Solo el creador de la empresa (primer usuario) puede configurar el certificado del fabricante
+    const [empresa] = await sql`
+      SELECT user_id FROM empresa_180 WHERE id = ${empresaId}
+    `;
+
+    if (!empresa) {
+      return res.status(404).json({ error: 'Empresa no encontrada' });
+    }
+
+    if (empresa.user_id !== usuarioId) {
+      return res.status(403).json({
+        error: '❌ ACCESO DENEGADO',
+        mensaje: 'Solo el propietario/fabricante de la empresa puede configurar el certificado del fabricante',
+        detalle: 'Esta funcionalidad está reservada para el creador de la empresa'
+      });
+    }
+
+    console.log(`✅ Usuario ${usuarioId} verificado como propietario/fabricante de empresa ${empresaId}`);
 
     // Validar certificado antes de guardarlo
     const validacion = await validarCertificado(certificado_path, certificado_password);
