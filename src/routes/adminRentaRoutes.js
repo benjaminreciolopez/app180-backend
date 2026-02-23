@@ -9,6 +9,7 @@ import {
     saveDatosPersonales,
     getHistorialRentas,
     getRentaDetalle,
+    updateRenta,
     deleteRenta,
     generarDossier
 } from "../controllers/adminRentaController.js";
@@ -48,6 +49,12 @@ router.get("/historial", getHistorialRentas);
  * @desc Detalle completo de una renta por ejercicio
  */
 router.get("/historial/:ejercicio", getRentaDetalle);
+
+/**
+ * @route PUT /admin/fiscal/renta/historial/:ejercicio
+ * @desc Actualizar casillas de una renta
+ */
+router.put("/historial/:ejercicio", updateRenta);
 
 /**
  * @route DELETE /admin/fiscal/renta/historial/:ejercicio

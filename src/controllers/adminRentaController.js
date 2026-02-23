@@ -53,15 +53,16 @@ export async function uploadRentaPdf(req, res) {
             });
         }
 
-        // 2. Usar Claude para extraer casillas
+        // 2. Usar Claude para extraer casillas + datos personales
         const systemPrompt = `Eres un experto fiscal español especializado en la Declaración de la Renta (Modelo 100 IRPF).
-Tu tarea es extraer las casillas clave de un PDF de declaración de la renta.
+Tu tarea es extraer las casillas clave Y los datos personales/familiares de un PDF de declaración de la renta.
 
 INSTRUCCIONES:
-1. Busca e identifica las siguientes casillas con sus importes exactos.
+1. Busca e identifica las casillas con sus importes exactos.
 2. Los importes deben ser números (sin símbolo €, sin puntos de miles, con punto decimal).
 3. Si una casilla no aparece en el documento, pon 0.
 4. Identifica si es declaración individual o conjunta.
+5. Extrae TODOS los datos personales y familiares que aparezcan.
 
 Responde EXCLUSIVAMENTE con este JSON:
 {
@@ -85,6 +86,29 @@ Responde EXCLUSIVAMENTE con este JSON:
     "rendimientos_capital_inmob": 0,
     "rendimientos_capital_mob": 0,
     "ganancias_patrimoniales": 0,
+    "datos_personales": {
+        "estado_civil": "soltero|casado|pareja_hecho|viudo|separado|divorciado",
+        "fecha_nacimiento": "YYYY-MM-DD o null",
+        "discapacidad_porcentaje": 0,
+        "conyuge_nif": "string o null",
+        "conyuge_nombre": "string o null",
+        "conyuge_fecha_nacimiento": "YYYY-MM-DD o null",
+        "conyuge_rendimientos": 0,
+        "conyuge_discapacidad": 0,
+        "descendientes": [
+            {"nombre": "string", "fecha_nacimiento": "YYYY-MM-DD", "discapacidad_porcentaje": 0, "convivencia": true}
+        ],
+        "ascendientes": [
+            {"nombre": "string", "fecha_nacimiento": "YYYY-MM-DD", "discapacidad_porcentaje": 0, "convivencia": true}
+        ],
+        "vivienda_tipo": "propiedad|alquiler|otro",
+        "vivienda_referencia_catastral": "string o null",
+        "alquiler_anual": 0,
+        "hipoteca_anual": 0,
+        "aportacion_plan_pensiones": 0,
+        "donaciones_ong": 0,
+        "donaciones_otras": 0
+    },
     "confianza": 0.85,
     "notas": "Texto breve con observaciones"
 }
@@ -100,15 +124,27 @@ CASILLAS CLAVE:
 - 600: Cuota íntegra autonómica
 - 610: Cuota líquida total
 - 611: Total deducciones
-- Resultado: Cantidad final a ingresar (positivo) o devolver (negativo)`;
+- Resultado: Cantidad final a ingresar (positivo) o devolver (negativo)
+
+DATOS PERSONALES A EXTRAER:
+- Estado civil del declarante (aparece en las primeras páginas)
+- Fecha de nacimiento del declarante
+- Grado de discapacidad (si aplica)
+- Datos del cónyuge: NIF, nombre, fecha nacimiento, rendimientos, discapacidad
+- Descendientes: nombre, fecha nacimiento, discapacidad, si convive
+- Ascendientes a cargo: nombre, fecha nacimiento, discapacidad, si convive
+- Vivienda habitual: tipo (propiedad/alquiler), referencia catastral
+- Aportaciones a planes de pensiones
+- Donaciones a ONGs y otras entidades
+- Si no encuentras un dato personal, pon null o array vacío`;
 
         const response = await anthropic.messages.create({
             model: "claude-haiku-4-5-20251001",
-            max_tokens: 2048,
+            max_tokens: 4096,
             system: systemPrompt,
             messages: [{
                 role: "user",
-                content: `Texto extraído de la Declaración de la Renta del ejercicio ${year}:\n\n${pdfText.substring(0, 15000)}`
+                content: `Texto extraído de la Declaración de la Renta del ejercicio ${year}:\n\n${pdfText.substring(0, 20000)}`
             }]
         });
 
@@ -155,7 +191,7 @@ CASILLAS CLAVE:
                     pdf_storage_path = ${storageRecord?.storage_path || null},
                     pdf_nombre_archivo = ${file.originalname},
                     pdf_fecha_importacion = NOW(),
-                    datos_extraidos_json = ${JSON.stringify(extracted)},
+                    datos_extraidos_json = ${sql.json(extracted)},
                     confianza_extraccion = ${extracted.confianza || 0},
                     updated_at = NOW()
                 WHERE id = ${existing.id}
@@ -185,10 +221,74 @@ CASILLAS CLAVE:
                     ${extracted.retenciones_actividades || 0},
                     ${extracted.pagos_fraccionados || 0},
                     ${storageRecord?.storage_path || null}, ${file.originalname},
-                    ${JSON.stringify(extracted)}, ${extracted.confianza || 0}
+                    ${sql.json(extracted)}, ${extracted.confianza || 0}
                 )
                 RETURNING *
             `;
+        }
+
+        // 5. Auto-guardar datos personales extraídos del PDF (si hay)
+        let datosPersonalesGuardados = false;
+        const dp = extracted.datos_personales;
+        if (dp && (dp.estado_civil || dp.conyuge_nif || (dp.descendientes && dp.descendientes.length > 0))) {
+            try {
+                const [existingDp] = await sql`
+                    SELECT id FROM renta_datos_personales_180 WHERE empresa_id = ${empresaId}
+                `;
+
+                if (existingDp) {
+                    await sql`
+                        UPDATE renta_datos_personales_180 SET
+                            estado_civil = COALESCE(${dp.estado_civil || null}, estado_civil),
+                            fecha_nacimiento = COALESCE(${dp.fecha_nacimiento || null}, fecha_nacimiento),
+                            discapacidad_porcentaje = COALESCE(${dp.discapacidad_porcentaje || null}, discapacidad_porcentaje),
+                            conyuge_nif = COALESCE(${dp.conyuge_nif || null}, conyuge_nif),
+                            conyuge_nombre = COALESCE(${dp.conyuge_nombre || null}, conyuge_nombre),
+                            conyuge_fecha_nacimiento = COALESCE(${dp.conyuge_fecha_nacimiento || null}, conyuge_fecha_nacimiento),
+                            conyuge_rendimientos = COALESCE(${dp.conyuge_rendimientos || null}, conyuge_rendimientos),
+                            conyuge_discapacidad = COALESCE(${dp.conyuge_discapacidad || null}, conyuge_discapacidad),
+                            descendientes = CASE WHEN ${(dp.descendientes || []).length > 0} THEN ${sql.json(dp.descendientes || [])} ELSE descendientes END,
+                            ascendientes = CASE WHEN ${(dp.ascendientes || []).length > 0} THEN ${sql.json(dp.ascendientes || [])} ELSE ascendientes END,
+                            vivienda_tipo = COALESCE(${dp.vivienda_tipo || null}, vivienda_tipo),
+                            vivienda_referencia_catastral = COALESCE(${dp.vivienda_referencia_catastral || null}, vivienda_referencia_catastral),
+                            alquiler_anual = COALESCE(${dp.alquiler_anual || null}, alquiler_anual),
+                            hipoteca_anual = COALESCE(${dp.hipoteca_anual || null}, hipoteca_anual),
+                            aportacion_plan_pensiones = COALESCE(${dp.aportacion_plan_pensiones || null}, aportacion_plan_pensiones),
+                            donaciones_ong = COALESCE(${dp.donaciones_ong || null}, donaciones_ong),
+                            donaciones_otras = COALESCE(${dp.donaciones_otras || null}, donaciones_otras),
+                            tipo_declaracion_preferida = ${extracted.tipo_declaracion || 'individual'},
+                            updated_at = NOW()
+                        WHERE id = ${existingDp.id}
+                    `;
+                } else {
+                    await sql`
+                        INSERT INTO renta_datos_personales_180 (
+                            empresa_id, estado_civil, fecha_nacimiento, discapacidad_porcentaje,
+                            conyuge_nif, conyuge_nombre, conyuge_fecha_nacimiento,
+                            conyuge_rendimientos, conyuge_discapacidad,
+                            descendientes, ascendientes,
+                            vivienda_tipo, vivienda_referencia_catastral,
+                            alquiler_anual, hipoteca_anual,
+                            aportacion_plan_pensiones, donaciones_ong, donaciones_otras,
+                            tipo_declaracion_preferida
+                        ) VALUES (
+                            ${empresaId}, ${dp.estado_civil || 'soltero'}, ${dp.fecha_nacimiento || null},
+                            ${dp.discapacidad_porcentaje || 0},
+                            ${dp.conyuge_nif || null}, ${dp.conyuge_nombre || null},
+                            ${dp.conyuge_fecha_nacimiento || null},
+                            ${dp.conyuge_rendimientos || 0}, ${dp.conyuge_discapacidad || 0},
+                            ${sql.json(dp.descendientes || [])}, ${sql.json(dp.ascendientes || [])},
+                            ${dp.vivienda_tipo || 'propiedad'}, ${dp.vivienda_referencia_catastral || null},
+                            ${dp.alquiler_anual || 0}, ${dp.hipoteca_anual || 0},
+                            ${dp.aportacion_plan_pensiones || 0}, ${dp.donaciones_ong || 0}, ${dp.donaciones_otras || 0},
+                            ${extracted.tipo_declaracion || 'individual'}
+                        )
+                    `;
+                }
+                datosPersonalesGuardados = true;
+            } catch (dpError) {
+                console.error("Error guardando datos personales extraídos:", dpError);
+            }
         }
 
         res.json({
@@ -197,7 +297,8 @@ CASILLAS CLAVE:
             extraccion: {
                 confianza: extracted.confianza || 0,
                 notas: extracted.notas || '',
-                tipo_declaracion: extracted.tipo_declaracion || 'individual'
+                tipo_declaracion: extracted.tipo_declaracion || 'individual',
+                datos_personales_extraidos: datosPersonalesGuardados
             }
         });
 
@@ -265,8 +366,8 @@ export async function saveDatosPersonales(req, res) {
                     conyuge_fecha_nacimiento = ${conyuge_fecha_nacimiento || null},
                     conyuge_rendimientos = ${conyuge_rendimientos || 0},
                     conyuge_discapacidad = ${conyuge_discapacidad || 0},
-                    descendientes = ${JSON.stringify(descendientes || [])},
-                    ascendientes = ${JSON.stringify(ascendientes || [])},
+                    descendientes = ${sql.json(descendientes || [])},
+                    ascendientes = ${sql.json(ascendientes || [])},
                     vivienda_tipo = ${vivienda_tipo || 'propiedad'},
                     vivienda_referencia_catastral = ${vivienda_referencia_catastral || null},
                     alquiler_anual = ${alquiler_anual || 0},
@@ -275,7 +376,7 @@ export async function saveDatosPersonales(req, res) {
                     aportacion_plan_pensiones = ${aportacion_plan_pensiones || 0},
                     donaciones_ong = ${donaciones_ong || 0},
                     donaciones_otras = ${donaciones_otras || 0},
-                    deducciones_autonomicas = ${JSON.stringify(deducciones_autonomicas || {})},
+                    deducciones_autonomicas = ${sql.json(deducciones_autonomicas || {})},
                     tipo_declaracion_preferida = ${tipo_declaracion_preferida || 'individual'},
                     updated_at = NOW()
                 WHERE id = ${existing.id}
@@ -298,11 +399,11 @@ export async function saveDatosPersonales(req, res) {
                     ${conyuge_nif || null}, ${conyuge_nombre || null},
                     ${conyuge_fecha_nacimiento || null},
                     ${conyuge_rendimientos || 0}, ${conyuge_discapacidad || 0},
-                    ${JSON.stringify(descendientes || [])}, ${JSON.stringify(ascendientes || [])},
+                    ${sql.json(descendientes || [])}, ${sql.json(ascendientes || [])},
                     ${vivienda_tipo || 'propiedad'}, ${vivienda_referencia_catastral || null},
                     ${alquiler_anual || 0}, ${hipoteca_anual || 0}, ${hipoteca_fecha_compra || null},
                     ${aportacion_plan_pensiones || 0}, ${donaciones_ong || 0}, ${donaciones_otras || 0},
-                    ${JSON.stringify(deducciones_autonomicas || {})},
+                    ${sql.json(deducciones_autonomicas || {})},
                     ${tipo_declaracion_preferida || 'individual'}
                 )
                 RETURNING *
@@ -390,6 +491,54 @@ export async function deleteRenta(req, res) {
     }
 }
 
+/**
+ * PUT /admin/fiscal/renta/historial/:ejercicio
+ * Editar casillas de una renta importada
+ */
+export async function updateRenta(req, res) {
+    try {
+        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const { ejercicio } = req.params;
+        const {
+            casilla_505, casilla_510, casilla_595, casilla_600, casilla_610, casilla_611,
+            resultado_declaracion, rendimientos_trabajo, rendimientos_actividades,
+            rendimientos_capital_inmob, rendimientos_capital_mob, ganancias_patrimoniales,
+            retenciones_trabajo, retenciones_actividades, pagos_fraccionados,
+            tipo_declaracion
+        } = req.body;
+
+        const [record] = await sql`
+            UPDATE renta_historica_180 SET
+                casilla_505 = ${casilla_505 ?? 0},
+                casilla_510 = ${casilla_510 ?? 0},
+                casilla_595 = ${casilla_595 ?? 0},
+                casilla_600 = ${casilla_600 ?? 0},
+                casilla_610 = ${casilla_610 ?? 0},
+                casilla_611 = ${casilla_611 ?? 0},
+                resultado_declaracion = ${resultado_declaracion ?? 0},
+                rendimientos_trabajo = ${rendimientos_trabajo ?? 0},
+                rendimientos_actividades = ${rendimientos_actividades ?? 0},
+                rendimientos_capital_inmob = ${rendimientos_capital_inmob ?? 0},
+                rendimientos_capital_mob = ${rendimientos_capital_mob ?? 0},
+                ganancias_patrimoniales = ${ganancias_patrimoniales ?? 0},
+                retenciones_trabajo = ${retenciones_trabajo ?? 0},
+                retenciones_actividades = ${retenciones_actividades ?? 0},
+                pagos_fraccionados = ${pagos_fraccionados ?? 0},
+                tipo_declaracion = ${tipo_declaracion || 'individual'},
+                updated_at = NOW()
+            WHERE empresa_id = ${empresaId} AND ejercicio = ${parseInt(ejercicio)}
+            RETURNING *
+        `;
+
+        if (!record) return res.status(404).json({ error: "Renta no encontrada" });
+
+        res.json({ success: true, data: record });
+    } catch (error) {
+        console.error("Error updateRenta:", error);
+        res.status(500).json({ success: false, error: "Error actualizando renta" });
+    }
+}
+
 // =============================================
 // 4. DOSSIER PRE-RENTA
 // =============================================
@@ -451,7 +600,6 @@ export async function generarDossier(req, res) {
                 COALESCE(SUM(bruto), 0) as bruto_total,
                 COALESCE(SUM(irpf_retencion), 0) as irpf_total,
                 COALESCE(SUM(seguridad_social_empresa), 0) as ss_empresa,
-                COALESCE(SUM(seguridad_social_trabajador), 0) as ss_trabajador,
                 COUNT(*) as num_nominas
             FROM nominas_180
             WHERE empresa_id = ${empresaId} AND anio = ${year}
@@ -492,7 +640,7 @@ export async function generarDossier(req, res) {
             empresa: {
                 nombre: emisor?.nombre || '',
                 nif: emisor?.nif || '',
-                actividad: emisor?.actividad_economica || ''
+                actividad: emisor?.nombre_comercial || ''
             },
             datos_personales: datosPersonales || null,
             renta_anterior: rentaAnterior ? {

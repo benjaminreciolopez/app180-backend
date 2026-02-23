@@ -3394,7 +3394,7 @@ async function calcularModeloFiscal({ modelo, trimestre, anio }, empresaId) {
       LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
       WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
         AND f.fecha >= ${fechaInicio}::date AND f.fecha <= ${fechaFin}::date
-        AND (cfd.es_intracomunitario = true OR c.pais != 'ES')
+        AND ((cfd.pais IS NOT NULL AND cfd.pais != '' AND cfd.pais != 'ES') OR (c.pais IS NOT NULL AND c.pais != '' AND c.pais != 'ES'))
       GROUP BY c.id, c.nombre, c.nif_cif
     `;
     const [totales] = await sql`
@@ -3404,7 +3404,7 @@ async function calcularModeloFiscal({ modelo, trimestre, anio }, empresaId) {
       LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
       WHERE f.empresa_id = ${empresaId} AND f.estado = 'VALIDADA'
         AND f.fecha >= ${fechaInicio}::date AND f.fecha <= ${fechaFin}::date
-        AND (cfd.es_intracomunitario = true OR c.pais != 'ES')
+        AND ((cfd.pais IS NOT NULL AND cfd.pais != '' AND cfd.pais != 'ES') OR (c.pais IS NOT NULL AND c.pais != '' AND c.pais != 'ES'))
     `;
     return {
       modelo: "349", trimestre: t, anio,
