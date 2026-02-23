@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Declaraci&oacute;n Responsable del Productor - Sistema Veri*Factu</title>
+    <style>
+        @page {
+            margin: 2cm;
+            size: A4;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            color: #000;
+            margin: 0;
+            padding: 2cm;
+            line-height: 1.6;
+            font-size: 12pt;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 15pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 1.5cm;
+            border-bottom: 2pt solid #000;
+            padding-bottom: 0.5cm;
+        }
+
+        h2 {
+            font-size: 13pt;
+            font-weight: bold;
+            margin-top: 1cm;
+            margin-bottom: 0.5cm;
+        }
+
+        .fecha-lugar {
+            text-align: right;
+            font-size: 11pt;
+            margin-bottom: 1cm;
+        }
+
+        .datos-box {
+            margin: 0.5cm 0;
+            padding: 0.5cm;
+            border: 1pt solid #333;
+            background-color: #f9f9f9;
+        }
+
+        .datos-box p {
+            margin: 0.2cm 0;
+        }
+
+        .datos-box strong {
+            display: inline-block;
+            min-width: 180pt;
+        }
+
+        .clausula {
+            margin: 0.5cm 0;
+            text-align: justify;
+        }
+
+        .clausula-numero {
+            font-weight: bold;
+            display: inline-block;
+            min-width: 50pt;
+        }
+
+        ul {
+            margin: 0.3cm 0;
+            padding-left: 1cm;
+        }
+
+        li {
+            margin: 0.2cm 0;
+        }
+
+        .normativa {
+            background-color: #f0f4ff;
+            border: 1pt solid #3366cc;
+            padding: 0.5cm;
+            margin: 0.5cm 0;
+            border-radius: 4pt;
+            font-size: 11pt;
+        }
+
+        .firma-section {
+            margin-top: 2cm;
+            text-align: center;
+        }
+
+        .firma-box {
+            border: 1pt solid #000;
+            min-height: 80pt;
+            margin: 0.5cm auto;
+            width: 250pt;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 10pt;
+        }
+
+        .firma-label {
+            font-size: 10pt;
+            margin-top: 0.3cm;
+            font-weight: bold;
+        }
+
+        .footer {
+            margin-top: 2cm;
+            text-align: center;
+            font-size: 9pt;
+            color: #666;
+            border-top: 1pt solid #ccc;
+            padding-top: 0.3cm;
+        }
+    </style>
+</head>
+<body>
+    <h1>Declaraci&oacute;n Responsable del Productor<br>de Sistema Inform&aacute;tico de Facturaci&oacute;n<br>(Art. 29.2.j LGT &mdash; RD 1007/2023)</h1>
+
+    <div class="fecha-lugar">
+        En <strong>{{MUNICIPIO}}</strong>, a <strong>{{FECHA_FORMATEADA}}</strong>
+    </div>
+
+    <h2>I. DATOS DEL PRODUCTOR DEL SOFTWARE</h2>
+
+    <div class="datos-box">
+        <p><strong>Raz&oacute;n Social:</strong> {{PRODUCTOR_RAZON_SOCIAL}}</p>
+        <p><strong>NIF/CIF:</strong> {{PRODUCTOR_NIF}}</p>
+        <p><strong>Direcci&oacute;n:</strong> {{PRODUCTOR_DIRECCION}}</p>
+        <p><strong>Municipio:</strong> {{PRODUCTOR_MUNICIPIO}}</p>
+        <p><strong>Provincia:</strong> {{PRODUCTOR_PROVINCIA}}</p>
+        <p><strong>C&oacute;digo Postal:</strong> {{PRODUCTOR_CP}}</p>
+        <p><strong>Email de contacto:</strong> {{PRODUCTOR_EMAIL}}</p>
+        <p><strong>Web:</strong> {{PRODUCTOR_WEB}}</p>
+    </div>
+
+    <h2>II. DATOS DEL SISTEMA INFORM&Aacute;TICO DE FACTURACI&Oacute;N</h2>
+
+    <div class="datos-box">
+        <p><strong>Nombre del sistema:</strong> {{SOFTWARE_NOMBRE}}</p>
+        <p><strong>Identificador interno:</strong> {{SOFTWARE_ID}}</p>
+        <p><strong>Versi&oacute;n:</strong> {{SOFTWARE_VERSION}}</p>
+        <p><strong>Tipo de sistema:</strong> Sistema Veri*Factu (env&iacute;o inmediato a la AEAT)</p>
+        <p><strong>Tipo de instalaci&oacute;n:</strong> Aplicaci&oacute;n web SaaS (Software as a Service)</p>
+        <p><strong>N&ordm; de registro:</strong> {{SOFTWARE_NUM_REGISTRO}}</p>
+    </div>
+
+    <h2>III. DECLARACI&Oacute;N RESPONSABLE</h2>
+
+    <p class="clausula">
+        <span class="clausula-numero">PRIMERO.</span>
+        El productor abajo firmante, en nombre y representaci&oacute;n de la entidad indicada en el apartado I, <strong>DECLARA RESPONSABLEMENTE</strong> que el sistema inform&aacute;tico de facturaci&oacute;n descrito en el apartado II cumple con todos los requisitos establecidos en:
+    </p>
+
+    <div class="normativa">
+        <ul>
+            <li><strong>Art&iacute;culo 29.2.j)</strong> de la Ley 58/2003, General Tributaria (LGT)</li>
+            <li><strong>Real Decreto 1007/2023</strong>, de 5 de diciembre, por el que se modifica el Reglamento de facturaci&oacute;n (RD 1619/2012)</li>
+            <li><strong>Orden HAC/1177/2024</strong>, de 17 de octubre, por la que se desarrollan las especificaciones t&eacute;cnicas</li>
+        </ul>
+    </div>
+
+    <p class="clausula">
+        <span class="clausula-numero">SEGUNDO.</span>
+        El sistema cumple con las siguientes garant&iacute;as t&eacute;cnicas y funcionales:
+    </p>
+
+    <ul>
+        <li><strong>Integridad:</strong> Los registros de facturaci&oacute;n no pueden ser alterados una vez generados, protegidos mediante huella digital SHA-256 encadenada.</li>
+        <li><strong>Conservaci&oacute;n:</strong> Los registros se conservan durante el periodo legalmente establecido con copias de seguridad.</li>
+        <li><strong>Accesibilidad:</strong> Los datos son accesibles en todo momento para su consulta y exportaci&oacute;n.</li>
+        <li><strong>Legibilidad:</strong> Los registros se presentan en formato legible y comprensible.</li>
+        <li><strong>Trazabilidad:</strong> Cada registro incluye hash encadenado con el registro anterior, creando una cadena inalterable.</li>
+        <li><strong>Inalterabilidad:</strong> El sistema impide la eliminaci&oacute;n, modificaci&oacute;n o manipulaci&oacute;n de registros una vez generados.</li>
+    </ul>
+
+    <p class="clausula">
+        <span class="clausula-numero">TERCERO.</span>
+        El sistema dispone de capacidad de comunicaci&oacute;n con la Agencia Estatal de Administraci&oacute;n Tributaria (AEAT) para la transmisi&oacute;n de registros de facturaci&oacute;n, tanto en entorno de pruebas como de producci&oacute;n.
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">CUARTO.</span>
+        El sistema genera un c&oacute;digo QR en cada factura emitida, conforme a las especificaciones t&eacute;cnicas aprobadas, que permite la verificaci&oacute;n de la factura ante la AEAT.
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">QUINTO.</span>
+        El sistema garantiza la numeraci&oacute;n correlativa e inalterable de las facturas, impidiendo la creaci&oacute;n de huecos en la secuencia una vez iniciado el ejercicio fiscal.
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">SEXTO.</span>
+        Esta declaraci&oacute;n responsable se emite en cumplimiento del art&iacute;culo 201 bis de la Ley General Tributaria, asumiendo el productor la plena responsabilidad por el correcto funcionamiento del sistema de conformidad con la normativa vigente.
+    </p>
+
+    <p class="clausula">
+        <span class="clausula-numero">S&Eacute;PTIMO.</span>
+        Esta declaraci&oacute;n es accesible de forma r&aacute;pida, f&aacute;cil e intuitiva desde cualquier punto de acceso al sistema inform&aacute;tico de facturaci&oacute;n, conforme a lo exigido por la normativa.
+    </p>
+
+    <div class="firma-section">
+        <p><strong>El productor del sistema inform&aacute;tico de facturaci&oacute;n</strong></p>
+        <div class="firma-box">
+            Firma digital del productor
+        </div>
+        <p class="firma-label">Fdo.: {{PRODUCTOR_REPRESENTANTE}}</p>
+        <p style="font-size: 10pt;">En calidad de titular de {{PRODUCTOR_RAZON_SOCIAL}}</p>
+    </div>
+
+    <div class="footer">
+        <p>Declaraci&oacute;n responsable emitida conforme al RD 1007/2023 y Orden HAC/1177/2024</p>
+        <p>Sistema: {{SOFTWARE_NOMBRE}} v{{SOFTWARE_VERSION}} | ID: {{SOFTWARE_ID}} | Fecha: {{FECHA_GENERACION}}</p>
+    </div>
+</body>
+</html>

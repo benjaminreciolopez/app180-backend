@@ -1,7 +1,13 @@
 import { sql } from "../db.js";
 import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 const require = createRequire(import.meta.url);
 const forge = require("node-forge");
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 async function getEmpresaId(userId) {
     const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
@@ -635,5 +641,77 @@ export async function getVerifactuStatus(req, res) {
     } catch (err) {
         console.error("Error en getVerifactuStatus:", err);
         res.status(500).json({ success: false, error: "Error obteniendo estado VeriFactu" });
+    }
+}
+
+/**
+ * GET /admin/facturacion/configuracion/verifactu/declaracion-responsable
+ * Devuelve la declaración responsable del productor del software con datos reales
+ */
+export async function getDeclaracionResponsableProductor(req, res) {
+    try {
+        const empresaId = await getEmpresaId(req.user.id);
+
+        // Leer template
+        const templatePath = join(__dirname, '../../templates/declaracion_responsable_productor_verifactu.html');
+        let html = readFileSync(templatePath, 'utf-8');
+
+        // Leer versión dinámica del package.json
+        const pkgPath = join(__dirname, '../../package.json');
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+
+        // Leer datos reales del emisor (configuración de empresa)
+        const [emisor] = await sql`SELECT * FROM emisor_180 WHERE empresa_id=${empresaId}`;
+        const [perfil] = await sql`SELECT * FROM perfil_180 WHERE empresa_id=${empresaId}`;
+
+        // Datos del productor desde la BD
+        const nombre = emisor?.nombre || perfil?.nombre_fiscal || 'CONTENDO GESTIONES';
+        const nif = emisor?.nif || perfil?.cif || '';
+        const productor = {
+            PRODUCTOR_RAZON_SOCIAL: nombre,
+            PRODUCTOR_NIF: nif,
+            PRODUCTOR_DIRECCION: emisor?.direccion || perfil?.direccion || '',
+            PRODUCTOR_MUNICIPIO: emisor?.poblacion || perfil?.poblacion || '',
+            PRODUCTOR_PROVINCIA: emisor?.provincia || perfil?.provincia || '',
+            PRODUCTOR_CP: emisor?.cp || perfil?.cp || '',
+            PRODUCTOR_EMAIL: emisor?.email || perfil?.email || '',
+            PRODUCTOR_WEB: emisor?.web || perfil?.web || 'https://contendo.es',
+            PRODUCTOR_REPRESENTANTE: nombre,
+            SOFTWARE_NOMBRE: 'CONTENDO',
+            SOFTWARE_ID: 'APP180-CONTENDO',
+            SOFTWARE_VERSION: pkg.version || '1.0.0',
+            SOFTWARE_NUM_REGISTRO: 'APP180-VFACT-2026-001',
+            MUNICIPIO: emisor?.poblacion || perfil?.poblacion || '',
+        };
+
+        // Fecha
+        const ahora = new Date();
+        const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        productor.FECHA_FORMATEADA = `${ahora.getDate()} de ${meses[ahora.getMonth()]} de ${ahora.getFullYear()}`;
+        productor.FECHA_GENERACION = ahora.toISOString().split('T')[0];
+
+        // Reemplazar placeholders
+        for (const [key, value] of Object.entries(productor)) {
+            html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+        }
+
+        // Devolver formato según query param
+        const formato = req.query.formato || 'html';
+        if (formato === 'json') {
+            return res.json({
+                success: true,
+                data: {
+                    productor,
+                    html
+                }
+            });
+        }
+
+        // Por defecto HTML
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    } catch (err) {
+        console.error("Error en getDeclaracionResponsableProductor:", err);
+        res.status(500).json({ success: false, error: "Error generando declaración responsable" });
     }
 }
