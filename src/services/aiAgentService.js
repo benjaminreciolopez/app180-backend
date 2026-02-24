@@ -4946,12 +4946,12 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       consultasMes = 0;
     }
 
-    const limiteDiario = empresaCfg?.ai_limite_diario || 10;
-    const limiteMensual = empresaCfg?.ai_limite_mensual || 300;
+    const limiteDiario = empresaCfg?.ai_limite_diario ?? 10;
+    const limiteMensual = empresaCfg?.ai_limite_mensual ?? 300;
     const creditosExtra = empresaCfg?.ai_creditos_extra || 0;
 
-    // Verificar límites (creador y VIP no tienen límites)
-    if (!esCreador && !esVip) {
+    // Verificar límites (solo el creador no tiene límites; VIP usa créditos)
+    if (!esCreador) {
       const superaDiario = consultasHoy >= limiteDiario;
       const superaMensual = consultasMes >= limiteMensual;
 
@@ -5087,7 +5087,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFinal);
 
     // Incrementar contadores de consultas (incluso para creador, para estadísticas)
-    const usaCredito = !esCreador && !esVip && consultasHoy >= limiteDiario;
+    const usaCredito = !esCreador && consultasHoy >= limiteDiario;
     await sql`
       UPDATE empresa_config_180
       SET ai_consultas_hoy = ${consultasHoy + 1},

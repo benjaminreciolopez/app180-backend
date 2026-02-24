@@ -1224,8 +1224,8 @@ export const googleAuth = async (req, res) => {
         fiscal: true,
       };
       await sql`
-        INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
-        VALUES (${empresaId}, ${sql.json(allModulos)}, 1000)
+        INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens, ai_limite_diario, ai_limite_mensual, ai_creditos_extra)
+        VALUES (${empresaId}, ${sql.json(allModulos)}, 1000, 0, 0, 0)
       `;
 
       // Inicializar Base de Conocimiento

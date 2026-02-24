@@ -1,10 +1,12 @@
 import {
   createCheckoutSession,
+  createCreditsCheckoutSession,
   cancelSubscription,
   getSubscriptionInfo,
   getAvailablePlans,
   handleStripeWebhook,
   getStripe,
+  CREDIT_PACKS,
 } from "../services/stripeService.js";
 
 /**
@@ -66,6 +68,41 @@ export async function cancel(req, res) {
     console.error("Error cancel:", err.message);
     res.status(400).json({ error: err.message });
   }
+}
+
+/**
+ * POST /api/admin/subscription/buy-credits — Comprar créditos IA
+ */
+export async function buyCredits(req, res) {
+  try {
+    const { pack } = req.body;
+    if (!pack) return res.status(400).json({ error: "Pack requerido" });
+
+    const session = await createCreditsCheckoutSession(
+      req.user.empresa_id,
+      pack,
+      req.body.success_url,
+      req.body.cancel_url
+    );
+
+    res.json({ url: session.url, session_id: session.id });
+  } catch (err) {
+    console.error("Error buyCredits:", err.message);
+    res.status(400).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /api/admin/subscription/credit-packs — Packs de créditos disponibles
+ */
+export async function getCreditPacks(req, res) {
+  const packs = Object.entries(CREDIT_PACKS).map(([id, pack]) => ({
+    id,
+    credits: pack.credits,
+    price: pack.price / 100,
+    name: pack.name,
+  }));
+  res.json(packs);
 }
 
 /**

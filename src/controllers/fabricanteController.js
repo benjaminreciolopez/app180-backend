@@ -262,8 +262,8 @@ export async function registerVipUser(req, res) {
         };
 
         await sql`
-            INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
-            VALUES (${empresa.id}, ${sql.json(allModulos)}, 1000)
+            INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens, ai_limite_diario, ai_limite_mensual, ai_creditos_extra)
+            VALUES (${empresa.id}, ${sql.json(allModulos)}, 1000, 0, 0, 0)
         `;
 
         // Inicializar base de conocimiento

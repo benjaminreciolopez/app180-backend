@@ -182,8 +182,72 @@ export async function handleStripeWebhook(event) {
     case "checkout.session.completed": {
       const session = event.data.object;
       const empresaId = session.metadata?.empresa_id;
-      const planId = session.metadata?.plan_id;
 
+      // Compra de créditos IA (pago único)
+      if (session.metadata?.type === "ai_credits") {
+        const credits = parseInt(session.metadata.credits, 10);
+        if (empresaId && credits > 0) {
+          // Añadir créditos al comprador
+          await sql`
+            UPDATE empresa_config_180
+            SET ai_creditos_extra = COALESCE(ai_creditos_extra, 0) + ${credits}
+            WHERE empresa_id = ${empresaId}::uuid
+          `;
+
+          // 5% comisión al fabricante
+          const comision = Math.ceil(credits * 0.05);
+          const FABRICANTE_EMAIL = process.env.FABRICANTE_EMAIL || "susanaybenjamin@gmail.com";
+          const [fabricante] = await sql`
+            SELECT e.id as empresa_id FROM empresa_180 e
+            JOIN users_180 u ON e.user_id = u.id
+            WHERE u.email = ${FABRICANTE_EMAIL} LIMIT 1
+          `;
+          if (fabricante) {
+            await sql`
+              UPDATE empresa_config_180
+              SET ai_creditos_extra = COALESCE(ai_creditos_extra, 0) + ${comision}
+              WHERE empresa_id = ${fabricante.empresa_id}
+            `;
+          }
+
+          // Notificación al comprador
+          await sql`
+            INSERT INTO notificaciones_180 (empresa_id, tipo, titulo, mensaje, leida, metadata)
+            VALUES (
+              ${empresaId}::uuid,
+              'CREDITOS_IA',
+              ${'Créditos IA añadidos'},
+              ${'Se han añadido ' + credits + ' créditos a tu cuenta CONTENDO.'},
+              false,
+              ${JSON.stringify({ credits, pack: session.metadata.pack, stripe_session: session.id })}
+            )
+          `;
+
+          // Notificación al fabricante
+          if (fabricante) {
+            const [compradorEmpresa] = await sql`
+              SELECT nombre FROM empresa_180 WHERE id = ${empresaId}::uuid LIMIT 1
+            `;
+            await sql`
+              INSERT INTO notificaciones_180 (empresa_id, tipo, titulo, mensaje, leida, metadata)
+              VALUES (
+                ${fabricante.empresa_id},
+                'VIP_LOG',
+                ${'Compra de créditos IA'},
+                ${'La empresa "' + (compradorEmpresa?.nombre || '?') + '" ha comprado ' + credits + ' créditos (+' + comision + ' comisión para ti).'},
+                false,
+                ${JSON.stringify({ credits, comision, empresa_compradora: empresaId, timestamp: new Date().toISOString() })}
+              )
+            `;
+          }
+
+          console.log(`[Stripe] Créditos IA: +${credits} para empresa ${empresaId}, +${comision} comisión fabricante`);
+        }
+        break;
+      }
+
+      // Suscripción de plan (flujo existente)
+      const planId = session.metadata?.plan_id;
       if (empresaId && planId) {
         await sql`
           UPDATE empresa_180
@@ -248,6 +312,68 @@ export async function handleStripeWebhook(event) {
       break;
     }
   }
+}
+
+/**
+ * Packs de créditos IA disponibles para compra
+ */
+const CREDIT_PACKS = {
+  credits_50:  { credits: 50,  price: 499,  name: "50 consultas IA" },
+  credits_150: { credits: 150, price: 999,  name: "150 consultas IA" },
+  credits_500: { credits: 500, price: 2499, name: "500 consultas IA" },
+};
+
+export { CREDIT_PACKS };
+
+/**
+ * Crear sesión de Stripe Checkout para compra de créditos IA (pago único)
+ */
+export async function createCreditsCheckoutSession(empresaId, pack, successUrl, cancelUrl) {
+  const packInfo = CREDIT_PACKS[pack];
+  if (!packInfo) throw new Error("Pack de créditos no válido");
+
+  const [empresa] = await sql`
+    SELECT e.*, e.stripe_customer_id
+    FROM empresa_180 e
+    WHERE e.id = ${empresaId}
+  `;
+
+  if (!empresa) throw new Error("Empresa no encontrada");
+
+  let customerId = empresa.stripe_customer_id;
+  if (!customerId) {
+    const customer = await createStripeCustomer(empresa);
+    customerId = customer.id;
+  }
+
+  const session = await getStripe().checkout.sessions.create({
+    customer: customerId,
+    mode: "payment",
+    payment_method_types: ["card"],
+    line_items: [
+      {
+        price_data: {
+          currency: "eur",
+          product_data: {
+            name: packInfo.name,
+            description: `${packInfo.credits} consultas para CONTENDO IA`,
+          },
+          unit_amount: packInfo.price,
+        },
+        quantity: 1,
+      },
+    ],
+    success_url: successUrl || `${process.env.FRONTEND_URL || "http://localhost:3000"}/admin?credits=success`,
+    cancel_url: cancelUrl || `${process.env.FRONTEND_URL || "http://localhost:3000"}/admin?credits=canceled`,
+    metadata: {
+      empresa_id: empresaId,
+      type: "ai_credits",
+      pack,
+      credits: String(packInfo.credits),
+    },
+  });
+
+  return session;
 }
 
 /**

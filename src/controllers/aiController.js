@@ -206,8 +206,8 @@ export async function usage(req, res) {
                         String(cfg?.ai_consultas_mes_reset || '');
     if (!mesResetStr.startsWith(hoyStr.substring(0, 7))) consultasMes = 0;
 
-    const limiteDiario = cfg?.ai_limite_diario || 10;
-    const limiteMensual = cfg?.ai_limite_mensual || 300;
+    const limiteDiario = cfg?.ai_limite_diario ?? 10;
+    const limiteMensual = cfg?.ai_limite_mensual ?? 300;
     const creditosExtra = cfg?.ai_creditos_extra || 0;
 
     res.json({
@@ -218,9 +218,9 @@ export async function usage(req, res) {
       creditos_extra: creditosExtra,
       es_vip: esVip,
       es_creador: esCreador,
-      sin_limites: esCreador || esVip,
-      pct_diario: Math.min(100, Math.round((consultasHoy / limiteDiario) * 100)),
-      pct_mensual: Math.min(100, Math.round((consultasMes / limiteMensual) * 100))
+      sin_limites: esCreador,
+      pct_diario: limiteDiario > 0 ? Math.min(100, Math.round((consultasHoy / limiteDiario) * 100)) : 100,
+      pct_mensual: limiteMensual > 0 ? Math.min(100, Math.round((consultasMes / limiteMensual) * 100)) : 100
     });
   } catch (error) {
     console.error("[AI Controller] Error en usage:", error);
