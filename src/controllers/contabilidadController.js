@@ -112,8 +112,28 @@ export async function inicializarPGC(req, res) {
 export async function getAsientos(req, res) {
   try {
     const empresaId = req.user.empresa_id;
-    const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, page = 1, limit = 50 } = req.query;
+    const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, page = 1, limit = 50, sort_field, sort_dir } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build ORDER BY clause - validate sort field to prevent injection
+    const SORT_MAP = {
+      numero_asc: sql`a.numero ASC`,
+      numero_desc: sql`a.numero DESC`,
+      fecha_asc: sql`a.fecha ASC, a.numero ASC`,
+      fecha_desc: sql`a.fecha DESC, a.numero DESC`,
+      concepto_asc: sql`a.concepto ASC`,
+      concepto_desc: sql`a.concepto DESC`,
+      tipo_asc: sql`a.tipo ASC`,
+      tipo_desc: sql`a.tipo DESC`,
+      estado_asc: sql`a.estado ASC`,
+      estado_desc: sql`a.estado DESC`,
+      total_debe_asc: sql`total_debe ASC NULLS FIRST`,
+      total_debe_desc: sql`total_debe DESC NULLS LAST`,
+      total_haber_asc: sql`total_haber ASC NULLS FIRST`,
+      total_haber_desc: sql`total_haber DESC NULLS LAST`,
+    };
+    const sortKey = sort_field && sort_dir ? `${sort_field}_${sort_dir}` : null;
+    const orderClause = SORT_MAP[sortKey] || sql`a.fecha DESC, a.numero DESC`;
 
     const asientos = await sql`
       SELECT a.*,
@@ -129,7 +149,7 @@ export async function getAsientos(req, res) {
         ${fecha_hasta ? sql`AND a.fecha <= ${fecha_hasta}` : sql``}
         ${tipo ? sql`AND a.tipo = ${tipo}` : sql``}
         ${estado ? sql`AND a.estado = ${estado}` : sql``}
-      ORDER BY a.fecha DESC, a.numero DESC
+      ORDER BY ${orderClause}
       LIMIT ${parseInt(limit)} OFFSET ${offset}
     `;
 
