@@ -270,9 +270,10 @@ export const getAdminDashboard = async (req, res) => {
     ========================= */
     let beneficioReal = {
       facturado_base: 0,
-      no_facturado: 0,
       gastos_base: 0,
+      impuestos_estimados: 0,
       beneficio_neto: 0,
+      pendiente_facturar: 0,
       year: new Date().getFullYear()
     };
 
@@ -353,29 +354,21 @@ async function getFacturasPendientesList(empresaId, moduloFacturacion) {
 }
 
 /**
- * Helper para calcular beneficio en un rango
+ * Helper para calcular beneficio en un rango.
+ * Solo usa datos FISCALMENTE declarados (facturas emitidas y gastos deducibles).
+ * También indica trabajo cobrado pero pendiente de facturar como aviso informativo.
  */
 async function calculateBeneficio(empresaId, startDate, endDate) {
-  // 1. Facturado (Base)
+  // 1. Facturado (Base Imponible de facturas emitidas válidas)
   const [fact] = await sql`
-      SELECT COALESCE(SUM(subtotal), 0) as total 
-      FROM factura_180 
-      WHERE empresa_id = ${empresaId} 
+      SELECT COALESCE(SUM(subtotal), 0) as total
+      FROM factura_180
+      WHERE empresa_id = ${empresaId}
         AND fecha BETWEEN ${startDate} AND ${endDate}
         AND estado NOT IN ('BORRADOR', 'ANULADA')
     `;
 
-  // 2. No Facturado
-  const [nofact] = await sql`
-      SELECT COALESCE(SUM(valor), 0) as total
-      FROM work_logs_180
-      WHERE empresa_id = ${empresaId}
-        AND fecha BETWEEN ${startDate} AND ${endDate}
-        AND estado_pago = 'pagado'
-        AND factura_id IS NULL
-    `;
-
-  // 3. Gastos
+  // 2. Gastos deducibles (Base Imponible)
   const [gast] = await sql`
       SELECT COALESCE(SUM(base_imponible), 0) as total
       FROM purchases_180
@@ -384,30 +377,33 @@ async function calculateBeneficio(empresaId, startDate, endDate) {
         AND activo = true
     `;
 
+  // 3. Trabajo cobrado pero pendiente de facturar (solo informativo, NO suma al beneficio)
+  const [pendiente] = await sql`
+      SELECT COALESCE(SUM(valor), 0) as total
+      FROM work_logs_180
+      WHERE empresa_id = ${empresaId}
+        AND fecha BETWEEN ${startDate} AND ${endDate}
+        AND estado_pago = 'pagado'
+        AND factura_id IS NULL
+    `;
+
   const facturado = Number(fact.total);
-  const noFacturado = Number(nofact.total);
   const gastos = Number(gast.total);
+  const pendienteFacturar = Number(pendiente.total);
 
-  // 4. Impuestos Estimados (Modelo 130 IRPF - 20% del Beneficio Fiscal Real)
-  // El IRPF se paga solo sobre lo FACTURADO OFICIALMENTE menos GASTOS OFICIALES.
-  // No se pagan impuestos sobre 'noFacturado' (Caja B).
-  const beneficioFiscal = facturado - gastos;
-  let impuestos = 0;
+  // 4. Estimación IRPF Modelo 130 (20% del rendimiento neto positivo)
+  const rendimientoNeto = facturado - gastos;
+  const impuestos = rendimientoNeto > 0 ? rendimientoNeto * 0.20 : 0;
 
-  // Solo si hay beneficio fiscal positivo se calculan impuestos
-  if (beneficioFiscal > 0) {
-    impuestos = beneficioFiscal * 0.20;
-  }
-
-  // El beneficio neto real es: (Todo lo que entra, sea A o B) - (Gastos) - (Impuestos que pagarás)
-  const beneficioNeto = (facturado + noFacturado) - gastos - impuestos;
+  // 5. Beneficio neto = Ingresos facturados - Gastos - Impuestos estimados
+  const beneficioNeto = facturado - gastos - impuestos;
 
   return {
     facturado_base: facturado,
-    no_facturado: noFacturado,
     gastos_base: gastos,
     impuestos_estimados: impuestos,
-    beneficio_neto: beneficioNeto
+    beneficio_neto: beneficioNeto,
+    pendiente_facturar: pendienteFacturar,
   };
 }
 

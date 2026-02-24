@@ -1,6 +1,7 @@
 // backend/src/controllers/contabilidadController.js
 import { sql } from "../db.js";
 import * as contabilidadService from "../services/contabilidadService.js";
+import ExcelJS from "exceljs";
 
 // =============================================
 // PGC - PLAN DE CUENTAS
@@ -112,7 +113,7 @@ export async function inicializarPGC(req, res) {
 export async function getAsientos(req, res) {
   try {
     const empresaId = req.user.empresa_id;
-    const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, page = 1, limit = 50, sort_field, sort_dir } = req.query;
+    const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, buscar, page = 1, limit = 50, sort_field, sort_dir } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Build ORDER BY clause - validate sort field to prevent injection
@@ -149,18 +150,34 @@ export async function getAsientos(req, res) {
         ${fecha_hasta ? sql`AND a.fecha <= ${fecha_hasta}` : sql``}
         ${tipo ? sql`AND a.tipo = ${tipo}` : sql``}
         ${estado ? sql`AND a.estado = ${estado}` : sql``}
+        ${buscar ? sql`AND (
+          a.concepto ILIKE ${'%' + buscar + '%'}
+          OR a.numero::text = ${buscar}
+          OR EXISTS (
+            SELECT 1 FROM asiento_lineas_180 l
+            WHERE l.asiento_id = a.id AND (l.cuenta_codigo ILIKE ${'%' + buscar + '%'} OR l.cuenta_nombre ILIKE ${'%' + buscar + '%'})
+          )
+        )` : sql``}
       ORDER BY ${orderClause}
       LIMIT ${parseInt(limit)} OFFSET ${offset}
     `;
 
     const [{ total }] = await sql`
-      SELECT count(*)::int AS total FROM asientos_180
-      WHERE empresa_id = ${empresaId}
-        ${ejercicio ? sql`AND ejercicio = ${parseInt(ejercicio)}` : sql``}
-        ${fecha_desde ? sql`AND fecha >= ${fecha_desde}` : sql``}
-        ${fecha_hasta ? sql`AND fecha <= ${fecha_hasta}` : sql``}
-        ${tipo ? sql`AND tipo = ${tipo}` : sql``}
-        ${estado ? sql`AND estado = ${estado}` : sql``}
+      SELECT count(*)::int AS total FROM asientos_180 a
+      WHERE a.empresa_id = ${empresaId}
+        ${ejercicio ? sql`AND a.ejercicio = ${parseInt(ejercicio)}` : sql``}
+        ${fecha_desde ? sql`AND a.fecha >= ${fecha_desde}` : sql``}
+        ${fecha_hasta ? sql`AND a.fecha <= ${fecha_hasta}` : sql``}
+        ${tipo ? sql`AND a.tipo = ${tipo}` : sql``}
+        ${estado ? sql`AND a.estado = ${estado}` : sql``}
+        ${buscar ? sql`AND (
+          a.concepto ILIKE ${'%' + buscar + '%'}
+          OR a.numero::text = ${buscar}
+          OR EXISTS (
+            SELECT 1 FROM asiento_lineas_180 l
+            WHERE l.asiento_id = a.id AND (l.cuenta_codigo ILIKE ${'%' + buscar + '%'} OR l.cuenta_nombre ILIKE ${'%' + buscar + '%'})
+          )
+        )` : sql``}
     `;
 
     res.json({ asientos, total, page: parseInt(page), limit: parseInt(limit) });
@@ -452,5 +469,346 @@ export async function generarAsientosPeriodo(req, res) {
   } catch (err) {
     console.error("Error generarAsientosPeriodo:", err);
     res.status(500).json({ error: "Error generando asientos" });
+  }
+}
+
+// =============================================
+// EXPORTAR ASIENTOS (Excel / CSV)
+// =============================================
+
+export async function exportarAsientos(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, buscar, formato = "excel" } = req.query;
+
+    // Fetch all asientos matching filters (no pagination)
+    const asientos = await sql`
+      SELECT a.numero, a.fecha, a.concepto, a.tipo, a.estado, a.notas
+      FROM asientos_180 a
+      WHERE a.empresa_id = ${empresaId}
+        ${ejercicio ? sql`AND a.ejercicio = ${parseInt(ejercicio)}` : sql``}
+        ${fecha_desde ? sql`AND a.fecha >= ${fecha_desde}` : sql``}
+        ${fecha_hasta ? sql`AND a.fecha <= ${fecha_hasta}` : sql``}
+        ${tipo ? sql`AND a.tipo = ${tipo}` : sql``}
+        ${estado ? sql`AND a.estado = ${estado}` : sql``}
+        ${buscar ? sql`AND (
+          a.concepto ILIKE ${'%' + buscar + '%'}
+          OR a.numero::text = ${buscar}
+        )` : sql``}
+      ORDER BY a.fecha ASC, a.numero ASC
+    `;
+
+    // Fetch all lineas for these asientos
+    const asientoIds = asientos.map(a => a.numero);
+    const lineas = asientoIds.length > 0 ? await sql`
+      SELECT l.cuenta_codigo, l.cuenta_nombre, l.debe, l.haber, l.concepto AS linea_concepto, l.orden,
+             a.numero AS asiento_numero, a.fecha AS asiento_fecha
+      FROM asiento_lineas_180 l
+      INNER JOIN asientos_180 a ON a.id = l.asiento_id
+      WHERE a.empresa_id = ${empresaId}
+        ${ejercicio ? sql`AND a.ejercicio = ${parseInt(ejercicio)}` : sql``}
+        ${fecha_desde ? sql`AND a.fecha >= ${fecha_desde}` : sql``}
+        ${fecha_hasta ? sql`AND a.fecha <= ${fecha_hasta}` : sql``}
+        ${tipo ? sql`AND a.tipo = ${tipo}` : sql``}
+        ${estado ? sql`AND a.estado = ${estado}` : sql``}
+      ORDER BY a.fecha ASC, a.numero ASC, l.orden ASC
+    ` : [];
+
+    if (formato === "csv") {
+      // Format: Diario contable CSV (compatible with ContaSOL, A3, Sage, Holded)
+      const BOM = "\uFEFF";
+      const header = "Asiento;Fecha;Cuenta;Nombre Cuenta;Debe;Haber;Concepto";
+      const rows = lineas.map(l => {
+        const fecha = new Date(l.asiento_fecha).toLocaleDateString("es-ES");
+        return `${l.asiento_numero};${fecha};${l.cuenta_codigo};${l.cuenta_nombre};${Number(l.debe).toFixed(2)};${Number(l.haber).toFixed(2)};${(l.linea_concepto || "").replace(/;/g, ",")}`;
+      });
+      const csv = BOM + [header, ...rows].join("\r\n");
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=diario_contable_${ejercicio || "all"}.csv`);
+      return res.send(Buffer.from(csv, "utf-8"));
+    }
+
+    // Excel format (default) - two sheets: Diario + Libro Mayor resumen
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CONTENDO";
+    wb.created = new Date();
+
+    // Sheet 1: Libro Diario (lineas expandidas)
+    const wsDiario = wb.addWorksheet("Libro Diario");
+    wsDiario.columns = [
+      { header: "Asiento", key: "asiento", width: 10 },
+      { header: "Fecha", key: "fecha", width: 12 },
+      { header: "Cuenta", key: "cuenta", width: 12 },
+      { header: "Nombre Cuenta", key: "nombre", width: 35 },
+      { header: "Debe", key: "debe", width: 14 },
+      { header: "Haber", key: "haber", width: 14 },
+      { header: "Concepto", key: "concepto", width: 40 },
+      { header: "Tipo", key: "tipo", width: 15 },
+      { header: "Estado", key: "estado", width: 12 },
+    ];
+
+    // Style header
+    wsDiario.getRow(1).font = { bold: true };
+    wsDiario.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E8E8" } };
+
+    // Map asiento info
+    const asientoMap = new Map();
+    for (const a of asientos) {
+      asientoMap.set(a.numero, a);
+    }
+
+    for (const l of lineas) {
+      const a = asientoMap.get(l.asiento_numero);
+      wsDiario.addRow({
+        asiento: l.asiento_numero,
+        fecha: new Date(l.asiento_fecha),
+        cuenta: l.cuenta_codigo,
+        nombre: l.cuenta_nombre,
+        debe: Number(l.debe),
+        haber: Number(l.haber),
+        concepto: l.linea_concepto || a?.concepto || "",
+        tipo: a?.tipo || "",
+        estado: a?.estado || "",
+      });
+    }
+
+    // Format number columns
+    wsDiario.getColumn("debe").numFmt = '#,##0.00';
+    wsDiario.getColumn("haber").numFmt = '#,##0.00';
+    wsDiario.getColumn("fecha").numFmt = 'dd/mm/yyyy';
+
+    // Sheet 2: Resumen de Asientos
+    const wsResumen = wb.addWorksheet("Resumen Asientos");
+    wsResumen.columns = [
+      { header: "Num", key: "numero", width: 10 },
+      { header: "Fecha", key: "fecha", width: 12 },
+      { header: "Concepto", key: "concepto", width: 45 },
+      { header: "Tipo", key: "tipo", width: 15 },
+      { header: "Estado", key: "estado", width: 12 },
+      { header: "Total Debe", key: "debe", width: 14 },
+      { header: "Total Haber", key: "haber", width: 14 },
+    ];
+
+    wsResumen.getRow(1).font = { bold: true };
+    wsResumen.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E8E8" } };
+
+    // Calculate totals per asiento from lineas
+    const totales = new Map();
+    for (const l of lineas) {
+      const key = l.asiento_numero;
+      if (!totales.has(key)) totales.set(key, { debe: 0, haber: 0 });
+      totales.get(key).debe += Number(l.debe);
+      totales.get(key).haber += Number(l.haber);
+    }
+
+    for (const a of asientos) {
+      const t = totales.get(a.numero) || { debe: 0, haber: 0 };
+      wsResumen.addRow({
+        numero: a.numero,
+        fecha: new Date(a.fecha),
+        concepto: a.concepto,
+        tipo: a.tipo,
+        estado: a.estado,
+        debe: t.debe,
+        haber: t.haber,
+      });
+    }
+
+    wsResumen.getColumn("debe").numFmt = '#,##0.00';
+    wsResumen.getColumn("haber").numFmt = '#,##0.00';
+    wsResumen.getColumn("fecha").numFmt = 'dd/mm/yyyy';
+
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=libro_diario_${ejercicio || "all"}.xlsx`);
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("Error exportarAsientos:", err);
+    res.status(500).json({ error: "Error exportando asientos" });
+  }
+}
+
+// =============================================
+// IMPORTAR ASIENTOS (CSV / Excel)
+// =============================================
+
+export async function importarAsientos(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const creadoPor = req.user.id;
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No se ha enviado ningún archivo" });
+    }
+
+    const ext = req.file.originalname.toLowerCase();
+    let rows = [];
+
+    if (ext.endsWith(".csv")) {
+      // Parse CSV (semicolon or comma separated)
+      const content = req.file.buffer.toString("utf-8").replace(/^\uFEFF/, "");
+      const lines = content.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return res.status(400).json({ error: "CSV vacío o sin datos" });
+
+      const sep = lines[0].includes(";") ? ";" : ",";
+      const headers = lines[0].split(sep).map(h => h.trim().toLowerCase().replace(/\s+/g, "_"));
+
+      for (let i = 1; i < lines.length; i++) {
+        const vals = lines[i].split(sep);
+        const row = {};
+        headers.forEach((h, j) => { row[h] = (vals[j] || "").trim(); });
+        rows.push(row);
+      }
+    } else if (ext.endsWith(".xlsx") || ext.endsWith(".xls")) {
+      // Parse Excel
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(req.file.buffer);
+      const ws = wb.worksheets[0];
+      if (!ws || ws.rowCount < 2) return res.status(400).json({ error: "Excel vacío o sin datos" });
+
+      const headers = [];
+      ws.getRow(1).eachCell((cell, colNum) => {
+        headers[colNum] = String(cell.value || "").trim().toLowerCase().replace(/\s+/g, "_");
+      });
+
+      ws.eachRow((row, rowNum) => {
+        if (rowNum === 1) return;
+        const obj = {};
+        row.eachCell((cell, colNum) => {
+          const key = headers[colNum];
+          if (key) obj[key] = cell.value;
+        });
+        if (Object.keys(obj).length > 0) rows.push(obj);
+      });
+    } else {
+      return res.status(400).json({ error: "Formato no soportado. Usar CSV (.csv) o Excel (.xlsx)" });
+    }
+
+    // Normalize column names (support multiple formats)
+    const FIELD_MAP = {
+      asiento: ["asiento", "num", "numero", "nº", "entry"],
+      fecha: ["fecha", "date", "f.asiento"],
+      cuenta: ["cuenta", "cuenta_codigo", "codigo", "account", "code"],
+      nombre: ["nombre_cuenta", "nombre", "cuenta_nombre", "description", "account_name"],
+      debe: ["debe", "debit", "cargo"],
+      haber: ["haber", "credit", "abono"],
+      concepto: ["concepto", "concept", "description", "descripcion"],
+    };
+
+    function findField(row, aliases) {
+      for (const alias of aliases) {
+        if (row[alias] !== undefined && row[alias] !== "") return row[alias];
+      }
+      return null;
+    }
+
+    // Group rows by asiento number
+    const grouped = new Map();
+    for (const row of rows) {
+      const asientoNum = findField(row, FIELD_MAP.asiento);
+      const cuenta = String(findField(row, FIELD_MAP.cuenta) || "").trim();
+      const debe = parseFloat(findField(row, FIELD_MAP.debe) || 0) || 0;
+      const haber = parseFloat(findField(row, FIELD_MAP.haber) || 0) || 0;
+
+      if (!cuenta || (debe === 0 && haber === 0)) continue;
+
+      const key = asientoNum || `auto_${grouped.size + 1}`;
+      if (!grouped.has(key)) {
+        let fechaRaw = findField(row, FIELD_MAP.fecha);
+        let fecha;
+        if (fechaRaw instanceof Date) {
+          fecha = fechaRaw.toISOString().split("T")[0];
+        } else if (typeof fechaRaw === "string") {
+          // Try dd/mm/yyyy or yyyy-mm-dd
+          const parts = fechaRaw.split(/[\/\-\.]/);
+          if (parts.length === 3) {
+            if (parts[0].length === 4) {
+              fecha = `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+            } else {
+              fecha = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+            }
+          }
+        }
+        if (!fecha) fecha = new Date().toISOString().split("T")[0];
+
+        grouped.set(key, {
+          fecha,
+          concepto: String(findField(row, FIELD_MAP.concepto) || `Asiento importado ${key}`),
+          lineas: [],
+        });
+      }
+
+      grouped.get(key).lineas.push({
+        cuenta_codigo: cuenta,
+        cuenta_nombre: String(findField(row, FIELD_MAP.nombre) || cuenta),
+        debe,
+        haber,
+        concepto: String(findField(row, FIELD_MAP.concepto) || ""),
+      });
+    }
+
+    // Process each grouped asiento
+    const resultados = { importados: 0, duplicados: 0, errores: [] };
+
+    for (const [key, data] of grouped) {
+      try {
+        // Validate partida doble
+        const totalDebe = data.lineas.reduce((s, l) => s + l.debe, 0);
+        const totalHaber = data.lineas.reduce((s, l) => s + l.haber, 0);
+        if (Math.abs(totalDebe - totalHaber) > 0.01) {
+          resultados.errores.push(`Asiento ${key}: descuadre (Debe: ${totalDebe.toFixed(2)}, Haber: ${totalHaber.toFixed(2)})`);
+          continue;
+        }
+
+        if (data.lineas.length < 2) {
+          resultados.errores.push(`Asiento ${key}: menos de 2 líneas`);
+          continue;
+        }
+
+        // Check duplicates: same fecha + concepto + total_debe
+        const [existing] = await sql`
+          SELECT a.id FROM asientos_180 a
+          WHERE a.empresa_id = ${empresaId}
+            AND a.fecha = ${data.fecha}
+            AND a.concepto = ${data.concepto}
+            AND a.estado != 'anulado'
+            AND EXISTS (
+              SELECT 1 FROM asiento_lineas_180 l
+              WHERE l.asiento_id = a.id
+              GROUP BY l.asiento_id
+              HAVING ABS(SUM(l.debe) - ${totalDebe}) < 0.01
+            )
+          LIMIT 1
+        `;
+
+        if (existing) {
+          resultados.duplicados++;
+          continue;
+        }
+
+        // Create asiento
+        await contabilidadService.crearAsiento({
+          empresaId,
+          fecha: data.fecha,
+          concepto: data.concepto,
+          tipo: "manual",
+          creado_por: creadoPor,
+          lineas: data.lineas,
+        });
+        resultados.importados++;
+      } catch (err) {
+        resultados.errores.push(`Asiento ${key}: ${err.message}`);
+      }
+    }
+
+    res.json({
+      ...resultados,
+      total_procesados: grouped.size,
+      message: `Importados: ${resultados.importados}, Duplicados: ${resultados.duplicados}, Errores: ${resultados.errores.length}`,
+    });
+  } catch (err) {
+    console.error("Error importarAsientos:", err);
+    res.status(500).json({ error: "Error importando asientos" });
   }
 }

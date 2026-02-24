@@ -21,12 +21,22 @@ export function securityAlert(tipoAlerta) {
  */
 export async function alertPaymentReceived(empresaId, detalles) {
   try {
-    await sql`
+    const [row] = await sql`
       INSERT INTO security_alerts_180 (empresa_id, tipo, ip_origen, detalles, notificado)
       VALUES (${empresaId}, 'pago_recibido', 'stripe-webhook', ${JSON.stringify(detalles)}::jsonb, false)
+      RETURNING id
     `;
 
-    await sendAlertEmail(empresaId, "pago_recibido", "stripe-webhook", "", detalles);
+    // Verificar si notificaciones de pago están activadas
+    const [config] = await sql`
+      SELECT notify_email, notify_on FROM empresa_config_180 WHERE empresa_id = ${empresaId}
+    `;
+    if (!config?.notify_email) return;
+
+    const notifyOn = config.notify_on || {};
+    if (!notifyOn.payment) return;
+
+    await sendAlertEmail(row.id, config.notify_email, empresaId, "pago_recibido", "stripe-webhook", "", detalles);
   } catch (err) {
     console.error("[SecurityAlert] Error alertPaymentReceived:", err.message);
   }
@@ -54,13 +64,14 @@ async function processAlert(req, tipoAlerta) {
   const esIpConocida = ownerIps.includes(ip);
 
   // Registrar siempre la alerta
-  await sql`
+  const [row] = await sql`
     INSERT INTO security_alerts_180 (empresa_id, tipo, ip_origen, user_agent, user_id, detalles, es_ip_conocida)
     VALUES (
       ${empresaId}, ${tipoAlerta}, ${ip}, ${userAgent}, ${userId},
       ${JSON.stringify({ path: req.originalUrl, method: req.method })}::jsonb,
       ${esIpConocida}
     )
+    RETURNING id
   `;
 
   // Si IP conocida y no es un tipo que siempre notifica, skip email
@@ -69,8 +80,10 @@ async function processAlert(req, tipoAlerta) {
   // Verificar si este tipo de alerta tiene notificación activada
   if (!notifyOn[mapTipoToConfig(tipoAlerta)]) return;
 
-  // Enviar email de alerta
-  await sendAlertEmail(empresaId, tipoAlerta, ip, userAgent, { path: req.originalUrl });
+  if (!config.notify_email) return;
+
+  // Enviar email de alerta (pasar id + email para evitar query duplicada)
+  await sendAlertEmail(row.id, config.notify_email, empresaId, tipoAlerta, ip, userAgent, { path: req.originalUrl });
 }
 
 function mapTipoToConfig(tipo) {
@@ -84,15 +97,19 @@ function mapTipoToConfig(tipo) {
   return map[tipo] || "config";
 }
 
-async function sendAlertEmail(empresaId, tipo, ip, userAgent, detalles) {
+/** Escapa caracteres HTML para prevenir XSS en emails */
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function sendAlertEmail(alertId, email, empresaId, tipo, ip, userAgent, detalles) {
   try {
-    const [config] = await sql`
-      SELECT notify_email FROM empresa_config_180 WHERE empresa_id = ${empresaId}
-    `;
-
-    const email = config?.notify_email;
-    if (!email) return;
-
     const transporter = await getEmailTransporter(empresaId);
     if (!transporter) return;
 
@@ -105,6 +122,11 @@ async function sendAlertEmail(empresaId, tipo, ip, userAgent, detalles) {
     };
 
     const fecha = new Date().toLocaleString("es-ES", { timeZone: "Europe/Madrid" });
+
+    // Escapar datos de usuario para prevenir XSS en email
+    const safeIp = escapeHtml(ip);
+    const safeUserAgent = escapeHtml(userAgent);
+    const safeDetalles = escapeHtml(JSON.stringify(detalles || {}));
 
     await transporter.sendMail({
       to: email,
@@ -128,9 +150,9 @@ async function sendAlertEmail(empresaId, tipo, ip, userAgent, detalles) {
     </div>
 
     <table style="width:100%;border-collapse:collapse;font-size:14px;">
-      <tr><td style="padding:8px 0;color:#6B7280;width:120px;">IP origen</td><td style="padding:8px 0;font-weight:600;">${ip}</td></tr>
-      <tr><td style="padding:8px 0;color:#6B7280;">Navegador</td><td style="padding:8px 0;font-size:12px;word-break:break-all;">${userAgent || "—"}</td></tr>
-      <tr><td style="padding:8px 0;color:#6B7280;">Detalle</td><td style="padding:8px 0;font-size:12px;">${JSON.stringify(detalles || {})}</td></tr>
+      <tr><td style="padding:8px 0;color:#6B7280;width:120px;">IP origen</td><td style="padding:8px 0;font-weight:600;">${safeIp}</td></tr>
+      <tr><td style="padding:8px 0;color:#6B7280;">Navegador</td><td style="padding:8px 0;font-size:12px;word-break:break-all;">${safeUserAgent || "—"}</td></tr>
+      <tr><td style="padding:8px 0;color:#6B7280;">Detalle</td><td style="padding:8px 0;font-size:12px;">${safeDetalles}</td></tr>
     </table>
 
     <div style="margin-top:24px;padding-top:16px;border-top:1px solid #E5E7EB;text-align:center;">
@@ -143,16 +165,11 @@ async function sendAlertEmail(empresaId, tipo, ip, userAgent, detalles) {
 </html>`,
     });
 
-    // Marcar como notificado
+    // Marcar como notificado usando el ID exacto del registro
     await sql`
       UPDATE security_alerts_180
       SET notificado = true
-      WHERE empresa_id = ${empresaId}
-      AND tipo = ${tipo}
-      AND ip_origen = ${ip}
-      AND notificado = false
-      ORDER BY created_at DESC
-      LIMIT 1
+      WHERE id = ${alertId}
     `;
   } catch (err) {
     console.error("[SecurityAlert] Error enviando email:", err.message);
