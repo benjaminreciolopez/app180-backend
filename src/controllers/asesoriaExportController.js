@@ -26,9 +26,11 @@ export async function exportTrimestral(req, res) {
     }
 
     if (formato === "csv") {
-      const files = await generateCsvPack(empresaId, anio, trimestre);
-      // Return as JSON with file contents for client to handle
-      return res.json({ files });
+      // CSV pack contains multiple files, so we zip them
+      const buffer = await generateZipPack(empresaId, anio, trimestre, "csv");
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename=csv_asesoria_${anio}_T${trimestre}.zip`);
+      return res.send(buffer);
     }
 
     if (formato === "zip") {

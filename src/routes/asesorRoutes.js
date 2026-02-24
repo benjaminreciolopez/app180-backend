@@ -4,7 +4,7 @@ import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { asesorClienteRequired } from "../middlewares/asesorRequired.js";
-import { getDashboard, getClientes, getClienteResumen } from "../controllers/asesoriaController.js";
+import { getDashboard, getClientes, getClienteResumen, getConfiguracion, updateConfiguracion } from "../controllers/asesoriaController.js";
 import { getMensajes, enviarMensaje, marcarLeido, getNoLeidos } from "../controllers/asesoriaMensajesController.js";
 import { invitarClienteDesdeAsesor, registrarAsesoria } from "../controllers/asesoriaInvitacionController.js";
 import { exportTrimestral } from "../controllers/asesoriaExportController.js";
@@ -21,6 +21,10 @@ router.use(authRequired, roleRequired("asesor"));
 router.get("/dashboard", getDashboard);
 router.get("/clientes", getClientes);
 router.post("/clientes/invitar", invitarClienteDesdeAsesor);
+
+// Configuración de la asesoría
+router.get("/configuracion", getConfiguracion);
+router.put("/configuracion", updateConfiguracion);
 
 // Rutas con empresa_id específica (requieren vínculo activo)
 router.get("/clientes/:empresa_id/resumen", asesorClienteRequired(), getClienteResumen);

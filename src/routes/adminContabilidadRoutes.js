@@ -34,6 +34,7 @@ router.post("/cuentas/inicializar-pgc", inicializarPGC);
 // Asientos
 router.get("/asientos", getAsientos);
 router.post("/asientos", crearAsiento);
+router.post("/asientos/generar", generarAsientosPeriodo); // Must be before :id
 router.get("/asientos/:id", getAsientoById);
 router.put("/asientos/:id", editarAsiento);
 router.put("/asientos/:id/validar", validarAsiento);
@@ -49,8 +50,5 @@ router.get("/pyg", getPyG);
 // Ejercicios
 router.get("/ejercicios", getEjercicios);
 router.post("/ejercicios/:anio/cerrar", cerrarEjercicio);
-
-// Auto-generación
-router.post("/generar-asientos", generarAsientosPeriodo);
 
 export default router;

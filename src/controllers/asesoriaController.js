@@ -207,3 +207,90 @@ export async function getClienteResumen(req, res) {
     return res.status(500).json({ error: "Error obteniendo resumen del cliente" });
   }
 }
+
+/**
+ * GET /asesor/configuracion
+ * Returns asesoria details for the settings page
+ */
+export async function getConfiguracion(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+
+    const [asesoria] = await sql`
+      SELECT id, nombre, cif, email_contacto, telefono, direccion, logo_url, plan, max_clientes, activo, created_at
+      FROM asesorias_180
+      WHERE id = ${asesoriaId}
+    `;
+
+    if (!asesoria) {
+      return res.status(404).json({ error: "Asesoría no encontrada" });
+    }
+
+    // Count current clients
+    const [clientCount] = await sql`
+      SELECT COUNT(*)::int AS total
+      FROM asesoria_clientes_180
+      WHERE asesoria_id = ${asesoriaId}
+        AND estado = 'activo'
+    `;
+
+    // List team members
+    const miembros = await sql`
+      SELECT au.id, au.rol_interno, au.activo, au.created_at,
+             u.nombre, u.email
+      FROM asesoria_usuarios_180 au
+      JOIN users_180 u ON u.id = au.user_id
+      WHERE au.asesoria_id = ${asesoriaId}
+      ORDER BY au.created_at
+    `;
+
+    return res.json({
+      success: true,
+      data: {
+        ...asesoria,
+        clientes_activos: clientCount.total,
+        miembros,
+      },
+    });
+  } catch (err) {
+    console.error("Error getConfiguracion (asesoria):", err);
+    return res.status(500).json({ error: "Error obteniendo configuración" });
+  }
+}
+
+/**
+ * PUT /asesor/configuracion
+ * Update asesoria details
+ */
+export async function updateConfiguracion(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const { nombre, cif, email_contacto, telefono, direccion } = req.body;
+
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({ error: "El nombre es obligatorio" });
+    }
+
+    const [updated] = await sql`
+      UPDATE asesorias_180
+      SET
+        nombre = ${nombre.trim()},
+        cif = ${cif || null},
+        email_contacto = ${email_contacto?.trim() || null},
+        telefono = ${telefono || null},
+        direccion = ${direccion || null},
+        updated_at = now()
+      WHERE id = ${asesoriaId}
+      RETURNING id, nombre, cif, email_contacto, telefono, direccion
+    `;
+
+    if (!updated) {
+      return res.status(404).json({ error: "Asesoría no encontrada" });
+    }
+
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error("Error updateConfiguracion (asesoria):", err);
+    return res.status(500).json({ error: "Error actualizando configuración" });
+  }
+}
