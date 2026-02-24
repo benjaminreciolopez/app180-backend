@@ -68,6 +68,7 @@ import notificacionesRoutes from "./routes/notificacionesRoutes.js";
 import { verifactuEventosController } from "./controllers/verifactuEventosController.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import { stripeWebhook } from "./controllers/subscriptionController.js";
+import fabricantePublicRoutes, { fabricanteProtectedRouter } from "./routes/fabricanteRoutes.js";
 
 const app = express();
 
@@ -80,6 +81,12 @@ app.set('trust proxy', 1);
 cron.schedule("59 23 * * *", () => ejecutarAutocierre()); // Autocierre diario
 cron.schedule("0 3 * * *", () => renewCalendarWebhooks()); // Renovar webhooks diario a las 3 AM
 cron.schedule("0 9 * * *", () => verificarCertificadosJob()); // Verificar certificados digitales diario a las 9 AM
+cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada hora
+  try {
+    const { sql } = await import("./db.js");
+    await sql`UPDATE qr_sessions_180 SET status = 'expired' WHERE status = 'pending' AND expires_at < NOW()`;
+  } catch (e) { console.error("Error limpiando QR sessions:", e.message); }
+});
 
 // =========================
 // MIDDLEWARES
@@ -114,6 +121,14 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Demasiados intentos de acceso. Espera 15 minutos." },
+});
+
+const qrLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas peticiones QR. Espera un momento." },
 });
 
 app.use(globalLimiter);
@@ -171,6 +186,9 @@ app.get("/auth/google/callback", handleGoogleCallback); // Email (legacy)
 app.get("/auth/google/calendar/callback", handleCalendarCallback); // Calendar (legacy)
 app.get("/auth/google/unified-callback", handleUnifiedCallback); // Unified setup (Calendar + Gmail)
 
+// Rutas publicas QR fabricante (sin auth, con rate limit)
+app.use("/api/public", qrLimiter, fabricantePublicRoutes);
+
 app.use("/auth", authLimiter, authRoutes);
 
 app.use("/employees", authRequired, employeeRoutes);
@@ -227,6 +245,7 @@ app.use("/api/admin/fiscal", adminFiscalRoutes);
 app.use("/api/admin/fiscal/renta", adminRentaRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
+app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricante (protegido)
 
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario

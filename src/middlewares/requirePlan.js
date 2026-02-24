@@ -11,7 +11,7 @@ export function requirePlanModule(moduleName) {
       if (!empresaId) return res.status(401).json({ error: "No autenticado" });
 
       const [empresa] = await sql`
-        SELECT e.es_vip, e.plan_status, p.modulos_incluidos
+        SELECT e.es_vip, e.qr_vip, e.plan_status, p.modulos_incluidos
         FROM empresa_180 e
         LEFT JOIN plans_180 p ON e.plan_id = p.id
         WHERE e.id = ${empresaId}
@@ -19,8 +19,8 @@ export function requirePlanModule(moduleName) {
 
       if (!empresa) return res.status(404).json({ error: "Empresa no encontrada" });
 
-      // VIP bypass
-      if (empresa.es_vip) return next();
+      // VIP bypass (es_vip o qr_vip)
+      if (empresa.es_vip || empresa.qr_vip) return next();
 
       // Plan expirado o impago
       if (empresa.plan_status === "past_due") {
@@ -59,7 +59,7 @@ export function requirePlanLimit(resource) {
       if (!empresaId) return res.status(401).json({ error: "No autenticado" });
 
       const [empresa] = await sql`
-        SELECT e.es_vip, p.max_clientes, p.max_facturas_mes, p.max_gastos_mes,
+        SELECT e.es_vip, e.qr_vip, p.max_clientes, p.max_facturas_mes, p.max_gastos_mes,
                p.max_ocr_mes, p.max_ai_mensajes_mes
         FROM empresa_180 e
         LEFT JOIN plans_180 p ON e.plan_id = p.id
@@ -68,8 +68,8 @@ export function requirePlanLimit(resource) {
 
       if (!empresa) return res.status(404).json({ error: "Empresa no encontrada" });
 
-      // VIP bypass
-      if (empresa.es_vip) return next();
+      // VIP bypass (es_vip o qr_vip)
+      if (empresa.es_vip || empresa.qr_vip) return next();
 
       let currentCount = 0;
       let maxAllowed = null;
