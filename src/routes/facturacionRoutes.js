@@ -50,6 +50,7 @@ router.delete("/iva/:id", ivaController.deleteIVA);
 // Emisor
 router.get("/configuracion/emisor", configuracionController.getEmisorConfig);
 router.put("/configuracion/emisor", configuracionController.updateEmisorConfig);
+router.post("/configuracion/emisor/logo", configuracionController.uploadLogo);
 router.post("/configuracion/emisor/upload-evidencia", configuracionController.uploadEvidencia);
 router.post("/configuracion/emisor/ocr-migracion", configuracionController.ocrMigracion);
 router.post("/configuracion/emisor/certificado", configuracionController.uploadCertificado);
