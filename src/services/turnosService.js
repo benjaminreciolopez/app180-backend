@@ -11,11 +11,12 @@ export async function obtenerTurnosEmpresa(empresa_id) {
   return rows;
 }
 
-export async function obtenerTurno(id) {
+export async function obtenerTurno(id, empresaId = null) {
   const rows = await sql`
     SELECT *
     FROM turnos_180
     WHERE id = ${id}
+      ${empresaId ? sql`AND empresa_id = ${empresaId}` : sql``}
     LIMIT 1
   `;
   return rows[0];

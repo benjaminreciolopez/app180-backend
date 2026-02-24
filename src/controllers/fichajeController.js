@@ -586,14 +586,17 @@ export const registrarFichajeManual = async (req, res) => {
     }
 
     const fechaHora = new Date(fecha_hora);
+    if (!(fechaHora instanceof Date) || isNaN(fechaHora.getTime())) {
+      return res.status(400).json({ error: "fecha_hora inválida" });
+    }
 
     // =========================
     // EMPLEADO
     // =========================
     const empleadoRows = await sql`
-      SELECT id, empresa_id, user_id
+      SELECT id, empresa_id, user_id, activo
       FROM employees_180
-      WHERE id = ${empleado_id}
+      WHERE id = ${empleado_id} AND empresa_id = ${req.user.empresa_id}
     `;
 
     if (empleadoRows.length === 0) {
@@ -601,6 +604,10 @@ export const registrarFichajeManual = async (req, res) => {
     }
 
     const empleado = empleadoRows[0];
+
+    if (!empleado.activo) {
+      return res.status(403).json({ error: "Empleado desactivado" });
+    }
 
     // =========================
     // JORNADA
@@ -659,8 +666,8 @@ export const registrarFichajeManual = async (req, res) => {
 
     try {
       await syncDailyReport({
-        empresaId,
-        empleadoId,
+        empresaId: empleado.empresa_id,
+        empleadoId: empleado_id,
         fecha: fechaHora,
       });
     } catch (e) {

@@ -2,6 +2,7 @@
 import { sql } from "../db.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
+import { saveToStorage } from "./storageController.js";
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -73,11 +74,19 @@ Responde EXCLUSIVAMENTE un objeto JSON:
  */
 export const getNominas = async (req, res) => {
     try {
-        const { year, month } = req.query;
+        const yearRaw = req.query.year;
+        const monthRaw = req.query.month;
         const empresaId = req.user.empresa_id;
 
-        if (!year) {
+        if (!yearRaw) {
             return res.status(400).json({ error: "Año requerido" });
+        }
+
+        const year = parseInt(yearRaw, 10);
+        const month = monthRaw ? parseInt(monthRaw, 10) : null;
+
+        if (isNaN(year)) {
+            return res.status(400).json({ error: "Año inválido" });
         }
 
         let query = sql`
@@ -103,8 +112,6 @@ export const getNominas = async (req, res) => {
         res.status(500).json({ success: false, error: "Error al obtener nóminas" });
     }
 };
-
-import { saveToStorage } from "./storageController.js";
 
 /**
  * @desc Crear una nueva nómina

@@ -64,4 +64,35 @@ router.get(
 // NUEVO: Clientes para empleado (dropdown trabajos)
 router.get("/clientes", authRequired, roleRequired("empleado"), listarClientes);
 
+// ==========================
+// NÓMINAS EMPLEADO
+// ==========================
+router.get(
+  "/nominas",
+  authRequired,
+  roleRequired("empleado"),
+  async (req, res) => {
+    try {
+      const empleadoId = req.user.empleado_id;
+      const empresaId = req.user.empresa_id;
+      if (!empleadoId) return res.status(400).json({ error: "No eres empleado" });
+
+      const yearRaw = req.query.year || new Date().getFullYear();
+      const year = parseInt(yearRaw, 10);
+
+      const nominas = await sql`
+        SELECT id, anio, mes, bruto, seguridad_social_empleado, irpf_retencion, liquido, pdf_path, created_at
+        FROM nominas_180
+        WHERE empresa_id = ${empresaId} AND empleado_id = ${empleadoId} AND anio = ${year}
+        ORDER BY mes DESC
+      `;
+
+      res.json({ success: true, data: nominas });
+    } catch (err) {
+      console.error("Error nominas empleado:", err);
+      res.status(500).json({ error: "Error obteniendo nóminas" });
+    }
+  }
+);
+
 export default router;

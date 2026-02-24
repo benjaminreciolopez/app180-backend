@@ -26,6 +26,11 @@ export const createEmployee = async (req, res) => {
       return res.status(400).json({ error: "Email y nombre son obligatorios" });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Formato de email inválido" });
+    }
+
     // 2️⃣ Password inicial
     const PASSWORD_INICIAL = "123456";
     const hashed = await bcrypt.hash(PASSWORD_INICIAL, 10);
@@ -146,15 +151,20 @@ export const getEmployeesAdmin = async (req, res) => {
 // ==========================
 export const updateEmployeeStatus = async (req, res) => {
   try {
-    const { id } = req.params; // id del empleado
-    const { activo } = req.body; // true / false
+    const { id } = req.params;
+    const { activo } = req.body;
+    const empresaId = req.user.empresa_id;
 
     const empleado = await sql`
       UPDATE employees_180
       SET activo = ${activo}
-      WHERE id = ${id}
+      WHERE id = ${id} AND empresa_id = ${empresaId}
       RETURNING id, nombre, activo
     `;
+
+    if (!empleado.length) {
+      return res.status(404).json({ error: "Empleado no encontrado" });
+    }
 
     res.json(empleado[0]);
   } catch (err) {

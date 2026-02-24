@@ -30,8 +30,8 @@ router.patch("/:id/aprobar", aprobarVacaciones);
 
 router.get("/calendario/eventos", listarEventosCalendarioAdmin);
 
-router.patch("/ausencias/:id/rechazar", rechazarVacaciones);
+router.patch("/:id/rechazar", rechazarVacaciones);
 
-router.patch("/ausencias/:id/estado", actualizarEstadoAusencia);
+router.patch("/:id/estado", actualizarEstadoAusencia);
 
 export default router;

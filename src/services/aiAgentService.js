@@ -3065,7 +3065,30 @@ async function crearPlantillaIA({ nombre, descripcion, tipo }, empresaId) {
 }
 
 async function asignarPlantillaIA({ plantilla_id, empleado_id, fecha_inicio, fecha_fin }, empresaId) {
-  if (!empleado_id) return { error: "Se necesita empleado_id o nombre_empleado" };
+  if (!empleado_id) return { error: "Se necesita empleado_id" };
+  if (!plantilla_id) return { error: "Se necesita plantilla_id" };
+  if (!fecha_inicio) return { error: "Se necesita fecha_inicio" };
+
+  // Validar que el empleado pertenece a la empresa y está activo
+  const [emp] = await sql`
+    SELECT id FROM employees_180 WHERE id = ${empleado_id} AND empresa_id = ${empresaId} AND activo = true LIMIT 1
+  `;
+  if (!emp) return { error: "Empleado no encontrado o inactivo en esta empresa" };
+
+  // Validar que la plantilla existe y pertenece a la empresa
+  const [plt] = await sql`
+    SELECT id FROM plantillas_jornada_180 WHERE id = ${plantilla_id} AND empresa_id = ${empresaId} LIMIT 1
+  `;
+  if (!plt) return { error: "Plantilla no encontrada en esta empresa" };
+
+  // Cerrar asignaciones previas que se solapen
+  await sql`
+    UPDATE empleado_plantillas_180
+    SET fecha_fin = ${fecha_inicio}::date - interval '1 day'
+    WHERE empleado_id = ${empleado_id} AND empresa_id = ${empresaId}
+      AND (fecha_fin IS NULL OR fecha_fin >= ${fecha_inicio}::date)
+  `;
+
   const [asig] = await sql`
     INSERT INTO empleado_plantillas_180 (empleado_id, plantilla_id, fecha_inicio, fecha_fin, empresa_id)
     VALUES (${empleado_id}, ${plantilla_id}, ${fecha_inicio}::date, ${fecha_fin || null}::date, ${empresaId})
