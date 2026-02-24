@@ -489,6 +489,7 @@ export const login = async (req, res) => {
     );
 
     // 👈 MUY IMPORTANTE: responder exactamente esto
+    const FABRICANTE_EMAIL_CHECK = process.env.FABRICANTE_EMAIL || "susanaybenjamin@gmail.com";
     return res.json({
       token,
       user: {
@@ -501,6 +502,7 @@ export const login = async (req, res) => {
         empleado_id: empleadoId,
         modulos,
         password_forced: user.password_forced === true,
+        es_fabricante: user.email === FABRICANTE_EMAIL_CHECK,
       },
     });
   } catch (err) {
@@ -1062,6 +1064,9 @@ export const getMe = async (req, res) => {
       });
     }
 
+    const FABRICANTE_EMAIL = process.env.FABRICANTE_EMAIL || "susanaybenjamin@gmail.com";
+    const esFabricante = r.email === FABRICANTE_EMAIL;
+
     return res.json({
       id: r.id,
       email: r.email,
@@ -1074,6 +1079,7 @@ export const getMe = async (req, res) => {
       modulos: r.modulos || {},
       modulos_mobile: r.modulos_mobile || null,
       password_forced: r.password_forced === true,
+      es_fabricante: esFabricante,
     });
   } catch (err) {
     console.error("❌ getMe:", err);
@@ -1312,6 +1318,7 @@ export const googleAuth = async (req, res) => {
       { expiresIn: "4h" }
     );
 
+    const FABRICANTE_EMAIL_CHECK2 = process.env.FABRICANTE_EMAIL || "susanaybenjamin@gmail.com";
     return res.json({
       token,
       user: {
@@ -1324,6 +1331,7 @@ export const googleAuth = async (req, res) => {
         modulos,
         avatar_url: avatarUrl,
         password_forced: false,
+        es_fabricante: user.email === FABRICANTE_EMAIL_CHECK2,
       },
       is_new_user: isNewUser,
     });
