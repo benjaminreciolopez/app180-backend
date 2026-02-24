@@ -69,6 +69,7 @@ import { verifactuEventosController } from "./controllers/verifactuEventosContro
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import { stripeWebhook } from "./controllers/subscriptionController.js";
 import fabricantePublicRoutes, { fabricanteProtectedRouter } from "./routes/fabricanteRoutes.js";
+import sugerenciasRoutes, { sugerenciasFabricanteRouter } from "./routes/sugerenciasRoutes.js";
 
 const app = express();
 
@@ -246,6 +247,8 @@ app.use("/api/admin/fiscal/renta", adminRentaRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
 app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricante (protegido)
+app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
+app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Sugerencias (fabricante)
 
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario

@@ -90,6 +90,11 @@ export const registerFirstAdmin = async (req, res) => {
 // REGISTRO DE USUARIO (PÚBLICO)
 // =====================
 export const register = async (req, res) => {
+  // Registro deshabilitado temporalmente - solo via QR VIP del fabricante
+  return res.status(403).json({
+    error: "El registro está temporalmente deshabilitado. Contacta con el creador de Contendo para obtener acceso VIP."
+  });
+
   try {
     const { email, password, nombre, empresa_nombre } = req.body;
 
@@ -1151,7 +1156,11 @@ export const googleAuth = async (req, res) => {
 
       console.log(`✅ Google Login: ${email} (existing user)`);
     } else {
-      // ---- NEW USER → SIGNUP ----
+      // ---- NEW USER → SIGNUP BLOQUEADO (solo via QR VIP) ----
+      return res.status(403).json({
+        error: "Registro no disponible. Contacta con el creador de Contendo para obtener acceso VIP."
+      });
+
       isNewUser = true;
 
       // Create user (no password - Google-only)

@@ -1025,6 +1025,36 @@ const TOOLS = [
     }
   },
 
+  // ===== SUGERENCIAS =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_sugerencias",
+      description: "Lista las sugerencias enviadas por usuarios. Si el usuario es el creador de la app, muestra TODAS las sugerencias de TODOS los usuarios. Si no, solo las de su empresa.",
+      parameters: {
+        type: "object",
+        properties: {
+          estado: { type: "string", enum: ["nueva", "leida", "respondida", "cerrada", "todas"], description: "Filtrar por estado (default: todas)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "responder_sugerencia",
+      description: "Responde a una sugerencia de un usuario. Solo disponible para el creador de la app. Envía notificación al usuario automáticamente.",
+      parameters: {
+        type: "object",
+        properties: {
+          sugerencia_id: { type: "string", description: "ID de la sugerencia (UUID)" },
+          respuesta: { type: "string", description: "Texto de la respuesta" }
+        },
+        required: ["sugerencia_id", "respuesta"]
+      }
+    }
+  },
+
   // ===== STORAGE =====
   {
     type: "function",
@@ -1599,7 +1629,7 @@ function detectPlaceholders(args, nombreHerramienta) {
   return null;
 }
 
-async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
+async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, userId = null) {
   const args = coerceBooleans(argumentos);
 
   // Meta-herramienta: consultar requisitos (no necesita validación)
@@ -1704,6 +1734,9 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId) {
       // Configuración
       case "consultar_configuracion": return await consultarConfiguracion(args, empresaId);
       case "consultar_modulos": return await consultarModulos(args, empresaId);
+      // Sugerencias
+      case "consultar_sugerencias": return await consultarSugerenciasIA(args, empresaId, userId);
+      case "responder_sugerencia": return await responderSugerenciaIA(args, empresaId, userId);
       // Storage
       case "listar_archivos": return await listarArchivos(args, empresaId);
       // Auditoría
@@ -3164,6 +3197,98 @@ async function consultarModulos(args, empresaId) {
     auditoria: config.auditoria !== false,
   };
   return { modulos, empresa_id: empresaId };
+}
+
+// ============================
+// SUGERENCIAS
+// ============================
+
+async function consultarSugerenciasIA({ estado }, empresaId, userId) {
+  // Check if user is the creator (fabricante)
+  const [empresa] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresaId} LIMIT 1`;
+  const esCreador = empresa && empresa.user_id === userId;
+
+  let sugerencias;
+  if (esCreador) {
+    // Fabricante ve TODAS las sugerencias de TODOS los usuarios
+    if (estado && estado !== "todas") {
+      sugerencias = await sql`
+        SELECT s.id, s.titulo, s.descripcion, s.categoria, s.estado, s.respuesta, s.respondida_at, s.created_at,
+               u.nombre as usuario, u.email as email_usuario, e.nombre as empresa
+        FROM sugerencias_180 s
+        JOIN users_180 u ON u.id = s.user_id
+        JOIN empresa_180 e ON e.id = s.empresa_id
+        WHERE s.estado = ${estado}
+        ORDER BY s.created_at DESC LIMIT 50
+      `;
+    } else {
+      sugerencias = await sql`
+        SELECT s.id, s.titulo, s.descripcion, s.categoria, s.estado, s.respuesta, s.respondida_at, s.created_at,
+               u.nombre as usuario, u.email as email_usuario, e.nombre as empresa
+        FROM sugerencias_180 s
+        JOIN users_180 u ON u.id = s.user_id
+        JOIN empresa_180 e ON e.id = s.empresa_id
+        ORDER BY CASE s.estado WHEN 'nueva' THEN 0 WHEN 'leida' THEN 1 ELSE 2 END, s.created_at DESC
+        LIMIT 50
+      `;
+    }
+  } else {
+    // Usuario normal solo ve las suyas
+    sugerencias = await sql`
+      SELECT id, titulo, descripcion, categoria, estado, respuesta, respondida_at, created_at
+      FROM sugerencias_180
+      WHERE empresa_id = ${empresaId}
+      ORDER BY created_at DESC LIMIT 20
+    `;
+  }
+
+  return {
+    sugerencias,
+    total: sugerencias.length,
+    es_creador: esCreador,
+    mensaje: sugerencias.length === 0 ? "No hay sugerencias" : `${sugerencias.length} sugerencia(s) encontrada(s)`
+  };
+}
+
+async function responderSugerenciaIA({ sugerencia_id, respuesta }, empresaId, userId) {
+  // Verify user is creator
+  const [empresa] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresaId} LIMIT 1`;
+  if (!empresa || empresa.user_id !== userId) {
+    return { error: "Solo el creador de la app puede responder sugerencias" };
+  }
+
+  if (!sugerencia_id || !respuesta) {
+    return { error: "Se requiere sugerencia_id y respuesta" };
+  }
+
+  const [sugerencia] = await sql`
+    UPDATE sugerencias_180
+    SET respuesta = ${respuesta}, estado = 'respondida', respondida_at = NOW()
+    WHERE id = ${sugerencia_id}
+    RETURNING *
+  `;
+
+  if (!sugerencia) {
+    return { error: "Sugerencia no encontrada" };
+  }
+
+  // Notificar al usuario
+  try {
+    const { crearNotificacionSistema } = await import("../controllers/notificacionesController.js");
+    await crearNotificacionSistema({
+      empresaId: sugerencia.empresa_id,
+      userId: sugerencia.user_id,
+      tipo: "success",
+      titulo: "Respuesta a tu sugerencia",
+      mensaje: `"${sugerencia.titulo}" - ${respuesta}`,
+      accionUrl: "/admin/sugerencias",
+      accionLabel: "Ver",
+    });
+  } catch (e) {
+    console.warn("No se pudo notificar:", e.message);
+  }
+
+  return { success: true, mensaje: `Sugerencia respondida: "${sugerencia.titulo}". El usuario ha sido notificado.` };
 }
 
 // ============================
@@ -4654,6 +4779,14 @@ SOBRE APP180 (lo que puedes hacer):
 - SIEMPRE muestra al usuario qué datos vas a configurar y pide confirmación ANTES de ejecutar configurar_facturacion_qr.
 - Si el QR contiene un número de factura (ej: F-2025-0042), sugiere que el siguiente número sea el consecutivo (F-2025-0043).
 
+💡 SUGERENCIAS:
+- Puedes ver y gestionar sugerencias de usuarios con consultar_sugerencias y responder_sugerencia.
+- Si el usuario es el creador de la app, verás TODAS las sugerencias de todos los usuarios y podrás responderlas.
+- IMPORTANTE: Si una sugerencia describe una funcionalidad que YA EXISTE en la app (revisa la lista de capacidades arriba), respóndela explicando cómo usar esa funcionalidad existente. Por ejemplo, si alguien sugiere "sería útil poder exportar facturas" y ya existe exportar_datos, responde indicando que ya está disponible.
+- Si la sugerencia es viable pero la funcionalidad no existe aún, responde confirmando que se ha recibido y se valorará.
+- "¿Qué sugerencias hay?" / "sugerencias pendientes" → consultar_sugerencias
+- "Responde a la sugerencia..." → responder_sugerencia
+
 CUÁNDO USAR HERRAMIENTAS:
 - "¿Qué necesitas para...?" / "¿Cómo hago...?" → consultar_requisitos (SIEMPRE)
 - Facturas → consultar_facturas, estadisticas_facturacion
@@ -4872,7 +5005,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       'crear_fichaje_manual', 'validar_fichaje', 'crear_plantilla', 'asignar_plantilla',
       'crear_nomina', 'validar_parte_dia', 'crear_conocimiento', 'actualizar_conocimiento',
       'eliminar_conocimiento', 'match_pago_banco', 'crear_excepcion_jornada',
-      'actualizar_configuracion', 'eliminar_archivo', 'reconciliar_extracto'
+      'actualizar_configuracion', 'eliminar_archivo', 'reconciliar_extracto',
+      'responder_sugerencia'
     ]);
     let accionRealizada = false;
 
@@ -4891,7 +5025,7 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       // Ejecutar cada tool y construir tool_results
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
-        const resultado = await ejecutarHerramienta(toolUse.name, toolUse.input || {}, empresaId);
+        const resultado = await ejecutarHerramienta(toolUse.name, toolUse.input || {}, empresaId, userId);
 
         if (WRITE_TOOLS.has(toolUse.name) && resultado?.success) {
           accionRealizada = true;
