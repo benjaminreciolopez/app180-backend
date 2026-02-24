@@ -165,16 +165,24 @@ async function siguienteNumeroAsientoTx(tx, empresaId, ejercicio) {
 
 /**
  * Generar asiento automático desde una factura emitida.
+ * factura_180 columns: id(int), subtotal, iva_total, total, cliente_id, numero, fecha, retencion_importe
  */
 export async function generarAsientoFactura(empresaId, factura, creadoPor) {
-  const base = parseFloat(factura.base_imponible || factura.subtotal || 0);
-  const iva = parseFloat(factura.iva_amount || factura.total_iva || 0);
-  const total = parseFloat(factura.total || base + iva);
+  const base = parseFloat(factura.subtotal || 0);
+  const iva = parseFloat(factura.iva_total || 0);
+  const retencion = parseFloat(factura.retencion_importe || 0);
+  const total = parseFloat(factura.total || base + iva - retencion);
+  const clienteNombre = factura.cliente_nombre || "Cliente";
+
+  // Auto-crear subcuenta de cliente (430XXXX) si hay cliente_id
+  const cuentaCliente = await getOrCreateCuentaTercero(
+    empresaId, "cliente", factura.cliente_id, clienteNombre
+  );
 
   const lineas = [
     {
-      cuenta_codigo: "430",
-      cuenta_nombre: "Clientes",
+      cuenta_codigo: cuentaCliente.codigo,
+      cuenta_nombre: cuentaCliente.nombre,
       debe: total,
       haber: 0,
       concepto: `Factura ${factura.numero || ""}`.trim(),
@@ -198,13 +206,23 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor) {
     });
   }
 
+  if (retencion > 0) {
+    lineas.push({
+      cuenta_codigo: "4751",
+      cuenta_nombre: "HP acreedora por retenciones practicadas",
+      debe: 0,
+      haber: retencion,
+      concepto: `Retención factura ${factura.numero || ""}`.trim(),
+    });
+  }
+
   return crearAsiento({
     empresaId,
     fecha: factura.fecha || new Date().toISOString().split("T")[0],
-    concepto: `Factura emitida ${factura.numero || ""} - ${factura.cliente_nombre || ""}`.trim(),
+    concepto: `Factura emitida ${factura.numero || ""} - ${clienteNombre}`.trim(),
     tipo: "auto_factura",
     referencia_tipo: "factura",
-    referencia_id: factura.id,
+    referencia_id: String(factura.id),
     creado_por: creadoPor,
     lineas,
   });
@@ -212,14 +230,22 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor) {
 
 /**
  * Generar asiento automático desde un gasto/factura recibida.
+ * purchases_180 columns: id(uuid), proveedor, descripcion, base_imponible, iva_importe, total, categoria, fecha_compra, retencion_importe
  */
 export async function generarAsientoGasto(empresaId, gasto, creadoPor) {
-  const base = parseFloat(gasto.base_imponible || gasto.importe || 0);
-  const iva = parseFloat(gasto.iva_amount || gasto.iva || 0);
-  const total = parseFloat(gasto.total || base + iva);
+  const base = parseFloat(gasto.base_imponible || gasto.total || 0);
+  const iva = parseFloat(gasto.iva_importe || 0);
+  const retencion = parseFloat(gasto.retencion_importe || 0);
+  const total = parseFloat(gasto.total || base + iva - retencion);
+  const proveedorNombre = gasto.proveedor || "Proveedor";
 
   // Determinar cuenta de gasto según categoría
   const cuentaGasto = mapCategoriaToCuenta(gasto.categoria);
+
+  // Auto-crear subcuenta de proveedor (4000xx)
+  const cuentaProveedor = await getOrCreateCuentaTercero(
+    empresaId, "proveedor", gasto.id, proveedorNombre
+  );
 
   const lineas = [
     {
@@ -227,7 +253,7 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor) {
       cuenta_nombre: cuentaGasto.nombre,
       debe: base,
       haber: 0,
-      concepto: `Gasto: ${gasto.concepto || gasto.descripcion || ""}`.trim(),
+      concepto: `Gasto: ${gasto.descripcion || ""}`.trim(),
     },
   ];
 
@@ -237,25 +263,35 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor) {
       cuenta_nombre: "Hacienda Pública, IVA soportado",
       debe: iva,
       haber: 0,
-      concepto: `IVA gasto: ${gasto.concepto || ""}`.trim(),
+      concepto: `IVA gasto: ${gasto.descripcion || ""}`.trim(),
+    });
+  }
+
+  if (retencion > 0) {
+    lineas.push({
+      cuenta_codigo: "4751",
+      cuenta_nombre: "HP acreedora por retenciones practicadas",
+      debe: retencion,
+      haber: 0,
+      concepto: `Retención gasto: ${gasto.descripcion || ""}`.trim(),
     });
   }
 
   lineas.push({
-    cuenta_codigo: "400",
-    cuenta_nombre: "Proveedores",
+    cuenta_codigo: cuentaProveedor.codigo,
+    cuenta_nombre: cuentaProveedor.nombre,
     debe: 0,
     haber: total,
-    concepto: `Proveedor: ${gasto.proveedor || gasto.nombre_proveedor || ""}`.trim(),
+    concepto: `Proveedor: ${proveedorNombre}`.trim(),
   });
 
   return crearAsiento({
     empresaId,
-    fecha: gasto.fecha || new Date().toISOString().split("T")[0],
-    concepto: `Gasto: ${gasto.concepto || gasto.descripcion || ""} - ${gasto.proveedor || ""}`.trim(),
+    fecha: gasto.fecha_compra || gasto.fecha || new Date().toISOString().split("T")[0],
+    concepto: `Gasto: ${gasto.descripcion || ""} - ${proveedorNombre}`.trim(),
     tipo: "auto_gasto",
     referencia_tipo: "gasto",
-    referencia_id: gasto.id,
+    referencia_id: String(gasto.id),
     creado_por: creadoPor,
     lineas,
   });
@@ -263,59 +299,85 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor) {
 
 /**
  * Generar asiento automático desde una nómina.
+ * nominas_180 columns: id(uuid), empleado_id, anio, mes, bruto, seguridad_social_empresa, seguridad_social_empleado, irpf_retencion, liquido
  */
 export async function generarAsientoNomina(empresaId, nomina, creadoPor) {
-  const bruto = parseFloat(nomina.salario_bruto || 0);
-  const irpf = parseFloat(nomina.irpf_retencion || nomina.irpf || 0);
-  const ssEmpresa = parseFloat(nomina.ss_empresa || 0);
-  const ssTrabajador = parseFloat(nomina.ss_trabajador || 0);
-  const neto = parseFloat(nomina.salario_neto || bruto - irpf - ssTrabajador);
+  const bruto = parseFloat(nomina.bruto || 0);
+  const irpf = parseFloat(nomina.irpf_retencion || 0);
+  const ssEmpresa = parseFloat(nomina.seguridad_social_empresa || 0);
+  const ssTrabajador = parseFloat(nomina.seguridad_social_empleado || 0);
+  const neto = parseFloat(nomina.liquido || bruto - irpf - ssTrabajador);
+  const empNombre = nomina.empleado_nombre || "Empleado";
+  const periodo = `${String(nomina.mes || 1).padStart(2, "0")}/${nomina.anio || ""}`;
 
-  const lineas = [
-    {
+  const lineas = [];
+
+  // DEBE: Sueldos y salarios
+  if (bruto > 0) {
+    lineas.push({
       cuenta_codigo: "640",
       cuenta_nombre: "Sueldos y salarios",
       debe: bruto,
       haber: 0,
-      concepto: `Nómina ${nomina.empleado_nombre || ""} ${nomina.mes || ""}/${nomina.anio || ""}`.trim(),
-    },
-    {
+      concepto: `Nómina ${empNombre} ${periodo}`,
+    });
+  }
+
+  // DEBE: SS a cargo empresa
+  if (ssEmpresa > 0) {
+    lineas.push({
       cuenta_codigo: "642",
       cuenta_nombre: "Seguridad Social a cargo de la empresa",
       debe: ssEmpresa,
       haber: 0,
-      concepto: `SS empresa ${nomina.empleado_nombre || ""}`.trim(),
-    },
-    {
+      concepto: `SS empresa ${empNombre}`,
+    });
+  }
+
+  // HABER: IRPF retenido
+  if (irpf > 0) {
+    lineas.push({
       cuenta_codigo: "4751",
       cuenta_nombre: "HP acreedora por retenciones practicadas",
       debe: 0,
       haber: irpf,
-      concepto: `IRPF ${nomina.empleado_nombre || ""}`.trim(),
-    },
-    {
+      concepto: `IRPF ${empNombre}`,
+    });
+  }
+
+  // HABER: SS total (empresa + trabajador)
+  if (ssEmpresa + ssTrabajador > 0) {
+    lineas.push({
       cuenta_codigo: "476",
       cuenta_nombre: "Organismos de la Seguridad Social, acreedores",
       debe: 0,
       haber: ssEmpresa + ssTrabajador,
-      concepto: `SS total ${nomina.empleado_nombre || ""}`.trim(),
-    },
-    {
+      concepto: `SS total ${empNombre}`,
+    });
+  }
+
+  // HABER: Neto a pagar
+  if (neto > 0) {
+    lineas.push({
       cuenta_codigo: "465",
       cuenta_nombre: "Remuneraciones pendientes de pago",
       debe: 0,
       haber: neto,
-      concepto: `Neto ${nomina.empleado_nombre || ""}`.trim(),
-    },
-  ];
+      concepto: `Neto ${empNombre}`,
+    });
+  }
+
+  if (lineas.length < 2) {
+    throw new Error(`Nómina ${nomina.id} sin importes válidos`);
+  }
 
   return crearAsiento({
     empresaId,
-    fecha: nomina.fecha_pago || `${nomina.anio || new Date().getFullYear()}-${String(nomina.mes || 1).padStart(2, "0")}-28`,
-    concepto: `Nómina ${nomina.empleado_nombre || ""} - ${nomina.mes || ""}/${nomina.anio || ""}`.trim(),
+    fecha: `${nomina.anio || new Date().getFullYear()}-${String(nomina.mes || 1).padStart(2, "0")}-28`,
+    concepto: `Nómina ${empNombre} - ${periodo}`,
     tipo: "auto_nomina",
     referencia_tipo: "nomina",
-    referencia_id: nomina.id,
+    referencia_id: String(nomina.id),
     creado_por: creadoPor,
     lineas,
   });
@@ -601,13 +663,36 @@ export async function cerrarEjercicio(empresaId, anio, creadoPor) {
 
 /**
  * Auto-generar asientos desde facturas/gastos/nóminas existentes de un período.
+ * Solo genera asientos para movimientos que aún no tienen asiento asociado.
+ * Devuelve resumen con contadores y lista de ya existentes.
  */
 export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, creadoPor) {
-  const resultados = { facturas: 0, gastos: 0, nominas: 0, errores: [] };
+  const resultados = { facturas: 0, gastos: 0, nominas: 0, errores: [], ya_existentes: { facturas: 0, gastos: 0, nominas: 0 } };
 
-  // Facturas emitidas sin asiento
+  // Ensure PGC is initialized
+  await inicializarPGC(empresaId);
+
+  // ============== FACTURAS EMITIDAS ==============
+  // Count total and already registered
+  const [facturaStats] = await sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(CASE WHEN EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = f.empresa_id AND a.referencia_tipo = 'factura'
+          AND a.referencia_id = f.id::text AND a.estado != 'anulado'
+      ) THEN 1 END)::int AS con_asiento
+    FROM factura_180 f
+    WHERE f.empresa_id = ${empresaId}
+      AND f.fecha >= ${fechaDesde} AND f.fecha <= ${fechaHasta}
+  `;
+  resultados.ya_existentes.facturas = facturaStats.con_asiento;
+
+  // Facturas sin asiento - join clients_180 for nombre
   const facturas = await sql`
-    SELECT f.* FROM factura_180 f
+    SELECT f.*, c.nombre AS cliente_nombre
+    FROM factura_180 f
+    LEFT JOIN clients_180 c ON c.id = f.cliente_id
     WHERE f.empresa_id = ${empresaId}
       AND f.fecha >= ${fechaDesde}
       AND f.fecha <= ${fechaHasta}
@@ -615,7 +700,7 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
         SELECT 1 FROM asientos_180 a
         WHERE a.empresa_id = ${empresaId}
           AND a.referencia_tipo = 'factura'
-          AND a.referencia_id = f.id
+          AND a.referencia_id = f.id::text
           AND a.estado != 'anulado'
       )
     ORDER BY f.fecha
@@ -626,13 +711,28 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
       await generarAsientoFactura(empresaId, f, creadoPor);
       resultados.facturas++;
     } catch (err) {
-      resultados.errores.push(`Factura ${f.numero}: ${err.message}`);
+      resultados.errores.push(`Factura ${f.numero || f.id}: ${err.message}`);
     }
   }
 
-  // Gastos sin asiento
+  // ============== GASTOS / COMPRAS ==============
+  const [gastoStats] = await sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(CASE WHEN EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = g.empresa_id AND a.referencia_tipo = 'gasto'
+          AND a.referencia_id = g.id::text AND a.estado != 'anulado'
+      ) THEN 1 END)::int AS con_asiento
+    FROM purchases_180 g
+    WHERE g.empresa_id = ${empresaId} AND g.activo = true
+      AND g.fecha_compra >= ${fechaDesde} AND g.fecha_compra <= ${fechaHasta}
+  `;
+  resultados.ya_existentes.gastos = gastoStats.con_asiento;
+
   const gastos = await sql`
-    SELECT g.*, g.fecha_compra AS fecha FROM purchases_180 g
+    SELECT g.*
+    FROM purchases_180 g
     WHERE g.empresa_id = ${empresaId}
       AND g.activo = true
       AND g.fecha_compra >= ${fechaDesde}
@@ -641,10 +741,10 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
         SELECT 1 FROM asientos_180 a
         WHERE a.empresa_id = ${empresaId}
           AND a.referencia_tipo = 'gasto'
-          AND a.referencia_id = g.id
+          AND a.referencia_id = g.id::text
           AND a.estado != 'anulado'
       )
-    ORDER BY g.fecha
+    ORDER BY g.fecha_compra
   `;
 
   for (const g of gastos) {
@@ -652,25 +752,43 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
       await generarAsientoGasto(empresaId, g, creadoPor);
       resultados.gastos++;
     } catch (err) {
-      resultados.errores.push(`Gasto ${g.id}: ${err.message}`);
+      resultados.errores.push(`Gasto ${g.descripcion || g.id}: ${err.message}`);
     }
   }
 
-  // Nóminas sin asiento (nominas use anio/mes, not fecha)
+  // ============== NÓMINAS ==============
   const fdDesde = new Date(fechaDesde);
   const fdHasta = new Date(fechaHasta);
+  const periodoDesde = fdDesde.getFullYear() * 100 + (fdDesde.getMonth() + 1);
+  const periodoHasta = fdHasta.getFullYear() * 100 + (fdHasta.getMonth() + 1);
+
+  const [nominaStats] = await sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(CASE WHEN EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = n.empresa_id AND a.referencia_tipo = 'nomina'
+          AND a.referencia_id = n.id::text AND a.estado != 'anulado'
+      ) THEN 1 END)::int AS con_asiento
+    FROM nominas_180 n
+    WHERE n.empresa_id = ${empresaId}
+      AND (n.anio * 100 + n.mes) >= ${periodoDesde}
+      AND (n.anio * 100 + n.mes) <= ${periodoHasta}
+  `;
+  resultados.ya_existentes.nominas = nominaStats.con_asiento;
+
   const nominas = await sql`
     SELECT n.*, e.nombre AS empleado_nombre
     FROM nominas_180 n
     LEFT JOIN employees_180 e ON e.id = n.empleado_id
     WHERE n.empresa_id = ${empresaId}
-      AND (n.anio * 100 + n.mes) >= ${fdDesde.getFullYear() * 100 + (fdDesde.getMonth() + 1)}
-      AND (n.anio * 100 + n.mes) <= ${fdHasta.getFullYear() * 100 + (fdHasta.getMonth() + 1)}
+      AND (n.anio * 100 + n.mes) >= ${periodoDesde}
+      AND (n.anio * 100 + n.mes) <= ${periodoHasta}
       AND NOT EXISTS (
         SELECT 1 FROM asientos_180 a
         WHERE a.empresa_id = ${empresaId}
           AND a.referencia_tipo = 'nomina'
-          AND a.referencia_id = n.id
+          AND a.referencia_id = n.id::text
           AND a.estado != 'anulado'
       )
     ORDER BY n.anio, n.mes
@@ -681,11 +799,95 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
       await generarAsientoNomina(empresaId, n, creadoPor);
       resultados.nominas++;
     } catch (err) {
-      resultados.errores.push(`Nómina ${n.id}: ${err.message}`);
+      resultados.errores.push(`Nómina ${n.empleado_nombre || n.id}: ${err.message}`);
     }
   }
 
   return resultados;
+}
+
+// =============================================
+// Terceros (subcuentas 430x clientes / 400x proveedores)
+// =============================================
+
+/**
+ * Obtiene o crea una subcuenta de tercero en el PGC.
+ * - Clientes: 4300xx (bajo 430 - Clientes)
+ * - Proveedores: 4000xx (bajo 400 - Proveedores)
+ *
+ * @param {string} empresaId
+ * @param {'cliente'|'proveedor'} tipo - Tipo de tercero
+ * @param {string|number|null} terceroId - ID del cliente o proveedor (para buscar existente)
+ * @param {string} nombre - Nombre del tercero
+ * @returns {{ codigo: string, nombre: string }}
+ */
+async function getOrCreateCuentaTercero(empresaId, tipo, terceroId, nombre) {
+  const prefijo = tipo === "cliente" ? "4300" : "4000";
+  const cuentaPadre = tipo === "cliente" ? "430" : "400";
+  const tipoContable = tipo === "cliente" ? "activo" : "pasivo";
+  const nombreBase = tipo === "cliente" ? "Clientes" : "Proveedores";
+
+  // If no terceroId, return the generic parent account
+  if (!terceroId) {
+    return { codigo: cuentaPadre, nombre: nombreBase };
+  }
+
+  // Check if a subcuenta already exists for this tercero (stored in metadata or by name match)
+  const terceroIdStr = String(terceroId);
+
+  // Look for existing subcuenta that matches this tercero
+  const existing = await sql`
+    SELECT codigo, nombre FROM pgc_cuentas_180
+    WHERE empresa_id = ${empresaId}
+      AND codigo LIKE ${prefijo + '%'}
+      AND padre_codigo = ${cuentaPadre}
+      AND nombre ILIKE ${'%' + nombre.substring(0, 20) + '%'}
+    LIMIT 1
+  `;
+
+  if (existing.length > 0) {
+    return { codigo: existing[0].codigo, nombre: existing[0].nombre };
+  }
+
+  // Generate next sequential code: 430001, 430002, ... or 400001, 400002, ...
+  const [maxRow] = await sql`
+    SELECT MAX(codigo) AS max_codigo FROM pgc_cuentas_180
+    WHERE empresa_id = ${empresaId}
+      AND codigo LIKE ${prefijo + '%'}
+      AND LENGTH(codigo) > ${prefijo.length}
+      AND padre_codigo = ${cuentaPadre}
+  `;
+
+  let nextNum = 1;
+  if (maxRow.max_codigo) {
+    const suffix = maxRow.max_codigo.substring(prefijo.length);
+    nextNum = parseInt(suffix, 10) + 1;
+  }
+
+  const nuevoCodigo = prefijo + String(nextNum).padStart(3, "0");
+  const nuevaCuentaNombre = `${nombreBase} - ${nombre}`.substring(0, 100);
+
+  // Ensure parent account exists
+  const parentExists = await sql`
+    SELECT 1 FROM pgc_cuentas_180
+    WHERE empresa_id = ${empresaId} AND codigo = ${cuentaPadre}
+    LIMIT 1
+  `;
+  if (parentExists.length === 0) {
+    await sql`
+      INSERT INTO pgc_cuentas_180 (empresa_id, codigo, nombre, tipo, grupo, subgrupo, nivel, padre_codigo, activa, es_estandar)
+      VALUES (${empresaId}, ${cuentaPadre}, ${nombreBase}, ${tipoContable}, 4, ${tipo === "cliente" ? 43 : 40}, 3, ${tipo === "cliente" ? '43' : '40'}, true, true)
+    `;
+  }
+
+  // Create the subcuenta
+  await sql`
+    INSERT INTO pgc_cuentas_180 (empresa_id, codigo, nombre, tipo, grupo, subgrupo, nivel, padre_codigo, activa, es_estandar)
+    VALUES (${empresaId}, ${nuevoCodigo}, ${nuevaCuentaNombre}, ${tipoContable}, 4, ${tipo === "cliente" ? 43 : 40}, 4, ${cuentaPadre}, true, false)
+    ON CONFLICT DO NOTHING
+  `;
+
+  return { codigo: nuevoCodigo, nombre: nuevaCuentaNombre };
 }
 
 // =============================================

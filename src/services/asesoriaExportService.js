@@ -107,7 +107,7 @@ async function fetchFacturasEmitidas(empresaId, desde, hasta) {
       c.nombre AS cliente_nombre,
       COALESCE(NULLIF(cfd.nif_cif, ''), NULLIF(c.nif_cif, ''), NULLIF(c.nif, ''), '') AS nif_cliente,
       COALESCE(f.subtotal, 0) AS base_imponible,
-      COALESCE(f.iva_porcentaje, 0) AS iva_porcentaje,
+      COALESCE(f.iva_global, 0) AS iva_porcentaje,
       COALESCE(f.iva_total, 0) AS iva_total,
       COALESCE(f.total, 0) AS total,
       f.estado,
@@ -128,8 +128,8 @@ async function fetchGastosCompras(empresaId, desde, hasta) {
     SELECT
       p.fecha_compra AS fecha,
       COALESCE(p.proveedor, '') AS proveedor,
-      COALESCE(p.nif_proveedor, '') AS nif_proveedor,
-      COALESCE(p.descripcion, p.concepto, '') AS concepto,
+      '' AS nif_proveedor,
+      COALESCE(p.descripcion, '') AS concepto,
       COALESCE(p.categoria, 'general') AS categoria,
       COALESCE(p.base_imponible, 0) AS base_imponible,
       COALESCE(p.iva_porcentaje, 0) AS iva_porcentaje,
@@ -151,9 +151,9 @@ async function fetchNominas(empresaId, anio, mesInicio, mesFin) {
       n.mes,
       COALESCE(n.bruto, 0) AS bruto,
       COALESCE(n.irpf_retencion, 0) AS irpf_retencion,
-      COALESCE(n.seguridad_social_empleado, n.ss_empleado, 0) AS ss_empleado,
-      COALESCE(n.seguridad_social_empresa, n.ss_empresa, 0) AS ss_empresa,
-      COALESCE(n.liquido, n.neto, 0) AS neto
+      COALESCE(n.seguridad_social_empleado, 0) AS ss_empleado,
+      COALESCE(n.seguridad_social_empresa, 0) AS ss_empresa,
+      COALESCE(n.liquido, 0) AS neto
     FROM nominas_180 n
     LEFT JOIN employees_180 e ON n.empleado_id = e.id
     WHERE n.empresa_id = ${empresaId}
