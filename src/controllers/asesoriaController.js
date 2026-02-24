@@ -143,6 +143,13 @@ export async function getClienteResumen(req, res) {
 
     const currentYear = new Date().getFullYear();
 
+    // Get empresa name
+    const [empresa] = await sql`
+      SELECT nombre FROM empresa_180
+      WHERE id = ${empresaId}
+      LIMIT 1
+    `;
+
     // Total facturas emitidas this year
     const [facturasEmitidas] = await sql`
       SELECT COUNT(*)::int AS total, COALESCE(SUM(total), 0)::numeric AS importe
@@ -180,6 +187,7 @@ export async function getClienteResumen(req, res) {
     return res.json({
       success: true,
       data: {
+        nombre: empresa?.nombre || null,
         facturas_emitidas: {
           total: facturasEmitidas.total,
           importe: parseFloat(facturasEmitidas.importe),
