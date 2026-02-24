@@ -10,8 +10,9 @@ import { seedKnowledge } from "../services/knowledgeSeedService.js";
 const FABRICANTE_EMAIL = process.env.FABRICANTE_EMAIL || "susanaybenjamin@gmail.com";
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://contendo.es";
 
-// Cache fabricante user ID en memoria
+// Cache fabricante user/empresa ID en memoria
 let _fabricanteUserId = null;
+let _fabricanteEmpresaId = null;
 
 async function getFabricanteUserId() {
     if (_fabricanteUserId) return _fabricanteUserId;
@@ -22,8 +23,42 @@ async function getFabricanteUserId() {
     return _fabricanteUserId;
 }
 
+async function getFabricanteEmpresaId() {
+    if (_fabricanteEmpresaId) return _fabricanteEmpresaId;
+    const fabricanteUserId = await getFabricanteUserId();
+    if (!fabricanteUserId) return null;
+    const [row] = await sql`
+        SELECT id FROM empresa_180 WHERE user_id = ${fabricanteUserId} LIMIT 1
+    `;
+    if (row) _fabricanteEmpresaId = row.id;
+    return _fabricanteEmpresaId;
+}
+
 function isFabricante(userId, fabricanteId) {
     return userId && fabricanteId && userId === fabricanteId;
+}
+
+/**
+ * Envia notificacion al fabricante cuando hay un error en el flujo VIP
+ */
+async function notificarFabricante(titulo, detalles, tipo = 'VIP_LOG') {
+    try {
+        const empresaId = await getFabricanteEmpresaId();
+        if (!empresaId) return;
+        await sql`
+            INSERT INTO notificaciones_180 (empresa_id, tipo, titulo, mensaje, leida, metadata)
+            VALUES (
+                ${empresaId},
+                ${tipo},
+                ${titulo},
+                ${detalles},
+                false,
+                ${JSON.stringify({ timestamp: new Date().toISOString(), source: 'fabricante_vip' })}
+            )
+        `;
+    } catch (e) {
+        console.error("Error creando notificacion VIP:", e);
+    }
 }
 
 // =============================================
@@ -141,6 +176,10 @@ export async function activateQRSession(req, res) {
         res.json({ success: true, message: "Sesion VIP activada correctamente" });
     } catch (error) {
         console.error("Error activateQRSession:", error);
+        await notificarFabricante(
+            "Error al activar sesion QR",
+            `Error interno al activar QR: ${error.message}`
+        );
         res.status(500).json({ success: false, error: "Error activando sesion" });
     }
 }
@@ -169,6 +208,10 @@ export async function registerVipUser(req, res) {
         `;
 
         if (!session) {
+            await notificarFabricante(
+                "Registro VIP fallido - Sesion invalida",
+                `Email: ${email}, Nombre: ${nombre}. La sesion QR no estaba activada o ya fue usada.`
+            );
             return res.status(400).json({ error: "Sesion VIP invalida o no activada" });
         }
 
@@ -177,6 +220,10 @@ export async function registerVipUser(req, res) {
             SELECT id FROM users_180 WHERE email = ${email} LIMIT 1
         `;
         if (existing) {
+            await notificarFabricante(
+                "Registro VIP fallido - Email duplicado",
+                `El email ${email} ya tiene cuenta. Nombre: ${nombre}, Empresa: ${empresa_nombre}`
+            );
             return res.status(409).json({ error: "Ya existe una cuenta con este email" });
         }
 
@@ -254,6 +301,12 @@ export async function registerVipUser(req, res) {
             { expiresIn: "10h" }
         );
 
+        // Notificar al fabricante del registro exitoso
+        await notificarFabricante(
+            "Nuevo usuario VIP registrado",
+            `${nombre} (${email}) ha creado su cuenta VIP con empresa "${empresa_nombre}".`
+        ).catch(() => {});
+
         res.status(201).json({
             success: true,
             token,
@@ -272,6 +325,11 @@ export async function registerVipUser(req, res) {
         });
     } catch (error) {
         console.error("Error registerVipUser:", error);
+        const { email, nombre, empresa_nombre } = req.body || {};
+        await notificarFabricante(
+            "Error critico al crear cuenta VIP",
+            `Error: ${error.message}. Email: ${email || '?'}, Nombre: ${nombre || '?'}, Empresa: ${empresa_nombre || '?'}`
+        );
         res.status(500).json({ success: false, error: "Error al crear la cuenta VIP" });
     }
 }

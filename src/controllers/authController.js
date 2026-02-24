@@ -1162,10 +1162,27 @@ export const googleAuth = async (req, res) => {
 
       console.log(`✅ Google Login: ${email} (existing user)`);
     } else {
-      // ---- NEW USER → SIGNUP BLOQUEADO (solo via QR VIP) ----
-      return res.status(403).json({
-        error: "Registro no disponible. Contacta con el creador de Contendo para obtener acceso VIP."
-      });
+      // ---- NEW USER → Solo via QR VIP ----
+      const { vip_session_token, empresa_nombre_vip } = req.body;
+
+      if (!vip_session_token) {
+        return res.status(403).json({
+          error: "Registro no disponible. Contacta con el creador de Contendo para obtener acceso VIP."
+        });
+      }
+
+      // Validar sesion VIP activada
+      const [vipSession] = await sql`
+        SELECT id, status FROM qr_sessions_180
+        WHERE session_token = ${vip_session_token} AND status = 'activated'
+        LIMIT 1
+      `;
+
+      if (!vipSession) {
+        return res.status(400).json({
+          error: "Sesion VIP invalida o no activada. Pide al fabricante que active tu QR."
+        });
+      }
 
       isNewUser = true;
 
@@ -1183,40 +1200,49 @@ export const googleAuth = async (req, res) => {
         SELECT id FROM plans_180 WHERE nombre = 'gratis' LIMIT 1
       `;
 
-      // Create empresa con plan gratis
-      const domain = email.split("@")[1]?.split(".")[0] || nombre;
-      const empresaNombre = domain.charAt(0).toUpperCase() + domain.slice(1);
+      // Create empresa VIP con todos los modulos
+      const empresaNombre = empresa_nombre_vip || nombre;
 
       const empresa = await sql`
-        INSERT INTO empresa_180 (user_id, nombre, plan_id)
-        VALUES (${user.id}, ${empresaNombre}, ${planGratis?.id || null})
+        INSERT INTO empresa_180 (user_id, nombre, plan_id, qr_vip, qr_vip_granted_at)
+        VALUES (${user.id}, ${empresaNombre}, ${planGratis?.id || null}, true, NOW())
         RETURNING id
       `;
 
       empresaId = empresa[0].id;
 
-      // Create default config with all modules enabled by default
-      const defaultModulos = {
+      // Config VIP: TODOS los modulos activados
+      const allModulos = {
         clientes: true,
         fichajes: true,
         calendario: true,
         calendario_import: true,
         worklogs: true,
         empleados: true,
-        facturacion: false,
-        pagos: false,
+        facturacion: true,
+        pagos: true,
+        fiscal: true,
       };
       await sql`
         INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
-        VALUES (${empresaId}, ${defaultModulos}::jsonb, 1000)
+        VALUES (${empresaId}, ${sql.json(allModulos)}, 1000)
       `;
 
       // Inicializar Base de Conocimiento
       seedKnowledge(empresaId).catch(err => {
-        console.warn("Error seeding knowledge (Google signup):", err.message);
+        console.warn("Error seeding knowledge (Google VIP signup):", err.message);
       });
 
-      console.log(`✅ Google Signup: ${email} → empresa "${empresaNombre}" created`);
+      // Marcar sesion QR como registrada
+      await sql`
+        UPDATE qr_sessions_180
+        SET status = 'registered',
+            registered_user_id = ${user.id},
+            registered_at = NOW()
+        WHERE id = ${vipSession.id}
+      `;
+
+      console.log(`✅ Google VIP Signup: ${email} → empresa "${empresaNombre}" created`);
     }
 
     // Load modules

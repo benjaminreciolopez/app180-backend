@@ -112,105 +112,58 @@ function detectarTipoCertificado(certificadoInfo) {
 
 /**
  * Verifica estado de certificados de una empresa
+ * Certificados almacenados en emisor_180 (certificado_path, certificado_password, certificado_info)
  */
 export async function verificarEstadoCertificados(empresaId) {
   try {
-    // Obtener configuración con certificados
-    const [config] = await sql`
-      SELECT
-        verifactu_certificado_path,
-        verifactu_certificado_password,
-        verifactu_cert_fabricante_path,
-        verifactu_cert_fabricante_password,
-        verifactu_info_fabricante
-      FROM configuracionsistema_180
+    const [emisor] = await sql`
+      SELECT certificado_path, certificado_password, certificado_info
+      FROM emisor_180
       WHERE empresa_id = ${empresaId}
     `;
 
-    if (!config) {
+    if (!emisor || !emisor.certificado_info) {
       return { necesitaRenovacion: false, mensaje: 'No hay certificados configurados' };
     }
 
     const resultados = {
       cliente: null,
-      fabricante: null,
       necesitaRenovacion: false,
       certificadosCriticos: []
     };
 
-    // Verificar certificado del cliente
-    if (config.verifactu_certificado_path) {
-      try {
-        const validacion = await validarCertificado(
-          config.verifactu_certificado_path,
-          config.verifactu_certificado_password
-        );
-
-        if (validacion.info) {
-          const diasRestantes = diasHastaCaducidad(validacion.info.validTo);
-          const urgencia = obtenerNivelUrgencia(diasRestantes);
-          const tipo = detectarTipoCertificado(validacion.info);
-          const linkRenovacion = generarLinkRenovacion(tipo);
-
-          resultados.cliente = {
-            valido: validacion.valido,
-            diasRestantes,
-            fechaCaducidad: validacion.info.validTo,
-            urgencia,
-            tipoCertificado: tipo,
-            linkRenovacion,
-            info: validacion.info
-          };
-
-          if (urgencia) {
-            resultados.necesitaRenovacion = true;
-            resultados.certificadosCriticos.push({
-              tipo: 'cliente',
-              ...resultados.cliente
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error al verificar certificado cliente:', error);
+    try {
+      let certInfo = emisor.certificado_info;
+      if (typeof certInfo === 'string') {
+        certInfo = JSON.parse(certInfo);
       }
-    }
 
-    // Verificar certificado del fabricante (si es diferente)
-    if (config.verifactu_cert_fabricante_path &&
-        config.verifactu_cert_fabricante_path !== config.verifactu_certificado_path) {
-      try {
-        const validacion = await validarCertificado(
-          config.verifactu_cert_fabricante_path,
-          config.verifactu_cert_fabricante_password
-        );
+      if (certInfo && certInfo.validTo) {
+        const diasRestantes = diasHastaCaducidad(certInfo.validTo);
+        const urgencia = obtenerNivelUrgencia(diasRestantes);
+        const tipo = detectarTipoCertificado(certInfo);
+        const linkRenovacion = generarLinkRenovacion(tipo);
 
-        if (validacion.info) {
-          const diasRestantes = diasHastaCaducidad(validacion.info.validTo);
-          const urgencia = obtenerNivelUrgencia(diasRestantes);
-          const tipo = detectarTipoCertificado(validacion.info);
-          const linkRenovacion = generarLinkRenovacion(tipo);
+        resultados.cliente = {
+          valido: diasRestantes > 0,
+          diasRestantes,
+          fechaCaducidad: certInfo.validTo,
+          urgencia,
+          tipoCertificado: tipo,
+          linkRenovacion,
+          info: certInfo
+        };
 
-          resultados.fabricante = {
-            valido: validacion.valido,
-            diasRestantes,
-            fechaCaducidad: validacion.info.validTo,
-            urgencia,
-            tipoCertificado: tipo,
-            linkRenovacion,
-            info: validacion.info
-          };
-
-          if (urgencia) {
-            resultados.necesitaRenovacion = true;
-            resultados.certificadosCriticos.push({
-              tipo: 'fabricante',
-              ...resultados.fabricante
-            });
-          }
+        if (urgencia) {
+          resultados.necesitaRenovacion = true;
+          resultados.certificadosCriticos.push({
+            tipo: 'cliente',
+            ...resultados.cliente
+          });
         }
-      } catch (error) {
-        console.error('Error al verificar certificado fabricante:', error);
       }
+    } catch (error) {
+      console.error('Error al verificar certificado:', error);
     }
 
     return resultados;
@@ -251,24 +204,21 @@ export async function crearNotificacionRenovacion(empresaId, certificadoInfo) {
         tipo,
         titulo,
         mensaje,
-        prioridad,
-        datos_adicionales,
         leida,
-        fecha_creacion
+        metadata
       ) VALUES (
         ${empresaId},
         'RENOVACION_CERTIFICADO',
         ${titulo},
         ${mensaje},
-        ${urgencia.prioridad},
+        false,
         ${JSON.stringify({
           diasRestantes,
           urgencia: urgencia.nivel,
+          prioridad: urgencia.prioridad,
           linkRenovacion,
           tipoCertificado: tipo
-        })},
-        false,
-        NOW()
+        })}
       )
     `;
 
@@ -286,14 +236,14 @@ export async function verificarTodosCertificados() {
   try {
     console.log('🔍 Verificando certificados de todas las empresas...');
 
-    // Obtener todas las empresas con VeriFactu activo
+    // Obtener todas las empresas con VeriFactu activo y certificado subido
     const empresas = await sql`
       SELECT DISTINCT e.id, e.nombre
       FROM empresa_180 e
       INNER JOIN configuracionsistema_180 c ON c.empresa_id = e.id
+      INNER JOIN emisor_180 em ON em.empresa_id = e.id
       WHERE c.verifactu_activo = true
-        AND (c.verifactu_certificado_path IS NOT NULL
-             OR c.verifactu_cert_fabricante_path IS NOT NULL)
+        AND em.certificado_info IS NOT NULL
     `;
 
     let totalVerificados = 0;
