@@ -1439,6 +1439,153 @@ const TOOLS = [
       }
     }
   },
+
+  // ===== ASESORÍA =====
+  {
+    type: "function",
+    function: {
+      name: "consultar_asesoria_estado",
+      description: "Consulta si hay asesoría conectada, mensajes sin leer y tareas pendientes",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "enviar_mensaje_asesoria",
+      description: "Envía un mensaje a tu asesor conectado",
+      parameters: {
+        type: "object",
+        properties: {
+          contenido: { type: "string", description: "Contenido del mensaje a enviar al asesor" }
+        },
+        required: ["contenido"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "listar_mensajes_asesoria",
+      description: "Lista los últimos mensajes con tu asesor",
+      parameters: {
+        type: "object",
+        properties: {
+          limite: { type: "number", description: "Número máximo de mensajes a mostrar (default: 10)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "exportar_para_asesoria",
+      description: "Genera y descarga un paquete de datos del trimestre para enviar a tu asesoría. Formatos: excel, csv, zip",
+      parameters: {
+        type: "object",
+        properties: {
+          anio: { type: "number", description: "Año del trimestre a exportar" },
+          trimestre: { type: "number", description: "Trimestre (1-4)" },
+          formato: { type: "string", enum: ["excel", "csv", "zip"], description: "Formato de exportación (default: excel)" }
+        },
+        required: ["anio", "trimestre"]
+      }
+    }
+  },
+
+  // ===== CONTABILIDAD =====
+  {
+    type: "function",
+    function: {
+      name: "crear_asiento_contable",
+      description: "Crea un asiento contable manual con líneas en partida doble (debe = haber)",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha: { type: "string", description: "Fecha del asiento YYYY-MM-DD" },
+          concepto: { type: "string", description: "Concepto/descripción del asiento" },
+          lineas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                cuenta_codigo: { type: "string", description: "Código de la cuenta contable (ej: '430', '700', '572')" },
+                cuenta_nombre: { type: "string", description: "Nombre de la cuenta contable" },
+                debe: { type: "number", description: "Importe en el debe" },
+                haber: { type: "number", description: "Importe en el haber" },
+                concepto: { type: "string", description: "Concepto específico de la línea" }
+              },
+              required: ["cuenta_codigo"]
+            },
+            description: "Líneas del asiento en partida doble (mínimo 2)"
+          }
+        },
+        required: ["fecha", "concepto", "lineas"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "generar_asientos_periodo",
+      description: "Genera automáticamente todos los asientos del trimestre a partir de facturas, gastos y nóminas existentes",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_desde: { type: "string", description: "Fecha inicio del periodo YYYY-MM-DD" },
+          fecha_hasta: { type: "string", description: "Fecha fin del periodo YYYY-MM-DD" }
+        },
+        required: ["fecha_desde", "fecha_hasta"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_balance",
+      description: "Muestra el balance de situación de la empresa a una fecha determinada",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha: { type: "string", description: "Fecha del balance YYYY-MM-DD (default: hoy)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_pyg",
+      description: "Muestra la cuenta de Pérdidas y Ganancias del periodo",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_desde: { type: "string", description: "Fecha inicio del periodo YYYY-MM-DD" },
+          fecha_hasta: { type: "string", description: "Fecha fin del periodo YYYY-MM-DD" }
+        },
+        required: ["fecha_desde", "fecha_hasta"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_libro_mayor",
+      description: "Muestra los movimientos de una cuenta contable en el libro mayor",
+      parameters: {
+        type: "object",
+        properties: {
+          cuenta_codigo: { type: "string", description: "Código de la cuenta contable (ej: '430', '700', '572')" },
+          fecha_desde: { type: "string", description: "Fecha inicio YYYY-MM-DD (opcional)" },
+          fecha_hasta: { type: "string", description: "Fecha fin YYYY-MM-DD (opcional)" }
+        },
+        required: ["cuenta_codigo"]
+      }
+    }
+  },
 ];
 
 // ============================
@@ -1773,6 +1920,17 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, use
       // Certificados digitales (VeriFactu)
       case "verificar_certificado_renovacion": return await verificarCertificadoRenovacion(empresaId);
       case "obtener_instrucciones_renovacion": return await obtenerInstruccionesRenovacion(args, empresaId);
+      // Asesoría
+      case "consultar_asesoria_estado": return await consultarAsesoriaEstado(empresaId);
+      case "enviar_mensaje_asesoria": return await enviarMensajeAsesoria(args, empresaId, userId);
+      case "listar_mensajes_asesoria": return await listarMensajesAsesoria(args, empresaId);
+      case "exportar_para_asesoria": return await exportarParaAsesoria(args, empresaId);
+      // Contabilidad
+      case "crear_asiento_contable": return await crearAsientoContable(args, empresaId, userId);
+      case "generar_asientos_periodo": return await generarAsientosPeriodo(args, empresaId, userId);
+      case "consultar_balance": return await consultarBalance(args, empresaId);
+      case "consultar_pyg": return await consultarPyG(args, empresaId);
+      case "consultar_libro_mayor": return await consultarLibroMayor(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -4692,6 +4850,212 @@ async function obtenerInstruccionesRenovacion(args, empresaId) {
 }
 
 // ============================
+// ASESORÍA
+// ============================
+
+async function consultarAsesoriaEstado(empresaId) {
+  try {
+    const vinculo = await sql`
+      SELECT ac.id, ac.estado, ac.permisos, ac.connected_at,
+        a.nombre AS asesoria_nombre, a.email_contacto AS asesoria_email
+      FROM asesoria_clientes_180 ac
+      JOIN asesorias_180 a ON a.id = ac.asesoria_id
+      WHERE ac.empresa_id = ${empresaId}
+        AND ac.estado IN ('activo', 'pendiente')
+      ORDER BY CASE ac.estado WHEN 'activo' THEN 1 WHEN 'pendiente' THEN 2 END
+      LIMIT 1
+    `;
+    if (vinculo.length === 0) return "No tienes ninguna asesoría conectada. Puedes invitar una desde Mi Asesoría.";
+    const v = vinculo[0];
+    const [noLeidos] = await sql`
+      SELECT COUNT(*)::int AS total FROM asesoria_mensajes_180
+      WHERE empresa_id = ${empresaId} AND autor_tipo = 'asesor' AND leido = false
+    `;
+    return `Asesoría: ${v.asesoria_nombre} (${v.asesoria_email})\nEstado: ${v.estado}\nConectada desde: ${v.connected_at || 'pendiente'}\nMensajes sin leer del asesor: ${noLeidos.total}`;
+  } catch (err) {
+    console.error("[AI] Error consultar asesoría:", err);
+    return { error: err.message || "Error consultando estado de asesoría" };
+  }
+}
+
+async function enviarMensajeAsesoria(args, empresaId, userId) {
+  try {
+    const { contenido } = args;
+    if (!contenido) return "Error: debes proporcionar el contenido del mensaje.";
+    const [vinculo] = await sql`
+      SELECT ac.asesoria_id FROM asesoria_clientes_180 ac
+      WHERE ac.empresa_id = ${empresaId} AND ac.estado = 'activo' LIMIT 1
+    `;
+    if (!vinculo) return "No tienes asesoría activa. Primero conecta una asesoría desde Mi Asesoría.";
+    const [msg] = await sql`
+      INSERT INTO asesoria_mensajes_180 (asesoria_id, empresa_id, autor_id, autor_tipo, contenido, tipo, leido, created_at)
+      VALUES (${vinculo.asesoria_id}, ${empresaId}, ${userId}, 'admin', ${contenido}, 'mensaje', false, now())
+      RETURNING id, created_at
+    `;
+    return `Mensaje enviado a tu asesor (ID: ${msg.id}). Fecha: ${msg.created_at}`;
+  } catch (err) {
+    console.error("[AI] Error enviar mensaje asesoría:", err);
+    return { error: err.message || "Error enviando mensaje a asesoría" };
+  }
+}
+
+async function listarMensajesAsesoria(args, empresaId) {
+  try {
+    const limite = parseInt(args.limite) || 10;
+    const [vinculo] = await sql`
+      SELECT ac.asesoria_id FROM asesoria_clientes_180 ac
+      WHERE ac.empresa_id = ${empresaId} AND ac.estado = 'activo' LIMIT 1
+    `;
+    if (!vinculo) return "No tienes asesoría activa.";
+    const mensajes = await sql`
+      SELECT m.contenido, m.autor_tipo, m.tipo, m.created_at, m.leido
+      FROM asesoria_mensajes_180 m
+      WHERE m.empresa_id = ${empresaId} AND m.asesoria_id = ${vinculo.asesoria_id}
+      ORDER BY m.created_at DESC LIMIT ${limite}
+    `;
+    if (mensajes.length === 0) return "No hay mensajes con tu asesor.";
+    await sql`
+      UPDATE asesoria_mensajes_180 SET leido = true, leido_at = now()
+      WHERE empresa_id = ${empresaId} AND asesoria_id = ${vinculo.asesoria_id}
+        AND autor_tipo = 'asesor' AND leido = false
+    `;
+    return mensajes.reverse().map(m =>
+      `[${new Date(m.created_at).toLocaleString('es-ES')}] ${m.autor_tipo === 'admin' ? 'Tú' : 'Asesor'}: ${m.contenido}`
+    ).join('\n');
+  } catch (err) {
+    console.error("[AI] Error listar mensajes asesoría:", err);
+    return { error: err.message || "Error listando mensajes de asesoría" };
+  }
+}
+
+async function exportarParaAsesoria(args, empresaId) {
+  try {
+    const { anio, trimestre, formato } = args;
+    if (!anio || !trimestre) return "Debes especificar el año y el trimestre (1-4).";
+    const fmt = (formato || 'excel').toLowerCase();
+    if (!['excel', 'csv', 'zip'].includes(fmt)) return "Formato no soportado. Usa: excel, csv, zip";
+    return `Paquete de exportación disponible. Para descargarlo, accede a Mi Asesoría > Exportar, o usa este enlace:\n/admin/asesoria/export/trimestral?anio=${anio}&trimestre=${trimestre}&formato=${fmt}\n\nContenido del paquete (${fmt}):\n- Facturas emitidas del Q${trimestre} ${anio}\n- Gastos/compras del periodo\n- Nóminas del periodo\n- Resumen IVA trimestral\n- Datos fiscales de la empresa`;
+  } catch (err) {
+    console.error("[AI] Error exportar para asesoría:", err);
+    return { error: err.message || "Error generando exportación para asesoría" };
+  }
+}
+
+// ============================
+// CONTABILIDAD
+// ============================
+
+async function crearAsientoContable(args, empresaId, userId) {
+  try {
+    const { fecha, concepto, lineas } = args;
+    if (!fecha || !concepto || !lineas || !Array.isArray(lineas) || lineas.length < 2) {
+      return "Error: necesitas fecha, concepto y al menos 2 líneas.";
+    }
+    const totalDebe = lineas.reduce((s, l) => s + parseFloat(l.debe || 0), 0);
+    const totalHaber = lineas.reduce((s, l) => s + parseFloat(l.haber || 0), 0);
+    if (Math.abs(totalDebe - totalHaber) > 0.01) {
+      return `Error: el asiento no cuadra. Debe: ${totalDebe.toFixed(2)}€, Haber: ${totalHaber.toFixed(2)}€. Diferencia: ${(totalDebe - totalHaber).toFixed(2)}€`;
+    }
+    const { crearAsiento } = await import("./contabilidadService.js");
+    const asiento = await crearAsiento({
+      empresaId,
+      fecha,
+      concepto,
+      tipo: "manual",
+      creado_por: userId,
+      lineas: lineas.map((l, i) => ({
+        cuenta_codigo: l.cuenta_codigo,
+        cuenta_nombre: l.cuenta_nombre || l.cuenta_codigo,
+        debe: parseFloat(l.debe || 0),
+        haber: parseFloat(l.haber || 0),
+        concepto: l.concepto || concepto,
+        orden: i + 1,
+      })),
+    });
+    return `Asiento contable #${asiento.numero} creado (${fecha}). Concepto: ${concepto}. Total: ${totalDebe.toFixed(2)}€. Estado: borrador.`;
+  } catch (err) {
+    console.error("[AI] Error crear asiento contable:", err);
+    return `Error creando asiento: ${err.message}`;
+  }
+}
+
+async function generarAsientosPeriodo(args, empresaId, userId) {
+  try {
+    const { fecha_desde, fecha_hasta } = args;
+    if (!fecha_desde || !fecha_hasta) return "Debes especificar fecha_desde y fecha_hasta en formato YYYY-MM-DD.";
+    const { generarAsientosPeriodo: generarFn } = await import("./contabilidadService.js");
+    const result = await generarFn(empresaId, fecha_desde, fecha_hasta, userId);
+    let msg = `Asientos generados:\n- Facturas: ${result.facturas}\n- Gastos: ${result.gastos}\n- Nóminas: ${result.nominas}`;
+    if (result.errores.length > 0) {
+      msg += `\n\nErrores (${result.errores.length}):\n${result.errores.slice(0, 5).join('\n')}`;
+    }
+    return msg;
+  } catch (err) {
+    console.error("[AI] Error generar asientos periodo:", err);
+    return `Error generando asientos: ${err.message}`;
+  }
+}
+
+async function consultarBalance(args, empresaId) {
+  try {
+    const fecha = args.fecha || new Date().toISOString().split('T')[0];
+    const { calcularBalance } = await import("./contabilidadService.js");
+    const balance = await calcularBalance(empresaId, fecha);
+    let msg = `Balance de Situación a ${fecha}:\n\n`;
+    msg += `ACTIVO (${balance.activo.total.toFixed(2)}€):\n`;
+    balance.activo.cuentas.forEach(c => { msg += `  ${c.cuenta_codigo} ${c.cuenta_nombre}: ${c.saldo.toFixed(2)}€\n`; });
+    msg += `\nPASIVO (${balance.pasivo.total.toFixed(2)}€):\n`;
+    balance.pasivo.cuentas.forEach(c => { msg += `  ${c.cuenta_codigo} ${c.cuenta_nombre}: ${c.saldo.toFixed(2)}€\n`; });
+    msg += `\nPATRIMONIO NETO (${balance.patrimonio.total.toFixed(2)}€):\n`;
+    balance.patrimonio.cuentas.forEach(c => { msg += `  ${c.cuenta_codigo} ${c.cuenta_nombre}: ${c.saldo.toFixed(2)}€\n`; });
+    msg += `\n${balance.cuadra ? 'El balance cuadra' : 'El balance NO cuadra'}`;
+    return msg;
+  } catch (err) {
+    console.error("[AI] Error consultar balance:", err);
+    return `Error calculando balance: ${err.message}`;
+  }
+}
+
+async function consultarPyG(args, empresaId) {
+  try {
+    const { fecha_desde, fecha_hasta } = args;
+    if (!fecha_desde || !fecha_hasta) return "Debes especificar fecha_desde y fecha_hasta.";
+    const { calcularPyG } = await import("./contabilidadService.js");
+    const pyg = await calcularPyG(empresaId, fecha_desde, fecha_hasta);
+    let msg = `Pérdidas y Ganancias (${fecha_desde} a ${fecha_hasta}):\n\n`;
+    msg += `INGRESOS (${pyg.ingresos.total.toFixed(2)}€):\n`;
+    pyg.ingresos.cuentas.forEach(c => { msg += `  ${c.cuenta_codigo} ${c.cuenta_nombre}: ${c.saldo.toFixed(2)}€\n`; });
+    msg += `\nGASTOS (${pyg.gastos.total.toFixed(2)}€):\n`;
+    pyg.gastos.cuentas.forEach(c => { msg += `  ${c.cuenta_codigo} ${c.cuenta_nombre}: ${c.saldo.toFixed(2)}€\n`; });
+    msg += `\nRESULTADO: ${pyg.resultado.toFixed(2)}€ ${pyg.resultado >= 0 ? '(Beneficio)' : '(Pérdida)'}`;
+    return msg;
+  } catch (err) {
+    console.error("[AI] Error consultar PyG:", err);
+    return `Error calculando PyG: ${err.message}`;
+  }
+}
+
+async function consultarLibroMayor(args, empresaId) {
+  try {
+    const { cuenta_codigo, fecha_desde, fecha_hasta } = args;
+    if (!cuenta_codigo) return "Debes especificar el código de cuenta (ej: '430', '700', '572').";
+    const { libroMayor } = await import("./contabilidadService.js");
+    const result = await libroMayor(empresaId, cuenta_codigo, fecha_desde || null, fecha_hasta || null);
+    if (!result.movimientos || result.movimientos.length === 0) return `No hay movimientos para la cuenta ${cuenta_codigo}.`;
+    let msg = `Libro Mayor - Cuenta ${cuenta_codigo} (${result.cuenta_nombre || ''}):\n`;
+    msg += `Periodo: ${fecha_desde || 'inicio'} a ${fecha_hasta || 'hoy'}\n\n`;
+    result.movimientos.forEach(m => {
+      msg += `${new Date(m.fecha).toLocaleDateString('es-ES')} | ${m.concepto} | Debe: ${(m.debe||0).toFixed(2)}€ | Haber: ${(m.haber||0).toFixed(2)}€ | Saldo: ${(m.saldo_acumulado||0).toFixed(2)}€\n`;
+    });
+    msg += `\nSaldo final: ${(result.saldo_final||0).toFixed(2)}€`;
+    return msg;
+  } catch (err) {
+    console.error("[AI] Error consultar libro mayor:", err);
+    return `Error consultando libro mayor: ${err.message}`;
+  }
+}
+
+// ============================
 // MEMORIA
 // ============================
 
@@ -5029,7 +5393,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       'crear_nomina', 'validar_parte_dia', 'crear_conocimiento', 'actualizar_conocimiento',
       'eliminar_conocimiento', 'match_pago_banco', 'crear_excepcion_jornada',
       'actualizar_configuracion', 'eliminar_archivo', 'reconciliar_extracto',
-      'responder_sugerencia'
+      'responder_sugerencia',
+      'enviar_mensaje_asesoria', 'crear_asiento_contable', 'generar_asientos_periodo'
     ]);
     let accionRealizada = false;
 

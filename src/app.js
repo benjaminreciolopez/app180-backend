@@ -70,6 +70,9 @@ import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import { stripeWebhook } from "./controllers/subscriptionController.js";
 import fabricantePublicRoutes, { fabricanteProtectedRouter } from "./routes/fabricanteRoutes.js";
 import sugerenciasRoutes, { sugerenciasFabricanteRouter } from "./routes/sugerenciasRoutes.js";
+import adminContabilidadRoutes from "./routes/adminContabilidadRoutes.js";
+import asesorRoutes from "./routes/asesorRoutes.js";
+import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
 
 const app = express();
 
@@ -157,7 +160,7 @@ app.use(
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With", "X-Empresa-Id"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     optionsSuccessStatus: 204
   }),
@@ -249,6 +252,9 @@ app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
 app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricante (protegido)
 app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
 app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Sugerencias (fabricante)
+app.use("/api/admin/contabilidad", adminContabilidadRoutes); // Módulo contabilidad
+app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
+app.use("/asesor", asesorRoutes); // Portal asesor
 
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario
@@ -264,6 +270,8 @@ app.use("/admin/nominas", nominasRoutes);
 app.use("/admin/notificaciones", notificacionesRoutes);
 app.use("/admin", aiRoutes);
 app.use("/admin", adminKnowledgeRoutes);
+app.use("/admin/contabilidad", adminContabilidadRoutes);
+app.use("/admin/asesoria", adminAsesoriaRoutes);
 
 // =========================
 // GLOBAL ERROR HANDLER

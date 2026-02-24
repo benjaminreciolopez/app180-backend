@@ -350,6 +350,60 @@ export const login = async (req, res) => {
     }
 
     // =========================
+    // ASESOR
+    // =========================
+    if (user.role === "asesor") {
+      const asesorRows = await sql`
+        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, au.activo
+        FROM asesoria_usuarios_180 au
+        JOIN asesorias_180 a ON a.id = au.asesoria_id
+        WHERE au.user_id = ${user.id}
+        LIMIT 1
+      `;
+
+      if (asesorRows.length === 0) {
+        return res.status(403).json({
+          error: "Asesor no vinculado a ninguna asesoría",
+        });
+      }
+
+      if (!asesorRows[0].activo) {
+        return res.status(403).json({ error: "Cuenta de asesor desactivada" });
+      }
+
+      const asesoriaId = asesorRows[0].asesoria_id;
+      const asesoriaNombre = asesorRows[0].asesoria_nombre;
+
+      const token = jwt.sign(
+        {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          nombre: user.nombre,
+          asesoria_id: asesoriaId,
+          avatar_url: user.avatar_url || null,
+          password_forced: user.password_forced === true,
+        },
+        config.jwtSecret,
+        { expiresIn: "10h" },
+      );
+
+      return res.json({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          nombre: user.nombre,
+          role: user.role,
+          avatar_url: user.avatar_url || null,
+          asesoria_id: asesoriaId,
+          asesoria_nombre: asesoriaNombre,
+          password_forced: user.password_forced === true,
+        },
+      });
+    }
+
+    // =========================
     // EMPLEADO REAL
     // =========================
     if (user.role === "empleado") {
@@ -1053,6 +1107,28 @@ export const getMe = async (req, res) => {
     }
 
     const r = rows[0];
+
+    // 🏢 ASESOR: respuesta especial sin empresa_id
+    if (r.role === "asesor") {
+      const asesorRows = await sql`
+        SELECT au.asesoria_id, a.nombre AS asesoria_nombre
+        FROM asesoria_usuarios_180 au
+        JOIN asesorias_180 a ON a.id = au.asesoria_id
+        WHERE au.user_id = ${r.id} AND au.activo = true
+        LIMIT 1
+      `;
+
+      return res.json({
+        id: r.id,
+        email: r.email,
+        nombre: r.nombre,
+        role: r.role,
+        avatar_url: r.avatar_url || null,
+        asesoria_id: asesorRows[0]?.asesoria_id || null,
+        asesoria_nombre: asesorRows[0]?.asesoria_nombre || null,
+        password_forced: r.password_forced === true,
+      });
+    }
 
     // 🔒 Registro Veri*Factu: Acceso al sistema (Apertura de App)
     if (r.empresa_id) {

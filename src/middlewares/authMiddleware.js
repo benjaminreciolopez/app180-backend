@@ -58,6 +58,78 @@ export const authRequired = async (req, res, next) => {
     req.user = decoded;
 
     // ==========================
+    // 🏢 RESOLVER ASESORIA_ID PARA ASESORES
+    // ==========================
+    if (req.user.role === "asesor") {
+      if (!req.user.asesoria_id) {
+        const asesorRows = await sql`
+          SELECT asesoria_id, activo
+          FROM asesoria_usuarios_180
+          WHERE user_id = ${req.user.id}
+          LIMIT 1
+        `;
+
+        if (asesorRows.length === 0) {
+          return res.status(404).json({ error: "Asesor no vinculado a ninguna asesoría" });
+        }
+
+        if (!asesorRows[0].activo) {
+          return res.status(403).json({ error: "Cuenta de asesor desactivada" });
+        }
+
+        req.user.asesoria_id = asesorRows[0].asesoria_id;
+      }
+
+      // ==========================
+      // 🔄 CONTEXT SWITCHING: X-Empresa-Id
+      // ==========================
+      // Si el asesor envía X-Empresa-Id, validamos el vínculo y permisos,
+      // e inyectamos empresa_id para que los controladores admin existentes funcionen sin cambios.
+      const targetEmpresaId = req.headers["x-empresa-id"];
+      if (targetEmpresaId) {
+        const vinculo = await sql`
+          SELECT permisos
+          FROM asesoria_clientes_180
+          WHERE asesoria_id = ${req.user.asesoria_id}
+            AND empresa_id = ${targetEmpresaId}
+            AND estado = 'activo'
+          LIMIT 1
+        `;
+
+        if (vinculo.length === 0) {
+          return res.status(403).json({ error: "Sin acceso a esta empresa" });
+        }
+
+        req.user.empresa_id = targetEmpresaId;
+        req.user.asesorPermisos = vinculo[0].permisos || {};
+        req.user.isAsesorContext = true;
+
+        // Cargar módulos de la empresa objetivo
+        const cfg = await sql`
+          SELECT modulos
+          FROM empresa_config_180
+          WHERE empresa_id = ${targetEmpresaId}
+          LIMIT 1
+        `;
+
+        req.user.modulos = cfg[0]?.modulos || {
+          clientes: true,
+          empleados: true,
+          fichajes: true,
+          calendario: true,
+          calendario_import: true,
+          worklogs: true,
+          ausencias: true,
+          facturacion: false,
+          pagos: false,
+          fiscal: false,
+        };
+      }
+
+      return next();
+    }
+
+    // ==========================
     // 👷 GARANTIZAR EMPLEADO_ID PARA EMPLEADOS
     // ==========================
     if (req.user.role === "empleado" && !req.user.empleado_id) {
