@@ -337,6 +337,37 @@ export async function validarAsiento(req, res) {
   }
 }
 
+export async function validarAsientosMultiple(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "Debe enviar un array de IDs" });
+    }
+
+    if (ids.length > 500) {
+      return res.status(400).json({ error: "Máximo 500 asientos por operación" });
+    }
+
+    const validados = await sql`
+      UPDATE asientos_180
+      SET estado = 'validado', validado_por = ${req.user.id}, validado_at = now(), updated_at = now()
+      WHERE id = ANY(${ids}) AND empresa_id = ${empresaId} AND estado = 'borrador'
+      RETURNING id
+    `;
+
+    res.json({
+      validados: validados.length,
+      total_enviados: ids.length,
+      ids_validados: validados.map(a => a.id),
+    });
+  } catch (err) {
+    console.error("Error validarAsientosMultiple:", err);
+    res.status(500).json({ error: "Error validando asientos" });
+  }
+}
+
 export async function anularAsiento(req, res) {
   try {
     const empresaId = req.user.empresa_id;

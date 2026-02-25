@@ -13,6 +13,7 @@ import {
   crearAsiento,
   editarAsiento,
   validarAsiento,
+  validarAsientosMultiple,
   anularAsiento,
   getLibroMayor,
   getBalance,
@@ -41,6 +42,7 @@ router.get("/asientos/exportar", exportarAsientos);
 router.post("/asientos", crearAsiento);
 router.post("/asientos/generar", generarAsientosPeriodo); // Must be before :id
 router.post("/asientos/importar", upload.single("file"), importarAsientos);
+router.put("/asientos/validar-multiple", validarAsientosMultiple);
 router.get("/asientos/:id", getAsientoById);
 router.put("/asientos/:id", editarAsiento);
 router.put("/asientos/:id/validar", validarAsiento);
