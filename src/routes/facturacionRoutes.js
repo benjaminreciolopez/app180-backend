@@ -3,6 +3,7 @@ import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 
 import * as facturasController from "../controllers/facturasController.js";
+import * as proformasController from "../controllers/proformasController.js";
 import * as conceptosController from "../controllers/conceptosController.js";
 import * as ivaController from "../controllers/ivaController.js";
 import * as configuracionController from "../controllers/configuracionController.js";
@@ -29,6 +30,18 @@ router.post("/facturas/:id/anular", facturasController.anularFactura);
 router.post("/facturas/:id/convertir-a-normal", facturasController.convertirProformaANormal);
 router.get("/facturas/:id/pdf", facturasController.generarPdf); // changed to GET for download
 router.post("/facturas/:id/email", facturasController.enviarEmail);
+
+/* ================= PROFORMAS ================= */
+
+router.get("/proformas", proformasController.listProformas);
+router.post("/proformas", proformasController.crearProforma);
+router.get("/proformas/:id", proformasController.getProforma);
+router.put("/proformas/:id", proformasController.editarProforma);
+router.delete("/proformas/:id", proformasController.eliminarProforma);
+router.post("/proformas/:id/anular", proformasController.anularProforma);
+router.post("/proformas/:id/reactivar", proformasController.reactivarProforma);
+router.post("/proformas/:id/convertir", proformasController.convertirProformaAFactura);
+router.get("/proformas/:id/pdf", proformasController.generarPdfProforma);
 
 /* ================= CONCEPTOS ================= */
 

@@ -1587,6 +1587,69 @@ const TOOLS = [
     }
   },
 
+  // --- Tool 93: Crear proforma ---
+  {
+    type: "function",
+    function: {
+      name: "crear_proforma",
+      description: "Crea una proforma (presupuesto) directamente en estado ACTIVA con número PRO-YYYY-XXXXXX. No consume numeración oficial. Requiere cliente_id, fecha y al menos una línea.",
+      parameters: {
+        type: "object",
+        properties: {
+          cliente_id: { type: "integer", description: "ID del cliente" },
+          fecha: { type: "string", description: "Fecha en formato YYYY-MM-DD" },
+          lineas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                descripcion: { type: "string" },
+                cantidad: { type: "number" },
+                precio_unitario: { type: "number" },
+                iva: { type: "number", description: "Porcentaje de IVA (ej: 21)" }
+              },
+              required: ["descripcion", "cantidad", "precio_unitario"]
+            },
+            description: "Líneas de la proforma (mínimo 1)"
+          },
+          iva_global: { type: "number", description: "IVA global por defecto (ej: 21)" },
+          retencion_porcentaje: { type: "number", description: "Porcentaje de retención IRPF (ej: 15)" }
+        },
+        required: ["cliente_id", "fecha", "lineas"]
+      }
+    }
+  },
+  // --- Tool 94: Anular proforma ---
+  {
+    type: "function",
+    function: {
+      name: "anular_proforma",
+      description: "Anula una proforma activa. La proforma queda anulada permanentemente (sin rectificativa). Se puede reactivar después creando una nueva copia.",
+      parameters: {
+        type: "object",
+        properties: {
+          proforma_id: { type: "integer", description: "ID de la proforma a anular" },
+          motivo: { type: "string", description: "Motivo de la anulación (obligatorio)" }
+        },
+        required: ["proforma_id", "motivo"]
+      }
+    }
+  },
+  // --- Tool 95: Reactivar proforma ---
+  {
+    type: "function",
+    function: {
+      name: "reactivar_proforma",
+      description: "Reactiva una proforma anulada creando una NUEVA proforma con nuevo número PRO, copiando el contenido de la anulada. La original permanece anulada para trazabilidad.",
+      parameters: {
+        type: "object",
+        properties: {
+          proforma_id: { type: "integer", description: "ID de la proforma anulada a reactivar" }
+        },
+        required: ["proforma_id"]
+      }
+    }
+  },
   // --- Tool 92: Revisar y corregir cuentas contables con IA ---
   {
     type: "function",
@@ -1953,6 +2016,10 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, use
       case "consultar_pyg": return await consultarPyG(args, empresaId);
       case "consultar_libro_mayor": return await consultarLibroMayor(args, empresaId);
       case "revisar_cuentas_asientos": return await revisarCuentasAsientosIA(args, empresaId);
+      // Proformas
+      case "crear_proforma": return await crearProformaIA(args, empresaId);
+      case "anular_proforma": return await anularProformaIA(args, empresaId);
+      case "reactivar_proforma": return await reactivarProformaIA(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -5324,6 +5391,136 @@ El usuario es ${userRole === 'admin' ? 'administrador con acceso completo' : 'em
 FORMATO: Usa Markdown. Importes en € con 2 decimales. Fechas en formato DD/MM/YYYY.`;
 
   return prompt;
+}
+
+// ============================
+// PROFORMAS (funciones separadas)
+// ============================
+
+async function crearProformaIA({ cliente_id, fecha, lineas, iva_global = 0, retencion_porcentaje = 0 }, empresaId) {
+  const [cliente] = await sql`SELECT id, nombre FROM clients_180 WHERE id = ${cliente_id} AND empresa_id = ${empresaId}`;
+  if (!cliente) return { error: "Cliente no encontrado" };
+  if (!Array.isArray(lineas) || lineas.length === 0) return { error: "Debe incluir al menos una línea" };
+  if (!fecha) return { error: "Fecha requerida (YYYY-MM-DD)" };
+
+  // Generar número PRO
+  const year = new Date(fecha).getFullYear();
+  const [countResult] = await sql`
+    SELECT COUNT(*) as total FROM factura_180
+    WHERE empresa_id = ${empresaId} AND tipo_factura = 'PROFORMA' AND numero IS NOT NULL AND EXTRACT(YEAR FROM fecha) = ${year}
+  `;
+  const nextNum = (parseInt(countResult?.total || 0) + 1).toString().padStart(6, '0');
+  const numero = `PRO-${year}-${nextNum}`;
+
+  let createdId;
+  let total;
+  await sql.begin(async (tx) => {
+    let subtotal = 0;
+    let iva_total = 0;
+    const [proforma] = await tx`
+      INSERT INTO factura_180 (empresa_id, cliente_id, fecha, estado, numero, iva_global, tipo_factura, retencion_porcentaje, subtotal, iva_total, total, created_at)
+      VALUES (${empresaId}, ${cliente_id}, ${fecha}::date, 'ACTIVA', ${numero}, ${iva_global || 0}, 'PROFORMA', ${retencion_porcentaje || 0}, 0, 0, 0, now())
+      RETURNING id
+    `;
+    createdId = proforma.id;
+
+    for (const linea of lineas) {
+      const descripcion = (linea.descripcion || "").trim();
+      if (!descripcion) continue;
+      const cantidad = parseFloat(linea.cantidad || 0);
+      const precio_unitario = parseFloat(linea.precio_unitario || 0);
+      const iva_pct = parseFloat(linea.iva || iva_global || 0);
+      const base = cantidad * precio_unitario;
+      const importe_iva = base * iva_pct / 100;
+      subtotal += base;
+      iva_total += importe_iva;
+      await tx`
+        INSERT INTO lineafactura_180 (factura_id, descripcion, cantidad, precio_unitario, total, iva_percent)
+        VALUES (${proforma.id}, ${descripcion}, ${cantidad}, ${precio_unitario}, ${base + importe_iva}, ${iva_pct})
+      `;
+    }
+    const retencion_importe = (subtotal * retencion_porcentaje) / 100;
+    total = Math.round((subtotal + iva_total - retencion_importe) * 100) / 100;
+    await tx`
+      UPDATE factura_180 SET subtotal = ${Math.round(subtotal * 100) / 100},
+        iva_total = ${Math.round(iva_total * 100) / 100},
+        retencion_importe = ${Math.round(retencion_importe * 100) / 100},
+        total = ${total}
+      WHERE id = ${proforma.id}
+    `;
+  });
+
+  return {
+    success: true,
+    mensaje: `Proforma ${numero} creada para ${cliente.nombre}. Total: ${total.toFixed(2)} EUR. ID: ${createdId}`,
+    proforma: { id: createdId, numero, cliente: cliente.nombre, total, estado: "ACTIVA" }
+  };
+}
+
+async function anularProformaIA({ proforma_id, motivo }, empresaId) {
+  if (!motivo || !motivo.trim()) return { error: "Motivo de anulación obligatorio" };
+  const [proforma] = await sql`
+    SELECT * FROM factura_180
+    WHERE id = ${proforma_id} AND empresa_id = ${empresaId} AND tipo_factura = 'PROFORMA'
+  `;
+  if (!proforma) return { error: "Proforma no encontrada" };
+  if (proforma.estado !== 'ACTIVA') return { error: "Solo se pueden anular proformas activas" };
+
+  await sql`UPDATE factura_180 SET estado = 'ANULADA', updated_at = now() WHERE id = ${proforma_id}`;
+
+  return {
+    success: true,
+    mensaje: `Proforma ${proforma.numero} anulada. Motivo: ${motivo.trim()}`,
+    proforma: { id: proforma_id, numero: proforma.numero, estado: "ANULADA" }
+  };
+}
+
+async function reactivarProformaIA({ proforma_id }, empresaId) {
+  const [proforma] = await sql`
+    SELECT * FROM factura_180
+    WHERE id = ${proforma_id} AND empresa_id = ${empresaId} AND tipo_factura = 'PROFORMA'
+  `;
+  if (!proforma) return { error: "Proforma no encontrada" };
+  if (proforma.estado !== 'ANULADA') return { error: "Solo se pueden reactivar proformas anuladas" };
+
+  const lineasOriginales = await sql`SELECT * FROM lineafactura_180 WHERE factura_id = ${proforma_id} ORDER BY id`;
+
+  const hoy = new Date().toISOString().split('T')[0];
+  const year = new Date().getFullYear();
+  const [countResult] = await sql`
+    SELECT COUNT(*) as total FROM factura_180
+    WHERE empresa_id = ${empresaId} AND tipo_factura = 'PROFORMA' AND numero IS NOT NULL AND EXTRACT(YEAR FROM fecha) = ${year}
+  `;
+  const nextNum = (parseInt(countResult?.total || 0) + 1).toString().padStart(6, '0');
+  const nuevoNumero = `PRO-${year}-${nextNum}`;
+
+  let nuevaId;
+  await sql.begin(async (tx) => {
+    const [nueva] = await tx`
+      INSERT INTO factura_180 (empresa_id, cliente_id, fecha, estado, numero, iva_global, mensaje_iva, metodo_pago,
+        subtotal, iva_total, total, retencion_porcentaje, retencion_importe, tipo_factura, proforma_origen_id, created_at)
+      VALUES (${empresaId}, ${proforma.cliente_id}, ${hoy}::date, 'ACTIVA', ${nuevoNumero},
+        ${proforma.iva_global}, ${proforma.mensaje_iva}, ${proforma.metodo_pago},
+        ${proforma.subtotal}, ${proforma.iva_total}, ${proforma.total},
+        ${proforma.retencion_porcentaje}, ${proforma.retencion_importe},
+        'PROFORMA', ${proforma_id}, now())
+      RETURNING id
+    `;
+    nuevaId = nueva.id;
+
+    for (const l of lineasOriginales) {
+      await tx`
+        INSERT INTO lineafactura_180 (factura_id, descripcion, cantidad, precio_unitario, total, concepto_id, iva_percent)
+        VALUES (${nueva.id}, ${l.descripcion}, ${l.cantidad}, ${l.precio_unitario}, ${l.total}, ${l.concepto_id}, ${l.iva_percent})
+      `;
+    }
+  });
+
+  return {
+    success: true,
+    mensaje: `Nueva proforma ${nuevoNumero} creada desde la anulada ${proforma.numero}. ID: ${nuevaId}`,
+    proforma: { id: nuevaId, numero: nuevoNumero, origen: proforma.numero, estado: "ACTIVA" }
+  };
 }
 
 // ============================
