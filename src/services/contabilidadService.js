@@ -239,8 +239,9 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor) {
   const total = parseFloat(gasto.total || base + iva - retencion);
   const proveedorNombre = gasto.proveedor || "Proveedor";
 
-  // Determinar cuenta de gasto según categoría
-  const cuentaGasto = mapCategoriaToCuenta(gasto.categoria);
+  // Determinar cuenta de gasto: primero intenta por descripción (más preciso), luego por categoría
+  const cuentaGasto = detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor)
+    || mapCategoriaToCuenta(gasto.categoria);
 
   // Auto-crear subcuenta de proveedor (4000xx)
   const cuentaProveedor = await getOrCreateCuentaTercero(
@@ -917,4 +918,263 @@ function mapCategoriaToCuenta(categoria) {
   };
 
   return map[categoria] || { codigo: "629", nombre: "Otros servicios" };
+}
+
+/**
+ * Detecta la cuenta PGC analizando la descripción y proveedor del gasto.
+ * Devuelve null si no puede determinar una cuenta específica (se usará el fallback por categoría).
+ *
+ * Esto resuelve casos como:
+ * - "RECIBO DE AUTÓNOMO ENERO-2026" → 642 (SS a cargo empresa)
+ * - "SEGURIDAD SOCIAL" → 642
+ * - "CUOTA AUTÓNOMOS RETA" → 642
+ * - "TESORERÍA GENERAL SS" → 642
+ * - "MUTUA ACCIDENTES" → 649
+ * - "ALQUILER LOCAL" → 621
+ * - "FACTURA LUZ / GAS / AGUA / TELÉFONO" → 628
+ * - "GESTORÍA / ASESORÍA" → 623
+ * - "NOTARÍA / REGISTRO" → 623
+ * - "ABOGADO / LETRADO" → 623
+ */
+function detectarCuentaPorDescripcion(descripcion, proveedor) {
+  if (!descripcion && !proveedor) return null;
+
+  const texto = `${descripcion || ""} ${proveedor || ""}`.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // Reglas ordenadas de más específica a menos específica
+  const reglas = [
+    // --- SEGURIDAD SOCIAL / AUTÓNOMOS (642) ---
+    {
+      patron: /AUTONOMO|CUOTA\s*(DE\s*)?AUTONOMO|RETA\b|RECIBO\s*(DE\s*)?(EL\s*)?AUTONOMO|COTIZACION\s*AUTONOMO|REGIMEN\s*ESPECIAL\s*TRABAJADOR/,
+      cuenta: { codigo: "642", nombre: "Seguridad Social a cargo de la empresa" },
+    },
+    {
+      patron: /SEGURIDAD\s*SOCIAL|TESORERIA\s*GENERAL|TGSS|SEG\.?\s*SOC|S\.?\s*SOCIAL/,
+      cuenta: { codigo: "642", nombre: "Seguridad Social a cargo de la empresa" },
+    },
+    {
+      patron: /COTIZACION\s*(SOCIAL|EMPRESA|TRABAJADOR)|CUOTA\s*OBRERA|CUOTA\s*PATRONAL/,
+      cuenta: { codigo: "642", nombre: "Seguridad Social a cargo de la empresa" },
+    },
+
+    // --- MUTUAS / GASTOS SOCIALES (649) ---
+    {
+      patron: /MUTUA\s*(DE\s*)?(ACCIDENTE|TRABAJO|LABORAL)|PREVENCION\s*(DE\s*)?RIESGOS|SERVICIO\s*PREVENCION|RECONOCIMIENTO\s*MEDICO/,
+      cuenta: { codigo: "649", nombre: "Otros gastos sociales" },
+    },
+
+    // --- SUELDOS (640) ---
+    {
+      patron: /NOMINA|SUELDO|SALARIO|PAGA\s*EXTRA|FINIQUITO|LIQUIDACION\s*(DE\s*)?(HABERES|SUELDO)/,
+      cuenta: { codigo: "640", nombre: "Sueldos y salarios" },
+    },
+
+    // --- INDEMNIZACIONES (641) ---
+    {
+      patron: /INDEMNIZACION|DESPIDO|ERE\b|ERTE\b/,
+      cuenta: { codigo: "641", nombre: "Indemnizaciones" },
+    },
+
+    // --- ALQUILERES (621) ---
+    {
+      patron: /ALQUILER|ARRENDAMIENTO|RENTA\s*(MENSUAL|LOCAL|OFICINA|NAVE)|LEASING/,
+      cuenta: { codigo: "621", nombre: "Arrendamientos y cánones" },
+    },
+
+    // --- SUMINISTROS (628) ---
+    {
+      patron: /\b(LUZ|ELECTRIC|ENDESA|IBERDROLA|NATURGY|REPSOL\s*LUZ|EDP|HOLALUZ|FACTOR\s*ENERGIA)\b/,
+      cuenta: { codigo: "628", nombre: "Suministros" },
+    },
+    {
+      patron: /\b(GAS\s*NATURAL|BUTANO|PROPANO|CALEFACCION)\b/,
+      cuenta: { codigo: "628", nombre: "Suministros" },
+    },
+    {
+      patron: /\b(AGUA|CANAL\s*DE|AGUAS\s*DE|EMASA|EMASESA|AQUALIA)\b/,
+      cuenta: { codigo: "628", nombre: "Suministros" },
+    },
+    {
+      patron: /\b(TELEFON|MOVISTAR|VODAFONE|ORANGE|MASMOVIL|YOIGO|DIGI\b|O2\b|FIBRA|INTERNET|ADSL)\b/,
+      cuenta: { codigo: "628", nombre: "Suministros" },
+    },
+
+    // --- SEGUROS (625) ---
+    {
+      patron: /SEGURO|POLIZA|PRIMA\s*(DE\s*)?SEGURO|ASEGURADORA|MAPFRE|ALLIANZ|AXA\b|ZURICH|GENERALI|MUTUA\s*MADRILENA|LINEA\s*DIRECTA/,
+      cuenta: { codigo: "625", nombre: "Primas de seguros" },
+    },
+
+    // --- SERVICIOS PROFESIONALES (623) ---
+    {
+      patron: /GESTORIA|ASESORIA|ASESOR\s*(FISCAL|CONTABLE|LABORAL)|CONSULTORIA|ABOGADO|LETRADO|NOTARI|REGISTRO\s*(MERCANTIL|PROPIEDAD)|PROCURADOR|AUDITORIA|AUDITOR/,
+      cuenta: { codigo: "623", nombre: "Servicios de profesionales independientes" },
+    },
+
+    // --- PUBLICIDAD (627) ---
+    {
+      patron: /PUBLICIDAD|MARKETING|GOOGLE\s*ADS|META\s*ADS|FACEBOOK\s*ADS|INSTAGRAM|CAMPANA\s*(PUBLICITARIA|MARKETING)|SEO\b|SEM\b|PROPAGANDA/,
+      cuenta: { codigo: "627", nombre: "Publicidad, propaganda y relaciones públicas" },
+    },
+
+    // --- SERVICIOS BANCARIOS (626) ---
+    {
+      patron: /COMISION\s*(BANCARIA|BANCO|MANTENIMIENTO|TARJETA)|GASTOS\s*BANCARIOS|INTERESES\s*BANCARIOS|SWIFT|TRANSFERENCIA\s*COMISION/,
+      cuenta: { codigo: "626", nombre: "Servicios bancarios y similares" },
+    },
+
+    // --- INTERESES (662) ---
+    {
+      patron: /INTERESES?\s*(PRESTAMO|HIPOTECA|CREDITO|DEUDA|FINANC)/,
+      cuenta: { codigo: "662", nombre: "Intereses de deudas" },
+    },
+
+    // --- REPARACIONES (622) ---
+    {
+      patron: /REPARACION|MANTENIMIENTO|AVERIA|REVISION\s*(TECNICA|VEHICULO|MAQUINARIA)/,
+      cuenta: { codigo: "622", nombre: "Reparaciones y conservación" },
+    },
+
+    // --- TRANSPORTE (624) ---
+    {
+      patron: /TRANSPORTE|MENSAJERIA|ENVIO|CORREOS|SEUR|MRW|DHL|UPS|FEDEX|PAQUETERIA|PORTE/,
+      cuenta: { codigo: "624", nombre: "Transportes" },
+    },
+
+    // --- TRIBUTOS (631) ---
+    {
+      patron: /IBI\b|IMPUESTO\s*(BIENES|VEHICULO|CIRCULACION|ACTIVIDADES|MUNICIPAL)|IAE\b|BASURA|TASA\s*(MUNICIPAL|BASURA|RESIDUOS)|PLUSVALIA/,
+      cuenta: { codigo: "631", nombre: "Otros tributos" },
+    },
+
+    // --- AMORTIZACIÓN (681) ---
+    {
+      patron: /AMORTIZACION|DEPRECIACION/,
+      cuenta: { codigo: "681", nombre: "Amortización del inmovilizado material" },
+    },
+  ];
+
+  for (const regla of reglas) {
+    if (regla.patron.test(texto)) {
+      return regla.cuenta;
+    }
+  }
+
+  return null; // No se pudo determinar → se usará el fallback por categoría
+}
+
+/**
+ * Re-revisa las cuentas contables de asientos auto-generados desde gastos.
+ * Compara la cuenta actual del gasto (línea 6xx) con la que detectaría ahora
+ * la lógica de `detectarCuentaPorDescripcion`. Si difiere, corrige la línea.
+ *
+ * @param {string} empresaId
+ * @param {string[]} asientoIds - IDs específicos a revisar (opcional, si vacío revisa todos los auto_gasto)
+ * @param {boolean} soloSimular - true = solo devuelve cambios sin aplicarlos
+ * @returns {{ revisados, corregidos, sin_cambios, errores, cambios[] }}
+ */
+export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSimular = false) {
+  const resultado = { revisados: 0, corregidos: 0, sin_cambios: 0, errores: [], cambios: [] };
+
+  // Obtener asientos auto_gasto con referencia a gasto
+  let asientos;
+  if (asientoIds.length > 0) {
+    asientos = await sql`
+      SELECT a.id, a.concepto, a.referencia_id, a.estado
+      FROM asientos_180 a
+      WHERE a.empresa_id = ${empresaId}
+        AND a.id = ANY(${asientoIds})
+        AND a.estado != 'anulado'
+    `;
+  } else {
+    asientos = await sql`
+      SELECT a.id, a.concepto, a.referencia_id, a.estado
+      FROM asientos_180 a
+      WHERE a.empresa_id = ${empresaId}
+        AND a.tipo = 'auto_gasto'
+        AND a.estado != 'anulado'
+      ORDER BY a.fecha
+    `;
+  }
+
+  for (const asiento of asientos) {
+    resultado.revisados++;
+    try {
+      // Buscar el gasto original para obtener descripción y proveedor
+      let gasto = null;
+      if (asiento.referencia_id) {
+        const [g] = await sql`
+          SELECT id, descripcion, proveedor, categoria
+          FROM purchases_180
+          WHERE id = ${asiento.referencia_id}::uuid AND empresa_id = ${empresaId}
+        `;
+        gasto = g;
+      }
+
+      // Si no encontramos el gasto, intentar extraer info del concepto del asiento
+      const textoAnalisis = gasto
+        ? `${gasto.descripcion || ""} ${gasto.proveedor || ""}`
+        : asiento.concepto || "";
+
+      const proveedorAnalisis = gasto ? gasto.proveedor : null;
+
+      // Detectar cuenta correcta
+      const cuentaCorrecta = detectarCuentaPorDescripcion(textoAnalisis, proveedorAnalisis)
+        || (gasto ? mapCategoriaToCuenta(gasto.categoria) : null);
+
+      if (!cuentaCorrecta) {
+        resultado.sin_cambios++;
+        continue;
+      }
+
+      // Obtener las líneas del asiento - buscar la línea de gasto (cuenta 6xx)
+      const lineas = await sql`
+        SELECT id, cuenta_codigo, cuenta_nombre, debe, haber
+        FROM asiento_lineas_180
+        WHERE asiento_id = ${asiento.id} AND empresa_id = ${empresaId}
+        ORDER BY orden
+      `;
+
+      const lineaGasto = lineas.find(l => l.cuenta_codigo.startsWith("6") && Number(l.debe) > 0);
+
+      if (!lineaGasto) {
+        resultado.sin_cambios++;
+        continue;
+      }
+
+      // Comprobar si la cuenta es diferente
+      if (lineaGasto.cuenta_codigo === cuentaCorrecta.codigo) {
+        resultado.sin_cambios++;
+        continue;
+      }
+
+      // Hay corrección
+      resultado.cambios.push({
+        asiento_id: asiento.id,
+        concepto: asiento.concepto,
+        estado: asiento.estado,
+        linea_id: lineaGasto.id,
+        cuenta_anterior: { codigo: lineaGasto.cuenta_codigo, nombre: lineaGasto.cuenta_nombre },
+        cuenta_nueva: { codigo: cuentaCorrecta.codigo, nombre: cuentaCorrecta.nombre },
+        importe: Number(lineaGasto.debe),
+      });
+
+      if (!soloSimular) {
+        await sql`
+          UPDATE asiento_lineas_180
+          SET cuenta_codigo = ${cuentaCorrecta.codigo},
+              cuenta_nombre = ${cuentaCorrecta.nombre}
+          WHERE id = ${lineaGasto.id}
+        `;
+        resultado.corregidos++;
+      } else {
+        resultado.corregidos++;
+      }
+    } catch (err) {
+      resultado.errores.push(`Asiento ${asiento.id}: ${err.message}`);
+    }
+  }
+
+  resultado.sin_cambios = resultado.revisados - resultado.corregidos - resultado.errores.length;
+  return resultado;
 }

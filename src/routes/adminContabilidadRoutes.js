@@ -23,6 +23,7 @@ import {
   generarAsientosPeriodo,
   exportarAsientos,
   importarAsientos,
+  revisarAsientos,
 } from "../controllers/contabilidadController.js";
 
 const router = Router();
@@ -42,6 +43,7 @@ router.get("/asientos/exportar", exportarAsientos);
 router.post("/asientos", crearAsiento);
 router.post("/asientos/generar", generarAsientosPeriodo); // Must be before :id
 router.post("/asientos/importar", upload.single("file"), importarAsientos);
+router.post("/asientos/revisar", revisarAsientos);
 router.put("/asientos/validar-multiple", validarAsientosMultiple);
 router.get("/asientos/:id", getAsientoById);
 router.put("/asientos/:id", editarAsiento);

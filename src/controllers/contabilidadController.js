@@ -248,15 +248,15 @@ export async function editarAsiento(req, res) {
     const { id } = req.params;
     const { concepto, notas, lineas } = req.body;
 
-    // Solo se pueden editar borradores
+    // Se pueden editar borradores y validados (no anulados)
     const [existing] = await sql`
       SELECT estado FROM asientos_180
       WHERE id = ${id} AND empresa_id = ${empresaId}
     `;
 
     if (!existing) return res.status(404).json({ error: "Asiento no encontrado" });
-    if (existing.estado !== "borrador") {
-      return res.status(400).json({ error: "Solo se pueden editar asientos en borrador" });
+    if (existing.estado === "anulado") {
+      return res.status(400).json({ error: "No se pueden editar asientos anulados" });
     }
 
     if (lineas && lineas.length >= 2) {
@@ -841,5 +841,29 @@ export async function importarAsientos(req, res) {
   } catch (err) {
     console.error("Error importarAsientos:", err);
     res.status(500).json({ error: "Error importando asientos" });
+  }
+}
+
+// =============================================
+// RE-REVISAR CUENTAS DE ASIENTOS
+// =============================================
+
+export async function revisarAsientos(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { ids, simular } = req.body;
+    const soloSimular = simular === true || simular === "true";
+    const asientoIds = Array.isArray(ids) ? ids : [];
+
+    const resultado = await contabilidadService.revisarCuentasAsientos(
+      empresaId,
+      asientoIds,
+      soloSimular
+    );
+
+    res.json(resultado);
+  } catch (err) {
+    console.error("Error revisarAsientos:", err);
+    res.status(500).json({ error: "Error revisando asientos" });
   }
 }
