@@ -98,6 +98,7 @@ export async function crearAsiento({
   referencia_id = null,
   notas = null,
   creado_por = null,
+  revisado_ia = false,
   lineas = [],
 }) {
   if (!lineas || lineas.length < 2) {
@@ -129,10 +130,10 @@ export async function crearAsiento({
     const [asiento] = await tx`
       INSERT INTO asientos_180 (
         empresa_id, numero, fecha, ejercicio, concepto, tipo,
-        estado, referencia_tipo, referencia_id, notas, creado_por
+        estado, referencia_tipo, referencia_id, notas, creado_por, revisado_ia
       ) VALUES (
         ${empresaId}, ${numero}, ${fecha}, ${ejercicio}, ${concepto}, ${tipo},
-        'borrador', ${referencia_tipo}, ${referencia_id}, ${notas}, ${creado_por}
+        'borrador', ${referencia_tipo}, ${referencia_id}, ${notas}, ${creado_por}, ${revisado_ia || false}
       ) RETURNING *
     `;
 
@@ -232,6 +233,7 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor, cuent
     referencia_tipo: "factura",
     referencia_id: String(factura.id),
     creado_por: creadoPor,
+    revisado_ia: !!cuentaIngresoIA,
     lineas,
   });
 }
@@ -304,6 +306,7 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     referencia_tipo: "gasto",
     referencia_id: String(gasto.id),
     creado_por: creadoPor,
+    revisado_ia: !!cuentaGastoIA,
     lineas,
   });
 }
@@ -797,9 +800,26 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
 
   const itemsParaIA = [];
 
+  // Obtener descripciones de líneas de factura para mejor clasificación IA
+  const facturaIds = facturas.map(f => f.id);
+  let lineaDescMap = new Map();
+  if (facturaIds.length > 0) {
+    const lineasFactura = await sql`
+      SELECT factura_id, descripcion FROM lineafactura_180
+      WHERE factura_id = ANY(${facturaIds})
+      ORDER BY factura_id, id
+    `;
+    for (const l of lineasFactura) {
+      const prev = lineaDescMap.get(l.factura_id) || [];
+      if (l.descripcion) prev.push(l.descripcion);
+      lineaDescMap.set(l.factura_id, prev);
+    }
+  }
+
   for (const f of facturas) {
-    // Construir descripción para que la IA entienda qué tipo de ingreso es
-    const desc = [f.numero, f.concepto, f.descripcion, f.notas]
+    // factura_180 no tiene concepto/descripcion - usar líneas + numero + cliente
+    const lineaDescs = lineaDescMap.get(f.id) || [];
+    const desc = [f.numero, ...lineaDescs.slice(0, 3), f.cliente_nombre]
       .filter(Boolean).join(" - ") || "Factura emitida";
     itemsParaIA.push({
       id: String(f.id),
@@ -1329,13 +1349,14 @@ Ejemplo:
  * @returns {{ revisados, corregidos, sin_cambios, errores, cambios[] }}
  */
 export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSimular = false) {
-  const resultado = { revisados: 0, corregidos: 0, sin_cambios: 0, errores: [], cambios: [] };
+  const resultado = { revisados: 0, corregidos: 0, sin_cambios: 0, omitidos_ia: 0, errores: [], cambios: [] };
 
   // Obtener asientos auto (gastos + facturas)
+  // Si se pasan IDs específicos, se revisan todos. Si no, solo los NO revisados por IA.
   let asientos;
   if (asientoIds.length > 0) {
     asientos = await sql`
-      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado
+      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado, a.revisado_ia
       FROM asientos_180 a
       WHERE a.empresa_id = ${empresaId}
         AND a.id = ANY(${asientoIds})
@@ -1343,11 +1364,12 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     `;
   } else {
     asientos = await sql`
-      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado
+      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado, a.revisado_ia
       FROM asientos_180 a
       WHERE a.empresa_id = ${empresaId}
         AND a.tipo IN ('auto_gasto', 'auto_factura')
         AND a.estado != 'anulado'
+        AND a.revisado_ia = false
       ORDER BY a.fecha
     `;
   }
@@ -1375,17 +1397,23 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
       }
     } else if (asiento.tipo === "auto_factura" && asiento.referencia_id) {
       const [f] = await sql`
-        SELECT f.id, f.numero, f.concepto, c.nombre AS cliente_nombre
+        SELECT f.id, f.numero, f.serie, c.nombre AS cliente_nombre
         FROM factura_180 f
         LEFT JOIN clients_180 c ON c.id = f.cliente_id
         WHERE f.id = ${asiento.referencia_id}::int AND f.empresa_id = ${empresaId}
       `;
       if (f) {
+        // Obtener descripciones de líneas para mejor clasificación
+        const lineasF = await sql`
+          SELECT descripcion FROM lineafactura_180
+          WHERE factura_id = ${f.id} LIMIT 3
+        `;
+        const lineaDescs = lineasF.map(l => l.descripcion).filter(Boolean);
         asientoDataMap.set(asiento.id, { tipo: "factura", data: f });
         itemsParaIA.push({
           id: asiento.id,
           tipo: "factura",
-          descripcion: f.concepto || f.numero || "Factura",
+          descripcion: [f.numero, ...lineaDescs, f.cliente_nombre].filter(Boolean).join(" - ") || "Factura",
           cliente: f.cliente_nombre || "Cliente",
         });
       }
@@ -1468,12 +1496,26 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
               cuenta_nombre = ${cuentaCorrecta.nombre}
           WHERE id = ${lineaTarget.id}
         `;
+        // Mark asiento as IA-reviewed after correction
+        await sql`
+          UPDATE asientos_180 SET revisado_ia = true WHERE id = ${asiento.id}
+        `;
         resultado.corregidos++;
       } else {
         resultado.corregidos++;
       }
     } catch (err) {
       resultado.errores.push(`Asiento ${asiento.id}: ${err.message}`);
+    }
+  }
+
+  // Also mark sin_cambios asientos as reviewed (IA confirmed the account is correct)
+  if (!soloSimular) {
+    const sinCambioIds = asientos
+      .filter(a => !resultado.cambios.some(c => c.asiento_id === a.id) && !resultado.errores.some(e => e.includes(a.id)))
+      .map(a => a.id);
+    if (sinCambioIds.length > 0) {
+      await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${sinCambioIds})`;
     }
   }
 
