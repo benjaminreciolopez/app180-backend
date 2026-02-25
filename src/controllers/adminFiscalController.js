@@ -214,7 +214,7 @@ export async function getFiscalData(req, res) {
  */
 export async function getLibroVentas(req, res) {
     try {
-        const { year } = req.query;
+        const year = req.query.year || new Date().getFullYear();
         const empresaId = req.user.empresa_id;
 
         const facturas = await sql`
@@ -246,7 +246,7 @@ export async function getLibroVentas(req, res) {
  */
 export async function getLibroGastos(req, res) {
     try {
-        const { year } = req.query;
+        const year = req.query.year || new Date().getFullYear();
         const empresaId = req.user.empresa_id;
 
         const gastos = await sql`

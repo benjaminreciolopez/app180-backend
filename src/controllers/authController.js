@@ -269,7 +269,12 @@ export const login = async (req, res) => {
 
     console.log("LOGIN desde frontend", req.body);
 
-    const { email, password, device_hash, user_agent } = req.body;
+    const { email, password, device_hash, user_agent } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email y contraseña son obligatorios" });
+    }
+
     const ipActual = req.ip;
 
     const rows = await sql`
@@ -486,7 +491,15 @@ export const login = async (req, res) => {
             WHERE empleado_id = ${empleadoId}
           `;
 
+          // Empleados: bloquear login con dispositivo diferente
+          if (user.role === 'empleado') {
+            return res.status(403).json({
+              error: "Dispositivo no autorizado. Contacta a tu administrador para cambiar de dispositivo.",
+            });
+          }
+
           if (count[0].total === 1) {
+            // Admin: permitir actualizar dispositivo
             await sql`
               UPDATE employee_devices_180
               SET device_hash = ${device_hash},
@@ -496,13 +509,6 @@ export const login = async (req, res) => {
               WHERE id = ${device.id}
             `;
           } else {
-            // Nota: Para admins tal vez no queramos bloquear el login, 
-            // pero mantenemos la lógica estricta de dispositivo único por ahora.
-            if (user.role === 'empleado') {
-              return res.status(403).json({
-                error: "Este usuario ya tiene asignado un dispositivo. Solicita autorización para cambiarlo.",
-              });
-            }
             // Si es admin, permitimos actualizar (o ignoramos, pero mejor actualizar para que funcione el fichaje)
             await sql`
               UPDATE employee_devices_180

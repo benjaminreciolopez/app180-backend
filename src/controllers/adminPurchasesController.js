@@ -258,7 +258,7 @@ export async function crearCompra(req, res) {
         let finalDocumentUrl = documento_url || null;
 
         // Si se subió archivo con el create
-        if (req.file) {
+        if (req.file && req.file.buffer && req.file.buffer.length > 0) {
             const fechaRef = fecha_compra || new Date().toISOString().split('T')[0];
             const y = new Date(fechaRef).getFullYear();
             const t = getTrimestre(fechaRef);

@@ -12,10 +12,12 @@ const router = Router();
 
 router.use(authRequired);
 router.use(roleRequired("admin"));
-router.use(requireModule("calendario"));
 
-router.patch("/ausencias/:id/estado", actualizarEstadoAusencia);
+// requireModule applied per-route to avoid blocking all /admin/* routes
+const calendarioGuard = requireModule("calendario");
 
-router.get("/calendario/integrado", getCalendarioIntegradoAdmin);
+router.patch("/ausencias/:id/estado", calendarioGuard, actualizarEstadoAusencia);
+
+router.get("/calendario/integrado", calendarioGuard, getCalendarioIntegradoAdmin);
 
 export default router;

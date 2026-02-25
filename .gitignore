@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+__test_env__.json
+test-report.xml
 
 # next.js
 /.next/

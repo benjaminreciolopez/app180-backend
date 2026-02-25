@@ -7,7 +7,11 @@
   "scripts": {
     "dev": "nodemon src/app.js",
     "start": "node src/app.js",
-    "postinstall": "node scripts/postinstall.cjs"
+    "postinstall": "node scripts/postinstall.cjs",
+    "test": "npx --node-options=--experimental-vm-modules jest --forceExit",
+    "test:runtime": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=A-runtime --forceExit",
+    "test:compliance": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=B-compliance --forceExit",
+    "test:critical": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=\"A3|A4|A5|B1|B2\" --forceExit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -46,7 +50,10 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@jest/globals": "^30.2.0",
     "@types/node": "^25.0.10",
-    "nodemon": "^3.0.2"
+    "jest": "^30.2.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^7.2.2"
   }
 }

@@ -218,8 +218,6 @@ app.use("/empleado", authRequired, empleadoAdjuntosRoutes);
 app.use("/admin", authRequired, adminAdjuntosRoutes);
 app.use("/admin", adminJornadasRoutes);
 app.use("/admin", adminplantillasRoutes);
-app.use("/", adminJornadasRoutes); // Para compatibilidad con llamadas sin prefix /admin
-app.use("/", adminplantillasRoutes); // Para compatibilidad con llamadas sin prefix /admin
 app.use("/empleado", empleadoPlanDiaRoutes);
 app.use("/worklogs", workLogsRoutes);
 app.use("/admin", adminConfigRoutes); // Must be before routes with requireModule
@@ -409,29 +407,34 @@ process.on("uncaughtException", (err) => {
   }
 })();
 
-const server = app.listen(config.port, () =>
-  console.log(`Servidor iniciado en puerto ${config.port}`),
-);
+// Export app for testing (supertest)
+export default app;
 
-// Graceful shutdown
-const gracefulShutdown = (signal) => {
-  console.log(`\n${signal} recibido. Cerrando servidor...`);
-  server.close(async () => {
-    try {
-      const { sql } = await import("./db.js");
-      await sql.end({ timeout: 5 });
-      console.log("Conexiones DB cerradas.");
-    } catch (e) {
-      console.error("Error cerrando DB:", e.message);
-    }
-    process.exit(0);
-  });
-  // Forzar cierre si tarda más de 10s
-  setTimeout(() => {
-    console.error("Forzando cierre tras 10s...");
-    process.exit(1);
-  }, 10000);
-};
+if (process.env.NODE_ENV !== 'test') {
+  const server = app.listen(config.port, () =>
+    console.log(`Servidor iniciado en puerto ${config.port}`),
+  );
 
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  // Graceful shutdown
+  const gracefulShutdown = (signal) => {
+    console.log(`\n${signal} recibido. Cerrando servidor...`);
+    server.close(async () => {
+      try {
+        const { sql } = await import("./db.js");
+        await sql.end({ timeout: 5 });
+        console.log("Conexiones DB cerradas.");
+      } catch (e) {
+        console.error("Error cerrando DB:", e.message);
+      }
+      process.exit(0);
+    });
+    // Forzar cierre si tarda más de 10s
+    setTimeout(() => {
+      console.error("Forzando cierre tras 10s...");
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+}

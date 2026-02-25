@@ -282,12 +282,31 @@ export async function createFactura(req, res) {
       return res.status(400).json({ success: false, error: "Cliente requerido" });
     }
 
-    if (!fecha) {
-      return res.status(400).json({ success: false, error: "Fecha requerida" });
+    if (!fecha || isNaN(Date.parse(fecha))) {
+      return res.status(400).json({ success: false, error: "Fecha requerida y debe ser válida (YYYY-MM-DD)" });
+    }
+
+    // Validar iva_global es numérico y razonable
+    const ivaNum = Number(iva_global);
+    if (iva_global != null && (typeof iva_global === 'boolean' || isNaN(ivaNum) || ivaNum < 0 || ivaNum > 100)) {
+      return res.status(400).json({ success: false, error: "IVA debe ser un número entre 0 y 100" });
     }
 
     if (!Array.isArray(lineas) || lineas.length === 0) {
       return res.status(400).json({ success: false, error: "Debe incluir al menos una línea" });
+    }
+
+    // Validar líneas: cantidades y precios razonables
+    if (lineas.length > 1000) {
+      return res.status(400).json({ success: false, error: "Máximo 1000 líneas por factura" });
+    }
+
+    for (const linea of lineas) {
+      const cant = Number(linea.cantidad);
+      const precio = Number(linea.precio_unitario);
+      if (isNaN(cant) || isNaN(precio) || Math.abs(cant) > 999999999 || Math.abs(precio) > 999999999) {
+        return res.status(400).json({ success: false, error: "Cantidad y precio deben ser números válidos" });
+      }
     }
 
     // Validar cliente existe

@@ -39,12 +39,12 @@ export async function registrarAuditoria({
         datos_anteriores, datos_nuevos, motivo,
         ip_address, user_agent
       ) VALUES (
-        ${empresaId}, ${userId}, ${empleadoId},
-        ${accion}, ${entidadTipo}, ${entidadId},
+        ${empresaId ?? null}, ${userId ?? null}, ${empleadoId ?? null},
+        ${accion ?? null}, ${entidadTipo ?? null}, ${entidadId != null ? String(entidadId) : null},
         ${datosAnteriores ? JSON.stringify(datosAnteriores) : null},
         ${datosNuevos ? JSON.stringify(datosNuevos) : null},
-        ${motivo},
-        ${ipAddress}, ${userAgent}
+        ${motivo ?? null},
+        ${ipAddress ?? null}, ${userAgent ?? null}
       )
     `;
 
@@ -82,9 +82,9 @@ export async function registrarEventoSeguridad({
                 accion, resultado, motivo, error_codigo,
                 origen, ip, user_agent, payload, created_at
             ) VALUES (
-                ${empresaId}, ${userId}, ${entidad}, ${entidadId},
-                ${accion}, ${resultado}, ${motivo}, ${errorCodigo},
-                ${origen}, ${ip}, ${userAgent}, ${payload ? JSON.stringify(payload) : null},
+                ${empresaId ?? null}, ${userId ?? null}, ${entidad ?? null}, ${entidadId != null ? String(entidadId) : null},
+                ${accion ?? null}, ${resultado ?? 'EXITO'}, ${motivo ?? null}, ${errorCodigo ?? null},
+                ${origen ?? 'SISTEMA'}, ${ip ?? null}, ${userAgent ?? null}, ${payload ? JSON.stringify(payload) : null},
                 now()
             )
         `;

@@ -15,7 +15,21 @@ import {
 import { storageController } from "../controllers/storageController.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    // Sanitize filename: remove path traversal and special chars
+    if (file.originalname) {
+      file.originalname = file.originalname
+        .replace(/\.\./g, '')
+        .replace(/[/\\]/g, '_')
+        .replace(/[\x00-\x1f]/g, '')
+        .replace(/[<>:"|?*;`$(){}]/g, '_');
+    }
+    cb(null, true);
+  },
+});
 
 // Todas las rutas de compras requieren ser admin
 router.use(authRequired, roleRequired("admin"));

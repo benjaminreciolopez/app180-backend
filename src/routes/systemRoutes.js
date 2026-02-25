@@ -1,11 +1,16 @@
 import { Router } from "express";
-import { getSystemStatus } from "../controllers/systemController.js";
+import { getSystemStatus, receiveTestReport } from "../controllers/systemController.js";
+import rateLimit from "express-rate-limit";
 
 const router = Router();
 
 import { sql } from "../db.js";
 
 router.get("/status", getSystemStatus);
+
+// Test report endpoint - protected by API key, rate limited
+const testReportLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, message: { error: "Demasiados reportes. Espera 1 hora." } });
+router.post("/test-report", testReportLimiter, receiveTestReport);
 
 router.get("/health", async (req, res) => {
   try {
