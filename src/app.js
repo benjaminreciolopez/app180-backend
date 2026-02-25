@@ -73,6 +73,9 @@ import sugerenciasRoutes, { sugerenciasFabricanteRouter } from "./routes/sugeren
 import adminContabilidadRoutes from "./routes/adminContabilidadRoutes.js";
 import asesorRoutes from "./routes/asesorRoutes.js";
 import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
+import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
+import fichajeCorreccionRoutes from "./routes/fichajeCorreccionRoutes.js";
+import fichajeIntegridadRoutes from "./routes/fichajeIntegridadRoutes.js";
 
 const app = express();
 
@@ -193,10 +196,14 @@ app.get("/auth/google/unified-callback", handleUnifiedCallback); // Unified setu
 // Rutas publicas QR fabricante (sin auth, con rate limit)
 app.use("/api/public", qrLimiter, fabricantePublicRoutes);
 
+// Verificación pública CSV - RD 8/2019 (sin auth, con rate limit propio)
+app.use("/api/verificar", verificacionPublicaRoutes);
+
 app.use("/auth", authLimiter, authRoutes);
 
 app.use("/employees", authRequired, employeeRoutes);
 app.use("/fichajes", authRequired, fichajeRoutes);
+app.use("/fichajes", fichajeCorreccionRoutes); // auth inside router
 app.use("/calendario", authRequired, calendarioRoutes);
 app.use("/turnos", turnosRoutes);
 
@@ -253,6 +260,7 @@ app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricant
 app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
 app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Sugerencias (fabricante)
 app.use("/api/admin/contabilidad", adminContabilidadRoutes); // Módulo contabilidad
+app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
 app.use("/asesor", asesorRoutes); // Portal asesor
 

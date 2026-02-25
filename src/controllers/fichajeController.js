@@ -13,6 +13,8 @@ import { getPlanDiaEstado } from "../services/planDiaEstadoService.js";
 import { evaluarFichaje } from "../services/fichajeEngine.js";
 import { getYMDMadrid } from "../utils/dateMadrid.js";
 import { getClientIp } from "../utils/clientIp.js";
+import { generarHashFichajeNuevo } from "../services/fichajeIntegridadService.js";
+import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 
 export const createFichaje = async (req, res) => {
   try {
@@ -178,7 +180,18 @@ export const createFichaje = async (req, res) => {
     }
 
     /* =========================
-       11. Insert
+       11. Hash chain (RD 8/2019)
+    ========================= */
+    const hashData = await generarHashFichajeNuevo({
+      empleado_id: empleadoId,
+      empresa_id: empresaId,
+      fecha: fechaHora,
+      tipo,
+      jornada_id: jornadaId,
+    });
+
+    /* =========================
+       12. Insert
     ========================= */
 
     const [nuevo] = await sql`
@@ -194,6 +207,11 @@ export const createFichaje = async (req, res) => {
     fecha,
     estado,
     origen,
+
+    -- HASH CHAIN (RD 8/2019)
+    hash_actual,
+    hash_anterior,
+    fecha_hash,
 
     -- NUEVO GEO
     geo_distancia,
@@ -225,6 +243,11 @@ export const createFichaje = async (req, res) => {
     'confirmado',
     'app',
 
+    -- HASH CHAIN
+    ${hashData.hash_actual},
+    ${hashData.hash_anterior},
+    ${hashData.fecha_hash},
+
     -- GEO NUEVO
     ${evalResult.geo?.distancia || null},
     ${evalResult.sospechoso},
@@ -244,6 +267,21 @@ export const createFichaje = async (req, res) => {
   )
   RETURNING *
 `;
+
+    // Audit trail: fichaje creado
+    try {
+      await registrarAuditoria({
+        empresaId,
+        userId: req.user.id,
+        empleadoId,
+        accion: "fichaje_creado",
+        entidadTipo: "fichaje",
+        entidadId: nuevo.id,
+        datosNuevos: { tipo, fecha: fechaHora, hash: hashData.hash_actual?.substring(0, 16) },
+        motivo: `Fichaje ${tipo} desde app`,
+        req,
+      });
+    } catch (_) { /* audit no bloquea */ }
 
     /* =========================
        12. Cierre jornada
@@ -631,6 +669,17 @@ export const registrarFichajeManual = async (req, res) => {
     }
 
     // =========================
+    // HASH CHAIN (RD 8/2019)
+    // =========================
+    const hashData = await generarHashFichajeNuevo({
+      empleado_id,
+      empresa_id: empleado.empresa_id,
+      fecha: fechaHora,
+      tipo,
+      jornada_id: jornada.id,
+    });
+
+    // =========================
     // INSERT
     // =========================
     const nuevo = await sql`
@@ -645,7 +694,10 @@ export const registrarFichajeManual = async (req, res) => {
         origen,
         nota,
         sospechoso,
-        creado_manual
+        creado_manual,
+        hash_actual,
+        hash_anterior,
+        fecha_hash
       )
       VALUES (
         ${empleado_id},
@@ -658,10 +710,29 @@ export const registrarFichajeManual = async (req, res) => {
         'app',
         ${motivo || null},
         false,
-        true
+        true,
+        ${hashData.hash_actual},
+        ${hashData.hash_anterior},
+        ${hashData.fecha_hash}
       )
       RETURNING *
     `;
+
+    // Audit trail: fichaje manual creado
+    try {
+      await registrarAuditoria({
+        empresaId: empleado.empresa_id,
+        userId: req.user.id,
+        empleadoId: empleado_id,
+        accion: "fichaje_creado_manual",
+        entidadTipo: "fichaje",
+        entidadId: nuevo[0].id,
+        datosNuevos: { tipo, fecha: fechaHora, hash: hashData.hash_actual?.substring(0, 16), motivo },
+        motivo: motivo || "Fichaje manual por admin",
+        req,
+      });
+    } catch (_) { /* audit no bloquea */ }
+
     await recalcularJornada(jornada.id);
 
     try {

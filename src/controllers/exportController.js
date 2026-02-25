@@ -1,6 +1,7 @@
 import { sql } from "../db.js";
 import { getEmpresaIdAdminOrThrow } from "../services/authService.js";
 import { generatePdf, generateCsv } from "../services/exportService.js";
+import { crearVerificacionCSV } from "../services/csvVerificacionService.js";
 import { calcularReporteRentabilidad } from "../services/reportesService.js";
 import {
     rentabilidadToHtml,
@@ -181,26 +182,50 @@ export const downloadExport = async (req, res) => {
                 const h2 = fechaOrNull(queryParams.hasta);
                 const eid2 = queryParams.empleado_id;
 
+                // Fichajes individuales (no jornadas) - RD 8/2019
                 data = await sql`
-                    SELECT j.*, e.nombre as empleado_nombre
-                    FROM jornadas_180 j
-                    JOIN employees_180 e ON j.empleado_id = e.id
-                    WHERE j.empresa_id = ${empresaId}
-                    ${d2 ? sql`AND j.fecha >= ${d2}::date` : sql``}
-                    ${h2 ? sql`AND j.fecha <= ${h2}::date` : sql``}
-                    ${(eid2 && eid2 !== 'null' && eid2 !== 'undefined') ? sql`AND j.empleado_id = ${eid2}` : sql``}
-                    ORDER BY j.fecha DESC, e.nombre
-                    LIMIT 500
+                    SELECT f.id, f.empleado_id, f.tipo, f.fecha, f.estado,
+                           f.hash_actual, f.creado_manual, f.origen, f.sospechoso,
+                           e.nombre as empleado_nombre
+                    FROM fichajes_180 f
+                    JOIN employees_180 e ON f.empleado_id = e.id
+                    WHERE f.empresa_id = ${empresaId}
+                    ${d2 ? sql`AND f.fecha >= ${d2}::timestamptz` : sql``}
+                    ${h2 ? sql`AND f.fecha <= (${h2}::date + interval '1 day')` : sql``}
+                    ${(eid2 && eid2 !== 'null' && eid2 !== 'undefined') ? sql`AND f.empleado_id = ${eid2}` : sql``}
+                    ORDER BY f.fecha DESC, e.nombre
+                    LIMIT 2000
                 `;
-                htmlContent = fichajesToHtml(data);
+
+                // Generar CSV verification code
+                try {
+                    const csvVerif = await crearVerificacionCSV({
+                        empresaId,
+                        tipoDocumento: "fichajes_registro",
+                        parametrosExport: { desde: d2, hasta: h2, empleado_id: eid2 },
+                        contenidoExport: data,
+                        numRegistros: data.length,
+                    });
+                    htmlContent = fichajesToHtml(data, {
+                        desde: d2,
+                        hasta: h2,
+                        csv_code: csvVerif.csv_code,
+                        qr_data_url: csvVerif.qr_data_url,
+                    });
+                } catch (csvErr) {
+                    console.error("⚠️ CSV verification failed, exporting without:", csvErr.message);
+                    htmlContent = fichajesToHtml(data, { desde: d2, hasta: h2 });
+                }
+
                 csvColumns = [
-                    { key: 'fecha', header: 'Fecha' },
+                    { key: 'fecha', header: 'Fecha/Hora' },
                     { key: 'empleado_nombre', header: 'Empleado' },
-                    { key: 'inicio', header: 'Inicio' },
-                    { key: 'fin', header: 'Fin' },
+                    { key: 'tipo', header: 'Tipo' },
                     { key: 'estado', header: 'Estado' },
-                    { key: 'minutos_trabajados', header: 'Minutos' }
+                    { key: 'origen', header: 'Origen' },
+                    { key: 'hash_actual', header: 'Hash Verificación' }
                 ];
+                filename = `fichajes-${d2 || 'historico'}-${h2 || 'actual'}`;
                 break;
 
             case 'cobros':

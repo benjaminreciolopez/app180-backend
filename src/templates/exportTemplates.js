@@ -189,39 +189,78 @@ export const clientesToHtml = (data) => {
     return wrapHtml('Listado de Clientes', content);
 };
 
-export const fichajesToHtml = (data) => {
+export const fichajesToHtml = (data, options = {}) => {
+    const { desde, hasta, csv_code, qr_data_url } = options;
+
+    const tipoLabel = { entrada: 'Entrada', salida: 'Salida', descanso_inicio: 'Inicio Descanso', descanso_fin: 'Fin Descanso' };
+
     const rows = data.map(item => {
-        let estadoLabel = `<span class="badge badge-gray">${item.estado}</span>`;
-        if (item.estado === 'completa') estadoLabel = `<span class="badge badge-green">Completa</span>`;
-        if (item.estado === 'abierta') estadoLabel = `<span class="badge badge-gray">En curso</span>`;
+        const fecha = item.fecha ? new Date(item.fecha) : null;
+        let estadoLabel = `<span class="badge badge-gray">${item.estado || 'N/A'}</span>`;
+        if (item.estado === 'confirmado') estadoLabel = `<span class="badge badge-green">Confirmado</span>`;
+        if (item.estado === 'rechazado') estadoLabel = `<span class="badge badge-red">Rechazado</span>`;
 
         return `
         <tr>
-            <td>${new Date(item.fecha).toLocaleDateString('es-ES')}</td>
-            <td><strong>${item.empleado_nombre}</strong></td>
-            <td class="text-center">${item.inicio || '-'}</td>
-            <td class="text-center">${item.fin || '-'}</td>
-            <td class="text-center">${item.minutos_trabajados ? (item.minutos_trabajados / 60).toFixed(2) + 'h' : '-'}</td>
+            <td>${fecha ? fecha.toLocaleString('es-ES') : '-'}</td>
+            <td><strong>${item.empleado_nombre || '-'}</strong></td>
+            <td>${tipoLabel[item.tipo] || item.tipo || '-'}</td>
             <td class="text-center">${estadoLabel}</td>
+            <td style="font-family:monospace;font-size:9px;color:#6b7280;">${item.hash_actual ? item.hash_actual.substring(0, 16) + '...' : '-'}</td>
         </tr>
     `}).join('');
+
+    const verificacionHtml = csv_code ? `
+        <div style="margin-top:40px;padding:20px;border:2px solid #d1d5db;border-radius:8px;page-break-inside:avoid;">
+            <h3 style="margin:0 0 12px;font-size:14px;color:#374151;">Verificación del Documento</h3>
+            <div style="display:flex;align-items:center;gap:20px;">
+                <div style="flex:1;">
+                    <p style="margin:4px 0;font-size:11px;color:#6b7280;"><strong>Código Seguro de Verificación (CSV):</strong></p>
+                    <p style="margin:4px 0;font-size:18px;font-family:monospace;color:#111827;font-weight:bold;letter-spacing:1px;">${csv_code}</p>
+                    <p style="margin:10px 0 0;font-size:9px;color:#6b7280;">
+                        Verifique este documento en: <strong>contendo.es/verificar/${csv_code}</strong><br>
+                        Este código garantiza la autenticidad e integridad del documento conforme al RD 8/2019.
+                    </p>
+                </div>
+                ${qr_data_url ? `
+                <div style="flex-shrink:0;text-align:center;">
+                    <img src="${qr_data_url}" alt="QR Verificación" style="width:120px;height:120px;border:1px solid #e5e7eb;" />
+                    <p style="margin:4px 0 0;font-size:8px;color:#9ca3af;">Escanear para verificar</p>
+                </div>` : ''}
+            </div>
+        </div>
+    ` : '';
+
+    const legalFooter = `
+        <div style="margin-top:25px;font-size:9px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:12px;">
+            <p><strong>Información Legal (RD 8/2019, art. 34.9 ET):</strong></p>
+            <p>Registro de fichajes conforme al Real Decreto-ley 8/2019, de 8 de marzo. Los registros están protegidos mediante hash SHA-256 encadenado, garantizando su inalterabilidad. Conservación mínima: 4 años.</p>
+        </div>
+    `;
 
     const content = `
         <table>
             <thead>
                 <tr>
-                    <th>Fecha</th>
+                    <th>Fecha/Hora</th>
                     <th>Empleado</th>
-                    <th class="text-center">Inicio</th>
-                    <th class="text-center">Fin</th>
-                    <th class="text-center">Horas</th>
+                    <th>Tipo</th>
                     <th class="text-center">Estado</th>
+                    <th>Hash Verificación</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>
         </table>
+        ${verificacionHtml}
+        ${legalFooter}
     `;
-    return wrapHtml('Reporte de Jornadas', content);
+
+    const meta = `
+        <span><strong>Periodo:</strong> ${desde || 'Inicio'} — ${hasta || 'Hoy'}</span>
+        <span><strong>Registros:</strong> ${data.length}</span>
+    `;
+
+    return wrapHtml('Registro de Fichajes', content, meta);
 };
 
 export const cobrosToHtml = (data) => {
