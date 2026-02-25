@@ -298,55 +298,28 @@ export async function getPlanDiaEstado({
   }
 
   // 2.1) Cliente asignado (work context / geocerca)
-  // Intentar obtener de la asignación de jornada
-  const asigCliente = await sql`
+  let datosCliente = null;
+
+  const clienteActual = await sql`
     SELECT
-      a.cliente_id,
-      c.nombre as cliente_nombre,
-      c.lat as cliente_lat,
-      c.lng as cliente_lng,
-      c.radio_m as cliente_radio_m,
-      c.geo_policy as cliente_geo_policy,
-      c.modo_defecto as cliente_modo_defecto
-    FROM asignaciones_plantilla_jornada_180 a
-    LEFT JOIN clients_180 c ON c.id = a.cliente_id
-    WHERE a.empleado_id = ${empleadoId}
-      AND a.empresa_id = ${empresaId}
-      AND a.activo = true
-      AND a.fecha_inicio <= ${ymd}::date
-      AND (a.fecha_fin IS NULL OR a.fecha_fin >= ${ymd}::date)
-    ORDER BY a.fecha_inicio DESC
+        ec.cliente_id,
+        c.nombre as cliente_nombre,
+        c.lat as cliente_lat,
+        c.lng as cliente_lng,
+        c.radio_m as cliente_radio_m,
+        c.geo_policy as cliente_geo_policy,
+        c.modo_defecto as cliente_modo_defecto
+    FROM empleado_clientes_180 ec
+    JOIN clients_180 c ON c.id = ec.cliente_id
+    JOIN employees_180 e ON e.id = ec.empleado_id
+    WHERE ec.empleado_id = ${empleadoId}
+      AND ec.fecha_fin IS NULL
+      AND e.empresa_id = ec.empresa_id
     LIMIT 1
   `;
 
-  let datosCliente = null;
-
-  // Si hay cliente en la jornada, usarlo
-  if (asigCliente && asigCliente.length > 0 && asigCliente[0].cliente_id) {
-      datosCliente = asigCliente[0];
-  } else {
-      // ⚠️ FALLBACK: Si no hay cliente en jornada, buscar CLIENTE ACTUAL desde asignaciones de Jornadas
-      const clienteActual = await sql`
-        SELECT 
-            ec.cliente_id,
-            c.nombre as cliente_nombre,
-            c.lat as cliente_lat,
-            c.lng as cliente_lng,
-            c.radio_m as cliente_radio_m,
-            c.geo_policy as cliente_geo_policy,
-            c.modo_defecto as cliente_modo_defecto
-        FROM empleado_clientes_180 ec
-        JOIN clients_180 c ON c.id = ec.cliente_id
-        JOIN employees_180 e ON e.id = ec.empleado_id
-        WHERE ec.empleado_id = ${empleadoId}
-          AND ec.fecha_fin IS NULL
-          AND e.empresa_id = ec.empresa_id
-        LIMIT 1
-      `;
-      
-      if (clienteActual.length > 0 && clienteActual[0].cliente_id) {
-          datosCliente = clienteActual[0];
-      }
+  if (clienteActual.length > 0 && clienteActual[0].cliente_id) {
+      datosCliente = clienteActual[0];
   }
 
   // 2.2) Fallback: Centro de trabajo asignado (si no hay cliente)
