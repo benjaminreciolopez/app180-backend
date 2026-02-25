@@ -122,7 +122,7 @@ export const crearParteConfig = async (req, res) => {
 
       const r = await tx`
         INSERT INTO parte_configuraciones_180 (empresa_id, nombre, campos, por_defecto)
-        VALUES (${empresaId}, ${nombre.trim()}, ${JSON.stringify(campos || [])}, ${por_defecto || false})
+        VALUES (${empresaId}, ${nombre.trim()}, ${JSON.stringify(campos || [])}::jsonb, ${por_defecto || false})
         RETURNING *
       `;
 
