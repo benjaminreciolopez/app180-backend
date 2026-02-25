@@ -271,8 +271,8 @@ export async function generateExcelTrimestral(empresaId, anio, trimestre) {
 
   styleSheet(wsFacturas);
 
-  // --- Sheet 2: Gastos/Compras ---
-  const wsGastos = workbook.addWorksheet("Gastos/Compras");
+  // --- Sheet 2: Gastos-Compras ---
+  const wsGastos = workbook.addWorksheet("Gastos-Compras");
   wsGastos.columns = [
     { header: "Fecha", key: "fecha", width: 14 },
     { header: "Proveedor", key: "proveedor", width: 28 },
