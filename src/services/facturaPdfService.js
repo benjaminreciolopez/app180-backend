@@ -6,85 +6,63 @@ import path from 'path';
 import fs from 'fs';
 
 /**
- * Estilos base para el PDF de factura - REPLICA EXACTA DE REPORTLAB
- * Basado en C:\Users\benja\Desktop\facturacion_app\app\services\facturas_pdf.py
+ * Estilos para PDF de factura - MULTI-PAGINA con numeracion encadenada
+ * Layout de flujo (no absoluto) para paginacion automatica de Puppeteer
  */
 const FACTURA_STYLES = `
 <style>
   @page {
-    margin: 0;
     size: A4;
+    margin: 0;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Helvetica', Arial, sans-serif;
     color: #000;
-    margin: 0;
-    padding: 0;
     width: 210mm;
-    height: 297mm;
-    position: relative;
+    min-height: 297mm;
     -webkit-print-color-adjust: exact;
   }
 
-  /* Conversión de puntos ReportLab a pixels/mm aproximados */
-  /* ReportLab 1pt = 1/72 inch. A4 = 595x842 pts */
-  
-  .page-container {
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    margin: 0;
+  /* ===== PRIMERA PAGINA: HEADER COMPLETO ===== */
+  .first-page-header {
+    padding: 20pt 30pt 15pt 30pt;
     position: relative;
+    min-height: 190pt;
+    page-break-inside: avoid;
   }
 
-  /* MARCA DE AGUA TEST */
-  .watermark {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%) rotate(45deg);
-    font-size: 40pt; /* c.setFont("Helvetica-Bold", 40) */
-    font-weight: bold;
-    color: rgba(230, 230, 230, 0.5);
-    z-index: -1;
-    pointer-events: none;
-    white-space: nowrap;
-    text-transform: uppercase;
-  }
-
-  /* TÍTULO - alto - alineado con logo */
   .header-title {
-    position: absolute;
-    top: 20pt;
-    left: 0;
-    width: 100%;
     text-align: center;
     font-weight: bold;
-    font-size: 22pt; /* c.setFont("Helvetica-Bold", 22) */
+    font-size: 22pt;
     text-transform: uppercase;
+    padding-top: 5pt;
+    margin-bottom: 10pt;
   }
 
-  /* LOGO INDEPENDIENTE - ARRIBA A LA IZQUIERDA */
-  .logo-block {
-    position: absolute;
-    top: 20pt;
-    left: 30pt;
+  .header-columns {
+    display: flex;
+    justify-content: space-between;
+    gap: 20pt;
+  }
+
+  .header-left {
+    flex: 1;
+    max-width: 48%;
+  }
+
+  .header-right {
+    flex: 1;
+    max-width: 48%;
+    text-align: left;
   }
 
   .logo-img {
     max-width: 100pt;
     max-height: 70pt;
     display: block;
-  }
-
-  /* BLOQUE EMISOR - alto - 100pts (ALINEADO CON CLIENTE) */
-  .emisor-block {
-    position: absolute;
-    top: 100pt;
-    left: 30pt; /* margen_x = 30 */
-    width: 210pt;
-    text-align: left;
+    margin-bottom: 10pt;
   }
 
   .emisor-nombre {
@@ -95,29 +73,15 @@ const FACTURA_STYLES = `
 
   .emisor-details {
     font-size: 10pt;
-    line-height: 1.2;
+    line-height: 1.3;
   }
 
-  /* BLOQUE METADATA (FECHA/NUMERO) - ARRIBA A LA DERECHA (ENCIMA DE CLIENTE) */
   .meta-block {
-    position: absolute;
-    top: 60pt; 
-    left: calc(50% + 100pt); 
-    width: calc(50% - 110pt); 
-    text-align: left;
     font-weight: bold;
     font-size: 11pt;
+    margin-bottom: 12pt;
   }
   .meta-block div { margin-bottom: 4pt; }
-
-  /* BLOQUE CLIENTE - ALINEADO CON EMISOR */
-  .cliente-block {
-    position: absolute;
-    top: 100pt; 
-    left: calc(50% + 100pt); 
-    width: calc(50% - 110pt); 
-    text-align: left;
-  }
 
   .cliente-label {
     font-weight: bold;
@@ -127,52 +91,17 @@ const FACTURA_STYLES = `
 
   .cliente-data {
     font-size: 10pt;
-    line-height: 1.2;
+    line-height: 1.3;
   }
 
-  /* TABLA DE LÍNEAS */
-  /* El punto de inicio en el original es dinámico, aquí usaremos un margen top seguro */
-  .table-container {
-    padding-top: 200pt; 
-    padding-left: 30pt;
-    padding-right: 30pt;
-  }
-
-  table.lineas-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  thead th {
-    font-weight: bold;
-    font-size: 10pt;
-    text-align: left;
-    padding-bottom: 8pt;
-    border-bottom: 1pt solid #000;
-  }
-
-  tbody td {
-    padding: 8pt 0;
-    font-size: 9pt;
-    vertical-align: top;
-    border-bottom: 0.5pt solid #eee;
-  }
-
-  /* Anchos basados en Python positions */
-  .col-cant { width: 45pt; text-align: center; }
-  .col-desc { width: auto; text-align: left; padding-left: 15pt; }
-  .col-price { width: 80pt; text-align: right; }
-  .col-iva { width: 50pt; text-align: center; } /* Añadida pero compacta */
-  .col-total { width: 80pt; text-align: right; }
-
-  /* QR - SITUADO ENTRE EMISOR Y CLIENTE, DEBAJO DE TÍTULO */
+  /* QR - entre emisor y cliente */
   .qr-block {
     position: absolute;
-    top: 90pt; 
+    top: 85pt;
     left: 50%;
     transform: translateX(-50%);
-    width: 100pt;
     text-align: center;
+    z-index: 5;
   }
   .qr-img {
     width: 22mm;
@@ -189,11 +118,69 @@ const FACTURA_STYLES = `
     text-transform: uppercase;
   }
 
-  /* TOTALES - y_totales = 140pts desde abajo */
+  /* MARCA DE AGUA TEST */
+  .watermark {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(45deg);
+    font-size: 40pt;
+    font-weight: bold;
+    color: rgba(230, 230, 230, 0.5);
+    z-index: -1;
+    pointer-events: none;
+    white-space: nowrap;
+    text-transform: uppercase;
+  }
+
+  /* ===== TABLA DE LINEAS ===== */
+  .table-section {
+    padding: 0 30pt;
+  }
+
+  table.lineas-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  thead th {
+    font-weight: bold;
+    font-size: 10pt;
+    text-align: left;
+    padding: 8pt 0;
+    border-bottom: 1pt solid #000;
+  }
+
+  tbody td {
+    padding: 8pt 0;
+    font-size: 9pt;
+    vertical-align: top;
+    border-bottom: 0.5pt solid #eee;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  .col-cant { width: 45pt; text-align: center; }
+  .col-desc { width: auto; text-align: left; padding-left: 15pt; }
+  .col-price { width: 80pt; text-align: right; }
+  .col-iva { width: 50pt; text-align: center; }
+  .col-total { width: 80pt; text-align: right; }
+
+  /* ===== TOTALES ===== */
+  .totals-section {
+    page-break-inside: avoid;
+    padding: 15pt 30pt 0 30pt;
+    display: flex;
+    justify-content: flex-end;
+  }
+
   .totals-block {
-    position: absolute;
-    bottom: 100pt;
-    right: 30pt;
     width: 250pt;
     text-align: right;
     font-size: 11pt;
@@ -208,58 +195,55 @@ const FACTURA_STYLES = `
     border-top: 1pt solid #000;
   }
 
-  /* MENSAJE IVA - y_iva_msg = 80pts */
-  .mensaje-iva-block {
-    position: absolute;
-    bottom: 90pt; /* Ajustado para estar entre los totales y el pie legal */
-    left: 30pt;
-    right: 30pt;
+  /* ===== MENSAJE IVA ===== */
+  .mensaje-iva-section {
+    page-break-inside: avoid;
+    padding: 10pt 30pt 0 30pt;
     font-style: italic;
     font-size: 10pt;
     line-height: 1.2;
-    z-index: 10;
   }
 
-  /* LEGAL / PIE - y_legal = 50pts */
-  .legal-block {
-    position: absolute;
-    bottom: 30pt;
-    left: 30pt;
-    right: 30pt;
+  /* ===== LEGAL / PIE ===== */
+  .legal-section {
+    page-break-inside: avoid;
+    padding: 15pt 30pt 30pt 30pt;
     font-size: 9pt;
     color: #444;
     border-top: 0.5pt solid #eee;
-    padding-top: 5pt;
+    margin-top: 15pt;
   }
   .thanks-msg {
     margin-bottom: 5pt;
     font-weight: bold;
     color: #000;
   }
-  .verifactu-notice {
-    position: absolute;
-    bottom: 75pt;
-    left: 30pt;
-    right: 30pt;
+  .verifactu-notice-inline {
     font-size: 8.5pt;
     color: #555;
-    text-align: left;
     font-style: italic;
+    margin-top: 8pt;
   }
 
+  /* ===== SPACER: empuja totales al fondo en facturas cortas (1 pag) ===== */
+  .content-wrapper {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(297mm - 12mm - 15mm); /* A4 menos margenes header/footer de Puppeteer */
+  }
+  .flex-grow-spacer {
+    flex: 1;
+  }
 </style>
 `;
 
 /**
- * Genera el HTML de una factura recreando EXACTAMENTE el diseño ReportLab de Python
+ * Genera el HTML de una factura con soporte multi-pagina
  */
 export const generarHtmlFactura = async (factura, emisor, cliente, lineas, config, options = {}) => {
-  const { incluirMensajeIva = true } = options;
-
   const esRectificativa = String(factura.numero).endsWith('R');
   const titulo = esRectificativa ? 'FACTURA RECTIFICATIVA' : 'FACTURA';
 
-  // Lógica marca de agua: Solo VeriFactu activo + Modo TEST
   const isTest = config && config.verifactu_activo && config.verifactu_modo === 'TEST';
 
   // 1. Logo
@@ -269,83 +253,71 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
       let src = '';
       const logo = emisor.logo_path;
 
-      // Caso 1: Data URI completo o URL externa
       if (logo.startsWith('data:') || logo.startsWith('http')) {
         src = logo;
-      }
-      // Caso 2: Raw Base64 (detectamos si es muy largo y no tiene caracteres de ruta)
-      else if (logo.length > 100 && !logo.includes('/') && !logo.includes('\\')) {
+      } else if (logo.length > 100 && !logo.includes('/') && !logo.includes('\\')) {
         src = `data:image/png;base64,${logo}`;
-      }
-      // Caso 3: Ruta de archivo
-      else {
+      } else {
         const cleanPath = logo.replace(/^\//, '').replace(/^api\/uploads\//, '');
         const fsPath = path.join(process.cwd(), 'uploads', cleanPath);
-
         if (fs.existsSync(fsPath)) {
           const imgData = fs.readFileSync(fsPath).toString('base64');
           const ext = path.extname(fsPath).substring(1) || 'png';
           src = `data:image/${ext};base64,${imgData}`;
         } else {
-          // Último recurso: intentar URL de la API
           src = `http://localhost:5000/api/uploads/${cleanPath}`;
         }
       }
       logoHtml = `<img src="${src}" class="logo-img" />`;
     } catch (e) {
-      console.error("❌ [PDF] Error procesando logo:", e);
+      console.error("[PDF] Error procesando logo:", e);
     }
   }
 
-  // 2. QR Code y Aviso Veri*Factu
+  // 2. QR Code y Aviso VeriFactu
   let qrHtml = '';
   let verifactuNoticeHtml = '';
   const verifactuText = "Factura expedida por un sistema informático de facturación conforme al Reglamento de facturación aprobado por el Real Decreto 1619/2012 (Veri*Factu).";
 
   if (config && config.verifactu_activo) {
-    verifactuNoticeHtml = `<div class="verifactu-notice">${verifactuText}</div>`;
+    verifactuNoticeHtml = `<div class="verifactu-notice-inline">${verifactuText}</div>`;
 
     if (factura.verifactu_hash) {
       try {
         const urlQr = construirUrlQr(factura, emisor, config, (config.verifactu_modo === 'TEST' ? 'PRUEBAS' : 'PRODUCCION'));
         const qrDataUrl = await QRCode.toDataURL(urlQr, { margin: 0, errorCorrectionLevel: 'M' });
         qrHtml = `
-              <div class="qr-block">
-                  <img src="${qrDataUrl}" class="qr-img" />
-                  <div class="verifactu-label">VERI*FACTU</div>
-              </div>
-          `;
+          <div class="qr-block">
+            <img src="${qrDataUrl}" class="qr-img" />
+            <div class="verifactu-label">VERI*FACTU</div>
+          </div>
+        `;
       } catch (err) {
         console.error("Error generando QR:", err);
       }
     }
   }
 
-  // 3. Totals
+  // 3. Totales y desglose IVA
   const subtotal = Number(factura.subtotal || 0);
   const total = Number(factura.total || 0);
   const ivaGlobal = Number(factura.iva_global || 0);
-  const ivaTotal = Number(factura.iva_total || 0);
 
-  // Desglose de IVA por tipos
   const desgloseIva = lineas.reduce((acc, l) => {
     const pct = Number(l.iva_percent || ivaGlobal);
     const base = Number(l.cantidad) * Number(l.precio_unitario);
     const cuota = base * (pct / 100);
-
-    if (!acc[pct]) {
-      acc[pct] = { base: 0, cuota: 0 };
-    }
+    if (!acc[pct]) acc[pct] = { base: 0, cuota: 0 };
     acc[pct].base += base;
     acc[pct].cuota += cuota;
     return acc;
   }, {});
 
-  // 4. Address Formats
-  const fmtDir = (obj, pfx = '') => {
-    const p1 = obj[`${pfx}direccion`] || '';
-    const p2 = `${obj[`${pfx}codigo_postal`] || obj[`${pfx}cp`] || ''} ${obj[`${pfx}municipio`] || obj[`${pfx}poblacion`] || ''}`.trim();
-    const p3 = `${obj[`${pfx}provincia`] || obj[`${pfx}prov_fiscal`] || ''} ${obj[`${pfx}pais`] || ''}`.trim();
+  // 4. Direcciones
+  const fmtDir = (obj) => {
+    const p1 = obj.direccion || obj.direccion_fiscal || '';
+    const p2 = `${obj.codigo_postal || obj.cp || ''} ${obj.municipio || obj.poblacion || ''}`.trim();
+    const p3 = `${obj.provincia || obj.prov_fiscal || ''} ${obj.pais || ''}`.trim();
     return [p1, p2, p3].filter(Boolean).join('<br>');
   };
 
@@ -353,20 +325,20 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   const clienteNombre = cliente.razon_social || cliente.nombre || '';
   const clienteAddress = fmtDir(cliente);
 
-  // 5. Lines Row with IVA column
+  // 5. Lineas HTML
   const lineasHtml = lineas.map(l => `
-      <tr>
-        <td class="col-cant">${Number(l.cantidad).toFixed(2)}</td>
-        <td class="col-desc">${l.descripcion || ''}</td>
-        <td class="col-price">${Number(l.precio_unitario).toFixed(2)} €</td>
-        <td class="col-iva">${Number(l.iva_percent || ivaGlobal).toFixed(2)}%</td>
-        <td class="col-total">${Number(l.total).toFixed(2)} €</td>
-      </tr>
+    <tr>
+      <td class="col-cant">${Number(l.cantidad).toFixed(2)}</td>
+      <td class="col-desc">${l.descripcion || ''}</td>
+      <td class="col-price">${Number(l.precio_unitario).toFixed(2)} &euro;</td>
+      <td class="col-iva">${Number(l.iva_percent || ivaGlobal).toFixed(2)}%</td>
+      <td class="col-total">${Number(l.total).toFixed(2)} &euro;</td>
+    </tr>
   `).join('');
 
-  // 6. Pie de Página Personalizado y Pago
+  // 6. Pie de pagina y pago
   const ibanEmisor = emisor.cuenta_bancaria || emisor.iban || '';
-  const metodoPago = factura.metodo_pago || 'TRANSFERENCIA'; // Default o desde factura
+  const metodoPago = factura.metodo_pago || 'TRANSFERENCIA';
 
   let pagoHtml = '';
   if (metodoPago === 'CONTADO') {
@@ -377,19 +349,18 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
     pagoHtml = 'Forma de pago: Transferencia bancaria';
   }
 
-  // Limpiar texto de VeriFactu del pie si ya está ahí para evitar duplicados o que aparezca cuando está desactivado
   let cleanTextoPie = emisor.texto_pie || '';
   if (cleanTextoPie.includes("Veri*Factu")) {
-    // Si el sistema está desactivado o si vamos a poner el aviso automático, lo quitamos del pie guardado
     cleanTextoPie = cleanTextoPie.replace(/Factura emitida bajo el sistema Veri\*Factu de la AEAT\.\s*/g, '');
-    cleanTextoPie = cleanTextoPie.replace(/Gracias por su confianza\./g, ''); // Limpiamos el gracias si venía con el combo de Verifactu
+    cleanTextoPie = cleanTextoPie.replace(/Gracias por su confianza\./g, '');
   }
 
-  const pieContent = `
-    <div class="thanks-msg">¡Gracias por su confianza!</div>
-    ${pagoHtml}<br>
-    ${cleanTextoPie.trim()}
-  `;
+  // Determinar si la factura es corta (cabe en 1 pagina) para anclar totales al fondo
+  // Header ~190pt + tabla ~(lineas * 25pt) + totales ~80pt + legal ~80pt
+  // Espacio usable A4 con margenes Puppeteer (12mm top + 15mm bottom) ≈ 740pt
+  const estimatedTableHeight = lineas.length * 25;
+  const estimatedTotalHeight = 190 + estimatedTableHeight + 80 + 80;
+  const isShortInvoice = estimatedTotalHeight < 700;
 
   return `
 <!DOCTYPE html>
@@ -399,77 +370,86 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   ${FACTURA_STYLES}
 </head>
 <body>
-  <div class="page-container">
-    
+  <div class="content-wrapper">
     ${isTest ? '<div class="watermark">ENTORNO DE PRUEBAS</div>' : ''}
 
-    <div class="header-title">${titulo}</div>
+    <!-- HEADER COMPLETO (pagina 1) -->
+    <div class="first-page-header">
+      <div class="header-title">${titulo}</div>
 
-    <div class="logo-block">
-        ${logoHtml}
-    </div>
+      ${qrHtml}
 
-    <div class="emisor-block">
-        <div class="emisor-nombre">${emisor.nombre || ''}</div>
-        <div class="emisor-details">
-            ${emisorAddress}<br>
+      <div class="header-columns">
+        <div class="header-left">
+          ${logoHtml}
+          <div class="emisor-nombre">${emisor.nombre || ''}</div>
+          <div class="emisor-details">
+            ${emisorAddress}${emisorAddress ? '<br>' : ''}
             ${emisor.nif ? `CIF: ${emisor.nif}<br>` : ''}
             ${emisor.telefono ? `Tel: ${emisor.telefono}<br>` : ''}
             ${emisor.email ? `Email: ${emisor.email}` : ''}
+          </div>
         </div>
-    </div>
 
-    <div class="meta-block">
-        <div>Fecha: ${new Date(factura.fecha).toLocaleDateString('es-ES')}</div>
-        <div>Nº FACTURA: ${factura.numero}</div>
-    </div>
-
-    <div class="cliente-block">
-        <div class="cliente-label">Datos del cliente:</div>
-        <div class="cliente-data">
+        <div class="header-right">
+          <div class="meta-block">
+            <div>Fecha: ${new Date(factura.fecha).toLocaleDateString('es-ES')}</div>
+            <div>N&ordm; FACTURA: ${factura.numero}</div>
+          </div>
+          <div class="cliente-label">Datos del cliente:</div>
+          <div class="cliente-data">
             <strong>${clienteNombre}</strong><br>
             ${cliente.nif_cif || cliente.nif ? `NIF: ${cliente.nif_cif || cliente.nif}<br>` : ''}
             ${clienteAddress}
+          </div>
         </div>
+      </div>
     </div>
 
-    <div class="table-container">
-        <table class="lineas-table">
-            <thead>
-                <tr>
-                    <th class="col-cant">CANT.</th>
-                    <th class="col-desc">DESCRIPCIÓN</th>
-                    <th class="col-price">P. UNIT.</th>
-                    <th class="col-iva">IVA</th>
-                    <th class="col-total">TOTAL</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${lineasHtml}
-            </tbody>
-        </table>
+    <!-- TABLA DE LINEAS (paginacion automatica por Puppeteer) -->
+    <div class="table-section">
+      <table class="lineas-table">
+        <thead>
+          <tr>
+            <th class="col-cant">CANT.</th>
+            <th class="col-desc">DESCRIPCI&Oacute;N</th>
+            <th class="col-price">P. UNIT.</th>
+            <th class="col-iva">IVA</th>
+            <th class="col-total">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineasHtml}
+        </tbody>
+      </table>
     </div>
 
-    ${qrHtml}
-    ${verifactuNoticeHtml}
+    <!-- SPACER: en facturas cortas empuja totales al fondo de la pagina -->
+    ${isShortInvoice ? '<div class="flex-grow-spacer"></div>' : ''}
 
-    <div class="totals-block">
-        <div class="total-row">Subtotal: ${subtotal.toFixed(2)} €</div>
+    <!-- TOTALES -->
+    <div class="totals-section">
+      <div class="totals-block">
+        <div class="total-row">Subtotal: ${subtotal.toFixed(2)} &euro;</div>
         ${Object.entries(desgloseIva).map(([pct, data]) => `
-            <div class="total-row">IVA (${pct}%): ${data.cuota.toFixed(2)} €</div>
+          <div class="total-row">IVA (${pct}%): ${data.cuota.toFixed(2)} &euro;</div>
         `).join('')}
-        <div class="total-row total-final">TOTAL FACTURA: ${total.toFixed(2)} €</div>
+        <div class="total-row total-final">TOTAL FACTURA: ${total.toFixed(2)} &euro;</div>
+      </div>
     </div>
 
     ${factura.mensaje_iva ? `
-    <div class="mensaje-iva-block">
-        ${factura.mensaje_iva}
+    <div class="mensaje-iva-section">
+      ${factura.mensaje_iva}
     </div>` : ''}
 
-    <div class="legal-block">
-        ${pieContent}
+    <!-- PIE / LEGAL -->
+    <div class="legal-section">
+      <div class="thanks-msg">¡Gracias por su confianza!</div>
+      ${pagoHtml}<br>
+      ${cleanTextoPie.trim()}
+      ${verifactuNoticeHtml}
     </div>
-
   </div>
 </body>
 </html>
@@ -477,7 +457,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
 };
 
 /**
- * Obtiene todos los datos necesarios y genera el PDF
+ * Obtiene todos los datos necesarios y genera el PDF multi-pagina
  */
 export const generarPdfFactura = async (facturaId, options = {}) => {
   const [factura] = await sql`SELECT * FROM factura_180 WHERE id = ${facturaId}`;
@@ -501,13 +481,37 @@ export const generarPdfFactura = async (facturaId, options = {}) => {
 
   const html = await generarHtmlFactura(factura, emisor, cliente, lineas, config, options);
 
+  // Header/footer running para todas las paginas con numeracion
+  const emisorNombre = (emisor.nombre || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const facturaNumero = (factura.numero || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  let cleanTextoPie = emisor.texto_pie || '';
+  if (cleanTextoPie.includes("Veri*Factu")) {
+    cleanTextoPie = cleanTextoPie.replace(/Factura emitida bajo el sistema Veri\*Factu de la AEAT\.\s*/g, '');
+    cleanTextoPie = cleanTextoPie.replace(/Gracias por su confianza\./g, '');
+  }
+  const footerLeft = cleanTextoPie.trim().substring(0, 60).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
   const pdfBuffer = await generatePdf(html, {
     format: 'A4',
     printBackground: true,
+    displayHeaderFooter: true,
+    headerTemplate: `
+      <div style="width:100%;font-size:8px;padding:2mm 10mm;display:flex;justify-content:space-between;color:#999;font-family:Helvetica,Arial,sans-serif;">
+        <span>${emisorNombre}</span>
+        <span>Factura ${facturaNumero}</span>
+      </div>
+    `,
+    footerTemplate: `
+      <div style="width:100%;font-size:8px;padding:2mm 10mm;display:flex;justify-content:space-between;color:#999;font-family:Helvetica,Arial,sans-serif;">
+        <span>${footerLeft}</span>
+        <span>P&aacute;gina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+      </div>
+    `,
     margin: {
-      top: '0px',
+      top: '12mm',
       right: '0px',
-      bottom: '0px',
+      bottom: '15mm',
       left: '0px',
     },
   });

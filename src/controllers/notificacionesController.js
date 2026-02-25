@@ -9,30 +9,40 @@ export async function getNotificaciones(req, res) {
     const empresaId = req.user.empresa_id;
     const { limit = 20, offset = 0, solo_no_leidas = false } = req.query;
 
-    let query = sql`
-      SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
-             metadata, created_at, leida_at
-      FROM notificaciones_180
-      WHERE empresa_id = ${empresaId}
-    `;
+    const parsedLimit = parseInt(limit);
+    const parsedOffset = parseInt(offset);
 
+    let notificaciones;
     if (solo_no_leidas === 'true' || solo_no_leidas === true) {
-      query = sql`${query} AND leida = FALSE`;
+      notificaciones = await sql`
+        SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
+               metadata, created_at, leida_at,
+               (SELECT COUNT(*)::int FROM notificaciones_180
+                WHERE empresa_id = ${empresaId} AND leida = FALSE) AS _no_leidas
+        FROM notificaciones_180
+        WHERE empresa_id = ${empresaId} AND leida = FALSE
+        ORDER BY created_at DESC
+        LIMIT ${parsedLimit} OFFSET ${parsedOffset}
+      `;
+    } else {
+      notificaciones = await sql`
+        SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
+               metadata, created_at, leida_at,
+               (SELECT COUNT(*)::int FROM notificaciones_180
+                WHERE empresa_id = ${empresaId} AND leida = FALSE) AS _no_leidas
+        FROM notificaciones_180
+        WHERE empresa_id = ${empresaId}
+        ORDER BY created_at DESC
+        LIMIT ${parsedLimit} OFFSET ${parsedOffset}
+      `;
     }
 
-    query = sql`${query} ORDER BY created_at DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
-
-    const notificaciones = await query;
-
-    // Contar no leídas
-    const [count] = await sql`
-      SELECT COUNT(*)::int as total FROM notificaciones_180
-      WHERE empresa_id = ${empresaId} AND leida = FALSE
-    `;
+    const no_leidas = notificaciones[0]?._no_leidas || 0;
+    const cleaned = notificaciones.map(({ _no_leidas, ...rest }) => rest);
 
     res.json({
-      notificaciones,
-      no_leidas: count?.total || 0
+      notificaciones: cleaned,
+      no_leidas
     });
   } catch (err) {
     console.error("Error getNotificaciones:", err);
