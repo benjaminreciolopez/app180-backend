@@ -1,6 +1,11 @@
 // backend/src/services/contabilidadService.js
 import { sql } from "../db.js";
 import { getPgcPymesCuentas } from "../seeds/pgcPymes.js";
+import Anthropic from "@anthropic-ai/sdk";
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY || "",
+});
 
 /**
  * Inicializa el PGC PYMES para una empresa (solo si no tiene cuentas).
@@ -167,7 +172,7 @@ async function siguienteNumeroAsientoTx(tx, empresaId, ejercicio) {
  * Generar asiento automático desde una factura emitida.
  * factura_180 columns: id(int), subtotal, iva_total, total, cliente_id, numero, fecha, retencion_importe
  */
-export async function generarAsientoFactura(empresaId, factura, creadoPor) {
+export async function generarAsientoFactura(empresaId, factura, creadoPor, cuentaIngresoIA = null) {
   const base = parseFloat(factura.subtotal || 0);
   const iva = parseFloat(factura.iva_total || 0);
   const retencion = parseFloat(factura.retencion_importe || 0);
@@ -179,6 +184,9 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor) {
     empresaId, "cliente", factura.cliente_id, clienteNombre
   );
 
+  // Cuenta de ingreso: IA pre-clasificada > fallback 705
+  const cuentaIngreso = cuentaIngresoIA || { codigo: "705", nombre: "Prestaciones de servicios" };
+
   const lineas = [
     {
       cuenta_codigo: cuentaCliente.codigo,
@@ -188,8 +196,8 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor) {
       concepto: `Factura ${factura.numero || ""}`.trim(),
     },
     {
-      cuenta_codigo: "705",
-      cuenta_nombre: "Prestaciones de servicios",
+      cuenta_codigo: cuentaIngreso.codigo,
+      cuenta_nombre: cuentaIngreso.nombre,
       debe: 0,
       haber: base,
       concepto: `Factura ${factura.numero || ""}`.trim(),
@@ -232,15 +240,17 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor) {
  * Generar asiento automático desde un gasto/factura recibida.
  * purchases_180 columns: id(uuid), proveedor, descripcion, base_imponible, iva_importe, total, categoria, fecha_compra, retencion_importe
  */
-export async function generarAsientoGasto(empresaId, gasto, creadoPor) {
+export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGastoIA = null) {
   const base = parseFloat(gasto.base_imponible || gasto.total || 0);
   const iva = parseFloat(gasto.iva_importe || 0);
   const retencion = parseFloat(gasto.retencion_importe || 0);
   const total = parseFloat(gasto.total || base + iva - retencion);
   const proveedorNombre = gasto.proveedor || "Proveedor";
 
-  // Determinar cuenta de gasto: primero intenta por descripción (más preciso), luego por categoría
-  const cuentaGasto = detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor)
+  // Cuenta de gasto: IA pre-clasificada > regex > IA individual > categoría
+  const cuentaGasto = cuentaGastoIA
+    || detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor)
+    || await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria)
     || mapCategoriaToCuenta(gasto.categoria);
 
   // Auto-crear subcuenta de proveedor (4000xx)
@@ -668,13 +678,18 @@ export async function cerrarEjercicio(empresaId, anio, creadoPor) {
  * Devuelve resumen con contadores y lista de ya existentes.
  */
 export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, creadoPor) {
-  const resultados = { facturas: 0, gastos: 0, nominas: 0, errores: [], ya_existentes: { facturas: 0, gastos: 0, nominas: 0 } };
+  const resultados = {
+    facturas: 0, gastos: 0, nominas: 0, errores: [],
+    ya_existentes: { facturas: 0, gastos: 0, nominas: 0 },
+    ia_clasificaciones: 0,
+  };
 
   // Ensure PGC is initialized
   await inicializarPGC(empresaId);
 
-  // ============== FACTURAS EMITIDAS ==============
-  // Count total and already registered
+  // ============== PASO 1: RECOPILAR TODOS LOS DATOS DEL PERIODO ==============
+
+  // --- Facturas ---
   const [facturaStats] = await sql`
     SELECT
       COUNT(*)::int AS total,
@@ -689,7 +704,6 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
   `;
   resultados.ya_existentes.facturas = facturaStats.con_asiento;
 
-  // Facturas sin asiento - join clients_180 for nombre
   const facturas = await sql`
     SELECT f.*, c.nombre AS cliente_nombre
     FROM factura_180 f
@@ -707,16 +721,7 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
     ORDER BY f.fecha
   `;
 
-  for (const f of facturas) {
-    try {
-      await generarAsientoFactura(empresaId, f, creadoPor);
-      resultados.facturas++;
-    } catch (err) {
-      resultados.errores.push(`Factura ${f.numero || f.id}: ${err.message}`);
-    }
-  }
-
-  // ============== GASTOS / COMPRAS ==============
+  // --- Gastos ---
   const [gastoStats] = await sql`
     SELECT
       COUNT(*)::int AS total,
@@ -748,16 +753,7 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
     ORDER BY g.fecha_compra
   `;
 
-  for (const g of gastos) {
-    try {
-      await generarAsientoGasto(empresaId, g, creadoPor);
-      resultados.gastos++;
-    } catch (err) {
-      resultados.errores.push(`Gasto ${g.descripcion || g.id}: ${err.message}`);
-    }
-  }
-
-  // ============== NÓMINAS ==============
+  // --- Nóminas ---
   const fdDesde = new Date(fechaDesde);
   const fdHasta = new Date(fechaHasta);
   const periodoDesde = fdDesde.getFullYear() * 100 + (fdDesde.getMonth() + 1);
@@ -795,6 +791,71 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
     ORDER BY n.anio, n.mes
   `;
 
+  // ============== PASO 2: CLASIFICACIÓN IA POR LOTES (EL CATEDRÁTICO) ==============
+  // CONTENDO clasifica TODAS las operaciones en una sola llamada antes de generar asientos.
+  // Esto garantiza que cada asiento nace con la cuenta correcta.
+
+  const itemsParaIA = [];
+
+  for (const f of facturas) {
+    // Construir descripción para que la IA entienda qué tipo de ingreso es
+    const desc = [f.numero, f.concepto, f.descripcion, f.notas]
+      .filter(Boolean).join(" - ") || "Factura emitida";
+    itemsParaIA.push({
+      id: String(f.id),
+      tipo: "factura",
+      descripcion: desc,
+      cliente: f.cliente_nombre || "Cliente",
+    });
+  }
+
+  for (const g of gastos) {
+    itemsParaIA.push({
+      id: String(g.id),
+      tipo: "gasto",
+      descripcion: g.descripcion || "",
+      proveedor: g.proveedor || "",
+      categoria: g.categoria || "",
+    });
+  }
+
+  // Clasificar todo con IA en lote
+  let clasificacionesIA = new Map();
+  if (itemsParaIA.length > 0) {
+    try {
+      clasificacionesIA = await clasificarLoteConIA(itemsParaIA);
+      resultados.ia_clasificaciones = clasificacionesIA.size;
+    } catch (err) {
+      console.error("Error clasificación IA por lotes:", err.message);
+      resultados.errores.push(`IA clasificación: ${err.message} (se usarán fallbacks)`);
+    }
+  }
+
+  // ============== PASO 3: GENERAR ASIENTOS CON CUENTAS IA ==============
+
+  // --- Facturas con cuenta de ingreso clasificada por IA ---
+  for (const f of facturas) {
+    try {
+      const cuentaIA = clasificacionesIA.get(String(f.id)) || null;
+      await generarAsientoFactura(empresaId, f, creadoPor, cuentaIA);
+      resultados.facturas++;
+    } catch (err) {
+      resultados.errores.push(`Factura ${f.numero || f.id}: ${err.message}`);
+    }
+  }
+
+  // --- Gastos con cuenta clasificada por IA ---
+  for (const g of gastos) {
+    try {
+      const cuentaIA = clasificacionesIA.get(String(g.id)) || null;
+      await generarAsientoGasto(empresaId, g, creadoPor, cuentaIA);
+      resultados.gastos++;
+    } catch (err) {
+      resultados.errores.push(`Gasto ${g.descripcion || g.id}: ${err.message}`);
+    }
+  }
+
+  // --- Nóminas (cuentas estándar 640/642/476/4751/465 - no necesitan IA) ---
   for (const n of nominas) {
     try {
       await generarAsientoNomina(empresaId, n, creadoPor);
@@ -1063,6 +1124,200 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
   return null; // No se pudo determinar → se usará el fallback por categoría
 }
 
+// Cache de clasificaciones IA para evitar llamadas repetidas en la misma sesión
+const iaClasificacionCache = new Map();
+
+/**
+ * Clasifica un gasto individual en su cuenta PGC correcta usando Claude Haiku.
+ * Se usa como fallback cuando detectarCuentaPorDescripcion() devuelve null.
+ */
+export async function clasificarCuentaConIA(descripcion, proveedor, categoria) {
+  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.length < 10) {
+    return null;
+  }
+
+  const textoGasto = `${descripcion || ""} | ${proveedor || ""} | ${categoria || ""}`.trim();
+  if (!textoGasto || textoGasto === "| |") return null;
+
+  const cacheKey = textoGasto.toUpperCase();
+  if (iaClasificacionCache.has(cacheKey)) {
+    return iaClasificacionCache.get(cacheKey);
+  }
+
+  const cuentasGasto = getPgcPymesCuentas()
+    .filter(c => c.grupo === 6 && c.nivel === 3)
+    .map(c => `${c.codigo} - ${c.nombre}`)
+    .join("\n");
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 100,
+      system: `Eres un catedrático contable español especializado en PGC PYMES (RD 1514/2007).
+Tu ÚNICA tarea: clasificar gastos en la cuenta PGC correcta.
+
+CUENTAS (Grupo 6 - Compras y gastos):
+${cuentasGasto}
+
+REGLAS: Autónomos/RETA/SS→642, Mutuas→649, Sueldos→640, Alquiler→621, Suministros(luz,agua,gas,tel)→628, Seguros→625, Gestoría/abogado→623, Publicidad→627, Comisiones bancarias→626, Transporte→624, IBI/IAE/tasas→631, Reparaciones→622, Material oficina→629, Compras mercaderías→600, Subcontratación→607, Intereses→662.
+
+Responde SOLO: CODIGO|NOMBRE`,
+      messages: [{
+        role: "user",
+        content: `Clasifica: "${textoGasto}"`,
+      }],
+    });
+
+    const texto = response.content[0]?.text?.trim();
+    if (!texto) return null;
+
+    const partes = texto.split("|").map(p => p.trim());
+    if (partes.length >= 2 && /^\d{3,4}$/.test(partes[0])) {
+      const result = { codigo: partes[0], nombre: partes[1] };
+      iaClasificacionCache.set(cacheKey, result);
+      if (iaClasificacionCache.size > 500) {
+        const firstKey = iaClasificacionCache.keys().next().value;
+        iaClasificacionCache.delete(firstKey);
+      }
+      return result;
+    }
+    return null;
+  } catch (err) {
+    console.error("Error clasificarCuentaConIA:", err.message);
+    return null;
+  }
+}
+
+/**
+ * CLASIFICACIÓN POR LOTES CON IA - "El Catedrático Contable CONTENDO"
+ *
+ * Clasifica TODOS los gastos y facturas de un periodo en UNA SOLA llamada a Claude.
+ * Esto es lo que convierte a CONTENDO en un catedrático contable: cada asiento se emite
+ * con la cuenta correcta desde el primer momento, sin necesidad de correcciones.
+ *
+ * @param {Array} items - [{id, tipo: 'gasto'|'factura', descripcion, proveedor?, cliente?, categoria?}]
+ * @returns {Promise<Map<string, {codigo: string, nombre: string}>>} Map de id → cuenta PGC
+ */
+export async function clasificarLoteConIA(items) {
+  const resultMap = new Map();
+
+  if (!items || items.length === 0) return resultMap;
+  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.length < 10) {
+    return resultMap;
+  }
+
+  // Separar por tipo para dar contexto adecuado
+  const gastos = items.filter(i => i.tipo === "gasto");
+  const facturas = items.filter(i => i.tipo === "factura");
+
+  // Revisar cache primero para evitar clasificaciones innecesarias
+  const pendientes = [];
+  for (const item of items) {
+    const cacheKey = `${item.tipo}:${item.descripcion || ""}|${item.proveedor || item.cliente || ""}|${item.categoria || ""}`.toUpperCase();
+    if (iaClasificacionCache.has(cacheKey)) {
+      resultMap.set(item.id, iaClasificacionCache.get(cacheKey));
+    } else {
+      pendientes.push(item);
+    }
+  }
+
+  if (pendientes.length === 0) return resultMap;
+
+  // Construir catálogo de cuentas para el prompt
+  const pgc = getPgcPymesCuentas().filter(c => c.nivel === 3);
+  const cuentasGasto = pgc.filter(c => c.grupo === 6).map(c => `${c.codigo} - ${c.nombre}`).join("\n");
+  const cuentasIngreso = pgc.filter(c => c.grupo === 7 && c.subgrupo === 70).map(c => `${c.codigo} - ${c.nombre}`).join("\n");
+
+  // Construir la lista numerada de items a clasificar
+  const listaItems = pendientes.map((item, idx) => {
+    if (item.tipo === "gasto") {
+      return `${idx + 1}. [GASTO] ${item.descripcion || "sin descripción"} | Proveedor: ${item.proveedor || "desconocido"} | Cat: ${item.categoria || "ninguna"}`;
+    } else {
+      return `${idx + 1}. [FACTURA] ${item.descripcion || "sin descripción"} | Cliente: ${item.cliente || "desconocido"}`;
+    }
+  }).join("\n");
+
+  // Procesar en lotes de 50 para no sobrecargar el contexto
+  const BATCH_SIZE = 50;
+  for (let batchStart = 0; batchStart < pendientes.length; batchStart += BATCH_SIZE) {
+    const batch = pendientes.slice(batchStart, batchStart + BATCH_SIZE);
+    const listaBatch = batch.map((item, idx) => {
+      const num = idx + 1;
+      if (item.tipo === "gasto") {
+        return `${num}. [GASTO] ${item.descripcion || "sin descripción"} | Proveedor: ${item.proveedor || "desconocido"} | Cat: ${item.categoria || "ninguna"}`;
+      } else {
+        return `${num}. [FACTURA] ${item.descripcion || "sin descripción"} | Cliente: ${item.cliente || "desconocido"}`;
+      }
+    }).join("\n");
+
+    try {
+      const response = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: batch.length * 30 + 100,
+        system: `Eres un CATEDRÁTICO de contabilidad española. Clasificas operaciones en cuentas PGC PYMES (RD 1514/2007) con PRECISIÓN ABSOLUTA.
+
+CUENTAS DE GASTO (Grupo 6) - Para items marcados [GASTO]:
+${cuentasGasto}
+
+CUENTAS DE INGRESO (Grupo 7) - Para items marcados [FACTURA]:
+${cuentasIngreso}
+
+REGLAS GASTOS: Autónomos/RETA/SS→642, Mutuas/prevención→649, Sueldos→640, Indemnización→641, Alquiler→621, Reparaciones→622, Gestoría/abogado/notario→623, Transporte/envíos→624, Seguros→625, Comisiones bancarias→626, Publicidad/marketing→627, Suministros(luz,agua,gas,tel,internet)→628, Material oficina/limpieza/otros→629, Compras mercaderías→600, Materias primas→601, Subcontratación→607, IBI/IAE/tasas→631, Intereses préstamos→662, Amortización→681.
+
+REGLAS FACTURAS (CLAVE):
+- 700: Venta de PRODUCTOS FÍSICOS, mercaderías, bienes tangibles
+- 701: Venta de productos fabricados por la empresa
+- 705: Prestación de SERVICIOS (consultoría, desarrollo, diseño, asesoría, formación, alquiler, reparación, etc.)
+- Si no queda claro si es producto o servicio → 705 (la mayoría de PYMES son servicios)
+
+FORMATO DE RESPUESTA: Una línea por item, mismo número que la lista.
+N. CODIGO|NOMBRE
+Ejemplo:
+1. 628|Suministros
+2. 705|Prestaciones de servicios
+3. 621|Arrendamientos y cánones`,
+        messages: [{
+          role: "user",
+          content: `Clasifica estas ${batch.length} operaciones:\n${listaBatch}`,
+        }],
+      });
+
+      const texto = response.content[0]?.text?.trim();
+      if (!texto) continue;
+
+      // Parsear respuestas línea por línea
+      const lineas = texto.split("\n").map(l => l.trim()).filter(l => l);
+
+      for (const linea of lineas) {
+        // Formato: "N. CODIGO|NOMBRE" o "N CODIGO|NOMBRE" o "CODIGO|NOMBRE"
+        const match = linea.match(/^(\d+)[\.\)\-\s]+(\d{3,4})\|(.+)$/);
+        if (match) {
+          const idx = parseInt(match[1]) - 1;
+          if (idx >= 0 && idx < batch.length) {
+            const result = { codigo: match[2].trim(), nombre: match[3].trim() };
+            const item = batch[idx];
+            resultMap.set(item.id, result);
+
+            // Cache
+            const cacheKey = `${item.tipo}:${item.descripcion || ""}|${item.proveedor || item.cliente || ""}|${item.categoria || ""}`.toUpperCase();
+            iaClasificacionCache.set(cacheKey, result);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error clasificarLoteConIA batch:", err.message);
+    }
+  }
+
+  // Limitar cache
+  while (iaClasificacionCache.size > 500) {
+    const firstKey = iaClasificacionCache.keys().next().value;
+    iaClasificacionCache.delete(firstKey);
+  }
+
+  return resultMap;
+}
+
 /**
  * Re-revisa las cuentas contables de asientos auto-generados desde gastos.
  * Compara la cuenta actual del gasto (línea 6xx) con la que detectaría ahora
@@ -1076,11 +1331,11 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
 export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSimular = false) {
   const resultado = { revisados: 0, corregidos: 0, sin_cambios: 0, errores: [], cambios: [] };
 
-  // Obtener asientos auto_gasto con referencia a gasto
+  // Obtener asientos auto (gastos + facturas)
   let asientos;
   if (asientoIds.length > 0) {
     asientos = await sql`
-      SELECT a.id, a.concepto, a.referencia_id, a.estado
+      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado
       FROM asientos_180 a
       WHERE a.empresa_id = ${empresaId}
         AND a.id = ANY(${asientoIds})
@@ -1088,46 +1343,89 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     `;
   } else {
     asientos = await sql`
-      SELECT a.id, a.concepto, a.referencia_id, a.estado
+      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado
       FROM asientos_180 a
       WHERE a.empresa_id = ${empresaId}
-        AND a.tipo = 'auto_gasto'
+        AND a.tipo IN ('auto_gasto', 'auto_factura')
         AND a.estado != 'anulado'
       ORDER BY a.fecha
     `;
   }
 
+  // Recopilar todos los items para clasificación por lotes
+  const itemsParaIA = [];
+  const asientoDataMap = new Map();
+
+  for (const asiento of asientos) {
+    if (asiento.tipo === "auto_gasto" && asiento.referencia_id) {
+      const [g] = await sql`
+        SELECT id, descripcion, proveedor, categoria
+        FROM purchases_180
+        WHERE id = ${asiento.referencia_id}::uuid AND empresa_id = ${empresaId}
+      `;
+      if (g) {
+        asientoDataMap.set(asiento.id, { tipo: "gasto", data: g });
+        itemsParaIA.push({
+          id: asiento.id,
+          tipo: "gasto",
+          descripcion: g.descripcion || "",
+          proveedor: g.proveedor || "",
+          categoria: g.categoria || "",
+        });
+      }
+    } else if (asiento.tipo === "auto_factura" && asiento.referencia_id) {
+      const [f] = await sql`
+        SELECT f.id, f.numero, f.concepto, c.nombre AS cliente_nombre
+        FROM factura_180 f
+        LEFT JOIN clients_180 c ON c.id = f.cliente_id
+        WHERE f.id = ${asiento.referencia_id}::int AND f.empresa_id = ${empresaId}
+      `;
+      if (f) {
+        asientoDataMap.set(asiento.id, { tipo: "factura", data: f });
+        itemsParaIA.push({
+          id: asiento.id,
+          tipo: "factura",
+          descripcion: f.concepto || f.numero || "Factura",
+          cliente: f.cliente_nombre || "Cliente",
+        });
+      }
+    }
+  }
+
+  // Clasificar todo con IA por lotes
+  let clasificacionesIA = new Map();
+  if (itemsParaIA.length > 0) {
+    try {
+      clasificacionesIA = await clasificarLoteConIA(itemsParaIA);
+    } catch (err) {
+      resultado.errores.push(`IA lote: ${err.message}`);
+    }
+  }
+
   for (const asiento of asientos) {
     resultado.revisados++;
     try {
-      // Buscar el gasto original para obtener descripción y proveedor
-      let gasto = null;
-      if (asiento.referencia_id) {
-        const [g] = await sql`
-          SELECT id, descripcion, proveedor, categoria
-          FROM purchases_180
-          WHERE id = ${asiento.referencia_id}::uuid AND empresa_id = ${empresaId}
-        `;
-        gasto = g;
+      const info = asientoDataMap.get(asiento.id);
+      const cuentaIA = clasificacionesIA.get(asiento.id) || null;
+
+      let cuentaCorrecta = cuentaIA;
+
+      // Si la IA no clasificó, usar fallbacks
+      if (!cuentaCorrecta && info) {
+        if (info.tipo === "gasto") {
+          cuentaCorrecta = detectarCuentaPorDescripcion(info.data.descripcion, info.data.proveedor)
+            || await clasificarCuentaConIA(info.data.descripcion, info.data.proveedor, info.data.categoria)
+            || mapCategoriaToCuenta(info.data.categoria);
+        } else {
+          cuentaCorrecta = { codigo: "705", nombre: "Prestaciones de servicios" };
+        }
       }
-
-      // Si no encontramos el gasto, intentar extraer info del concepto del asiento
-      const textoAnalisis = gasto
-        ? `${gasto.descripcion || ""} ${gasto.proveedor || ""}`
-        : asiento.concepto || "";
-
-      const proveedorAnalisis = gasto ? gasto.proveedor : null;
-
-      // Detectar cuenta correcta
-      const cuentaCorrecta = detectarCuentaPorDescripcion(textoAnalisis, proveedorAnalisis)
-        || (gasto ? mapCategoriaToCuenta(gasto.categoria) : null);
 
       if (!cuentaCorrecta) {
         resultado.sin_cambios++;
         continue;
       }
 
-      // Obtener las líneas del asiento - buscar la línea de gasto (cuenta 6xx)
       const lineas = await sql`
         SELECT id, cuenta_codigo, cuenta_nombre, debe, haber
         FROM asiento_lineas_180
@@ -1135,28 +1433,32 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
         ORDER BY orden
       `;
 
-      const lineaGasto = lineas.find(l => l.cuenta_codigo.startsWith("6") && Number(l.debe) > 0);
+      // Buscar la línea relevante: 6xx para gastos, 7xx para facturas
+      let lineaTarget;
+      if (info?.tipo === "gasto" || asiento.tipo === "auto_gasto") {
+        lineaTarget = lineas.find(l => l.cuenta_codigo.startsWith("6") && Number(l.debe) > 0);
+      } else {
+        lineaTarget = lineas.find(l => l.cuenta_codigo.startsWith("7") && Number(l.haber) > 0);
+      }
 
-      if (!lineaGasto) {
+      if (!lineaTarget) {
         resultado.sin_cambios++;
         continue;
       }
 
-      // Comprobar si la cuenta es diferente
-      if (lineaGasto.cuenta_codigo === cuentaCorrecta.codigo) {
+      if (lineaTarget.cuenta_codigo === cuentaCorrecta.codigo) {
         resultado.sin_cambios++;
         continue;
       }
 
-      // Hay corrección
       resultado.cambios.push({
         asiento_id: asiento.id,
         concepto: asiento.concepto,
         estado: asiento.estado,
-        linea_id: lineaGasto.id,
-        cuenta_anterior: { codigo: lineaGasto.cuenta_codigo, nombre: lineaGasto.cuenta_nombre },
+        linea_id: lineaTarget.id,
+        cuenta_anterior: { codigo: lineaTarget.cuenta_codigo, nombre: lineaTarget.cuenta_nombre },
         cuenta_nueva: { codigo: cuentaCorrecta.codigo, nombre: cuentaCorrecta.nombre },
-        importe: Number(lineaGasto.debe),
+        importe: Number(lineaTarget.debe || lineaTarget.haber),
       });
 
       if (!soloSimular) {
@@ -1164,7 +1466,7 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
           UPDATE asiento_lineas_180
           SET cuenta_codigo = ${cuentaCorrecta.codigo},
               cuenta_nombre = ${cuentaCorrecta.nombre}
-          WHERE id = ${lineaGasto.id}
+          WHERE id = ${lineaTarget.id}
         `;
         resultado.corregidos++;
       } else {

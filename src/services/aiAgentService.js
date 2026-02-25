@@ -1586,6 +1586,27 @@ const TOOLS = [
       }
     }
   },
+
+  // --- Tool 92: Revisar y corregir cuentas contables con IA ---
+  {
+    type: "function",
+    function: {
+      name: "revisar_cuentas_asientos",
+      description: "Re-revisa las cuentas contables de los asientos de gastos usando inteligencia artificial. Detecta cuentas PGC incorrectas (ej: un recibo de autónomo asignado a 629 en vez de 642) y las corrige. Puede simular primero para mostrar los cambios antes de aplicarlos.",
+      parameters: {
+        type: "object",
+        properties: {
+          simular: { type: "boolean", description: "true = solo muestra los cambios sin aplicarlos, false = aplica las correcciones. Por defecto true para que el usuario revise antes." },
+          asiento_ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "IDs específicos de asientos a revisar (opcional). Si se omite, revisa TODOS los asientos de gastos."
+          }
+        },
+        required: []
+      }
+    }
+  },
 ];
 
 // ============================
@@ -1931,6 +1952,7 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, use
       case "consultar_balance": return await consultarBalance(args, empresaId);
       case "consultar_pyg": return await consultarPyG(args, empresaId);
       case "consultar_libro_mayor": return await consultarLibroMayor(args, empresaId);
+      case "revisar_cuentas_asientos": return await revisarCuentasAsientosIA(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -5052,6 +5074,46 @@ async function consultarLibroMayor(args, empresaId) {
   } catch (err) {
     console.error("[AI] Error consultar libro mayor:", err);
     return `Error consultando libro mayor: ${err.message}`;
+  }
+}
+
+// ============================
+// REVISAR CUENTAS ASIENTOS (IA)
+// ============================
+
+async function revisarCuentasAsientosIA(args, empresaId) {
+  try {
+    const { revisarCuentasAsientos } = await import("./contabilidadService.js");
+    const simular = args.simular !== false; // Por defecto simular=true
+    const asientoIds = Array.isArray(args.asiento_ids) ? args.asiento_ids : [];
+
+    const result = await revisarCuentasAsientos(empresaId, asientoIds, simular);
+
+    if (result.corregidos === 0 && result.cambios.length === 0) {
+      return `He revisado ${result.revisados} asientos y todos tienen las cuentas contables correctas. No se necesitan correcciones.`;
+    }
+
+    let msg = simular
+      ? `He encontrado ${result.cambios.length} asiento(s) con cuentas que podrían mejorar:\n\n`
+      : `He corregido ${result.corregidos} asiento(s):\n\n`;
+
+    result.cambios.forEach((c, i) => {
+      msg += `${i + 1}. "${c.concepto}" (${c.importe.toFixed(2)}€)\n`;
+      msg += `   ${c.cuenta_anterior.codigo} (${c.cuenta_anterior.nombre}) → ${c.cuenta_nueva.codigo} (${c.cuenta_nueva.nombre})\n\n`;
+    });
+
+    if (simular && result.cambios.length > 0) {
+      msg += `¿Quieres que aplique estas correcciones? Dime "sí, aplica las correcciones" y ejecutaré la herramienta con simular=false.`;
+    }
+
+    if (result.errores.length > 0) {
+      msg += `\nErrores: ${result.errores.join(", ")}`;
+    }
+
+    return msg;
+  } catch (err) {
+    console.error("[AI] Error revisarCuentasAsientos:", err);
+    return `Error revisando cuentas: ${err.message}`;
   }
 }
 
