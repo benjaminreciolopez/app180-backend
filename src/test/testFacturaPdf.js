@@ -1,407 +1,273 @@
 /**
- * Script de testing para validar generación de PDF de facturas
- * Genera un PDF con datos de ejemplo SIN tocar la base de datos
+ * Script de testing para validar generación de PDF de facturas MULTI-PÁGINA
+ * Usa datos REALES del emisor (con logo) y un cliente real de la base de datos.
+ * Genera 4 variantes SIN alterar numeración real:
+ *   1. 1 página, SIN VeriFactu
+ *   2. 1 página, CON VeriFactu
+ *   3. 2+ páginas, SIN VeriFactu
+ *   4. 2+ páginas, CON VeriFactu
  *
  * Uso: node src/test/testFacturaPdf.js
  */
 
-import { generatePdf } from '../services/exportService.js';
-import QRCode from 'qrcode';
+import { generarHtmlFactura } from '../services/facturaPdfService.js';
+import { sql } from '../db.js';
+import puppeteer from 'puppeteer';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// ─── HELPERS ────────────────────────────────────────────────
 
-// Función helper para generar hash VeriFactu de prueba
 function generarHashPrueba(factura, hashAnterior = "") {
   const payload = {
     numero_factura: factura.numero,
     fecha_factura: factura.fecha,
     total_factura: factura.total,
-    nif_emisor: factura.nif_emisor,
-    nif_receptor: factura.nif_receptor,
+    nif_emisor: factura.nif_emisor || '',
+    nif_receptor: factura.nif_receptor || '',
     hash_anterior: hashAnterior
   };
   const canonico = JSON.stringify(payload, Object.keys(payload).sort());
   return crypto.createHash('sha256').update(canonico, 'utf8').digest('hex');
 }
 
-// Función helper para construir URL QR de prueba
-function construirUrlQrPrueba(factura, emisor, entorno = 'PRUEBAS') {
-  const baseUrl = entorno === 'PRODUCCION'
-    ? 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR'
-    : 'https://prewww2.aeat.es/wlpl/TIKE-CONT-PREWEB/ValidarQR';
+// ─── LÍNEAS CORTAS (2 → 1 página) ──────────────────────────
 
-  const params = new URLSearchParams({
-    nif: emisor.nif_cif,
-    num: factura.numero,
-    fec: factura.fecha.split('T')[0].replace(/-/g, ''),
-    imp: factura.total.toFixed(2)
+const lineasCortas = [
+  { id: 1, descripcion: 'Desarrollo software personalizado - Módulo de facturación con VeriFactu', cantidad: 80, precio_unitario: 10.00, subtotal: 800.00, iva_percent: 21, total: 968.00 },
+  { id: 2, descripcion: 'Consultoría técnica y soporte - Integración con AEAT', cantidad: 10, precio_unitario: 20.00, subtotal: 200.00, iva_percent: 21, total: 242.00 },
+];
+
+// ─── LÍNEAS LARGAS (30 → 2+ páginas) ───────────────────────
+
+const conceptosLargos = [
+  'Diseño de base de datos PostgreSQL con RLS multi-tenant',
+  'API REST con Express.js - Endpoints CRUD completos',
+  'Integración con sistema VeriFactu de la AEAT',
+  'Desarrollo frontend Next.js - Dashboard principal',
+  'Módulo de fichajes con geolocalización GPS',
+  'Sistema de hash encadenado SHA-256 (RD 8/2019)',
+  'Panel de control horario con detección de anomalías',
+  'Módulo de facturación electrónica con PDF multi-página',
+  'Integración Google Calendar - Sincronización bidireccional',
+  'Sistema de notificaciones en tiempo real',
+  'Módulo de gestión de empleados y nóminas',
+  'Generación automática de asientos contables (PGC PYMES)',
+  'Portal de asesoría con mensajería integrada',
+  'Exportación Excel/CSV/ZIP para asesor fiscal',
+  'Módulo de compras y gastos con OCR integrado',
+  'Balance de situación y cuenta de PyG automáticos',
+  'Libro Mayor con filtros por cuenta y período',
+  'Sistema de auditoría legal con trazabilidad completa',
+  'Configuración de centros de trabajo con geofencing',
+  'PWA móvil con pull-to-refresh y modo offline',
+  'IA Copilot con 92 herramientas - Claude Haiku 4.5',
+  'Clasificación contable automática con IA (batch)',
+  'Detección inteligente de cuentas PGC por descripción',
+  'Sistema de PIN lock y screensaver empresarial',
+  'Módulo fiscal - Modelos tributarios automáticos',
+  'Verificación de integridad de fichajes (CSV codes)',
+  'Endpoint público de verificación con QR code',
+  'Correcciones de fichaje con flujo de aprobación',
+  'Multi-validación de asientos contables en lote',
+  'Reporte de rentabilidad por cliente y proyecto',
+];
+
+const lineasLargas = conceptosLargos.map((desc, i) => {
+  const cantidad = Math.floor(Math.random() * 20) + 1;
+  const precio_unitario = parseFloat((Math.random() * 80 + 20).toFixed(2));
+  const subtotal = cantidad * precio_unitario;
+  const total = subtotal * 1.21;
+  return { id: i + 1, descripcion: desc, cantidad, precio_unitario, subtotal, iva_percent: 21, total };
+});
+
+// ─── FACTURA BASE ───────────────────────────────────────────
+
+function crearFactura(lineas, numero, emisorNif, clienteNif) {
+  const subtotal = lineas.reduce((s, l) => s + l.subtotal, 0);
+  const iva = subtotal * 0.21;
+  const total = subtotal + iva;
+  return {
+    id: 'TEST',
+    numero,
+    fecha: new Date('2026-02-25').toISOString(),
+    fecha_vencimiento: new Date('2026-03-27').toISOString(),
+    subtotal,
+    iva_global: 21,
+    iva_total: iva,
+    total,
+    estado: 'VALIDADA',
+    metodo_pago: 'TRANSFERENCIA',
+    verifactu_hash: '',
+    verifactu_fecha_generacion: new Date().toISOString(),
+    nif_emisor: emisorNif,
+    nif_receptor: clienteNif,
+    mensaje_iva: null,
+  };
+}
+
+// ─── GENERAR PDF DIRECTAMENTE (sin exportService) ───────────
+
+async function generarPdfDirecto(html) {
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    headless: 'new',
   });
 
-  return `${baseUrl}?${params.toString()}`;
-}
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
 
-// Datos de ejemplo - FACTURA DE PRUEBA
-const datosEjemplo = {
-  factura: {
-    id: 'TEST-001',
-    numero: 'F-2026-00001',
-    fecha: new Date('2026-02-23').toISOString(),
-    fecha_vencimiento: new Date('2026-03-25').toISOString(),
-    subtotal: 1000.00,
-    iva: 210.00,
-    total: 1210.00,
-    estado: 'VALIDADA',
-    observaciones: 'Factura de prueba para validación del sistema PDF',
-    forma_pago: 'Transferencia bancaria',
-    verifactu_hash: '', // Se generará
-    verifactu_fecha_generacion: new Date().toISOString(),
-    nif_emisor: 'B12345678',
-    nif_receptor: 'A87654321'
-  },
-  emisor: {
-    nombre_comercial: 'CONTENDO GESTIONES SL',
-    nombre_fiscal: 'CONTENDO GESTIONES SOCIEDAD LIMITADA',
-    nif_cif: 'B12345678',
-    direccion_fiscal: 'Calle Mayor, 123, 3º A',
-    municipio: 'Madrid',
-    codigo_postal: '28013',
-    provincia: 'Madrid',
-    telefono: '+34 912 345 678',
-    email: 'info@contendo.es',
-    web: 'www.contendo.es',
-    iban: 'ES91 2100 0418 4502 0005 1332',
-    registro_mercantil: 'Registro Mercantil de Madrid, Tomo 12345, Folio 67, Hoja M-234567',
-    // Textos legales
-    texto_pie: 'Gracias por confiar en CONTENDO GESTIONES. Para cualquier consulta, no dude en contactarnos.',
-    texto_exento: null,
-    texto_rectificativa: null,
-    terminos_legales: 'Condiciones de pago: 30 días desde la fecha de factura. Interés de demora: 10% anual según Ley 3/2004.',
-    mensaje_iva: 'IVA incluido según normativa vigente. Factura exenta de retención IRPF.'
-  },
-  cliente: {
-    nombre: 'ACME CORPORATION SA',
-    razon_social: 'ACME CORPORATION SOCIEDAD ANONIMA',
-    nif_cif: 'A87654321',
-    direccion_fiscal: 'Avenida de la Industria, 456',
-    municipio: 'Barcelona',
-    codigo_postal: '08001',
-    prov_fiscal: 'Barcelona',
-    email: 'facturacion@acme.example.com',
-    telefono: '+34 934 567 890'
-  },
-  lineas: [
-    {
-      id: 1,
-      descripcion: 'Desarrollo software personalizado - Módulo de facturación con VeriFactu',
-      cantidad: 80,
-      precio_unitario: 10.00,
-      subtotal: 800.00,
-      tipo_iva: 21,
-      iva: 168.00,
-      total: 968.00
-    },
-    {
-      id: 2,
-      descripcion: 'Consultoría técnica y soporte - Integración con AEAT',
-      cantidad: 10,
-      precio_unitario: 20.00,
-      subtotal: 200.00,
-      tipo_iva: 21,
-      iva: 42.00,
-      total: 242.00
-    }
-  ],
-  config: {
-    verifactu_activo: true,
-    verifactu_modo: 'TEST', // Cambiar a 'PRODUCCION' para test de producción
-    serie: 'F',
-    storage_facturas_folder: 'Facturas emitidas',
-    auditoria_activa: true
-  }
-};
-
-// Generar hash VeriFactu
-datosEjemplo.factura.verifactu_hash = generarHashPrueba(datosEjemplo.factura, "");
-
-// Importar la función de generación HTML (copiamos la lógica inline)
-async function generarHtmlFacturaPrueba(factura, emisor, cliente, lineas, config) {
-  const isTest = config && config.verifactu_activo && config.verifactu_modo === 'TEST';
-
-  // Generar QR Code
-  let qrCodeDataUrl = '';
-  let verifactuNoticeHtml = '';
-
-  if (config && config.verifactu_activo && factura.verifactu_hash) {
-    const urlQr = construirUrlQrPrueba(factura, emisor, config.verifactu_modo === 'TEST' ? 'PRUEBAS' : 'PRODUCCION');
-    qrCodeDataUrl = await QRCode.toDataURL(urlQr, {
-      errorCorrectionLevel: 'M',
-      type: 'image/png',
-      width: 200,
-      margin: 1
+    // Spacer: rellenar espacio sobrante en la ultima pagina (1 pag y multi-pag)
+    await page.evaluate(() => {
+      const spacer = document.getElementById('invoice-spacer');
+      if (!spacer) return;
+      const mmToPx = 96 / 25.4;
+      const usableH = 272 * mmToPx; // 297-5(top)-15(@page)-5(puppeteer bottom)
+      const contentH = document.body.scrollHeight;
+      const numPages = Math.ceil(contentH / usableH);
+      const totalSpace = numPages * usableH;
+      const gap = totalSpace - contentH;
+      if (gap > 5) {
+        spacer.style.height = gap + 'px';
+      }
     });
 
-    const verifactuText = "Factura emitida bajo el sistema Veri*Factu de la AEAT. Gracias por su confianza.";
-    verifactuNoticeHtml = `<div class="verifactu-notice">${verifactuText}</div>`;
-  }
-
-  // Generar HTML (usando los mismos estilos del servicio real)
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Factura ${factura.numero}</title>
-  <style>
-    @page { margin: 0; size: A4; }
-    * { box-sizing: border-box; }
-    body {
-      font-family: 'Helvetica', Arial, sans-serif;
-      color: #000;
-      margin: 0;
-      padding: 0;
-      width: 210mm;
-      height: 297mm;
-      position: relative;
-      -webkit-print-color-adjust: exact;
-    }
-    .page-container { width: 100%; height: 100%; padding: 0; margin: 0; position: relative; }
-    .watermark {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(45deg);
-      font-size: 40pt; font-weight: bold; color: rgba(230, 230, 230, 0.5);
-      z-index: -1; pointer-events: none; white-space: nowrap; text-transform: uppercase;
-    }
-    .header-title {
-      position: absolute; top: 60pt; left: 0; width: 100%; text-align: center;
-      font-weight: bold; font-size: 22pt; text-transform: uppercase;
-    }
-    .emisor-block { position: absolute; top: 100pt; left: 30pt; width: 210pt; text-align: left; }
-    .emisor-nombre { font-size: 12pt; font-weight: bold; margin-bottom: 4pt; }
-    .emisor-details { font-size: 10pt; line-height: 1.2; }
-    .cliente-block { position: absolute; top: 100pt; right: 30pt; width: 230pt; text-align: left; }
-    .cliente-nombre { font-size: 12pt; font-weight: bold; margin-bottom: 4pt; }
-    .cliente-details { font-size: 10pt; line-height: 1.2; }
-    .datos-factura-block {
-      position: absolute; top: 220pt; right: 30pt; width: 230pt;
-      border: 1pt solid #000; padding: 8pt;
-    }
-    .datos-row { display: flex; justify-content: space-between; margin-bottom: 4pt; font-size: 10pt; }
-    .datos-label { font-weight: bold; }
-    .lineas-table {
-      position: absolute; top: 320pt; left: 30pt; right: 30pt;
-      border-collapse: collapse; width: calc(100% - 60pt);
-    }
-    .lineas-table th {
-      background-color: #e0e0e0; border: 1pt solid #000;
-      padding: 8pt; font-size: 10pt; text-align: left;
-    }
-    .lineas-table td {
-      border: 1pt solid #000; padding: 6pt; font-size: 10pt;
-    }
-    .lineas-table .text-right { text-align: right; }
-    .totales-block {
-      position: absolute; bottom: 180pt; right: 30pt; width: 200pt;
-    }
-    .totales-row {
-      display: flex; justify-content: space-between; padding: 4pt 0;
-      font-size: 11pt;
-    }
-    .totales-row.total-final { font-weight: bold; font-size: 13pt; border-top: 2pt solid #000; padding-top: 8pt; }
-    .footer-legal {
-      position: absolute; bottom: 80pt; left: 30pt; right: 30pt;
-      font-size: 8pt; line-height: 1.3; color: #333;
-      border-top: 1pt solid #ccc; padding-top: 8pt;
-    }
-    .verifactu-notice {
-      position: absolute; bottom: 50pt; left: 30pt; right: 150pt;
-      font-size: 9pt; font-weight: bold; color: #333;
-    }
-    .qr-block {
-      position: absolute; bottom: 30pt; right: 30pt; text-align: center;
-    }
-    .qr-img { display: block; width: 100pt; height: 100pt; }
-    .verifactu-label {
-      font-size: 7pt; font-weight: bold; margin-top: 4pt;
-      text-transform: uppercase; color: #666;
-    }
-  </style>
-</head>
-<body>
-  <div class="page-container">
-    ${isTest ? '<div class="watermark">PRUEBAS · VERI*FACTU TEST</div>' : ''}
-
-    <div class="header-title">FACTURA</div>
-
-    <div class="emisor-block">
-      <div class="emisor-nombre">${emisor.nombre_comercial || emisor.nombre_fiscal}</div>
-      <div class="emisor-details">
-        ${emisor.nombre_fiscal ? emisor.nombre_fiscal + '<br>' : ''}
-        NIF: ${emisor.nif_cif}<br>
-        ${emisor.direccion_fiscal}<br>
-        ${emisor.codigo_postal} ${emisor.municipio} (${emisor.provincia})<br>
-        ${emisor.telefono ? 'Tel: ' + emisor.telefono + '<br>' : ''}
-        ${emisor.email ? emisor.email + '<br>' : ''}
-        ${emisor.web ? emisor.web : ''}
-      </div>
-    </div>
-
-    <div class="cliente-block">
-      <div class="cliente-nombre">CLIENTE</div>
-      <div class="cliente-details">
-        <strong>${cliente.razon_social || cliente.nombre}</strong><br>
-        NIF: ${cliente.nif_cif}<br>
-        ${cliente.direccion_fiscal}<br>
-        ${cliente.codigo_postal} ${cliente.municipio} (${cliente.prov_fiscal})
-      </div>
-    </div>
-
-    <div class="datos-factura-block">
-      <div class="datos-row">
-        <span class="datos-label">Número:</span>
-        <span>${factura.numero}</span>
-      </div>
-      <div class="datos-row">
-        <span class="datos-label">Fecha:</span>
-        <span>${new Date(factura.fecha).toLocaleDateString('es-ES')}</span>
-      </div>
-      <div class="datos-row">
-        <span class="datos-label">Vencimiento:</span>
-        <span>${new Date(factura.fecha_vencimiento).toLocaleDateString('es-ES')}</span>
-      </div>
-      <div class="datos-row">
-        <span class="datos-label">Forma de pago:</span>
-        <span>${factura.forma_pago || 'Transferencia'}</span>
-      </div>
-    </div>
-
-    <table class="lineas-table">
-      <thead>
-        <tr>
-          <th>Descripción</th>
-          <th style="width: 60pt;">Cantidad</th>
-          <th style="width: 70pt;">P. Unitario</th>
-          <th style="width: 60pt;">IVA %</th>
-          <th style="width: 80pt;">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${lineas.map(linea => `
-          <tr>
-            <td>${linea.descripcion}</td>
-            <td class="text-right">${linea.cantidad}</td>
-            <td class="text-right">${linea.precio_unitario.toFixed(2)} €</td>
-            <td class="text-right">${linea.tipo_iva}%</td>
-            <td class="text-right">${linea.total.toFixed(2)} €</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-
-    <div class="totales-block">
-      <div class="totales-row">
-        <span>Subtotal:</span>
-        <span>${factura.subtotal.toFixed(2)} €</span>
-      </div>
-      <div class="totales-row">
-        <span>IVA (21%):</span>
-        <span>${factura.iva.toFixed(2)} €</span>
-      </div>
-      <div class="totales-row total-final">
-        <span>TOTAL:</span>
-        <span>${factura.total.toFixed(2)} €</span>
-      </div>
-    </div>
-
-    <div class="footer-legal">
-      ${emisor.registro_mercantil ? emisor.registro_mercantil + '<br>' : ''}
-      ${emisor.terminos_legales ? emisor.terminos_legales + '<br>' : ''}
-      ${emisor.mensaje_iva ? emisor.mensaje_iva + '<br>' : ''}
-      ${emisor.texto_pie ? emisor.texto_pie : ''}
-    </div>
-
-    ${verifactuNoticeHtml}
-
-    ${qrCodeDataUrl ? `
-      <div class="qr-block">
-        <img src="${qrCodeDataUrl}" class="qr-img" alt="QR Veri*Factu" />
-        <div class="verifactu-label">SISTEMA DE FACTURACIÓN VERIFICABLE</div>
-        <div style="font-size: 6pt; color: #999; margin-top: 2pt;">Hash: ${factura.verifactu_hash.substring(0, 16)}...</div>
-      </div>
-    ` : ''}
-  </div>
-</body>
-</html>
-  `;
-
-  return html;
-}
-
-// Ejecutar el test
-async function ejecutarTest() {
-  console.log('\n🧪 TEST DE GENERACIÓN PDF DE FACTURAS\n');
-  console.log('📋 Datos de la factura de prueba:');
-  console.log(`   Número: ${datosEjemplo.factura.numero}`);
-  console.log(`   Cliente: ${datosEjemplo.cliente.razon_social}`);
-  console.log(`   Total: ${datosEjemplo.factura.total.toFixed(2)} €`);
-  console.log(`   VeriFactu: ${datosEjemplo.config.verifactu_activo ? 'ACTIVO' : 'INACTIVO'} (${datosEjemplo.config.verifactu_modo})`);
-  console.log(`   Hash: ${datosEjemplo.factura.verifactu_hash.substring(0, 32)}...`);
-  console.log('');
-
-  try {
-    // Generar HTML
-    console.log('📝 Generando HTML...');
-    const html = await generarHtmlFacturaPrueba(
-      datosEjemplo.factura,
-      datosEjemplo.emisor,
-      datosEjemplo.cliente,
-      datosEjemplo.lineas,
-      datosEjemplo.config
-    );
-
-    // Generar PDF
-    console.log('📄 Generando PDF...');
-    const pdfBuffer = await generatePdf(html, {
+    const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' }
+      displayHeaderFooter: true,
+      headerTemplate: '<div></div>',
+      footerTemplate: `
+        <div style="width:100%;font-size:8px;padding:1mm 10mm;text-align:right;color:#999;font-family:Helvetica,Arial,sans-serif;">
+          <span>P&aacute;gina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+        </div>
+      `,
+      margin: { top: '5mm', right: '0px', bottom: '5mm', left: '0px' },
     });
 
-    // Guardar en Desktop
-    const desktopPath = path.join(process.env.USERPROFILE || process.env.HOME, 'Desktop');
-    const fileName = `FACTURA_TEST_${datosEjemplo.factura.numero.replace(/\//g, '-')}_${Date.now()}.pdf`;
-    const outputPath = path.join(desktopPath, fileName);
-
-    fs.writeFileSync(outputPath, pdfBuffer);
-
-    console.log('');
-    console.log('✅ PDF generado correctamente!');
-    console.log(`📁 Ubicación: ${outputPath}`);
-    console.log('');
-    console.log('🔍 Verificar:');
-    console.log('   ✓ QR Code visible en esquina inferior derecha');
-    console.log('   ✓ Textos legales en pie de página');
-    console.log('   ✓ Hash VeriFactu bajo el QR');
-    console.log('   ✓ Marca de agua "PRUEBAS" si modo TEST');
-    console.log('   ✓ Formato A4 correcto');
-    console.log('   ✓ Todos los datos visibles');
-    console.log('');
-
-  } catch (error) {
-    console.error('❌ Error generando PDF:', error);
-    process.exit(1);
+    return Buffer.from(pdfBuffer);
+  } finally {
+    await browser.close();
   }
 }
 
-// Ejecutar
-ejecutarTest().then(() => {
-  console.log('🎉 Test completado. Revisa el PDF en tu Desktop.\n');
+// ─── EJECUTAR ───────────────────────────────────────────────
+
+async function ejecutarTests() {
+  console.log('\n' + '='.repeat(60));
+  console.log('  TEST DE FACTURA PDF MULTI-PAGINA (DATOS REALES)');
+  console.log('='.repeat(60) + '\n');
+
+  // 1. Obtener datos reales del emisor (con logo)
+  console.log('Conectando a Supabase para obtener datos reales...');
+  const [emisor] = await sql`SELECT * FROM emisor_180 LIMIT 1`;
+  if (!emisor) {
+    console.error('No se encontró emisor en la base de datos');
+    process.exit(1);
+  }
+  console.log(`  Emisor: ${emisor.nombre} (NIF: ${emisor.nif})`);
+  console.log(`  Logo: ${emisor.logo_path ? `SI (${emisor.logo_path.length} chars)` : 'NO'}`);
+
+  // 2. Obtener un cliente real con datos fiscales
+  const [cliente] = await sql`
+    SELECT c.*, f.razon_social, f.nif_cif AS fiscal_nif, f.direccion_fiscal,
+           f.municipio, f.codigo_postal, f.provincia AS prov_fiscal
+    FROM clients_180 c
+    LEFT JOIN client_fiscal_data_180 f ON f.cliente_id = c.id
+    WHERE c.empresa_id = ${emisor.empresa_id}
+      AND f.razon_social IS NOT NULL
+    LIMIT 1
+  `;
+  if (!cliente) {
+    console.error('No se encontró cliente con datos fiscales');
+    process.exit(1);
+  }
+  console.log(`  Cliente: ${cliente.razon_social || cliente.nombre}`);
+
+  const desktopPath = path.join(process.env.USERPROFILE || process.env.HOME, 'Desktop');
+  const resultados = [];
+
+  const escenarios = [
+    ['1pag_SIN_verifactu', lineasCortas,  false, 'F-2026-TEST1'],
+    ['1pag_CON_verifactu', lineasCortas,  true,  'F-2026-TEST2'],
+    ['2pag_SIN_verifactu', lineasLargas,  false, 'F-2026-TEST3'],
+    ['2pag_CON_verifactu', lineasLargas,  true,  'F-2026-TEST4'],
+  ];
+
+  for (const [nombre, lineas, conVerifactu, numero] of escenarios) {
+    console.log(`\n--- ${nombre} ---`);
+    console.log(`    Lineas: ${lineas.length} | VeriFactu: ${conVerifactu ? 'SI' : 'NO'}`);
+
+    const factura = crearFactura(lineas, numero, emisor.nif, cliente.nif_cif || cliente.nif);
+    if (conVerifactu) {
+      factura.verifactu_hash = generarHashPrueba(factura);
+    }
+
+    const config = {
+      verifactu_activo: conVerifactu,
+      verifactu_modo: 'TEST',
+    };
+
+    try {
+      // 1. Generar HTML usando la funcion REAL del servicio con datos reales
+      const html = await generarHtmlFactura(factura, emisor, cliente, lineas, config);
+
+      // 2. Guardar HTML
+      const htmlFile = `FACTURA_TEST_${nombre}.html`;
+      const htmlPath = path.join(desktopPath, htmlFile);
+      fs.writeFileSync(htmlPath, html, 'utf-8');
+      console.log(`    HTML -> ${htmlFile}`);
+
+      // 3. Intentar PDF
+      try {
+        const pdfBuffer = await generarPdfDirecto(html);
+        const pdfFile = `FACTURA_TEST_${nombre}.pdf`;
+        const pdfPath = path.join(desktopPath, pdfFile);
+        fs.writeFileSync(pdfPath, pdfBuffer);
+        const sizeKb = (pdfBuffer.length / 1024).toFixed(1);
+        console.log(`    PDF -> ${pdfFile} (${sizeKb} KB)`);
+        resultados.push({ nombre, html: true, pdf: true, size: sizeKb });
+      } catch (pdfErr) {
+        console.log(`    PDF -> FALLO (${pdfErr.message.substring(0, 80)})`);
+        console.log(`    (Abre el HTML en el navegador para verificar el layout)`);
+        resultados.push({ nombre, html: true, pdf: false, error: pdfErr.message.substring(0, 60) });
+      }
+
+    } catch (error) {
+      console.error(`    ERROR TOTAL: ${error.message}`);
+      resultados.push({ nombre, html: false, pdf: false, error: error.message });
+    }
+  }
+
+  // Resumen
+  console.log('\n' + '='.repeat(60));
+  console.log('  RESUMEN');
+  console.log('='.repeat(60));
+  for (const r of resultados) {
+    const htmlIcon = r.html ? 'OK' : 'FAIL';
+    const pdfIcon = r.pdf ? `OK (${r.size} KB)` : 'FAIL';
+    console.log(`  ${r.nombre.padEnd(25)} HTML: ${htmlIcon}  PDF: ${pdfIcon}`);
+  }
+  console.log('='.repeat(60));
+  console.log(`\nArchivos en: ${desktopPath}\n`);
+
+  console.log('Verificar en cada PDF/HTML:');
+  console.log('  - Footer: "Pagina X de Y" (todas las paginas)');
+  console.log('  - 1 pagina: totales anclados al fondo');
+  console.log('  - 2+ paginas: totales anclados al fondo de la ultima pagina');
+  console.log('  - VeriFactu: QR code + marca de agua "ENTORNO DE PRUEBAS"');
+  console.log('  - Sin VeriFactu: sin QR, sin marca de agua');
+  console.log('  - Cabeceras de tabla repetidas en cada pagina');
+  console.log('  - Logo del emisor real visible');
+  console.log('');
+}
+
+ejecutarTests().then(() => {
+  console.log('Test completado.\n');
   process.exit(0);
 }).catch(err => {
-  console.error('💥 Error fatal:', err);
+  console.error('Error fatal:', err);
   process.exit(1);
 });

@@ -90,7 +90,7 @@ export const getNominas = async (req, res) => {
         }
 
         let query = sql`
-      SELECT n.*, e.nombre, e.apellidos 
+      SELECT n.*, e.nombre AS nombre_empleado
       FROM nominas_180 n
       LEFT JOIN employees_180 em ON n.empleado_id = em.id
       LEFT JOIN users_180 e ON em.user_id = e.id
@@ -102,7 +102,7 @@ export const getNominas = async (req, res) => {
             query = sql`${query} AND n.mes = ${month}`;
         }
 
-        query = sql`${query} ORDER BY n.mes DESC, e.apellidos ASC`;
+        query = sql`${query} ORDER BY n.mes DESC, e.nombre ASC`;
 
         const nominas = await query;
 

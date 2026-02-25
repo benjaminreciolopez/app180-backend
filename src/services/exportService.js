@@ -16,6 +16,9 @@ import { join } from 'path';
  * @returns {Buffer} PDF Buffer
  */
 export const generatePdf = async (htmlContent, options = {}) => {
+    // Extraer beforePdf callback antes de pasar options a page.pdf()
+    const { beforePdf, ...pdfOptions } = options;
+
     let browser = null;
     try {
         console.log("📂 Current PWD:", process.cwd());
@@ -83,6 +86,11 @@ export const generatePdf = async (htmlContent, options = {}) => {
             timeout: 60000 // Aumentar timeout a 60s
         });
 
+        // Ejecutar callback pre-PDF si existe (para spacers, mediciones, etc.)
+        if (typeof beforePdf === 'function') {
+            await beforePdf(page);
+        }
+
         // Generate PDF
         const uint8Array = await page.pdf({
             format: 'A4',
@@ -93,7 +101,7 @@ export const generatePdf = async (htmlContent, options = {}) => {
                 bottom: '20px',
                 left: '20px'
             },
-            ...options
+            ...pdfOptions
         });
 
         const pdfBuffer = Buffer.from(uint8Array);
