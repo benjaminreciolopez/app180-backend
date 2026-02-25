@@ -1,9 +1,18 @@
 // backend/src/services/planificacionResolver.js
 
 import { sql } from "../db.js";
+import { DEFAULT_TIPOS_BLOQUE } from "../controllers/empresaConfigController.js";
 
 export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
   // fecha: 'YYYY-MM-DD'
+
+  // Cargar tipos de bloque de la empresa para anotar es_trabajo
+  const [configRow] = await sql`
+    SELECT tipos_bloque FROM empresa_config_180 WHERE empresa_id = ${empresaId} LIMIT 1
+  `;
+  const tiposList = configRow?.tipos_bloque || DEFAULT_TIPOS_BLOQUE;
+  const tiposMap = {};
+  for (const t of tiposList) tiposMap[t.key] = t;
 
   const asig = await sql`
     SELECT 
@@ -112,9 +121,14 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
     const bloquesEx = await sql`
       SELECT b.tipo, b.hora_inicio, b.hora_fin, b.obligatorio, b.cliente_id,
-             c.nombre AS cliente_nombre
+             c.nombre AS cliente_nombre,
+             b.centro_trabajo_id,
+             ct.nombre AS centro_trabajo_nombre,
+             ct.lat AS centro_lat, ct.lng AS centro_lng,
+             ct.radio_m AS centro_radio_m, ct.geo_policy AS centro_geo_policy
       FROM plantilla_excepcion_bloques_180 b
       LEFT JOIN clients_180 c ON c.id = b.cliente_id
+      LEFT JOIN centros_trabajo_180 ct ON ct.id = b.centro_trabajo_id
       WHERE b.excepcion_id = ${exId}
       ORDER BY b.hora_inicio ASC
     `;
@@ -135,11 +149,18 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
       bloques: bloquesEx.map((b) => ({
         tipo: b.tipo,
+        es_trabajo: tiposMap[b.tipo]?.es_trabajo ?? (b.tipo === "trabajo"),
         inicio: b.hora_inicio,
         fin: b.hora_fin,
         obligatorio: b.obligatorio,
-        cliente_id: b.cliente_id || cliente?.id || null,
-        cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : (cliente?.nombre || null)),
+        cliente_id: b.cliente_id || (b.centro_trabajo_id ? null : (cliente?.id || null)),
+        cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : (b.centro_trabajo_id ? null : (cliente?.nombre || null))),
+        centro_trabajo_id: b.centro_trabajo_id || null,
+        centro_trabajo_nombre: b.centro_trabajo_nombre || null,
+        centro_lat: b.centro_lat ?? null,
+        centro_lng: b.centro_lng ?? null,
+        centro_radio_m: b.centro_radio_m ?? null,
+        centro_geo_policy: b.centro_geo_policy ?? null,
       })),
     };
   }
@@ -207,9 +228,14 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
   const bloques = await sql`
     SELECT b.tipo, b.hora_inicio, b.hora_fin, b.obligatorio, b.cliente_id,
-           c.nombre AS cliente_nombre
+           c.nombre AS cliente_nombre,
+           b.centro_trabajo_id,
+           ct.nombre AS centro_trabajo_nombre,
+           ct.lat AS centro_lat, ct.lng AS centro_lng,
+           ct.radio_m AS centro_radio_m, ct.geo_policy AS centro_geo_policy
     FROM plantilla_bloques_180 b
     LEFT JOIN clients_180 c ON c.id = b.cliente_id
+    LEFT JOIN centros_trabajo_180 ct ON ct.id = b.centro_trabajo_id
     WHERE b.plantilla_dia_id = ${dia[0].id}
     ORDER BY b.hora_inicio ASC
   `;
@@ -228,11 +254,18 @@ export async function resolverPlanDia({ empresaId, empleadoId, fecha }) {
 
     bloques: bloques.map((b) => ({
       tipo: b.tipo,
+      es_trabajo: tiposMap[b.tipo]?.es_trabajo ?? (b.tipo === "trabajo"),
       inicio: b.hora_inicio,
       fin: b.hora_fin,
       obligatorio: b.obligatorio,
-      cliente_id: b.cliente_id || cliente?.id || null,
-      cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : (cliente?.nombre || null)),
+      cliente_id: b.cliente_id || (b.centro_trabajo_id ? null : (cliente?.id || null)),
+      cliente_nombre: b.cliente_nombre || (b.cliente_id ? "Sede específica" : (b.centro_trabajo_id ? null : (cliente?.nombre || null))),
+      centro_trabajo_id: b.centro_trabajo_id || null,
+      centro_trabajo_nombre: b.centro_trabajo_nombre || null,
+      centro_lat: b.centro_lat ?? null,
+      centro_lng: b.centro_lng ?? null,
+      centro_radio_m: b.centro_radio_m ?? null,
+      centro_geo_policy: b.centro_geo_policy ?? null,
     })),
   };
 }

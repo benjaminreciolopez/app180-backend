@@ -208,8 +208,8 @@ function compararPlanVsReal({ plan, bloquesReales }) {
   };
 
   const esp = plan?.bloques || [];
-  const trabajosEsp = esp.filter((b) => b.tipo === "trabajo");
-  const descansosEsp = esp.filter((b) => String(b.tipo).includes("descanso"));
+  const trabajosEsp = esp.filter((b) => b.es_trabajo !== undefined ? b.es_trabajo === true : b.tipo === "trabajo");
+  const descansosEsp = esp.filter((b) => b.es_trabajo !== undefined ? b.es_trabajo === false : String(b.tipo).includes("descanso"));
 
   // Totales planificados
   for (const b of trabajosEsp) {
@@ -290,11 +290,11 @@ function compararPlanVsReal({ plan, bloquesReales }) {
     const rF = isoToLocalMin(br.fin);
     if (!(rF > rI)) continue;
 
-    // sum overlap con bloques esperados del mismo “grupo”
+    // sum overlap con bloques esperados del mismo "grupo"
     const espCandidates =
       br.tipo === "trabajo"
         ? trabajosEsp
-        : String(br.tipo).includes("descanso")
+        : br.tipo === "descanso"
           ? descansosEsp
           : esp; // fallback
 

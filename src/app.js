@@ -77,6 +77,8 @@ import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
 import fichajeCorreccionRoutes from "./routes/fichajeCorreccionRoutes.js";
 import fichajeIntegridadRoutes from "./routes/fichajeIntegridadRoutes.js";
 import adminCentrosTrabajoRoutes from "./routes/adminCentrosTrabajoRoutes.js";
+import adminParteConfigRoutes from "./routes/adminParteConfigRoutes.js";
+import { miParteConfig } from "./controllers/parteConfiguracionesController.js";
 
 const app = express();
 
@@ -224,6 +226,7 @@ app.use("/admin", adminConfigRoutes); // Must be before routes with requireModul
 app.use("/admin", adminCalendarioRoutes);
 app.use("/empleado", empleadoCalendarioRoutes);
 app.use("/empleado", empleadoJornadasRoutes);
+app.get("/empleado/mi-parte-config", authRequired, miParteConfig);
 app.use("/admin", adminEmployeesRoutes);
 app.use("/admin", adminCalendarioOCRRoutes);
 app.use("/admin", adminCalendarioImportacionesRoutes);
@@ -262,6 +265,7 @@ app.use("/api/admin/contabilidad", adminContabilidadRoutes); // Módulo contabil
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
 app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
+app.use("/admin", adminParteConfigRoutes); // Partes configurables
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 

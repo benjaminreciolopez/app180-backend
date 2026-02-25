@@ -1,5 +1,13 @@
 import { sql } from "../db.js";
 
+export const DEFAULT_TIPOS_BLOQUE = [
+  { key: "trabajo", label: "Trabajo", color: "#22c55e", es_trabajo: true, sistema: true },
+  { key: "descanso", label: "Descanso", color: "#f59e0b", es_trabajo: false, sistema: true },
+  { key: "pausa", label: "Pausa", color: "#a855f7", es_trabajo: false, sistema: false },
+  { key: "comida", label: "Comida", color: "#ef4444", es_trabajo: false, sistema: false },
+  { key: "otro", label: "Otro", color: "#6b7280", es_trabajo: false, sistema: false },
+];
+
 const DEFAULT_MODULOS = {
   clientes: true,
   fichajes: true,
@@ -30,7 +38,7 @@ export async function getEmpresaConfig(req, res) {
     let rows = await sql`
       SELECT c.modulos, c.modulos_mobile, c.ai_tokens, e.user_id as creator_id,
              c.pin_lock_enabled, c.pin_code, c.pin_timeout_minutes,
-             c.screensaver_enabled, c.screensaver_style
+             c.screensaver_enabled, c.screensaver_style, c.tipos_bloque
       FROM empresa_config_180 c
       JOIN empresa_180 e ON c.empresa_id = e.id
       WHERE c.empresa_id = ${empresaId}
@@ -76,6 +84,7 @@ export async function getEmpresaConfig(req, res) {
       pin_timeout_minutes: rows[0]?.pin_timeout_minutes || 5,
       screensaver_enabled: rows[0]?.screensaver_enabled || false,
       screensaver_style: rows[0]?.screensaver_style || 'clock',
+      tipos_bloque: rows[0]?.tipos_bloque || DEFAULT_TIPOS_BLOQUE,
     });
   } catch (err) {
     console.error("❌ getEmpresaConfig:", err);
@@ -273,6 +282,84 @@ export async function updateDashboardWidgets(req, res) {
   } catch (err) {
     console.error("❌ updateDashboardWidgets:", err);
     res.status(500).json({ error: "Error guardando widgets" });
+  }
+}
+
+/**
+ * GET /admin/configuracion/tipos-bloque
+ */
+export async function getTiposBloque(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    if (!empresaId) return res.status(403).json({ error: "No empresa" });
+
+    const [row] = await sql`
+      SELECT tipos_bloque FROM empresa_config_180 WHERE empresa_id = ${empresaId} LIMIT 1
+    `;
+
+    return res.json(row?.tipos_bloque || DEFAULT_TIPOS_BLOQUE);
+  } catch (err) {
+    console.error("❌ getTiposBloque:", err);
+    res.status(500).json({ error: "Error obteniendo tipos de bloque" });
+  }
+}
+
+/**
+ * PUT /admin/configuracion/tipos-bloque
+ */
+export async function updateTiposBloque(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    if (!empresaId) return res.status(403).json({ error: "No empresa" });
+
+    const { tipos_bloque } = req.body;
+
+    if (!Array.isArray(tipos_bloque)) {
+      return res.status(400).json({ error: "tipos_bloque debe ser un array" });
+    }
+
+    // Validar estructura de cada tipo
+    const keys = new Set();
+    for (const t of tipos_bloque) {
+      if (!t.key || typeof t.key !== "string") return res.status(400).json({ error: "Cada tipo necesita un 'key' string" });
+      if (!t.label || typeof t.label !== "string") return res.status(400).json({ error: `Tipo '${t.key}': label obligatorio` });
+      if (typeof t.es_trabajo !== "boolean") return res.status(400).json({ error: `Tipo '${t.key}': es_trabajo debe ser boolean` });
+      if (keys.has(t.key)) return res.status(400).json({ error: `Key duplicada: '${t.key}'` });
+      keys.add(t.key);
+    }
+
+    // Validar que los tipos sistema existen
+    const tienesTrabajo = tipos_bloque.some(t => t.key === "trabajo" && t.sistema === true);
+    const tienesDescanso = tipos_bloque.some(t => t.key === "descanso" && t.sistema === true);
+    if (!tienesTrabajo || !tienesDescanso) {
+      return res.status(400).json({ error: "Los tipos 'trabajo' y 'descanso' son obligatorios y no se pueden eliminar" });
+    }
+
+    // Validar que trabajo.es_trabajo=true y descanso.es_trabajo=false
+    const trabajo = tipos_bloque.find(t => t.key === "trabajo");
+    const descanso = tipos_bloque.find(t => t.key === "descanso");
+    if (!trabajo.es_trabajo) return res.status(400).json({ error: "'trabajo' debe tener es_trabajo: true" });
+    if (descanso.es_trabajo) return res.status(400).json({ error: "'descanso' debe tener es_trabajo: false" });
+
+    // Sanitizar
+    const safe = tipos_bloque.map(t => ({
+      key: t.key.trim(),
+      label: t.label.trim(),
+      color: t.color || "#6b7280",
+      es_trabajo: !!t.es_trabajo,
+      sistema: !!t.sistema,
+    }));
+
+    await sql`
+      UPDATE empresa_config_180
+      SET tipos_bloque = ${JSON.stringify(safe)}::jsonb, updated_at = now()
+      WHERE empresa_id = ${empresaId}
+    `;
+
+    return res.json({ success: true, tipos_bloque: safe });
+  } catch (err) {
+    console.error("❌ updateTiposBloque:", err);
+    res.status(500).json({ error: "Error guardando tipos de bloque" });
   }
 }
 

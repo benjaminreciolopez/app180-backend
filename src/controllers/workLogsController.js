@@ -40,7 +40,9 @@ export async function crearWorkLog(req, res) {
       precio,
       tipo_facturacion = 'hora',
       duracion_texto,
-      save_as_template = false
+      save_as_template = false,
+      campos_extra,
+      parte_config_id,
     } = req.body;
 
     console.log("📝 crearWorkLog Payload:", JSON.stringify(req.body));
@@ -207,7 +209,9 @@ export async function crearWorkLog(req, res) {
           estado_pago,
           created_at,
           tipo_facturacion,
-          duracion_texto
+          duracion_texto,
+          campos_extra,
+          parte_config_id
         )
       VALUES
         (
@@ -224,7 +228,9 @@ export async function crearWorkLog(req, res) {
           'pendiente',
           now(),
           ${tipo_facturacion},
-          ${duracion_texto || null}
+          ${duracion_texto || null},
+          ${campos_extra ? JSON.stringify(campos_extra) : null},
+          ${parte_config_id || null}
         )
       RETURNING *
     `;
@@ -361,6 +367,8 @@ export async function adminWorkLogs(req, res) {
         w.estado_pago,
         w.tipo_facturacion,
         w.duracion_texto,
+        w.campos_extra,
+        w.parte_config_id,
         e.id AS empleado_id,
         e.nombre AS empleado_nombre,
         c.id AS cliente_id,
@@ -451,7 +459,9 @@ export async function actualizarWorkLog(req, res) {
     const {
       descripcion, detalles, fecha, minutos, precio,
       tipo_facturacion, duracion_texto, cliente_id, empleado_id,
-      save_as_template = false
+      save_as_template = false,
+      campos_extra,
+      parte_config_id,
     } = req.body;
 
     // Verificar propiedad (o ser admin)
@@ -535,6 +545,14 @@ export async function actualizarWorkLog(req, res) {
     // Si es admin, permitir cambiar empleado
     if (req.user.role === 'admin' && empleado_id) {
       updateFields.employee_id = empleado_id;
+    }
+
+    // Campos extra (partes configurables)
+    if (campos_extra !== undefined) {
+      updateFields.campos_extra = campos_extra ? JSON.stringify(campos_extra) : null;
+    }
+    if (parte_config_id !== undefined) {
+      updateFields.parte_config_id = parte_config_id || null;
     }
 
     if (Object.keys(updateFields).length === 0) {

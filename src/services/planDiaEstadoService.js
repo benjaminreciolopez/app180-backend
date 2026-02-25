@@ -106,10 +106,8 @@ function isDiaLaboral(plan) {
 
 function pickTargetsFromPlan(plan) {
   const bloques = Array.isArray(plan?.bloques) ? plan.bloques : [];
-  const trabajos = bloques.filter((b) => b.tipo === "trabajo");
-  const descansos = bloques.filter((b) =>
-    ["descanso", "pausa", "comida"].includes(b.tipo),
-  );
+  const trabajos = bloques.filter((b) => b.es_trabajo !== undefined ? b.es_trabajo === true : b.tipo === "trabajo");
+  const descansos = bloques.filter((b) => b.es_trabajo !== undefined ? b.es_trabajo === false : ["descanso", "pausa", "comida"].includes(b.tipo));
 
   const entrada =
     trabajos.length > 0 ? trabajos[0].inicio : plan?.rango?.inicio || null;
@@ -294,10 +292,6 @@ export async function getPlanDiaEstado({
   // 🔧 Normalizar bloques ANTES de evaluar si es laboral
   if (Array.isArray(plan?.bloques)) {
     plan.bloques = plan.bloques
-      .map((b) => ({
-        ...b,
-        tipo: b.tipo === "pausa" || b.tipo === "comida" ? "descanso" : b.tipo,
-      }))
       .sort((a, b) =>
         String(a.inicio || "").localeCompare(String(b.inicio || "")),
       );
@@ -378,9 +372,48 @@ export async function getPlanDiaEstado({
     }
   }
 
-  const cliente = datosCliente
+  // 2.3) Override geo por bloque: si el bloque actual tiene centro/cliente específico, usarlo
+  const nowMinGeo = getNowMinInTZ(now, TZ);
+  if (nowMinGeo != null && Array.isArray(plan?.bloques) && plan.bloques.length > 0) {
+    const bloqueActual = plan.bloques.find((b) => {
+      const iniMin = timeStrToMin(b.inicio, TZ);
+      const finMin = timeStrToMin(b.fin, TZ);
+      return iniMin != null && finMin != null && nowMinGeo >= iniMin - MARGEN_ANTES_MIN && nowMinGeo <= finMin + MARGEN_DESPUES_MIN;
+    });
+
+    if (bloqueActual) {
+      if (bloqueActual.centro_trabajo_id && bloqueActual.centro_lat != null) {
+        // Centro de trabajo del bloque overrides geo
+        datosCliente = {
+          cliente_id: bloqueActual.centro_trabajo_id,
+          cliente_nombre: bloqueActual.centro_trabajo_nombre,
+          cliente_lat: bloqueActual.centro_lat,
+          cliente_lng: bloqueActual.centro_lng,
+          cliente_radio_m: bloqueActual.centro_radio_m,
+          cliente_geo_policy: bloqueActual.centro_geo_policy,
+          cliente_modo_defecto: null,
+          _es_centro_trabajo: true,
+        };
+      } else if (bloqueActual.cliente_id && bloqueActual.cliente_id !== datosCliente?.cliente_id) {
+        // Cliente específico del bloque overrides
+        const cliRow = await sql`
+          SELECT id AS cliente_id, nombre AS cliente_nombre,
+                 lat AS cliente_lat, lng AS cliente_lng,
+                 radio_m AS cliente_radio_m, geo_policy AS cliente_geo_policy,
+                 modo_defecto AS cliente_modo_defecto
+          FROM clients_180
+          WHERE id = ${bloqueActual.cliente_id}
+          LIMIT 1
+        `;
+        if (cliRow.length) datosCliente = cliRow[0];
+      }
+    }
+  }
+
+  // Re-assemble cliente after potential override
+  const clienteFinal = datosCliente
     ? {
-        id: datosCliente.cliente_id, // o cliente_defecto_id, que mapeamos arriba
+        id: datosCliente.cliente_id,
         nombre: datosCliente.cliente_nombre ?? null,
         lat: datosCliente.cliente_lat ?? null,
         lng: datosCliente.cliente_lng ?? null,
@@ -586,8 +619,8 @@ export async function getPlanDiaEstado({
   // REGLA DE NEGOCIO: Botón siempre visible salvo bloqueo por calendario/ausencia
   return {
     fecha: ymd,
-    boton_visible: true, 
-    cliente,
+    boton_visible: true,
+    cliente: clienteFinal,
     
     // UI: Destacar solo cuando es el momento
     color: dentroMargen ? "rojo" : "negro",

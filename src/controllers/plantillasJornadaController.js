@@ -361,7 +361,7 @@ export const getBloquesDia = async (req, res) => {
       await getPlantillaDiaAndAssertEmpresa(tx, plantilla_dia_id, empresaId);
 
       return tx`
-        select id, tipo, hora_inicio, hora_fin, obligatorio
+        select id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id
         from plantilla_bloques_180
         where plantilla_dia_id=${plantilla_dia_id}
         order by hora_inicio asc
@@ -408,36 +408,45 @@ export const upsertBloquesDia = async (req, res) => {
           throw err;
         }
 
+        // Exclusión mutua: no puede tener ambos
+        if (b.cliente_id && b.centro_trabajo_id) {
+          const err = new Error("Un bloque no puede tener cliente_id y centro_trabajo_id a la vez");
+          err.status = 400;
+          throw err;
+        }
+
         await tx`
-          insert into plantilla_bloques_180 (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id)
+          insert into plantilla_bloques_180 (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id)
           values (
             ${plantilla_dia_id},
             ${b.tipo},
             ${b.hora_inicio},
             ${b.hora_fin},
             coalesce(${obligatorioParsed}, true),
-            ${b.cliente_id || null}
+            ${b.cliente_id || null},
+            ${b.centro_trabajo_id || null}
           )
         `;
-        // 🔁 Recalcular turnos de empleados con esta plantilla
-        const plantillaDia = await tx`
+      }
+
+      // 🔁 Recalcular turnos de empleados con esta plantilla
+      const plantillaDia = await tx`
         SELECT plantilla_id
         FROM plantilla_dias_180
         WHERE id = ${plantilla_dia_id}
         LIMIT 1
       `;
 
-        if (plantillaDia.length) {
-          await recalcularTurnosDesdePlantilla({
-            empresaId,
-            plantillaId: plantillaDia[0].plantilla_id,
-            tx,
-          });
-        }
+      if (plantillaDia.length) {
+        await recalcularTurnosDesdePlantilla({
+          empresaId,
+          plantillaId: plantillaDia[0].plantilla_id,
+          tx,
+        });
       }
 
       return tx`
-        select id, tipo, hora_inicio, hora_fin, obligatorio
+        select id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id
         from plantilla_bloques_180
         where plantilla_dia_id=${plantilla_dia_id}
         order by hora_inicio asc
@@ -503,7 +512,7 @@ export const getBloquesExcepcion = async (req, res) => {
       await getExcepcionAndAssertEmpresa(tx, excepcion_id, empresaId);
 
       return tx`
-        select id, tipo, hora_inicio, hora_fin, obligatorio
+        select id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id
         from plantilla_excepcion_bloques_180
         where excepcion_id=${excepcion_id}
         order by hora_inicio asc
@@ -549,29 +558,37 @@ export const upsertBloquesExcepcion = async (req, res) => {
           throw err;
         }
 
+        // Exclusión mutua
+        if (b.cliente_id && b.centro_trabajo_id) {
+          const err = new Error("Un bloque no puede tener cliente_id y centro_trabajo_id a la vez");
+          err.status = 400;
+          throw err;
+        }
+
         await tx`
-          insert into plantilla_excepcion_bloques_180 (excepcion_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id)
+          insert into plantilla_excepcion_bloques_180 (excepcion_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id)
           values (
             ${excepcion_id},
             ${b.tipo},
             ${b.hora_inicio},
             ${b.hora_fin},
             coalesce(${obligatorioParsed}, true),
-            ${b.cliente_id || null}
+            ${b.cliente_id || null},
+            ${b.centro_trabajo_id || null}
           )
         `;
-
-        // 🔁 Recalcular turnos de empleados con esta plantilla
-        await recalcularTurnosDesdePlantilla({
-          empresaId,
-          plantillaId: ex.plantilla_id,
-          fecha: ex.fecha,
-          tx,
-        });
       }
 
+      // 🔁 Recalcular turnos de empleados con esta plantilla
+      await recalcularTurnosDesdePlantilla({
+        empresaId,
+        plantillaId: ex.plantilla_id,
+        fecha: ex.fecha,
+        tx,
+      });
+
       return tx`
-        select id, tipo, hora_inicio, hora_fin, obligatorio
+        select id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id
         from plantilla_excepcion_bloques_180
         where excepcion_id=${excepcion_id}
         order by hora_inicio asc
@@ -1060,7 +1077,7 @@ export const replicarDiaSemana = async (req, res) => {
 
       // Bloques del origen
       const bloques = await tx`
-        SELECT tipo, hora_inicio, hora_fin, obligatorio
+        SELECT tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id
         FROM plantilla_bloques_180
         WHERE plantilla_dia_id=${diaBase.id}
         ORDER BY hora_inicio
@@ -1117,14 +1134,16 @@ export const replicarDiaSemana = async (req, res) => {
         for (const b of bloques) {
           await tx`
             INSERT INTO plantilla_bloques_180
-              (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio)
+              (plantilla_dia_id, tipo, hora_inicio, hora_fin, obligatorio, cliente_id, centro_trabajo_id)
             VALUES
               (
                 ${dest.id},
                 ${b.tipo},
                 ${b.hora_inicio},
                 ${b.hora_fin},
-                ${b.obligatorio}
+                ${b.obligatorio},
+                ${b.cliente_id || null},
+                ${b.centro_trabajo_id || null}
               )
           `;
         }
