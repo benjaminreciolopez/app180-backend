@@ -76,6 +76,7 @@ import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
 import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
 import fichajeCorreccionRoutes from "./routes/fichajeCorreccionRoutes.js";
 import fichajeIntegridadRoutes from "./routes/fichajeIntegridadRoutes.js";
+import adminCentrosTrabajoRoutes from "./routes/adminCentrosTrabajoRoutes.js";
 
 const app = express();
 
@@ -262,6 +263,7 @@ app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Su
 app.use("/api/admin/contabilidad", adminContabilidadRoutes); // Módulo contabilidad
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
+app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 
@@ -280,6 +282,7 @@ app.use("/admin", aiRoutes);
 app.use("/admin", adminKnowledgeRoutes);
 app.use("/admin/contabilidad", adminContabilidadRoutes);
 app.use("/admin/asesoria", adminAsesoriaRoutes);
+app.use("/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo legacy
 
 // =========================
 // GLOBAL ERROR HANDLER

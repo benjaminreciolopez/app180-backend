@@ -108,10 +108,17 @@ export const createFichaje = async (req, res) => {
     }
 
     /* =========================
-       5. Cliente obligatorio
+       5. Cliente obligatorio (o centro de trabajo)
     ========================= */
 
-    if (tipo === "entrada" && empleado.tipo_trabajo === "oficina" && !cliente) {
+    // Resolver centro de trabajo del empleado (para audit trail en INSERT)
+    let centroTrabajoId = null;
+    if (!cliente) {
+      const [empCt] = await sql`SELECT centro_trabajo_id FROM employees_180 WHERE id = ${empleadoId}`;
+      centroTrabajoId = empCt?.centro_trabajo_id || null;
+    }
+
+    if (tipo === "entrada" && empleado.tipo_trabajo === "oficina" && !cliente && !centroTrabajoId) {
       const hayClientes = await sql`
         SELECT 1 FROM clients_180
         WHERE empresa_id = ${empresaId}
@@ -119,7 +126,7 @@ export const createFichaje = async (req, res) => {
       `;
 
       if (hayClientes.length > 0) {
-        return res.status(400).json({ error: "Debes seleccionar un cliente" });
+        return res.status(400).json({ error: "Debes seleccionar un cliente o tener un centro de trabajo asignado" });
       }
     }
     /* =========================
@@ -200,6 +207,7 @@ export const createFichaje = async (req, res) => {
     user_id,
     empleado_id,
     cliente_id,
+    centro_trabajo_id,
     empresa_id,
     jornada_id,
 
@@ -235,6 +243,7 @@ export const createFichaje = async (req, res) => {
     ${req.user.id},
     ${empleadoId},
     ${cliente?.id || null},
+    ${centroTrabajoId || null},
     ${empresaId},
     ${jornadaId},
 

@@ -118,7 +118,12 @@ export const getEmployeesAdmin = async (req, res) => {
         d.device_hash,
         d.activo AS dispositivo_activo,
         p.id AS plantilla_id,
-        p.nombre AS plantilla_nombre
+        p.nombre AS plantilla_nombre,
+        ct.id AS centro_trabajo_id_actual,
+        ct.nombre AS centro_trabajo_nombre,
+        ec_act.cliente_id AS cliente_actual_id,
+        c_act.nombre AS cliente_actual_nombre,
+        c_act.codigo AS cliente_actual_codigo
       FROM employees_180 e
       JOIN users_180 u ON u.id = e.user_id
 
@@ -134,6 +139,19 @@ export const getEmployeesAdmin = async (req, res) => {
       LEFT JOIN plantillas_jornada_180 p
         ON p.id = ep.plantilla_id
       AND p.activo = true
+
+      LEFT JOIN centros_trabajo_180 ct
+        ON ct.id = e.centro_trabajo_id
+      AND ct.activo = true
+
+      LEFT JOIN empleado_clientes_180 ec_act
+        ON ec_act.empleado_id = e.id
+      AND ec_act.empresa_id = e.empresa_id
+      AND ec_act.activo = true
+      AND ec_act.fecha_fin IS NULL
+
+      LEFT JOIN clients_180 c_act
+        ON c_act.id = ec_act.cliente_id
 
       WHERE e.empresa_id = ${empresaId}
       ORDER BY e.id, ep.fecha_inicio DESC

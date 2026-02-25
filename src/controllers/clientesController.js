@@ -604,7 +604,14 @@ export async function asignarClienteEmpleado(req, res) {
           and (fecha_fin is null or fecha_fin >= ${fecha_inicio}::date)
       `;
 
-      // 3. Insertar nueva
+      // 3. Limpiar centro de trabajo (exclusión mutua: cliente OR centro)
+      await tx`
+        UPDATE employees_180
+        SET centro_trabajo_id = NULL
+        WHERE id = ${empleado_id} AND empresa_id = ${empresaId}
+      `;
+
+      // 4. Insertar nueva
       const [nueva] = await tx`
         insert into empleado_clientes_180 (
           empresa_id, empleado_id, cliente_id, fecha_inicio, fecha_fin

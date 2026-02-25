@@ -355,6 +355,29 @@ export async function getPlanDiaEstado({
       }
   }
 
+  // 2.2) Fallback: Centro de trabajo asignado (si no hay cliente)
+  if (!datosCliente) {
+    const centroRows = await sql`
+      SELECT
+        ct.id AS cliente_id,
+        ct.nombre AS cliente_nombre,
+        ct.lat AS cliente_lat,
+        ct.lng AS cliente_lng,
+        ct.radio_m AS cliente_radio_m,
+        ct.geo_policy AS cliente_geo_policy,
+        null AS cliente_modo_defecto
+      FROM employees_180 e
+      JOIN centros_trabajo_180 ct ON ct.id = e.centro_trabajo_id AND ct.activo = true
+      WHERE e.id = ${empleadoId}
+        AND e.empresa_id = ${empresaId}
+      LIMIT 1
+    `;
+    if (centroRows.length > 0) {
+      datosCliente = centroRows[0];
+      datosCliente._es_centro_trabajo = true;
+    }
+  }
+
   const cliente = datosCliente
     ? {
         id: datosCliente.cliente_id, // o cliente_defecto_id, que mapeamos arriba
