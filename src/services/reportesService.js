@@ -55,17 +55,18 @@ export const calcularReporteRentabilidad = async (empresaId, desde, hasta, emple
     for (const emp of empleados) {
         let minutosPlan = 0;
         
-        // Calcular plan dia a dia en paralelo para este empleado
-        // Nota: Si esto es muy lento, se podria optimizar más, pero mantenemos logica original
-        const promesasDías = fechas.map(fecha => 
-            resolverPlanDia({
-                empresaId,
-                empleadoId: emp.id,
-                fecha
-            })
-        );
-        
-        const planes = await Promise.all(promesasDías);
+        // Calcular plan dia a dia en lotes para evitar saturar el pool de conexiones
+        const BATCH_SIZE = 5;
+        const planes = [];
+        for (let i = 0; i < fechas.length; i += BATCH_SIZE) {
+            const batch = fechas.slice(i, i + BATCH_SIZE);
+            const batchResults = await Promise.all(
+                batch.map(fecha =>
+                    resolverPlanDia({ empresaId, empleadoId: emp.id, fecha })
+                )
+            );
+            planes.push(...batchResults);
+        }
         
         for (const plan of planes) {
             if (plan && plan.bloques) {
