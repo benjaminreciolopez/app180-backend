@@ -397,6 +397,181 @@ export async function generarAsientoNomina(empresaId, nomina, creadoPor) {
   });
 }
 
+// =============================================
+// Asientos de Cobro y Pago (FASE A)
+// =============================================
+
+/**
+ * Mapea un método de pago a la cuenta contable correspondiente.
+ * - transferencia / domiciliacion / tarjeta / bizum → 572 (Bancos)
+ * - efectivo → 570 (Caja)
+ */
+function cuentaTesoreriaPorMetodo(metodo) {
+  const m = (metodo || "").toLowerCase().trim();
+  if (["efectivo"].includes(m)) {
+    return { codigo: "570", nombre: "Caja, euros" };
+  }
+  // transferencia, tarjeta, domiciliacion, bizum, otro → banco
+  return { codigo: "572", nombre: "Bancos e instituciones de crédito c/c vista, euros" };
+}
+
+/**
+ * Generar asiento automático de COBRO de una factura emitida.
+ * Se genera al asignar un pago a una factura en el módulo de cobros-pagos.
+ *
+ * Asiento:
+ *   Debe: 572 (Banco) o 570 (Caja) → según método de pago
+ *   Haber: 430xxx (subcuenta del cliente)
+ *
+ * @param {string} empresaId
+ * @param {Object} params
+ * @param {string} params.paymentId - ID del pago
+ * @param {string} params.metodo - Método de pago (transferencia, efectivo, tarjeta, bizum, otro)
+ * @param {number} params.importe - Importe cobrado
+ * @param {string} params.fecha - Fecha del cobro (YYYY-MM-DD)
+ * @param {number|string|null} params.facturaId - ID de la factura cobrada (puede ser int o uuid)
+ * @param {string|null} params.facturaNumero - Número de factura
+ * @param {string|null} params.clienteId - ID del cliente
+ * @param {string|null} params.clienteNombre - Nombre del cliente
+ * @param {string|null} params.creadoPor - ID del usuario
+ */
+export async function generarAsientoCobro(empresaId, {
+  paymentId,
+  metodo,
+  importe,
+  fecha,
+  facturaId = null,
+  facturaNumero = null,
+  clienteId = null,
+  clienteNombre = null,
+  creadoPor = null,
+}) {
+  const importeNum = parseFloat(importe);
+  if (!importeNum || importeNum <= 0) return null;
+
+  // Evitar duplicados: verificar que no exista asiento con misma referencia
+  const refId = `cobro_${paymentId}_${facturaId || "gen"}`;
+  const existing = await sql`
+    SELECT id FROM asientos_180
+    WHERE empresa_id = ${empresaId}
+      AND referencia_tipo = 'cobro'
+      AND referencia_id = ${refId}
+      AND estado != 'anulado'
+    LIMIT 1
+  `;
+  if (existing.length > 0) return null; // Ya existe
+
+  // Cuenta de tesorería según método
+  const cuentaTesoro = cuentaTesoreriaPorMetodo(metodo);
+
+  // Subcuenta del cliente (430xxx)
+  const cuentaCliente = await getOrCreateCuentaTercero(
+    empresaId, "cliente", clienteId, clienteNombre || "Cliente"
+  );
+
+  const concepto = facturaNumero
+    ? `Cobro fact. ${facturaNumero} - ${clienteNombre || "Cliente"}`
+    : `Cobro - ${clienteNombre || "Cliente"}`;
+
+  const lineas = [
+    {
+      cuenta_codigo: cuentaTesoro.codigo,
+      cuenta_nombre: cuentaTesoro.nombre,
+      debe: importeNum,
+      haber: 0,
+      concepto,
+    },
+    {
+      cuenta_codigo: cuentaCliente.codigo,
+      cuenta_nombre: cuentaCliente.nombre,
+      debe: 0,
+      haber: importeNum,
+      concepto,
+    },
+  ];
+
+  return crearAsiento({
+    empresaId,
+    fecha: fecha || new Date().toISOString().split("T")[0],
+    concepto,
+    tipo: "auto_cobro",
+    referencia_tipo: "cobro",
+    referencia_id: refId,
+    creado_por: creadoPor,
+    lineas,
+  });
+}
+
+/**
+ * Generar asiento automático de PAGO de un gasto/factura recibida.
+ * Se genera automáticamente al crear un gasto que tiene método de pago.
+ *
+ * Asiento:
+ *   Debe: 400xxx (subcuenta del proveedor) → cancela la deuda
+ *   Haber: 572 (Banco) o 570 (Caja) → según método de pago
+ *
+ * @param {string} empresaId
+ * @param {Object} gasto - El gasto (purchase) ya creado
+ * @param {string|null} creadoPor - ID del usuario
+ */
+export async function generarAsientoPagoGasto(empresaId, gasto, creadoPor = null) {
+  const total = parseFloat(gasto.total || 0);
+  if (!total || total <= 0) return null;
+  if (!gasto.metodo_pago) return null;
+
+  // Evitar duplicados
+  const refId = `pago_gasto_${gasto.id}`;
+  const existing = await sql`
+    SELECT id FROM asientos_180
+    WHERE empresa_id = ${empresaId}
+      AND referencia_tipo = 'pago_gasto'
+      AND referencia_id = ${refId}
+      AND estado != 'anulado'
+    LIMIT 1
+  `;
+  if (existing.length > 0) return null;
+
+  const proveedorNombre = gasto.proveedor || "Proveedor";
+
+  // Subcuenta del proveedor (400xxx) - reutilizar la misma que el asiento de devengo
+  const cuentaProveedor = await getOrCreateCuentaTercero(
+    empresaId, "proveedor", gasto.id, proveedorNombre
+  );
+
+  // Cuenta de tesorería según método de pago
+  const cuentaTesoro = cuentaTesoreriaPorMetodo(gasto.metodo_pago);
+
+  const concepto = `Pago - ${proveedorNombre} - ${gasto.descripcion || ""}`.trim();
+
+  const lineas = [
+    {
+      cuenta_codigo: cuentaProveedor.codigo,
+      cuenta_nombre: cuentaProveedor.nombre,
+      debe: total,
+      haber: 0,
+      concepto,
+    },
+    {
+      cuenta_codigo: cuentaTesoro.codigo,
+      cuenta_nombre: cuentaTesoro.nombre,
+      debe: 0,
+      haber: total,
+      concepto,
+    },
+  ];
+
+  return crearAsiento({
+    empresaId,
+    fecha: gasto.fecha_compra || gasto.fecha || new Date().toISOString().split("T")[0],
+    concepto,
+    tipo: "auto_pago",
+    referencia_tipo: "pago_gasto",
+    referencia_id: refId,
+    creado_por: creadoPor,
+    lineas,
+  });
+}
+
 /**
  * Calcula el balance de situación a una fecha.
  * Agrupa saldos por tipo de cuenta (activo, pasivo, patrimonio).
@@ -682,8 +857,8 @@ export async function cerrarEjercicio(empresaId, anio, creadoPor) {
  */
 export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, creadoPor) {
   const resultados = {
-    facturas: 0, gastos: 0, nominas: 0, errores: [],
-    ya_existentes: { facturas: 0, gastos: 0, nominas: 0 },
+    facturas: 0, gastos: 0, nominas: 0, cobros: 0, pagos: 0, errores: [],
+    ya_existentes: { facturas: 0, gastos: 0, nominas: 0, cobros: 0, pagos: 0 },
     ia_clasificaciones: 0,
   };
 
@@ -882,6 +1057,109 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
       resultados.nominas++;
     } catch (err) {
       resultados.errores.push(`Nómina ${n.empleado_nombre || n.id}: ${err.message}`);
+    }
+  }
+
+  // ============== PASO 4: COBROS Y PAGOS DEL PERIODO ==============
+
+  // --- Cobros: Pagos asignados a facturas en el periodo ---
+  const [cobroStats] = await sql`
+    SELECT
+      COUNT(DISTINCT CONCAT(pa.payment_id, '_', pa.factura_id))::int AS total,
+      COUNT(DISTINCT CASE WHEN EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = pa.empresa_id AND a.referencia_tipo = 'cobro'
+          AND a.referencia_id = CONCAT('cobro_', pa.payment_id, '_', pa.factura_id)
+          AND a.estado != 'anulado'
+      ) THEN CONCAT(pa.payment_id, '_', pa.factura_id) END)::int AS con_asiento
+    FROM payment_allocations_180 pa
+    JOIN payments_180 p ON p.id = pa.payment_id
+    WHERE pa.empresa_id = ${empresaId}
+      AND pa.factura_id IS NOT NULL
+      AND p.fecha_pago >= ${fechaDesde} AND p.fecha_pago <= ${fechaHasta}
+  `;
+  resultados.ya_existentes.cobros = cobroStats.con_asiento;
+
+  const cobros = await sql`
+    SELECT pa.payment_id, pa.factura_id, pa.importe,
+           p.metodo, p.fecha_pago,
+           f.numero AS factura_numero, f.cliente_id,
+           c.nombre AS cliente_nombre
+    FROM payment_allocations_180 pa
+    JOIN payments_180 p ON p.id = pa.payment_id
+    JOIN factura_180 f ON f.id = pa.factura_id
+    LEFT JOIN clients_180 c ON c.id = f.cliente_id
+    WHERE pa.empresa_id = ${empresaId}
+      AND pa.factura_id IS NOT NULL
+      AND p.fecha_pago >= ${fechaDesde} AND p.fecha_pago <= ${fechaHasta}
+      AND NOT EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = ${empresaId}
+          AND a.referencia_tipo = 'cobro'
+          AND a.referencia_id = CONCAT('cobro_', pa.payment_id, '_', pa.factura_id)
+          AND a.estado != 'anulado'
+      )
+    ORDER BY p.fecha_pago
+  `;
+
+  for (const co of cobros) {
+    try {
+      await generarAsientoCobro(empresaId, {
+        paymentId: co.payment_id,
+        metodo: co.metodo,
+        importe: co.importe,
+        fecha: co.fecha_pago,
+        facturaId: co.factura_id,
+        facturaNumero: co.factura_numero,
+        clienteId: co.cliente_id,
+        clienteNombre: co.cliente_nombre,
+        creadoPor,
+      });
+      resultados.cobros++;
+    } catch (err) {
+      resultados.errores.push(`Cobro fact. ${co.factura_numero || co.factura_id}: ${err.message}`);
+    }
+  }
+
+  // --- Pagos: Gastos con método de pago que no tienen asiento de pago ---
+  const [pagoStats] = await sql`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(CASE WHEN EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = g.empresa_id AND a.referencia_tipo = 'pago_gasto'
+          AND a.referencia_id = CONCAT('pago_gasto_', g.id) AND a.estado != 'anulado'
+      ) THEN 1 END)::int AS con_asiento
+    FROM purchases_180 g
+    WHERE g.empresa_id = ${empresaId} AND g.activo = true
+      AND g.metodo_pago IS NOT NULL AND g.metodo_pago != ''
+      AND g.fecha_compra >= ${fechaDesde} AND g.fecha_compra <= ${fechaHasta}
+  `;
+  resultados.ya_existentes.pagos = pagoStats.con_asiento;
+
+  const gastosConPago = await sql`
+    SELECT g.*
+    FROM purchases_180 g
+    WHERE g.empresa_id = ${empresaId}
+      AND g.activo = true
+      AND g.metodo_pago IS NOT NULL AND g.metodo_pago != ''
+      AND g.fecha_compra >= ${fechaDesde} AND g.fecha_compra <= ${fechaHasta}
+      AND NOT EXISTS (
+        SELECT 1 FROM asientos_180 a
+        WHERE a.empresa_id = ${empresaId}
+          AND a.referencia_tipo = 'pago_gasto'
+          AND a.referencia_id = CONCAT('pago_gasto_', g.id)
+          AND a.estado != 'anulado'
+      )
+    ORDER BY g.fecha_compra
+  `;
+
+  for (const gp of gastosConPago) {
+    try {
+      await generarAsientoPagoGasto(empresaId, gp, creadoPor);
+      resultados.pagos++;
+    } catch (err) {
+      resultados.errores.push(`Pago gasto ${gp.descripcion || gp.id}: ${err.message}`);
     }
   }
 

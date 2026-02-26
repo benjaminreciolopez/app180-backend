@@ -2,6 +2,7 @@
 import { sql } from "../db.js";
 import * as contabilidadService from "../services/contabilidadService.js";
 import ExcelJS from "exceljs";
+import archiver from "archiver";
 
 // =============================================
 // PGC - PLAN DE CUENTAS
@@ -865,5 +866,615 @@ export async function revisarAsientos(req, res) {
   } catch (err) {
     console.error("Error revisarAsientos:", err);
     res.status(500).json({ error: "Error revisando asientos" });
+  }
+}
+
+// =============================================
+// EXPORTACIÓN CONTABLE COMPLETA (FASE C)
+// =============================================
+
+const HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
+const HEADER_FONT = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+const CURRENCY_FMT = '#,##0.00 "€"';
+const DATE_FMT = "DD/MM/YYYY";
+const BOM = "\uFEFF";
+
+function styleExportSheet(ws) {
+  const headerRow = ws.getRow(1);
+  headerRow.eachCell((cell) => {
+    cell.fill = HEADER_FILL;
+    cell.font = HEADER_FONT;
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FF000000" } } };
+  });
+  headerRow.height = 22;
+  if (ws.columns && ws.columns.length > 0) {
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columns.length } };
+  }
+  ws.columns.forEach((col) => {
+    let maxLen = (col.header || "").length;
+    col.eachCell({ includeEmpty: false }, (cell) => {
+      const len = cell.value != null ? String(cell.value).length : 0;
+      if (len > maxLen) maxLen = len;
+    });
+    col.width = Math.min(Math.max(maxLen + 4, 10), 45);
+  });
+}
+
+/**
+ * GET /contabilidad/balance/exportar?fecha=YYYY-MM-DD&formato=excel|csv
+ */
+export async function exportarBalance(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { fecha, formato = "excel" } = req.query;
+    const fechaHasta = fecha || new Date().toISOString().split("T")[0];
+
+    const balance = await contabilidadService.calcularBalance(empresaId, fechaHasta);
+    const allCuentas = [
+      ...balance.activo.cuentas.map(c => ({ ...c, seccion: "Activo" })),
+      ...balance.pasivo.cuentas.map(c => ({ ...c, seccion: "Pasivo" })),
+      ...balance.patrimonio.cuentas.map(c => ({ ...c, seccion: "Patrimonio Neto" })),
+    ];
+
+    // Compute sumas debe / haber from asiento_lineas for balance
+    const sumasRows = await sql`
+      SELECT l.cuenta_codigo,
+             SUM(l.debe)::numeric AS suma_debe,
+             SUM(l.haber)::numeric AS suma_haber,
+             (SUM(l.debe) - SUM(l.haber))::numeric AS saldo
+      FROM asiento_lineas_180 l
+      JOIN asientos_180 a ON a.id = l.asiento_id
+      WHERE l.empresa_id = ${empresaId}
+        AND a.estado != 'anulado'
+        AND a.fecha <= ${fechaHasta}
+      GROUP BY l.cuenta_codigo
+      HAVING ABS(SUM(l.debe) - SUM(l.haber)) > 0.001
+      ORDER BY l.cuenta_codigo
+    `;
+    const sumasMap = new Map(sumasRows.map(r => [r.cuenta_codigo, r]));
+
+    if (formato === "csv") {
+      const header = "Cuenta;Descripcion;Suma Debe;Suma Haber;Saldo Deudor;Saldo Acreedor";
+      const rows = sumasRows.map(r => {
+        const saldo = Number(r.saldo);
+        const deudor = saldo > 0 ? saldo.toFixed(2) : "0.00";
+        const acreedor = saldo < 0 ? Math.abs(saldo).toFixed(2) : "0.00";
+        const cta = allCuentas.find(c => c.cuenta_codigo === r.cuenta_codigo);
+        return `${r.cuenta_codigo};${(cta?.cuenta_nombre || r.cuenta_codigo).replace(/;/g, ",")};${Number(r.suma_debe).toFixed(2)};${Number(r.suma_haber).toFixed(2)};${deudor};${acreedor}`;
+      });
+      const csv = BOM + [header, ...rows].join("\r\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=balance_sumas_saldos_${fechaHasta}.csv`);
+      return res.send(Buffer.from(csv, "utf-8"));
+    }
+
+    // Excel
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CONTENDO";
+    const ws = wb.addWorksheet("Balance Sumas y Saldos");
+    ws.columns = [
+      { header: "Cuenta", key: "cuenta", width: 12 },
+      { header: "Descripción", key: "nombre", width: 40 },
+      { header: "Sección", key: "seccion", width: 18 },
+      { header: "Suma Debe", key: "suma_debe", width: 16 },
+      { header: "Suma Haber", key: "suma_haber", width: 16 },
+      { header: "Saldo Deudor", key: "saldo_deudor", width: 16 },
+      { header: "Saldo Acreedor", key: "saldo_acreedor", width: 16 },
+    ];
+
+    for (const c of allCuentas) {
+      const sumas = sumasMap.get(c.cuenta_codigo) || { suma_debe: 0, suma_haber: 0, saldo: 0 };
+      const saldo = Number(sumas.saldo);
+      ws.addRow({
+        cuenta: c.cuenta_codigo,
+        nombre: c.cuenta_nombre,
+        seccion: c.seccion,
+        suma_debe: Number(sumas.suma_debe),
+        suma_haber: Number(sumas.suma_haber),
+        saldo_deudor: saldo > 0 ? saldo : 0,
+        saldo_acreedor: saldo < 0 ? Math.abs(saldo) : 0,
+      });
+    }
+
+    ws.getColumn("suma_debe").numFmt = CURRENCY_FMT;
+    ws.getColumn("suma_haber").numFmt = CURRENCY_FMT;
+    ws.getColumn("saldo_deudor").numFmt = CURRENCY_FMT;
+    ws.getColumn("saldo_acreedor").numFmt = CURRENCY_FMT;
+    styleExportSheet(ws);
+
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=balance_sumas_saldos_${fechaHasta}.xlsx`);
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("Error exportarBalance:", err);
+    res.status(500).json({ error: "Error exportando balance" });
+  }
+}
+
+/**
+ * GET /contabilidad/pyg/exportar?fecha_desde=YYYY-MM-DD&fecha_hasta=YYYY-MM-DD&formato=excel|csv
+ */
+export async function exportarPyG(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { fecha_desde, fecha_hasta, formato = "excel" } = req.query;
+    const desde = fecha_desde || `${new Date().getFullYear()}-01-01`;
+    const hasta = fecha_hasta || new Date().toISOString().split("T")[0];
+
+    const pyg = await contabilidadService.calcularPyG(empresaId, desde, hasta);
+
+    if (formato === "csv") {
+      const header = "Nota;Concepto;Importe";
+      const rows = [];
+      rows.push(`1;INGRESOS TOTALES;${pyg.ingresos.total.toFixed(2)}`);
+      for (const i of pyg.ingresos.cuentas) {
+        rows.push(`;${i.cuenta_codigo} - ${i.cuenta_nombre};${i.importe.toFixed(2)}`);
+      }
+      rows.push(`2;GASTOS TOTALES;${pyg.gastos.total.toFixed(2)}`);
+      for (const g of pyg.gastos.cuentas) {
+        rows.push(`;${g.cuenta_codigo} - ${g.cuenta_nombre};${g.importe.toFixed(2)}`);
+      }
+      rows.push(`;;`);
+      rows.push(`;RESULTADO DEL EJERCICIO;${pyg.resultado.toFixed(2)}`);
+      const csv = BOM + [header, ...rows].join("\r\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=pyg_${desde}_${hasta}.csv`);
+      return res.send(Buffer.from(csv, "utf-8"));
+    }
+
+    // Excel
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CONTENDO";
+    const ws = wb.addWorksheet("Cuenta PyG");
+    ws.columns = [
+      { header: "Nota", key: "nota", width: 8 },
+      { header: "Concepto", key: "concepto", width: 50 },
+      { header: "Importe", key: "importe", width: 18 },
+    ];
+
+    ws.addRow({ nota: "1", concepto: "INGRESOS DE EXPLOTACIÓN", importe: pyg.ingresos.total });
+    ws.getRow(ws.rowCount).font = { bold: true };
+    for (const i of pyg.ingresos.cuentas) {
+      ws.addRow({ nota: "", concepto: `  ${i.cuenta_codigo} - ${i.cuenta_nombre}`, importe: i.importe });
+    }
+    ws.addRow({});
+    ws.addRow({ nota: "2", concepto: "GASTOS DE EXPLOTACIÓN", importe: -pyg.gastos.total });
+    ws.getRow(ws.rowCount).font = { bold: true };
+    for (const g of pyg.gastos.cuentas) {
+      ws.addRow({ nota: "", concepto: `  ${g.cuenta_codigo} - ${g.cuenta_nombre}`, importe: -g.importe });
+    }
+    ws.addRow({});
+    const resRow = ws.addRow({ nota: "", concepto: "RESULTADO DEL EJERCICIO", importe: pyg.resultado });
+    resRow.font = { bold: true, size: 12 };
+    resRow.getCell("importe").fill = { type: "pattern", pattern: "solid", fgColor: { argb: pyg.resultado >= 0 ? "FFD4EDDA" : "FFF8D7DA" } };
+
+    ws.getColumn("importe").numFmt = CURRENCY_FMT;
+    styleExportSheet(ws);
+
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=pyg_${desde}_${hasta}.xlsx`);
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("Error exportarPyG:", err);
+    res.status(500).json({ error: "Error exportando PyG" });
+  }
+}
+
+/**
+ * GET /contabilidad/mayor/exportar?cuenta_codigo=XXX&fecha_desde=YYYY-MM-DD&fecha_hasta=YYYY-MM-DD&formato=excel|csv
+ */
+export async function exportarMayor(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { cuenta_codigo, fecha_desde, fecha_hasta, formato = "excel" } = req.query;
+    const desde = fecha_desde || `${new Date().getFullYear()}-01-01`;
+    const hasta = fecha_hasta || new Date().toISOString().split("T")[0];
+
+    // If cuenta_codigo specified, export single account; otherwise export ALL accounts
+    let cuentas;
+    if (cuenta_codigo) {
+      cuentas = [cuenta_codigo];
+    } else {
+      const rows = await sql`
+        SELECT DISTINCT l.cuenta_codigo
+        FROM asiento_lineas_180 l
+        JOIN asientos_180 a ON a.id = l.asiento_id
+        WHERE l.empresa_id = ${empresaId}
+          AND a.estado != 'anulado'
+          AND a.fecha >= ${desde} AND a.fecha <= ${hasta}
+        ORDER BY l.cuenta_codigo
+      `;
+      cuentas = rows.map(r => r.cuenta_codigo);
+    }
+
+    // Collect all movements
+    const allMovimientos = [];
+    for (const cc of cuentas) {
+      const mayor = await contabilidadService.libroMayor(empresaId, cc, desde, hasta);
+      for (const m of mayor.movimientos) {
+        allMovimientos.push({
+          cuenta_codigo: cc,
+          cuenta_nombre: mayor.cuenta_nombre || cc,
+          ...m,
+        });
+      }
+    }
+
+    if (formato === "csv") {
+      const header = "Cuenta;Descripcion;Fecha;Asiento;Concepto;Debe;Haber;Saldo;Documento";
+      const rows = allMovimientos.map(m => {
+        const fecha = new Date(m.fecha).toLocaleDateString("es-ES");
+        return `${m.cuenta_codigo};${(m.cuenta_nombre || "").replace(/;/g, ",")};${fecha};${m.asiento_numero};${(m.linea_concepto || m.asiento_concepto || "").replace(/;/g, ",")};${Number(m.debe).toFixed(2)};${Number(m.haber).toFixed(2)};${Number(m.saldo_acumulado).toFixed(2)};`;
+      });
+      const csv = BOM + [header, ...rows].join("\r\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=libro_mayor_${desde}_${hasta}.csv`);
+      return res.send(Buffer.from(csv, "utf-8"));
+    }
+
+    // Excel
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CONTENDO";
+    const ws = wb.addWorksheet("Libro Mayor");
+    ws.columns = [
+      { header: "Cuenta", key: "cuenta", width: 12 },
+      { header: "Descripción", key: "nombre", width: 35 },
+      { header: "Fecha", key: "fecha", width: 12 },
+      { header: "Asiento", key: "asiento", width: 10 },
+      { header: "Concepto", key: "concepto", width: 40 },
+      { header: "Debe", key: "debe", width: 16 },
+      { header: "Haber", key: "haber", width: 16 },
+      { header: "Saldo", key: "saldo", width: 16 },
+    ];
+
+    for (const m of allMovimientos) {
+      ws.addRow({
+        cuenta: m.cuenta_codigo,
+        nombre: m.cuenta_nombre,
+        fecha: new Date(m.fecha),
+        asiento: m.asiento_numero,
+        concepto: m.linea_concepto || m.asiento_concepto || "",
+        debe: Number(m.debe),
+        haber: Number(m.haber),
+        saldo: Number(m.saldo_acumulado),
+      });
+    }
+
+    ws.getColumn("debe").numFmt = CURRENCY_FMT;
+    ws.getColumn("haber").numFmt = CURRENCY_FMT;
+    ws.getColumn("saldo").numFmt = CURRENCY_FMT;
+    ws.getColumn("fecha").numFmt = DATE_FMT;
+    styleExportSheet(ws);
+
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=libro_mayor_${desde}_${hasta}.xlsx`);
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("Error exportarMayor:", err);
+    res.status(500).json({ error: "Error exportando libro mayor" });
+  }
+}
+
+/**
+ * GET /contabilidad/cuentas/exportar?grupo=X&tipo=X&activa=true&formato=excel|csv
+ */
+export async function exportarCuentas(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { grupo, tipo, activa, formato = "excel" } = req.query;
+
+    const cuentas = await sql`
+      SELECT codigo, nombre, tipo, grupo, subgrupo, nivel, padre_codigo, activa, es_estandar
+      FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId}
+        ${grupo ? sql`AND grupo = ${parseInt(grupo)}` : sql``}
+        ${tipo ? sql`AND tipo = ${tipo}` : sql``}
+        ${activa !== undefined ? sql`AND activa = ${activa === "true"}` : sql``}
+      ORDER BY codigo
+    `;
+
+    if (formato === "csv") {
+      const header = "Cuenta;Descripcion;Tipo;Grupo;Activa";
+      const rows = cuentas.map(c =>
+        `${c.codigo};${(c.nombre || "").replace(/;/g, ",")};${c.tipo || ""};${c.grupo || ""};${c.activa ? "Si" : "No"}`
+      );
+      const csv = BOM + [header, ...rows].join("\r\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", "attachment; filename=plan_cuentas.csv");
+      return res.send(Buffer.from(csv, "utf-8"));
+    }
+
+    // Excel
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CONTENDO";
+    const ws = wb.addWorksheet("Plan de Cuentas");
+    ws.columns = [
+      { header: "Cuenta", key: "codigo", width: 12 },
+      { header: "Descripción", key: "nombre", width: 45 },
+      { header: "Tipo", key: "tipo", width: 15 },
+      { header: "Grupo", key: "grupo", width: 8 },
+      { header: "Subgrupo", key: "subgrupo", width: 10 },
+      { header: "Nivel", key: "nivel", width: 8 },
+      { header: "Cuenta Padre", key: "padre", width: 12 },
+      { header: "Activa", key: "activa", width: 8 },
+      { header: "Estándar", key: "estandar", width: 10 },
+    ];
+
+    for (const c of cuentas) {
+      ws.addRow({
+        codigo: c.codigo,
+        nombre: c.nombre,
+        tipo: c.tipo,
+        grupo: c.grupo,
+        subgrupo: c.subgrupo,
+        nivel: c.nivel,
+        padre: c.padre_codigo,
+        activa: c.activa ? "Sí" : "No",
+        estandar: c.es_estandar ? "Sí" : "No",
+      });
+    }
+
+    styleExportSheet(ws);
+
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=plan_cuentas.xlsx");
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("Error exportarCuentas:", err);
+    res.status(500).json({ error: "Error exportando cuentas" });
+  }
+}
+
+/**
+ * GET /contabilidad/exportar-paquete?fecha_desde=YYYY-MM-DD&fecha_hasta=YYYY-MM-DD
+ * Downloads a ZIP with all accounting exports (Excel + CSV)
+ */
+export async function exportarPaquete(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { fecha_desde, fecha_hasta } = req.query;
+    const desde = fecha_desde || `${new Date().getFullYear()}-01-01`;
+    const hasta = fecha_hasta || new Date().toISOString().split("T")[0];
+
+    // Helper to build Excel buffer for a given build function
+    async function buildExcelBuffer(buildFn) {
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "CONTENDO";
+      await buildFn(wb);
+      return await wb.xlsx.writeBuffer();
+    }
+
+    // 1. Libro Diario
+    const asientos = await sql`
+      SELECT a.numero, a.fecha, a.concepto, a.tipo, a.estado
+      FROM asientos_180 a
+      WHERE a.empresa_id = ${empresaId}
+        AND a.fecha >= ${desde} AND a.fecha <= ${hasta}
+        AND a.estado != 'anulado'
+      ORDER BY a.fecha ASC, a.numero ASC
+    `;
+    const lineas = asientos.length > 0 ? await sql`
+      SELECT l.cuenta_codigo, l.cuenta_nombre, l.debe, l.haber, l.concepto AS linea_concepto, l.orden,
+             a.numero AS asiento_numero, a.fecha AS asiento_fecha, a.concepto AS asiento_concepto, a.tipo, a.estado
+      FROM asiento_lineas_180 l
+      JOIN asientos_180 a ON a.id = l.asiento_id
+      WHERE a.empresa_id = ${empresaId}
+        AND a.fecha >= ${desde} AND a.fecha <= ${hasta}
+        AND a.estado != 'anulado'
+      ORDER BY a.fecha, a.numero, l.orden
+    ` : [];
+
+    // Build Diario Excel
+    const diarioXlsx = await buildExcelBuffer(async (wb) => {
+      const ws = wb.addWorksheet("Libro Diario");
+      ws.columns = [
+        { header: "Asiento", key: "asiento", width: 10 },
+        { header: "Fecha", key: "fecha", width: 12 },
+        { header: "Cuenta", key: "cuenta", width: 12 },
+        { header: "Nombre Cuenta", key: "nombre", width: 35 },
+        { header: "Debe", key: "debe", width: 16 },
+        { header: "Haber", key: "haber", width: 16 },
+        { header: "Concepto", key: "concepto", width: 40 },
+        { header: "Documento", key: "documento", width: 15 },
+      ];
+      for (const l of lineas) {
+        ws.addRow({
+          asiento: l.asiento_numero, fecha: new Date(l.asiento_fecha),
+          cuenta: l.cuenta_codigo, nombre: l.cuenta_nombre,
+          debe: Number(l.debe), haber: Number(l.haber),
+          concepto: l.linea_concepto || l.asiento_concepto || "", documento: l.tipo || "",
+        });
+      }
+      ws.getColumn("debe").numFmt = CURRENCY_FMT;
+      ws.getColumn("haber").numFmt = CURRENCY_FMT;
+      ws.getColumn("fecha").numFmt = DATE_FMT;
+      styleExportSheet(ws);
+    });
+
+    // Diario CSV
+    const diarioCsvHeader = "Asiento;Fecha;Cuenta;Nombre Cuenta;Debe;Haber;Concepto;Documento";
+    const diarioCsvRows = lineas.map(l => {
+      const fecha = new Date(l.asiento_fecha).toLocaleDateString("es-ES");
+      return `${l.asiento_numero};${fecha};${l.cuenta_codigo};${(l.cuenta_nombre || "").replace(/;/g, ",")};${Number(l.debe).toFixed(2)};${Number(l.haber).toFixed(2)};${(l.linea_concepto || "").replace(/;/g, ",")};${l.tipo || ""}`;
+    });
+    const diarioCsv = BOM + [diarioCsvHeader, ...diarioCsvRows].join("\r\n");
+
+    // 2. Balance
+    const balance = await contabilidadService.calcularBalance(empresaId, hasta);
+    const sumasRows = await sql`
+      SELECT l.cuenta_codigo, l.cuenta_nombre,
+             SUM(l.debe)::numeric AS suma_debe, SUM(l.haber)::numeric AS suma_haber,
+             (SUM(l.debe) - SUM(l.haber))::numeric AS saldo
+      FROM asiento_lineas_180 l JOIN asientos_180 a ON a.id = l.asiento_id
+      WHERE l.empresa_id = ${empresaId} AND a.estado != 'anulado' AND a.fecha <= ${hasta}
+      GROUP BY l.cuenta_codigo, l.cuenta_nombre
+      HAVING ABS(SUM(l.debe) - SUM(l.haber)) > 0.001
+      ORDER BY l.cuenta_codigo
+    `;
+
+    const balanceXlsx = await buildExcelBuffer(async (wb) => {
+      const ws = wb.addWorksheet("Balance Sumas y Saldos");
+      ws.columns = [
+        { header: "Cuenta", key: "cuenta", width: 12 },
+        { header: "Descripción", key: "nombre", width: 40 },
+        { header: "Suma Debe", key: "suma_debe", width: 16 },
+        { header: "Suma Haber", key: "suma_haber", width: 16 },
+        { header: "Saldo Deudor", key: "saldo_deudor", width: 16 },
+        { header: "Saldo Acreedor", key: "saldo_acreedor", width: 16 },
+      ];
+      for (const r of sumasRows) {
+        const saldo = Number(r.saldo);
+        ws.addRow({
+          cuenta: r.cuenta_codigo, nombre: r.cuenta_nombre,
+          suma_debe: Number(r.suma_debe), suma_haber: Number(r.suma_haber),
+          saldo_deudor: saldo > 0 ? saldo : 0, saldo_acreedor: saldo < 0 ? Math.abs(saldo) : 0,
+        });
+      }
+      ["suma_debe", "suma_haber", "saldo_deudor", "saldo_acreedor"].forEach(k => ws.getColumn(k).numFmt = CURRENCY_FMT);
+      styleExportSheet(ws);
+    });
+
+    const balanceCsvHeader = "Cuenta;Descripcion;Suma Debe;Suma Haber;Saldo Deudor;Saldo Acreedor";
+    const balanceCsvRows = sumasRows.map(r => {
+      const saldo = Number(r.saldo);
+      return `${r.cuenta_codigo};${(r.cuenta_nombre || "").replace(/;/g, ",")};${Number(r.suma_debe).toFixed(2)};${Number(r.suma_haber).toFixed(2)};${saldo > 0 ? saldo.toFixed(2) : "0.00"};${saldo < 0 ? Math.abs(saldo).toFixed(2) : "0.00"}`;
+    });
+    const balanceCsv = BOM + [balanceCsvHeader, ...balanceCsvRows].join("\r\n");
+
+    // 3. PyG
+    const pyg = await contabilidadService.calcularPyG(empresaId, desde, hasta);
+
+    const pygXlsx = await buildExcelBuffer(async (wb) => {
+      const ws = wb.addWorksheet("Cuenta PyG");
+      ws.columns = [
+        { header: "Nota", key: "nota", width: 8 },
+        { header: "Concepto", key: "concepto", width: 50 },
+        { header: "Importe", key: "importe", width: 18 },
+      ];
+      ws.addRow({ nota: "1", concepto: "INGRESOS DE EXPLOTACIÓN", importe: pyg.ingresos.total });
+      ws.getRow(ws.rowCount).font = { bold: true };
+      for (const i of pyg.ingresos.cuentas) ws.addRow({ concepto: `  ${i.cuenta_codigo} - ${i.cuenta_nombre}`, importe: i.importe });
+      ws.addRow({});
+      ws.addRow({ nota: "2", concepto: "GASTOS DE EXPLOTACIÓN", importe: -pyg.gastos.total });
+      ws.getRow(ws.rowCount).font = { bold: true };
+      for (const g of pyg.gastos.cuentas) ws.addRow({ concepto: `  ${g.cuenta_codigo} - ${g.cuenta_nombre}`, importe: -g.importe });
+      ws.addRow({});
+      ws.addRow({ concepto: "RESULTADO DEL EJERCICIO", importe: pyg.resultado });
+      ws.getRow(ws.rowCount).font = { bold: true, size: 12 };
+      ws.getColumn("importe").numFmt = CURRENCY_FMT;
+      styleExportSheet(ws);
+    });
+
+    const pygCsvHeader = "Nota;Concepto;Importe";
+    const pygCsvRows = [];
+    pygCsvRows.push(`1;INGRESOS TOTALES;${pyg.ingresos.total.toFixed(2)}`);
+    for (const i of pyg.ingresos.cuentas) pygCsvRows.push(`;${i.cuenta_codigo} - ${i.cuenta_nombre};${i.importe.toFixed(2)}`);
+    pygCsvRows.push(`2;GASTOS TOTALES;${pyg.gastos.total.toFixed(2)}`);
+    for (const g of pyg.gastos.cuentas) pygCsvRows.push(`;${g.cuenta_codigo} - ${g.cuenta_nombre};${g.importe.toFixed(2)}`);
+    pygCsvRows.push(`;;`);
+    pygCsvRows.push(`;RESULTADO DEL EJERCICIO;${pyg.resultado.toFixed(2)}`);
+    const pygCsv = BOM + [pygCsvHeader, ...pygCsvRows].join("\r\n");
+
+    // 4. Libro Mayor (all accounts)
+    const cuentasConMovimientos = await sql`
+      SELECT DISTINCT l.cuenta_codigo
+      FROM asiento_lineas_180 l JOIN asientos_180 a ON a.id = l.asiento_id
+      WHERE l.empresa_id = ${empresaId} AND a.estado != 'anulado'
+        AND a.fecha >= ${desde} AND a.fecha <= ${hasta}
+      ORDER BY l.cuenta_codigo
+    `;
+
+    const mayorData = [];
+    for (const { cuenta_codigo } of cuentasConMovimientos) {
+      const mayor = await contabilidadService.libroMayor(empresaId, cuenta_codigo, desde, hasta);
+      for (const m of mayor.movimientos) {
+        mayorData.push({ cuenta_codigo, ...m });
+      }
+    }
+
+    const mayorXlsx = await buildExcelBuffer(async (wb) => {
+      const ws = wb.addWorksheet("Libro Mayor");
+      ws.columns = [
+        { header: "Cuenta", key: "cuenta", width: 12 },
+        { header: "Fecha", key: "fecha", width: 12 },
+        { header: "Asiento", key: "asiento", width: 10 },
+        { header: "Concepto", key: "concepto", width: 40 },
+        { header: "Debe", key: "debe", width: 16 },
+        { header: "Haber", key: "haber", width: 16 },
+        { header: "Saldo", key: "saldo", width: 16 },
+      ];
+      for (const m of mayorData) {
+        ws.addRow({
+          cuenta: m.cuenta_codigo, fecha: new Date(m.fecha), asiento: m.asiento_numero,
+          concepto: m.linea_concepto || m.asiento_concepto || "",
+          debe: Number(m.debe), haber: Number(m.haber), saldo: Number(m.saldo_acumulado),
+        });
+      }
+      ["debe", "haber", "saldo"].forEach(k => ws.getColumn(k).numFmt = CURRENCY_FMT);
+      ws.getColumn("fecha").numFmt = DATE_FMT;
+      styleExportSheet(ws);
+    });
+
+    const mayorCsvHeader = "Cuenta;Fecha;Asiento;Concepto;Debe;Haber;Saldo";
+    const mayorCsvRows = mayorData.map(m => {
+      const fecha = new Date(m.fecha).toLocaleDateString("es-ES");
+      return `${m.cuenta_codigo};${fecha};${m.asiento_numero};${(m.linea_concepto || m.asiento_concepto || "").replace(/;/g, ",")};${Number(m.debe).toFixed(2)};${Number(m.haber).toFixed(2)};${Number(m.saldo_acumulado).toFixed(2)}`;
+    });
+    const mayorCsv = BOM + [mayorCsvHeader, ...mayorCsvRows].join("\r\n");
+
+    // 5. Plan de Cuentas
+    const planCuentas = await sql`
+      SELECT codigo, nombre, tipo, grupo, activa FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId} ORDER BY codigo
+    `;
+
+    const planXlsx = await buildExcelBuffer(async (wb) => {
+      const ws = wb.addWorksheet("Plan de Cuentas");
+      ws.columns = [
+        { header: "Cuenta", key: "codigo", width: 12 },
+        { header: "Descripción", key: "nombre", width: 45 },
+        { header: "Tipo", key: "tipo", width: 15 },
+        { header: "Grupo", key: "grupo", width: 8 },
+        { header: "Activa", key: "activa", width: 8 },
+      ];
+      for (const c of planCuentas) {
+        ws.addRow({ codigo: c.codigo, nombre: c.nombre, tipo: c.tipo, grupo: c.grupo, activa: c.activa ? "Sí" : "No" });
+      }
+      styleExportSheet(ws);
+    });
+
+    const planCsvHeader = "Cuenta;Descripcion;Tipo;Grupo;Activa";
+    const planCsvRows = planCuentas.map(c =>
+      `${c.codigo};${(c.nombre || "").replace(/;/g, ",")};${c.tipo || ""};${c.grupo || ""};${c.activa ? "Si" : "No"}`
+    );
+    const planCsv = BOM + [planCsvHeader, ...planCsvRows].join("\r\n");
+
+    // Build ZIP
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename=paquete_contable_${desde}_${hasta}.zip`);
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.pipe(res);
+
+    archive.append(Buffer.from(diarioXlsx), { name: "libro_diario.xlsx" });
+    archive.append(Buffer.from(balanceXlsx), { name: "balance_sumas_saldos.xlsx" });
+    archive.append(Buffer.from(pygXlsx), { name: "cuenta_pyg.xlsx" });
+    archive.append(Buffer.from(mayorXlsx), { name: "libro_mayor.xlsx" });
+    archive.append(Buffer.from(planXlsx), { name: "plan_cuentas.xlsx" });
+    archive.append(Buffer.from(diarioCsv, "utf-8"), { name: "csv/libro_diario.csv" });
+    archive.append(Buffer.from(balanceCsv, "utf-8"), { name: "csv/balance.csv" });
+    archive.append(Buffer.from(pygCsv, "utf-8"), { name: "csv/pyg.csv" });
+    archive.append(Buffer.from(mayorCsv, "utf-8"), { name: "csv/mayor.csv" });
+    archive.append(Buffer.from(planCsv, "utf-8"), { name: "csv/plan_cuentas.csv" });
+
+    await archive.finalize();
+  } catch (err) {
+    console.error("Error exportarPaquete:", err);
+    if (!res.headersSent) res.status(500).json({ error: "Error exportando paquete contable" });
   }
 }

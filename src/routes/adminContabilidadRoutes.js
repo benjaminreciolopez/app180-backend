@@ -24,7 +24,17 @@ import {
   exportarAsientos,
   importarAsientos,
   revisarAsientos,
+  exportarBalance,
+  exportarPyG,
+  exportarMayor,
+  exportarCuentas,
+  exportarPaquete,
 } from "../controllers/contabilidadController.js";
+import {
+  importarExtracto,
+  matchearExtracto,
+  confirmarExtracto,
+} from "../controllers/extractoBancarioController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -33,6 +43,7 @@ router.use(authRequired, roleRequired("admin"));
 
 // PGC - Plan de Cuentas
 router.get("/cuentas", getCuentas);
+router.get("/cuentas/exportar", exportarCuentas);
 router.post("/cuentas", crearCuenta);
 router.put("/cuentas/:id", actualizarCuenta);
 router.post("/cuentas/inicializar-pgc", inicializarPGC);
@@ -51,11 +62,22 @@ router.put("/asientos/:id/validar", validarAsiento);
 router.delete("/asientos/:id", anularAsiento);
 
 // Libro Mayor
+router.get("/mayor/exportar", exportarMayor);
 router.get("/mayor/:cuenta_codigo", getLibroMayor);
 
 // Balance y PyG
 router.get("/balance", getBalance);
+router.get("/balance/exportar", exportarBalance);
 router.get("/pyg", getPyG);
+router.get("/pyg/exportar", exportarPyG);
+
+// Exportación paquete completo
+router.get("/exportar-paquete", exportarPaquete);
+
+// Extracto Bancario
+router.post("/importar-extracto", upload.single("file"), importarExtracto);
+router.post("/extracto/matchear", matchearExtracto);
+router.post("/extracto/confirmar", confirmarExtracto);
 
 // Ejercicios
 router.get("/ejercicios", getEjercicios);

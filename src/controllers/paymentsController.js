@@ -3,6 +3,7 @@ import {
   asignarPago,
   getPagoPendiente,
 } from "../services/paymentAllocationService.js";
+import { generarAsientoCobro } from "../services/contabilidadService.js";
 
 async function getEmpresaId(userId) {
   const r =
@@ -186,6 +187,63 @@ export async function crearPago(req, res) {
       return payment;
     });
 
+    // Generar asientos contables de cobro (fuera de la transacción principal)
+    try {
+      for (const item of asignaciones) {
+        if (item.importe <= 0) continue;
+        const facturaId = item.factura_id || (item.invoice_id ? null : null);
+        const workLogId = item.work_log_id;
+
+        // Solo generar asiento para facturas (tienen número y cliente)
+        if (facturaId || item.factura_id) {
+          const fId = facturaId || item.factura_id;
+          const [factura] = await sql`
+            SELECT f.id, f.numero, f.cliente_id, c.nombre as cliente_nombre
+            FROM factura_180 f
+            LEFT JOIN clients_180 c ON c.id = f.cliente_id
+            WHERE f.id = ${fId} AND f.empresa_id = ${empresaId}
+          `;
+          if (factura) {
+            await generarAsientoCobro(empresaId, {
+              paymentId: result.id,
+              metodo,
+              importe: item.importe,
+              fecha: fecha_pago || new Date().toISOString().split("T")[0],
+              facturaId: factura.id,
+              facturaNumero: factura.numero,
+              clienteId: factura.cliente_id,
+              clienteNombre: factura.cliente_nombre,
+              creadoPor: req.user?.id || null,
+            });
+          }
+        } else if (workLogId) {
+          // Para trabajos sin factura, también generar asiento de cobro
+          const [trabajo] = await sql`
+            SELECT w.id, w.descripcion, w.cliente_id, c.nombre as cliente_nombre
+            FROM work_logs_180 w
+            LEFT JOIN clients_180 c ON c.id = w.cliente_id
+            WHERE w.id = ${workLogId} AND w.empresa_id = ${empresaId}
+          `;
+          if (trabajo) {
+            await generarAsientoCobro(empresaId, {
+              paymentId: result.id,
+              metodo,
+              importe: item.importe,
+              fecha: fecha_pago || new Date().toISOString().split("T")[0],
+              facturaId: null,
+              facturaNumero: null,
+              clienteId: trabajo.cliente_id,
+              clienteNombre: trabajo.cliente_nombre,
+              creadoPor: req.user?.id || null,
+            });
+          }
+        }
+      }
+    } catch (contErr) {
+      console.error("[Payments] Error generando asientos de cobro:", contErr.message);
+      // No falla el pago, solo el asiento
+    }
+
     res.status(201).json(result);
   } catch (e) {
     console.error(e);
@@ -326,6 +384,57 @@ export async function imputarPago(req, res) {
     clienteId: cliente_id,
     asignaciones,
   });
+
+  // Generar asientos contables de cobro para cada asignación
+  try {
+    const [pago] = await sql`
+      SELECT metodo, fecha_pago FROM payments_180
+      WHERE id = ${paymentId} AND empresa_id = ${empresaId}
+    `;
+    const [clienteRow] = await sql`
+      SELECT nombre FROM clients_180 WHERE id = ${cliente_id} AND empresa_id = ${empresaId}
+    `;
+    const clienteNombre = clienteRow?.nombre || "Cliente";
+
+    for (const a of asignaciones) {
+      if (!a.invoice_id || Number(a.importe) <= 0) continue;
+
+      // Buscar si es factura_180
+      const [factura] = await sql`
+        SELECT id, numero, cliente_id FROM factura_180
+        WHERE id = ${a.invoice_id}::int AND empresa_id = ${empresaId}
+      `.catch(() => [null]);
+
+      if (factura) {
+        await generarAsientoCobro(empresaId, {
+          paymentId,
+          metodo: pago?.metodo || "transferencia",
+          importe: a.importe,
+          fecha: pago?.fecha_pago || new Date().toISOString().split("T")[0],
+          facturaId: factura.id,
+          facturaNumero: factura.numero,
+          clienteId: cliente_id,
+          clienteNombre,
+          creadoPor: req.user?.id || null,
+        });
+      } else {
+        // Es un trabajo (work_log) u otro tipo
+        await generarAsientoCobro(empresaId, {
+          paymentId,
+          metodo: pago?.metodo || "transferencia",
+          importe: a.importe,
+          fecha: pago?.fecha_pago || new Date().toISOString().split("T")[0],
+          facturaId: null,
+          facturaNumero: null,
+          clienteId: cliente_id,
+          clienteNombre,
+          creadoPor: req.user?.id || null,
+        });
+      }
+    }
+  } catch (contErr) {
+    console.error("[Payments] Error generando asientos de cobro (imputar):", contErr.message);
+  }
 
   res.json(r);
 }
