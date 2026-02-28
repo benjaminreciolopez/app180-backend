@@ -5,6 +5,7 @@ import { generarPdfFactura } from "../services/facturaPdfService.js";
 import * as emailService from "../services/emailService.js";
 import { verificarVerifactu } from "../services/verifactuService.js";
 import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
+import { generarAsientoFactura } from "../services/contabilidadService.js";
 import { saveToStorage } from "./storageController.js";
 
 /* =========================
@@ -753,6 +754,25 @@ export async function validarFactura(req, res) {
       req,
       datosNuevos: { numero, fecha, estado: 'VALIDADA' }
     });
+
+    // --- AUTO-GENERAR ASIENTO CONTABLE ---
+    if (factura.tipo_factura !== 'PROFORMA') {
+      try {
+        // Fetch factura actualizada con nombre del cliente
+        const [facturaFinal] = await sql`
+          SELECT f.*, c.nombre AS cliente_nombre
+          FROM factura_180 f
+          LEFT JOIN clients_180 c ON c.id = f.cliente_id
+          WHERE f.id = ${id}
+        `;
+        if (facturaFinal) {
+          await generarAsientoFactura(empresaId, facturaFinal, req.user?.id || null);
+          console.log(`[Facturas] Asiento de venta generado para factura ${numero}`);
+        }
+      } catch (contErr) {
+        console.error("[Facturas] Error generando asiento de venta:", contErr.message);
+      }
+    }
 
     // --- AUTO-GENERAR Y GUARDAR EN STORAGE ---
     try {

@@ -2,7 +2,7 @@ import { sql } from "../db.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { ocrExtractTextFromUpload, extractFullPdfText } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
-import { generarAsientoPagoGasto } from "../services/contabilidadService.js";
+import { generarAsientoGasto, generarAsientoPagoGasto } from "../services/contabilidadService.js";
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -308,14 +308,21 @@ export async function crearCompra(req, res) {
       ) RETURNING *
     `;
 
-        // Generar asiento de pago automático si tiene método de pago
+        // Generar asiento contable de devengo del gasto (6xx a 400xx + IVA)
+        try {
+            await generarAsientoGasto(empresa_id, newPurchase, req.user?.id || null);
+            console.log(`[Purchases] Asiento de gasto generado para ${newPurchase.id}`);
+        } catch (contErr) {
+            console.error("[Purchases] Error generando asiento de gasto:", contErr.message);
+        }
+
+        // Generar asiento de pago automático si tiene método de pago (400xx a 57x)
         if (newPurchase.metodo_pago) {
             try {
                 await generarAsientoPagoGasto(empresa_id, newPurchase, req.user?.id || null);
                 console.log(`[Purchases] Asiento de pago generado para gasto ${newPurchase.id}`);
             } catch (contErr) {
                 console.error("[Purchases] Error generando asiento de pago:", contErr.message);
-                // No falla la creación del gasto, solo el asiento
             }
         }
 
