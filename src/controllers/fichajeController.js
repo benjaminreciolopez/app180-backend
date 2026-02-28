@@ -18,7 +18,7 @@ import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 
 export const createFichaje = async (req, res) => {
   try {
-    const { tipo, cliente_id, lat, lng, accuracy, fecha_hora } = req.body;
+    const { tipo, cliente_id, lat, lng, accuracy, fecha_hora, subtipo } = req.body;
 
     /* =========================
        1. Validaciones básicas
@@ -28,6 +28,14 @@ export const createFichaje = async (req, res) => {
 
     if (!TIPOS.includes(tipo)) {
       return res.status(400).json({ error: "Tipo de fichaje no válido" });
+    }
+
+    // Validar subtipo de descanso
+    if (subtipo && !["pausa_corta", "comida", "trayecto"].includes(subtipo)) {
+      return res.status(400).json({ error: "Subtipo de descanso no válido" });
+    }
+    if (subtipo && tipo !== "descanso_inicio") {
+      return res.status(400).json({ error: "Subtipo solo aplicable a descanso_inicio" });
     }
 
     const fechaHora = fecha_hora ? new Date(fecha_hora) : new Date();
@@ -212,6 +220,7 @@ export const createFichaje = async (req, res) => {
     jornada_id,
 
     tipo,
+    subtipo,
     fecha,
     estado,
     origen,
@@ -248,6 +257,7 @@ export const createFichaje = async (req, res) => {
     ${jornadaId},
 
     ${tipo},
+    ${subtipo || null},
     ${fechaHora},
     'confirmado',
     'app',

@@ -74,6 +74,7 @@ import adminContabilidadRoutes from "./routes/adminContabilidadRoutes.js";
 import asesorRoutes from "./routes/asesorRoutes.js";
 import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
 import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
+import kioskRoutes from "./routes/kioskRoutes.js";
 import fichajeCorreccionRoutes from "./routes/fichajeCorreccionRoutes.js";
 import fichajeIntegridadRoutes from "./routes/fichajeIntegridadRoutes.js";
 import adminCentrosTrabajoRoutes from "./routes/adminCentrosTrabajoRoutes.js";
@@ -201,6 +202,9 @@ app.use("/api/public", qrLimiter, fabricantePublicRoutes);
 
 // Verificación pública CSV - RD 8/2019 (sin auth, con rate limit propio)
 app.use("/api/verificar", verificacionPublicaRoutes);
+
+// Kiosko de fichaje (auth mixta: admin JWT para gestión + device token para uso)
+app.use("/api/kiosk", kioskRoutes);
 
 app.use("/auth", authLimiter, authRoutes);
 

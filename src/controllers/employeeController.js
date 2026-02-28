@@ -2,6 +2,7 @@ import { sql } from "../db.js";
 import bcrypt from "bcryptjs";
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { resolverPlanDia } from "../services/planificacionResolver.js";
+import { saveToStorage } from "./storageController.js";
 
 // ==========================
 // CREAR EMPLEADO (PASSWORD FORZADO)
@@ -113,6 +114,7 @@ export const getEmployeesAdmin = async (req, res) => {
         e.id,
         e.user_id,
         e.nombre,
+        e.foto_url,
         u.email,
         e.activo,
         d.device_hash,
@@ -401,4 +403,38 @@ export const updateEmployee = async (req, res) => {
   }
 };
 
-// backend/src/controllers/employeeController.js
+// ==========================
+// SUBIR FOTO DE EMPLEADO
+// ==========================
+export const uploadEmployeePhoto = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+
+    const [emp] = await sql`
+      SELECT id FROM employees_180 WHERE id = ${id} AND empresa_id = ${empresaId}
+    `;
+    if (!emp) return res.status(404).json({ error: "Empleado no encontrado" });
+    if (!req.file) return res.status(400).json({ error: "No se subió ninguna foto" });
+
+    const record = await saveToStorage({
+      empresaId,
+      nombre: `foto_${id}.jpg`,
+      buffer: req.file.buffer,
+      folder: "employee-photos",
+      mimeType: req.file.mimetype,
+      useTimestamp: false,
+    });
+
+    const publicUrl = `${process.env.SUPABASE_PROJECT_URL}/storage/v1/object/public/app180-files/${record.storage_path}`;
+
+    await sql`
+      UPDATE employees_180 SET foto_url = ${publicUrl} WHERE id = ${id}
+    `;
+
+    return res.json({ success: true, foto_url: publicUrl });
+  } catch (err) {
+    console.error("❌ Error en uploadEmployeePhoto:", err);
+    return res.status(500).json({ error: "Error al subir foto" });
+  }
+};

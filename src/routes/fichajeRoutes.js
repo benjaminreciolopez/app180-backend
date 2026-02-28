@@ -16,6 +16,11 @@ import {
 } from "../controllers/fichajeController.js";
 
 import { getEstadoFichaje } from "../controllers/fichajeEstadoController.js";
+import {
+  listOfflinePendientes,
+  validarOfflineFichajes,
+  countOfflinePendientes,
+} from "../controllers/offlineValidationController.js";
 import { requireModule } from "../middlewares/requireModule.js";
 
 const router = express.Router();
@@ -53,5 +58,10 @@ router.post("/sospechosos/bulk", roleRequired("admin"), validarFichajesMasivo);
 
 // Fichaje manual admin
 router.post("/manual", roleRequired("admin"), registrarFichajeManual);
+
+// OFFLINE VALIDATION
+router.get("/offline-pendientes", roleRequired("admin"), listOfflinePendientes);
+router.get("/offline-pendientes/count", roleRequired("admin"), countOfflinePendientes);
+router.post("/offline-validar", roleRequired("admin"), validarOfflineFichajes);
 
 export default router;

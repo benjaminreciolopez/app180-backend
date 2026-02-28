@@ -4,9 +4,10 @@ import { Router } from "express";
 import { authRequired } from "../middlewares/authRequired.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { inviteEmpleado, sendInviteEmail } from "../controllers/authController.js";
-import { updateEmployee } from "../controllers/employeeController.js";
+import { updateEmployee, uploadEmployeePhoto } from "../controllers/employeeController.js";
 import { requireModule } from "../middlewares/requireModule.js";
 import { securityAlert } from "../middlewares/securityAlert.js";
+import upload from "../middlewares/uploadMiddleware.js";
 
 const router = Router();
 
@@ -33,6 +34,15 @@ router.put(
   authRequired,
   roleRequired("admin"),
   updateEmployee
+);
+
+// Subir foto de empleado
+router.post(
+  "/employees/:id/photo",
+  authRequired,
+  roleRequired("admin"),
+  upload.single("photo"),
+  uploadEmployeePhoto
 );
 
 export default router;
