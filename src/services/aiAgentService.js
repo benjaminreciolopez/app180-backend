@@ -1670,6 +1670,41 @@ const TOOLS = [
       }
     }
   },
+  // --- Tool 96: Enviar nómina a empleado ---
+  {
+    type: "function",
+    function: {
+      name: "enviar_nomina",
+      description: "Envía una nómina al empleado por la app (notificación + email). Registra la entrega para control.",
+      parameters: {
+        type: "object",
+        properties: {
+          nomina_id: { type: "string", description: "ID de la nómina a enviar (UUID)" },
+          nombre_empleado: { type: "string", description: "Nombre del empleado (para buscar la nómina si no tienes el ID)" },
+          anio: { type: "number", description: "Año de la nómina" },
+          mes: { type: "number", description: "Mes de la nómina (1-12)" }
+        },
+        required: []
+      }
+    }
+  },
+  // --- Tool 97: Consultar entregas de nóminas ---
+  {
+    type: "function",
+    function: {
+      name: "consultar_entregas_nominas",
+      description: "Consulta el estado de entrega y firma de las nóminas enviadas a empleados. Muestra si están enviadas, recibidas o firmadas.",
+      parameters: {
+        type: "object",
+        properties: {
+          anio: { type: "number", description: "Año (por defecto el actual)" },
+          mes: { type: "number", description: "Mes 1-12 (opcional, si se omite muestra todos)" },
+          estado: { type: "string", enum: ["enviada", "recibida", "firmada"], description: "Filtrar por estado de entrega" }
+        },
+        required: []
+      }
+    }
+  },
 ];
 
 // ============================
@@ -2020,6 +2055,8 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, use
       case "crear_proforma": return await crearProformaIA(args, empresaId);
       case "anular_proforma": return await anularProformaIA(args, empresaId);
       case "reactivar_proforma": return await reactivarProformaIA(args, empresaId);
+      case "enviar_nomina": return await enviarNominaIA(args, empresaId);
+      case "consultar_entregas_nominas": return await consultarEntregasNominasIA(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -3370,6 +3407,83 @@ async function crearNominaIA(args, empresaId) {
     RETURNING *
   `;
   return { success: true, nomina: nueva };
+}
+
+async function enviarNominaIA(args, empresaId) {
+  let nominaId = args.nomina_id;
+
+  // Si no tenemos ID, buscar por empleado + periodo
+  if (!nominaId && args.anio && args.mes) {
+    let empleadoId = args.empleado_id;
+    if (!empleadoId && args.nombre_empleado) {
+      const emps = await sql`
+        SELECT e.id FROM employees_180 e
+        JOIN users_180 u ON u.id = e.user_id
+        WHERE e.empresa_id = ${empresaId} AND LOWER(u.nombre) LIKE LOWER(${`%${args.nombre_empleado}%`})
+      `;
+      if (emps.length === 0) return { error: `No se encontró empleado con nombre "${args.nombre_empleado}"` };
+      if (emps.length > 1) return { error: `Hay ${emps.length} empleados con ese nombre. Sé más específico.` };
+      empleadoId = emps[0].id;
+    }
+    if (!empleadoId) return { error: "Necesito nombre_empleado o nomina_id" };
+
+    const [n] = await sql`
+      SELECT id FROM nominas_180
+      WHERE empresa_id = ${empresaId} AND empleado_id = ${empleadoId} AND anio = ${args.anio} AND mes = ${args.mes}
+    `;
+    if (!n) return { error: `No se encontró nómina de ${args.mes}/${args.anio} para ese empleado` };
+    nominaId = n.id;
+  }
+
+  if (!nominaId) return { error: "Necesito nomina_id o (nombre_empleado + anio + mes)" };
+
+  // Obtener datos completos
+  const [nomina] = await sql`
+    SELECT n.*, e.user_id, u.email, u.nombre as empleado_nombre
+    FROM nominas_180 n
+    JOIN employees_180 e ON e.id = n.empleado_id
+    JOIN users_180 u ON u.id = e.user_id
+    WHERE n.id = ${nominaId} AND n.empresa_id = ${empresaId}
+  `;
+  if (!nomina) return { error: "Nómina no encontrada" };
+
+  // Crear entrega
+  await sql`
+    INSERT INTO nomina_entregas_180 (nomina_id, empresa_id, empleado_id, estado, metodo_envio, email_enviado_a)
+    VALUES (${nominaId}, ${empresaId}, ${nomina.empleado_id}, 'enviada', 'app', ${nomina.email})
+  `;
+  await sql`UPDATE nominas_180 SET estado_entrega = 'enviada', updated_at = NOW() WHERE id = ${nominaId}`;
+
+  // Notificación al empleado
+  const { crearNotificacionSistema } = await import("../controllers/notificacionesController.js");
+  await crearNotificacionSistema({
+    empresaId,
+    userId: nomina.user_id,
+    tipo: "info",
+    titulo: "Nueva nómina disponible",
+    mensaje: `Tu nómina de ${nomina.mes}/${nomina.anio} está disponible. Neto: ${Number(nomina.liquido).toFixed(2)} €`,
+    accionUrl: "/empleado/nominas",
+    accionLabel: "Ver nómina",
+  });
+
+  return { success: true, mensaje: `Nómina de ${nomina.mes}/${nomina.anio} enviada a ${nomina.empleado_nombre} (${nomina.email})` };
+}
+
+async function consultarEntregasNominasIA({ anio, mes, estado }, empresaId) {
+  const year = anio || new Date().getFullYear();
+  const rows = await sql`
+    SELECT ne.estado, ne.fecha_envio, ne.fecha_recepcion, ne.fecha_firma,
+           n.anio, n.mes, n.bruto, n.liquido, u.nombre as empleado_nombre
+    FROM nomina_entregas_180 ne
+    JOIN nominas_180 n ON n.id = ne.nomina_id
+    JOIN employees_180 e ON e.id = ne.empleado_id
+    JOIN users_180 u ON u.id = e.user_id
+    WHERE ne.empresa_id = ${empresaId} AND n.anio = ${year}
+      ${mes ? sql`AND n.mes = ${mes}` : sql``}
+      ${estado ? sql`AND ne.estado = ${estado}` : sql``}
+    ORDER BY ne.fecha_envio DESC
+  `;
+  return { total: rows.length, entregas: rows };
 }
 
 // ============================
@@ -5653,7 +5767,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       'eliminar_conocimiento', 'match_pago_banco', 'crear_excepcion_jornada',
       'actualizar_configuracion', 'eliminar_archivo', 'reconciliar_extracto',
       'responder_sugerencia',
-      'enviar_mensaje_asesoria', 'crear_asiento_contable', 'generar_asientos_periodo'
+      'enviar_mensaje_asesoria', 'crear_asiento_contable', 'generar_asientos_periodo',
+      'enviar_nomina'
     ]);
     let accionRealizada = false;
 

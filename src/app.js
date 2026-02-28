@@ -79,6 +79,7 @@ import fichajeCorreccionRoutes from "./routes/fichajeCorreccionRoutes.js";
 import fichajeIntegridadRoutes from "./routes/fichajeIntegridadRoutes.js";
 import adminCentrosTrabajoRoutes from "./routes/adminCentrosTrabajoRoutes.js";
 import adminParteConfigRoutes from "./routes/adminParteConfigRoutes.js";
+import nominaEntregasRoutes from "./routes/nominaEntregasRoutes.js";
 import { miParteConfig } from "./controllers/parteConfiguracionesController.js";
 
 const app = express();
@@ -261,6 +262,7 @@ app.use("/api/admin/purchases", adminPurchasesRoutes);
 app.use("/api/admin/fiscal", adminFiscalRoutes);
 app.use("/api/admin/fiscal/renta", adminRentaRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
+app.use("/api/admin/nominas", nominaEntregasRoutes); // Entregas y firma de nóminas
 app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
 app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricante (protegido)
 app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
@@ -284,6 +286,7 @@ app.use("/admin/fiscal/renta", adminRentaRoutes);
 app.use("/admin/purchases", adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
 app.use("/admin/notificaciones", notificacionesRoutes);
+app.use("/empleado/notificaciones", authRequired, notificacionesRoutes); // Empleados ven sus notificaciones
 app.use("/admin", aiRoutes);
 app.use("/admin", adminKnowledgeRoutes);
 app.use("/admin/contabilidad", adminContabilidadRoutes);

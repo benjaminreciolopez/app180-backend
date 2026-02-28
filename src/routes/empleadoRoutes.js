@@ -95,4 +95,17 @@ router.get(
   }
 );
 
+// ==========================
+// NÓMINAS - ENTREGA Y FIRMA
+// ==========================
+import {
+  confirmarRecepcion,
+  firmarNomina,
+  descargarNominaPDF,
+} from "../controllers/nominaEntregasController.js";
+
+router.post("/nominas/:id/confirmar-recepcion", authRequired, roleRequired("empleado"), confirmarRecepcion);
+router.post("/nominas/:id/firmar", authRequired, roleRequired("empleado"), firmarNomina);
+router.get("/nominas/:id/descargar", authRequired, roleRequired("empleado"), descargarNominaPDF);
+
 export default router;

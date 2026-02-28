@@ -11,7 +11,8 @@
     "test": "npx --node-options=--experimental-vm-modules jest --forceExit",
     "test:runtime": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=A-runtime --forceExit",
     "test:compliance": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=B-compliance --forceExit",
-    "test:critical": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=\"A3|A4|A5|B1|B2\" --forceExit"
+    "test:critical": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=\"A3|A4|A5|B1|B2\" --forceExit",
+    "test:simulation": "npx --node-options=--experimental-vm-modules jest --testPathPatterns=C-simulation --verbose --forceExit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

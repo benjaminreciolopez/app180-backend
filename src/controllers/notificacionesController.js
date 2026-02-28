@@ -7,10 +7,16 @@ import { sql } from "../db.js";
 export async function getNotificaciones(req, res) {
   try {
     const empresaId = req.user.empresa_id;
+    const userId = req.user.id;
+    const isEmpleado = req.user.role === "empleado";
     const { limit = 20, offset = 0, solo_no_leidas = false } = req.query;
 
     const parsedLimit = parseInt(limit);
     const parsedOffset = parseInt(offset);
+
+    // Empleados solo ven sus propias notificaciones + broadcast (user_id IS NULL)
+    // Admin ve todas las de la empresa
+    const userFilter = isEmpleado ? sql`AND (user_id IS NULL OR user_id = ${userId})` : sql``;
 
     let notificaciones;
     if (solo_no_leidas === 'true' || solo_no_leidas === true) {
@@ -18,9 +24,9 @@ export async function getNotificaciones(req, res) {
         SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
                metadata, created_at, leida_at,
                (SELECT COUNT(*)::int FROM notificaciones_180
-                WHERE empresa_id = ${empresaId} AND leida = FALSE) AS _no_leidas
+                WHERE empresa_id = ${empresaId} AND leida = FALSE ${userFilter}) AS _no_leidas
         FROM notificaciones_180
-        WHERE empresa_id = ${empresaId} AND leida = FALSE
+        WHERE empresa_id = ${empresaId} AND leida = FALSE ${userFilter}
         ORDER BY created_at DESC
         LIMIT ${parsedLimit} OFFSET ${parsedOffset}
       `;
@@ -29,9 +35,9 @@ export async function getNotificaciones(req, res) {
         SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
                metadata, created_at, leida_at,
                (SELECT COUNT(*)::int FROM notificaciones_180
-                WHERE empresa_id = ${empresaId} AND leida = FALSE) AS _no_leidas
+                WHERE empresa_id = ${empresaId} AND leida = FALSE ${userFilter}) AS _no_leidas
         FROM notificaciones_180
-        WHERE empresa_id = ${empresaId}
+        WHERE empresa_id = ${empresaId} ${userFilter}
         ORDER BY created_at DESC
         LIMIT ${parsedLimit} OFFSET ${parsedOffset}
       `;

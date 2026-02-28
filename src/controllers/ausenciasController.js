@@ -1,5 +1,6 @@
 import { sql } from "../db.js";
 import { autoPushToGoogle } from "../services/calendarPushService.js";
+import { crearNotificacionSistema } from "./notificacionesController.js";
 
 async function haySolapeAprobado({
   empleadoId,
@@ -53,6 +54,22 @@ export const aprobarVacaciones = async (req, res) => {
     const empresaId = update[0].empresa_id || (await sql`SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}`)[0]?.id;
     if (empresaId) autoPushToGoogle(empresaId, 'ausencias', id);
 
+    // Notificar al empleado
+    try {
+      const [empUser] = await sql`SELECT user_id FROM employees_180 WHERE id = ${update[0].empleado_id}`;
+      if (empUser?.user_id) {
+        await crearNotificacionSistema({
+          empresaId,
+          userId: empUser.user_id,
+          tipo: "success",
+          titulo: "Vacaciones aprobadas",
+          mensaje: `Tu solicitud de vacaciones del ${update[0].fecha_inicio} al ${update[0].fecha_fin} ha sido aprobada.`,
+          accionUrl: "/empleado/ausencias",
+          accionLabel: "Ver ausencias",
+        });
+      }
+    } catch (notifErr) { console.warn("⚠️ Notificación no enviada:", notifErr.message); }
+
     res.json({ success: true, ausencia: update[0] });
   } catch (err) {
     console.error("❌ Error en aprobarVacaciones:", err);
@@ -73,6 +90,23 @@ export const rechazarVacaciones = async (req, res) => {
     if (update.length === 0) {
       return res.status(400).json({ error: "Ausencia no encontrada" });
     }
+
+    // Notificar al empleado
+    try {
+      const empresaId = update[0].empresa_id || req.user.empresa_id;
+      const [empUser] = await sql`SELECT user_id FROM employees_180 WHERE id = ${update[0].empleado_id}`;
+      if (empUser?.user_id) {
+        await crearNotificacionSistema({
+          empresaId,
+          userId: empUser.user_id,
+          tipo: "warning",
+          titulo: "Ausencia rechazada",
+          mensaje: `Tu solicitud de ausencia del ${update[0].fecha_inicio} al ${update[0].fecha_fin} ha sido rechazada.`,
+          accionUrl: "/empleado/ausencias",
+          accionLabel: "Ver ausencias",
+        });
+      }
+    } catch (notifErr) { console.warn("⚠️ Notificación no enviada:", notifErr.message); }
 
     res.json({ success: true, ausencia: update[0] });
   } catch (err) {
@@ -239,6 +273,24 @@ export const solicitarAusencia = async (req, res) => {
       )
       RETURNING *
     `;
+
+    // Notificar admin
+    try {
+      const [adminUser] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresa_id}`;
+      const [empData] = await sql`SELECT nombre FROM employees_180 WHERE id = ${empleado_id}`;
+      if (adminUser?.user_id) {
+        const tipoLabel = tipo === "baja_medica" ? "baja médica" : "vacaciones";
+        await crearNotificacionSistema({
+          empresaId: empresa_id,
+          userId: adminUser.user_id,
+          tipo: "info",
+          titulo: `Nueva solicitud de ${tipoLabel}`,
+          mensaje: `${empData?.nombre || "Empleado"} ha solicitado ${tipoLabel} del ${fecha_inicio} al ${fecha_fin}.`,
+          accionUrl: "/admin/ausencias",
+          accionLabel: "Revisar solicitud",
+        });
+      }
+    } catch (notifErr) { console.warn("⚠️ Notificación no enviada:", notifErr.message); }
 
     res.json({
       ...rows[0],

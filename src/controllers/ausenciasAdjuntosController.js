@@ -4,6 +4,7 @@ import fsp from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { sql } from "../db.js";
+import { crearNotificacionSistema } from "./notificacionesController.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -187,6 +188,24 @@ export const subirAdjuntoEmpleado = async (req, res) => {
       )
       RETURNING *
     `;
+
+    // Notificar admin de nuevo documento
+    try {
+      const empresaId = req.user.empresa_id;
+      const [adminUser] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresaId}`;
+      const [empData] = await sql`SELECT nombre FROM employees_180 WHERE id = ${req.user.empleado_id}`;
+      if (adminUser?.user_id) {
+        await crearNotificacionSistema({
+          empresaId,
+          userId: adminUser.user_id,
+          tipo: "info",
+          titulo: "Nuevo documento de ausencia",
+          mensaje: `${empData?.nombre || "Empleado"} ha subido un documento para su ausencia.`,
+          accionUrl: "/admin/ausencias",
+          accionLabel: "Ver documentos",
+        });
+      }
+    } catch (notifErr) { console.warn("⚠️ Notificación adjunto no enviada:", notifErr.message); }
 
     res.set("Cache-Control", "no-store");
     return res.json({ success: true, adjunto: rows[0] });
