@@ -11,13 +11,10 @@ import { requireModule } from "../middlewares/requireModule.js";
 
 const router = Router();
 
-/**
- * Bloquea ausencias a empleados si está desactivado
- */
-router.use(authRequired, requireModule("ausencias"));
+// Apply requireModule per-route (NOT router.use) to avoid blocking
+// other routers mounted at the same /empleado prefix
+router.post("/ausencias", authRequired, requireModule("ausencias"), solicitarAusencia);
 
-router.post("/ausencias", solicitarAusencia);
-
-router.get("/ausencias/mis", misAusencias);
+router.get("/ausencias/mis", authRequired, requireModule("ausencias"), misAusencias);
 
 export default router;
