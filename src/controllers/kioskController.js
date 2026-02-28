@@ -57,7 +57,7 @@ export const listKioskDevices = async (req, res) => {
     const devices = await sql`
       SELECT
         kd.id, kd.nombre, kd.activo, kd.ultimo_uso, kd.created_at,
-        kd.centro_trabajo_id,
+        kd.centro_trabajo_id, kd.device_token, kd.offline_pin,
         ct.nombre AS centro_nombre
       FROM kiosk_devices_180 kd
       LEFT JOIN centros_trabajo_180 ct ON ct.id = kd.centro_trabajo_id
@@ -147,7 +147,7 @@ export const getKioskConfig = async (req, res) => {
 export const identifyEmployee = async (req, res) => {
   try {
     const { query } = req.body;
-    const { empresa_id, id: deviceId } = req.kiosk;
+    const { empresa_id, id: deviceId, centro_trabajo_id } = req.kiosk;
 
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "Código o nombre requerido" });
@@ -163,38 +163,61 @@ export const identifyEmployee = async (req, res) => {
     const hasAssignments = assignments.length > 0;
     const assignedIds = assignments.map((a) => a.empleado_id);
 
-    // Buscar por código exacto primero, luego por nombre
-    // Si hay asignaciones, filtrar solo empleados asignados
-    const employees = hasAssignments
-      ? await sql`
-          SELECT id, nombre, codigo_empleado, foto_url
-          FROM employees_180
-          WHERE empresa_id = ${empresa_id}
-            AND activo = true
-            AND id = ANY(${assignedIds})
-            AND (
-              codigo_empleado = ${searchTerm}
-              OR nombre ILIKE ${"%" + searchTerm + "%"}
-            )
-          ORDER BY
-            CASE WHEN codigo_empleado = ${searchTerm} THEN 0 ELSE 1 END,
-            nombre ASC
-          LIMIT 5
-        `
-      : await sql`
-          SELECT id, nombre, codigo_empleado, foto_url
-          FROM employees_180
-          WHERE empresa_id = ${empresa_id}
-            AND activo = true
-            AND (
-              codigo_empleado = ${searchTerm}
-              OR nombre ILIKE ${"%" + searchTerm + "%"}
-            )
-          ORDER BY
-            CASE WHEN codigo_empleado = ${searchTerm} THEN 0 ELSE 1 END,
-            nombre ASC
-          LIMIT 5
-        `;
+    // Prioridad de filtrado:
+    // 1. Si hay asignaciones explícitas en kiosk_empleados_180 → solo esos
+    // 2. Si no hay asignaciones pero el kiosco tiene centro_trabajo_id → empleados de ese centro
+    // 3. Sin asignaciones ni centro → todos los empleados de la empresa
+    let employees;
+
+    if (hasAssignments) {
+      employees = await sql`
+        SELECT id, nombre, codigo_empleado, foto_url
+        FROM employees_180
+        WHERE empresa_id = ${empresa_id}
+          AND activo = true
+          AND id = ANY(${assignedIds})
+          AND (
+            codigo_empleado = ${searchTerm}
+            OR nombre ILIKE ${"%" + searchTerm + "%"}
+          )
+        ORDER BY
+          CASE WHEN codigo_empleado = ${searchTerm} THEN 0 ELSE 1 END,
+          nombre ASC
+        LIMIT 5
+      `;
+    } else if (centro_trabajo_id) {
+      // Filtrar por empleados asignados al mismo centro de trabajo que el kiosco
+      employees = await sql`
+        SELECT id, nombre, codigo_empleado, foto_url
+        FROM employees_180
+        WHERE empresa_id = ${empresa_id}
+          AND activo = true
+          AND centro_trabajo_id = ${centro_trabajo_id}
+          AND (
+            codigo_empleado = ${searchTerm}
+            OR nombre ILIKE ${"%" + searchTerm + "%"}
+          )
+        ORDER BY
+          CASE WHEN codigo_empleado = ${searchTerm} THEN 0 ELSE 1 END,
+          nombre ASC
+        LIMIT 5
+      `;
+    } else {
+      employees = await sql`
+        SELECT id, nombre, codigo_empleado, foto_url
+        FROM employees_180
+        WHERE empresa_id = ${empresa_id}
+          AND activo = true
+          AND (
+            codigo_empleado = ${searchTerm}
+            OR nombre ILIKE ${"%" + searchTerm + "%"}
+          )
+        ORDER BY
+          CASE WHEN codigo_empleado = ${searchTerm} THEN 0 ELSE 1 END,
+          nombre ASC
+        LIMIT 5
+      `;
+    }
 
     return res.json(employees);
   } catch (err) {
