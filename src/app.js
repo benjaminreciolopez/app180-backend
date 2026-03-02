@@ -22,6 +22,7 @@ import { authRequired } from "./middlewares/authRequired.js";
 import { ejecutarAutocierre } from "./jobs/autocierre.js";
 import { renewCalendarWebhooks } from "./jobs/renewCalendarWebhooks.js";
 import { verificarCertificadosJob } from "./jobs/verificarCertificados.js";
+import { runFiscalAlertScan } from "./jobs/fiscalAlertScan.js";
 
 import empleadoAdjuntosRoutes from "./routes/empleadoAdjuntosRoutes.js";
 import adminAdjuntosRoutes from "./routes/adminAdjuntosRoutes.js";
@@ -93,6 +94,7 @@ app.set('trust proxy', 1);
 cron.schedule("59 23 * * *", () => ejecutarAutocierre()); // Autocierre diario
 cron.schedule("0 3 * * *", () => renewCalendarWebhooks()); // Renovar webhooks diario a las 3 AM
 cron.schedule("0 9 * * *", () => verificarCertificadosJob()); // Verificar certificados digitales diario a las 9 AM
+cron.schedule("0 8 * * 1", () => runFiscalAlertScan()); // Escaneo fiscal semanal lunes 8 AM
 cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada hora
   try {
     const { sql } = await import("./db.js");

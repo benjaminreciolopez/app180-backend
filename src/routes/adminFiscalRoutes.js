@@ -9,6 +9,12 @@ import {
     getLibroNominas,
     downloadBOE
 } from "../controllers/adminFiscalController.js";
+import {
+    getFiscalAlerts,
+    simulateFiscalImpact,
+    getAlertConfig,
+    updateAlertConfig
+} from "../controllers/fiscalAlertController.js";
 
 const router = Router();
 
@@ -45,5 +51,32 @@ router.get("/libro-nominas", getLibroNominas);
  * @query year, trimestre, modelo
  */
 router.get("/download-boe", downloadBOE);
+
+/**
+ * @route GET /admin/fiscal/alerts
+ * @desc Obtener alertas fiscales y score de riesgo
+ * @query year, trimestre
+ */
+router.get("/alerts", getFiscalAlerts);
+
+/**
+ * @route POST /admin/fiscal/simulate
+ * @desc Simular impacto fiscal de una operación hipotética
+ * @body { year, trimestre, operation: { type, base_imponible, iva_pct?, iva_importe? } }
+ */
+router.post("/simulate", simulateFiscalImpact);
+
+/**
+ * @route GET /admin/fiscal/alert-config
+ * @desc Obtener configuración de alertas fiscales
+ */
+router.get("/alert-config", getAlertConfig);
+
+/**
+ * @route PUT /admin/fiscal/alert-config
+ * @desc Actualizar configuración de alertas fiscales
+ * @body { sector?, iae_code?, thresholds?, enabled? }
+ */
+router.put("/alert-config", updateAlertConfig);
 
 export default router;
