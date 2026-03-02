@@ -3,6 +3,7 @@ import { sql } from "../db.js";
 import { getCalendarConfig } from "./googleCalendarService.js";
 import { syncToGoogle, syncFromGoogle, syncBidirectional } from "./calendarSyncService.js";
 import { createGoogleEvent, app180ToGoogleEvent } from "./googleCalendarService.js";
+import { analyzeCurrentQuarter, simulateImpact } from "./fiscalAlertService.js";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -1705,6 +1706,41 @@ const TOOLS = [
       }
     }
   },
+  // --- Tool 98: Analizar riesgo fiscal ---
+  {
+    type: "function",
+    function: {
+      name: "analizar_riesgo_fiscal",
+      description: "Analiza el riesgo fiscal de la empresa para un trimestre. Devuelve un score de riesgo (0-100), alertas activas con severidad, ratios actuales vs medias del sector y recomendaciones. Útil para saber si la empresa está en zona de riesgo de inspección de Hacienda.",
+      parameters: {
+        type: "object",
+        properties: {
+          anio: { type: "number", description: "Año a analizar (por defecto el actual)" },
+          trimestre: { type: "number", description: "Trimestre 1-4 (por defecto el actual)" }
+        },
+        required: []
+      }
+    }
+  },
+  // --- Tool 99: Simular impacto fiscal ---
+  {
+    type: "function",
+    function: {
+      name: "simular_impacto_fiscal",
+      description: "Simula cómo afectaría una operación hipotética (factura o gasto) a los ratios fiscales y al riesgo de inspección. Muestra antes/después del score de riesgo, cambios en ratios, impacto en modelos 303 y 130, y cuánto necesitas facturar para compensar un gasto grande.",
+      parameters: {
+        type: "object",
+        properties: {
+          tipo: { type: "string", enum: ["factura", "gasto"], description: "Tipo de operación: 'factura' (venta) o 'gasto' (compra)" },
+          base_imponible: { type: "number", description: "Importe base imponible en euros" },
+          iva_pct: { type: "number", description: "Porcentaje de IVA (21, 10, 4 o 0). Por defecto 21" },
+          anio: { type: "number", description: "Año (por defecto el actual)" },
+          trimestre: { type: "number", description: "Trimestre 1-4 (por defecto el actual)" }
+        },
+        required: ["tipo", "base_imponible"]
+      }
+    }
+  },
 ];
 
 // ============================
@@ -2057,6 +2093,9 @@ async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, use
       case "reactivar_proforma": return await reactivarProformaIA(args, empresaId);
       case "enviar_nomina": return await enviarNominaIA(args, empresaId);
       case "consultar_entregas_nominas": return await consultarEntregasNominasIA(args, empresaId);
+      // Inteligencia fiscal
+      case "analizar_riesgo_fiscal": return await analizarRiesgoFiscalIA(args, empresaId);
+      case "simular_impacto_fiscal": return await simularImpactoFiscalIA(args, empresaId);
       default: return { error: "Herramienta no encontrada" };
     }
   } catch (err) {
@@ -5634,6 +5673,64 @@ async function reactivarProformaIA({ proforma_id }, empresaId) {
     success: true,
     mensaje: `Nueva proforma ${nuevoNumero} creada desde la anulada ${proforma.numero}. ID: ${nuevaId}`,
     proforma: { id: nuevaId, numero: nuevoNumero, origen: proforma.numero, estado: "ACTIVA" }
+  };
+}
+
+// ============================
+// INTELIGENCIA FISCAL (IA)
+// ============================
+
+async function analizarRiesgoFiscalIA(args, empresaId) {
+  const now = new Date();
+  const anio = args.anio || now.getFullYear();
+  const trimestre = args.trimestre || Math.ceil((now.getMonth() + 1) / 3);
+
+  const result = await analyzeCurrentQuarter(empresaId, anio, trimestre);
+
+  return {
+    anio,
+    trimestre,
+    risk_score: result.riskScore,
+    risk_level: result.riskScore >= 70 ? "ALTO" : result.riskScore >= 40 ? "MEDIO" : "BAJO",
+    total_alertas: result.alerts.length,
+    alertas: result.alerts.map(a => ({
+      tipo: a.alert_type,
+      severidad: a.severity,
+      mensaje: a.message,
+      recomendacion: a.recommendation,
+      valor_actual: a.current_value,
+      umbral: a.threshold,
+    })),
+    ratios: result.ratios,
+    sector: result.config?.sector || "default",
+  };
+}
+
+async function simularImpactoFiscalIA(args, empresaId) {
+  const now = new Date();
+  const anio = args.anio || now.getFullYear();
+  const trimestre = args.trimestre || Math.ceil((now.getMonth() + 1) / 3);
+  const ivaPct = args.iva_pct || 21;
+  const ivaImporte = args.base_imponible * (ivaPct / 100);
+
+  const result = await simulateImpact(empresaId, anio, trimestre, {
+    type: args.tipo,
+    base_imponible: args.base_imponible,
+    iva_pct: ivaPct,
+    iva_importe: ivaImporte,
+  });
+
+  return {
+    operacion: `${args.tipo} de ${args.base_imponible}€ + IVA ${ivaPct}%`,
+    riesgo_antes: result.before.riskScore,
+    riesgo_despues: result.after.riskScore,
+    cambio_riesgo: result.after.riskScore - result.before.riskScore,
+    ratio_gastos_ingresos_antes: (result.before.ratios.gastos_ingresos * 100).toFixed(1) + "%",
+    ratio_gastos_ingresos_despues: (result.after.ratios.gastos_ingresos * 100).toFixed(1) + "%",
+    modelo303_resultado: result.modeloImpact.modelo303_resultado,
+    modelo130_a_ingresar: result.modeloImpact.modelo130_a_ingresar,
+    nuevas_alertas: result.after.alerts.map(a => a.message),
+    facturacion_necesaria_para_compensar: result.safeInvoicingThreshold,
   };
 }
 

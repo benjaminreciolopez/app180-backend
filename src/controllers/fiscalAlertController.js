@@ -10,6 +10,7 @@ import {
     getAlertConfig as getConfig,
     SECTOR_LIST,
 } from "../services/fiscalAlertService.js";
+import { crearNotificacionSistema } from "./notificacionesController.js";
 
 /**
  * GET /admin/fiscal/alerts?year=2026&trimestre=1
@@ -23,11 +24,60 @@ export async function getFiscalAlerts(req, res) {
             return res.status(400).json({ error: "Año y trimestre requeridos" });
         }
 
-        const data = await analyzeCurrentQuarter(empresaId, parseInt(year), parseInt(trimestre));
+        const y = parseInt(year);
+        const q = parseInt(trimestre);
+        const data = await analyzeCurrentQuarter(empresaId, y, q);
+
+        // Crear notificaciones para alertas warning/critical (deduplicadas)
+        if (data.alerts && data.alerts.length > 0) {
+            createAlertNotifications(empresaId, data.alerts, y, q).catch(err =>
+                console.error("Error creando notificaciones fiscales:", err)
+            );
+        }
+
         res.json({ success: true, data });
     } catch (error) {
         console.error("Error getFiscalAlerts:", error);
         res.status(500).json({ success: false, error: "Error obteniendo alertas fiscales" });
+    }
+}
+
+/**
+ * Crea notificaciones para alertas fiscales (solo warning/critical, deduplicadas)
+ */
+async function createAlertNotifications(empresaId, alerts, year, quarter) {
+    const importantAlerts = alerts.filter(a => a.severity === "warning" || a.severity === "critical");
+
+    for (const alert of importantAlerts) {
+        const [existing] = await sql`
+            SELECT id FROM notificaciones_180
+            WHERE empresa_id = ${empresaId}
+            AND tipo = 'fiscal_alert'
+            AND leida = false
+            AND metadata->>'alert_type' = ${alert.alert_type}
+            AND metadata->>'year' = ${String(year)}
+            AND metadata->>'trimestre' = ${String(quarter)}
+            LIMIT 1
+        `;
+
+        if (existing) continue;
+
+        await crearNotificacionSistema({
+            empresaId,
+            tipo: 'fiscal_alert',
+            titulo: `Alerta Fiscal: ${alert.message.substring(0, 80)}`,
+            mensaje: alert.recommendation,
+            accionUrl: '/admin/fiscal?tab=alertas',
+            accionLabel: 'Ver detalles',
+            metadata: {
+                alert_type: alert.alert_type,
+                severity: alert.severity,
+                year: String(year),
+                trimestre: String(quarter),
+                current_value: alert.current_value,
+                threshold: alert.threshold,
+            },
+        });
     }
 }
 
