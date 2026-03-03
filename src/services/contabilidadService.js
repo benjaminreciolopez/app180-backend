@@ -99,6 +99,8 @@ export async function crearAsiento({
   notas = null,
   creado_por = null,
   revisado_ia = false,
+  pendiente_revision = false,
+  revision_motivo = null,
   lineas = [],
 }) {
   if (!lineas || lineas.length < 2) {
@@ -130,10 +132,12 @@ export async function crearAsiento({
     const [asiento] = await tx`
       INSERT INTO asientos_180 (
         empresa_id, numero, fecha, ejercicio, concepto, tipo,
-        estado, referencia_tipo, referencia_id, notas, creado_por, revisado_ia
+        estado, referencia_tipo, referencia_id, notas, creado_por, revisado_ia,
+        pendiente_revision, revision_motivo
       ) VALUES (
         ${empresaId}, ${numero}, ${fecha}, ${ejercicio}, ${concepto}, ${tipo},
-        'borrador', ${referencia_tipo}, ${referencia_id}, ${notas}, ${creado_por}, ${revisado_ia || false}
+        'borrador', ${referencia_tipo}, ${referencia_id}, ${notas}, ${creado_por}, ${revisado_ia || false},
+        ${pendiente_revision || false}, ${revision_motivo}
       ) RETURNING *
     `;
 
@@ -255,6 +259,18 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     || await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria)
     || mapCategoriaToCuenta(gasto.categoria);
 
+  // Detectar si la cuenta asignada es ambigua y requiere revisión
+  const cuentasAmbiguas = ["623", "629", "607", "649"];
+  const esAmbigua = cuentasAmbiguas.includes(cuentaGasto.codigo) && !cuentaGastoIA;
+  let revisionMotivo = null;
+  if (esAmbigua) {
+    if (["623", "629"].includes(cuentaGasto.codigo)) {
+      revisionMotivo = `Cuenta ${cuentaGasto.codigo} asignada automáticamente. Verificar si el proveedor "${proveedorNombre}" es autónomo (623) o sociedad S.L./S.A. (629).`;
+    } else {
+      revisionMotivo = `Cuenta ${cuentaGasto.codigo} asignada automáticamente. Verificar que la clasificación es correcta.`;
+    }
+  }
+
   // Auto-crear subcuenta de proveedor (4000xx)
   const cuentaProveedor = await getOrCreateCuentaTercero(
     empresaId, "proveedor", gasto.id, proveedorNombre
@@ -307,6 +323,8 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     referencia_id: String(gasto.id),
     creado_por: creadoPor,
     revisado_ia: !!cuentaGastoIA,
+    pendiente_revision: esAmbigua,
+    revision_motivo: revisionMotivo,
     lineas,
   });
 }
@@ -1364,7 +1382,14 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
       cuenta: { codigo: "625", nombre: "Primas de seguros" },
     },
 
-    // --- SERVICIOS PROFESIONALES (623) ---
+    // --- SERVICIOS PROFESIONALES: Sociedades (629) vs Autónomos (623) ---
+    // Si el proveedor es una sociedad (S.L., S.A., etc.) → 629 (Otros servicios)
+    {
+      patron: /GESTORIA|ASESORIA|ASESOR\s*(FISCAL|CONTABLE|LABORAL)|CONSULTORIA|ABOGADO|LETRADO|NOTARI|REGISTRO\s*(MERCANTIL|PROPIEDAD)|PROCURADOR|AUDITORIA|AUDITOR/,
+      condicionProveedor: /\b(S\.?L\.?U?\.?|S\.?A\.?|S\.?C\.?|S\.?COOP\.?)\b/i,
+      cuenta: { codigo: "629", nombre: "Otros servicios" },
+    },
+    // Si el proveedor NO es sociedad (persona física / autónomo) → 623
     {
       patron: /GESTORIA|ASESORIA|ASESOR\s*(FISCAL|CONTABLE|LABORAL)|CONSULTORIA|ABOGADO|LETRADO|NOTARI|REGISTRO\s*(MERCANTIL|PROPIEDAD)|PROCURADOR|AUDITORIA|AUDITOR/,
       cuenta: { codigo: "623", nombre: "Servicios de profesionales independientes" },
@@ -1413,8 +1438,17 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
     },
   ];
 
+  const proveedorUpper = (proveedor || "").toUpperCase();
+
   for (const regla of reglas) {
     if (regla.patron.test(texto)) {
+      // Si la regla tiene condición sobre proveedor, verificar que el proveedor la cumpla
+      if (regla.condicionProveedor) {
+        if (proveedorUpper && regla.condicionProveedor.test(proveedorUpper)) {
+          return regla.cuenta;
+        }
+        continue; // No cumple la condición, probar siguiente regla
+      }
       return regla.cuenta;
     }
   }
@@ -1457,7 +1491,7 @@ Tu ÚNICA tarea: clasificar gastos en la cuenta PGC correcta.
 CUENTAS (Grupo 6 - Compras y gastos):
 ${cuentasGasto}
 
-REGLAS: Autónomos/RETA/SS→642, Mutuas→649, Sueldos→640, Alquiler→621, Suministros(luz,agua,gas,tel)→628, Seguros→625, Gestoría/abogado→623, Publicidad→627, Comisiones bancarias→626, Transporte→624, IBI/IAE/tasas→631, Reparaciones→622, Material oficina→629, Compras mercaderías→600, Subcontratación→607, Intereses→662.
+REGLAS: Autónomos/RETA/SS→642, Mutuas→649, Sueldos→640, Alquiler→621, Suministros(luz,agua,gas,tel)→628, Seguros→625, Gestoría/abogado de AUTÓNOMO→623, Gestoría/abogado de SOCIEDAD (S.L.,S.A.)→629, Publicidad→627, Comisiones bancarias→626, Transporte→624, IBI/IAE/tasas→631, Reparaciones→622, Material oficina→629, Compras mercaderías→600, Subcontratación→607, Intereses→662.
 
 Responde SOLO: CODIGO|NOMBRE`,
       messages: [{
@@ -1560,7 +1594,7 @@ ${cuentasGasto}
 CUENTAS DE INGRESO (Grupo 7) - Para items marcados [FACTURA]:
 ${cuentasIngreso}
 
-REGLAS GASTOS: Autónomos/RETA/SS→642, Mutuas/prevención→649, Sueldos→640, Indemnización→641, Alquiler→621, Reparaciones→622, Gestoría/abogado/notario→623, Transporte/envíos→624, Seguros→625, Comisiones bancarias→626, Publicidad/marketing→627, Suministros(luz,agua,gas,tel,internet)→628, Material oficina/limpieza/otros→629, Compras mercaderías→600, Materias primas→601, Subcontratación→607, IBI/IAE/tasas→631, Intereses préstamos→662, Amortización→681.
+REGLAS GASTOS: Autónomos/RETA/SS→642, Mutuas/prevención→649, Sueldos→640, Indemnización→641, Alquiler→621, Reparaciones→622, Gestoría/abogado/notario de AUTÓNOMO (persona física)→623, Gestoría/abogado/notario de SOCIEDAD (S.L., S.A.)→629, Transporte/envíos→624, Seguros→625, Comisiones bancarias→626, Publicidad/marketing→627, Suministros(luz,agua,gas,tel,internet)→628, Material oficina/limpieza/otros→629, Compras mercaderías→600, Materias primas→601, Subcontratación→607, IBI/IAE/tasas→631, Intereses préstamos→662, Amortización→681.
 
 REGLAS FACTURAS (CLAVE):
 - 700: Venta de PRODUCTOS FÍSICOS, mercaderías, bienes tangibles

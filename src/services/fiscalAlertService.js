@@ -433,7 +433,7 @@ async function checkMissingRetentions(empresaId, startDate, endDate) {
     const keywordPattern = keywords.join('|');
 
     const suspects = await sql`
-        SELECT id, proveedor, descripcion, base_imponible, total, categoria
+        SELECT id, proveedor, descripcion, base_imponible, total, categoria, fecha_compra
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
         AND activo = true
@@ -446,16 +446,30 @@ async function checkMissingRetentions(empresaId, startDate, endDate) {
         )
     `;
 
-    if (suspects.length > 0) {
+    // Excluir proveedores que son sociedades (S.L., S.A., etc.) — no necesitan retención IRPF
+    const sociedadRegex = /\b(S\.?L\.?U?\.?|S\.?A\.?|S\.?C\.?|S\.?COOP\.?|SOCIEDAD|CORPORACION|CORP\.?)\b/i;
+    const realSuspects = suspects.filter(s => {
+        if (s.proveedor && sociedadRegex.test(s.proveedor)) return false;
+        return true;
+    });
+
+    if (realSuspects.length > 0) {
         return {
             triggered: true,
             alert_type: 'missing_retentions',
-            severity: suspects.length > 3 ? 'warning' : 'info',
-            current_value: suspects.length,
+            severity: realSuspects.length > 3 ? 'warning' : 'info',
+            current_value: realSuspects.length,
             threshold: 0,
-            message: `${suspects.length} gasto(s) de servicios profesionales sin retención IRPF`,
-            recommendation: 'Las facturas de profesionales autónomos deben incluir retención IRPF (normalmente 15%). Revisa estos gastos.',
-            details: suspects.map(s => ({ id: s.id, proveedor: s.proveedor, total: parseFloat(s.total) })),
+            message: `${realSuspects.length} gasto(s) de servicios profesionales sin retención IRPF`,
+            recommendation: 'Las facturas de profesionales autónomos (personas físicas) deben incluir retención IRPF (normalmente 15%). Las sociedades (S.L., S.A.) no requieren retención.',
+            details: realSuspects.map(s => ({
+                id: s.id,
+                proveedor: s.proveedor,
+                descripcion: s.descripcion,
+                total: parseFloat(s.total),
+                categoria: s.categoria,
+                fecha: s.fecha_compra,
+            })),
         };
     }
 

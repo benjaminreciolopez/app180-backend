@@ -46,9 +46,10 @@ export async function getFiscalAlerts(req, res) {
  * Crea notificaciones para alertas fiscales (solo warning/critical, deduplicadas)
  */
 async function createAlertNotifications(empresaId, alerts, year, quarter) {
-    const importantAlerts = alerts.filter(a => a.severity === "warning" || a.severity === "critical");
+    // Alertas que se benefician del simulador de impacto
+    const simulatorAlertTypes = ['gastos_ingresos_ratio', 'gasto_spike', 'iva_ratio', 'missing_retentions'];
 
-    for (const alert of importantAlerts) {
+    for (const alert of alerts) {
         const [existing] = await sql`
             SELECT id FROM notificaciones_180
             WHERE empresa_id = ${empresaId}
@@ -62,13 +63,19 @@ async function createAlertNotifications(empresaId, alerts, year, quarter) {
 
         if (existing) continue;
 
+        const useSimulator = simulatorAlertTypes.includes(alert.alert_type);
+
         await crearNotificacionSistema({
             empresaId,
             tipo: 'fiscal_alert',
             titulo: `Alerta Fiscal: ${alert.message.substring(0, 80)}`,
             mensaje: alert.recommendation,
-            accionUrl: '/admin/fiscal?tab=alertas',
-            accionLabel: 'Ver detalles',
+            accionUrl: useSimulator
+                ? '/admin/fiscal?tab=alertas&openSimulator=true'
+                : '/admin/fiscal?tab=alertas',
+            accionLabel: useSimulator
+                ? '¿Quieres simular el impacto?'
+                : 'Ver detalles',
             metadata: {
                 alert_type: alert.alert_type,
                 severity: alert.severity,
