@@ -89,10 +89,112 @@ export async function actualizarCuenta(req, res) {
     `;
 
     if (!cuenta) return res.status(404).json({ error: "Cuenta no encontrada" });
+
+    // Propagate name change to asiento_lineas for tercero accounts (4300xx, 4000xx)
+    if (nombre && /^(4300|4000)\d+/.test(cuenta.codigo)) {
+      await sql`
+        UPDATE asiento_lineas_180
+        SET cuenta_nombre = ${nombre}
+        WHERE empresa_id = ${empresaId} AND cuenta_codigo = ${cuenta.codigo}
+      `;
+    }
+
     res.json(cuenta);
   } catch (err) {
     console.error("Error actualizarCuenta:", err);
     res.status(500).json({ error: "Error actualizando cuenta" });
+  }
+}
+
+export async function fusionarCuentas(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { source_codigo, target_codigo } = req.body;
+
+    if (!source_codigo || !target_codigo) {
+      return res.status(400).json({ error: "source_codigo y target_codigo son requeridos" });
+    }
+    if (source_codigo === target_codigo) {
+      return res.status(400).json({ error: "Las cuentas origen y destino no pueden ser la misma" });
+    }
+
+    // Validate both accounts exist
+    const [source] = await sql`
+      SELECT * FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId} AND codigo = ${source_codigo}
+    `;
+    const [target] = await sql`
+      SELECT * FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId} AND codigo = ${target_codigo}
+    `;
+
+    if (!source) return res.status(404).json({ error: `Cuenta origen ${source_codigo} no encontrada` });
+    if (!target) return res.status(404).json({ error: `Cuenta destino ${target_codigo} no encontrada` });
+
+    // Validate same prefix (both clients 4300xx or both suppliers 4000xx)
+    const sourcePrefix = source_codigo.substring(0, 4);
+    const targetPrefix = target_codigo.substring(0, 4);
+    if (sourcePrefix !== targetPrefix) {
+      return res.status(400).json({ error: "Solo se pueden fusionar cuentas del mismo tipo (ambas clientes o ambas proveedores)" });
+    }
+
+    let lineasActualizadas = 0;
+
+    await sql.begin(async (tx) => {
+      // 1. Update all asiento_lineas from source to target
+      const updated = await tx`
+        UPDATE asiento_lineas_180
+        SET cuenta_codigo = ${target_codigo},
+            cuenta_nombre = ${target.nombre}
+        WHERE empresa_id = ${empresaId} AND cuenta_codigo = ${source_codigo}
+      `;
+      lineasActualizadas = updated.count;
+
+      // 2. Copy source tercero_ref as alias in target
+      if (source.tercero_ref) {
+        const currentAliases = target.tercero_aliases || [];
+        if (!currentAliases.includes(source.tercero_ref)) {
+          await tx`
+            UPDATE pgc_cuentas_180
+            SET tercero_aliases = COALESCE(tercero_aliases, '[]'::jsonb) || ${JSON.stringify([source.tercero_ref])}::jsonb,
+                updated_at = now()
+            WHERE empresa_id = ${empresaId} AND codigo = ${target_codigo}
+          `;
+        }
+      }
+
+      // Also copy source nombre as alias if different from target
+      const sourceNombreNorm = (source.nombre || "").trim().toUpperCase();
+      const targetRef = (target.tercero_ref || "").trim().toUpperCase();
+      if (sourceNombreNorm && sourceNombreNorm !== targetRef) {
+        const currentAliases = target.tercero_aliases || [];
+        if (!currentAliases.includes(sourceNombreNorm)) {
+          await tx`
+            UPDATE pgc_cuentas_180
+            SET tercero_aliases = COALESCE(tercero_aliases, '[]'::jsonb) || ${JSON.stringify([sourceNombreNorm])}::jsonb,
+                updated_at = now()
+            WHERE empresa_id = ${empresaId} AND codigo = ${target_codigo}
+          `;
+        }
+      }
+
+      // 3. Deactivate source account (don't delete for traceability)
+      await tx`
+        UPDATE pgc_cuentas_180
+        SET activa = false, updated_at = now()
+        WHERE empresa_id = ${empresaId} AND codigo = ${source_codigo}
+      `;
+    });
+
+    res.json({
+      message: "Cuentas fusionadas correctamente",
+      lineas_actualizadas: lineasActualizadas,
+      source_codigo,
+      target_codigo,
+    });
+  } catch (err) {
+    console.error("Error fusionarCuentas:", err);
+    res.status(500).json({ error: "Error fusionando cuentas" });
   }
 }
 

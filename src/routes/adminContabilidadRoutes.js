@@ -7,6 +7,7 @@ import {
   getCuentas,
   crearCuenta,
   actualizarCuenta,
+  fusionarCuentas,
   inicializarPGC,
   getAsientos,
   getAsientoById,
@@ -46,6 +47,7 @@ router.get("/cuentas", getCuentas);
 router.get("/cuentas/exportar", exportarCuentas);
 router.post("/cuentas", crearCuenta);
 router.put("/cuentas/:id", actualizarCuenta);
+router.post("/cuentas/fusionar", fusionarCuentas);
 router.post("/cuentas/inicializar-pgc", inicializarPGC);
 
 // Asientos

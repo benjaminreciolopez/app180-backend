@@ -1210,10 +1210,39 @@ async function getOrCreateCuentaTercero(empresaId, tipo, terceroId, nombre) {
     return { codigo: cuentaPadre, nombre: nombreBase };
   }
 
-  // Check if a subcuenta already exists for this tercero (stored in metadata or by name match)
-  const terceroIdStr = String(terceroId);
+  const nombreNorm = (nombre || "").trim().toUpperCase();
 
-  // Look for existing subcuenta that matches this tercero
+  // 1. Search by tercero_ref (most reliable — original name when account was created)
+  if (nombreNorm) {
+    const byRef = await sql`
+      SELECT codigo, nombre FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId}
+        AND codigo LIKE ${prefijo + '%'}
+        AND padre_codigo = ${cuentaPadre}
+        AND UPPER(tercero_ref) = ${nombreNorm}
+        AND activa = true
+      LIMIT 1
+    `;
+    if (byRef.length > 0) {
+      return { codigo: byRef[0].codigo, nombre: byRef[0].nombre };
+    }
+
+    // 2. Search in aliases (accumulated from merges)
+    const byAlias = await sql`
+      SELECT codigo, nombre FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId}
+        AND codigo LIKE ${prefijo + '%'}
+        AND padre_codigo = ${cuentaPadre}
+        AND tercero_aliases @> ${JSON.stringify([nombreNorm])}::jsonb
+        AND activa = true
+      LIMIT 1
+    `;
+    if (byAlias.length > 0) {
+      return { codigo: byAlias[0].codigo, nombre: byAlias[0].nombre };
+    }
+  }
+
+  // 3. Fallback: search by name (legacy behavior)
   const existing = await sql`
     SELECT codigo, nombre FROM pgc_cuentas_180
     WHERE empresa_id = ${empresaId}
@@ -1222,12 +1251,11 @@ async function getOrCreateCuentaTercero(empresaId, tipo, terceroId, nombre) {
       AND nombre ILIKE ${'%' + nombre.substring(0, 20) + '%'}
     LIMIT 1
   `;
-
   if (existing.length > 0) {
     return { codigo: existing[0].codigo, nombre: existing[0].nombre };
   }
 
-  // Generate next sequential code: 430001, 430002, ... or 400001, 400002, ...
+  // 4. Create new account with tercero_ref
   const [maxRow] = await sql`
     SELECT MAX(codigo) AS max_codigo FROM pgc_cuentas_180
     WHERE empresa_id = ${empresaId}
@@ -1258,10 +1286,10 @@ async function getOrCreateCuentaTercero(empresaId, tipo, terceroId, nombre) {
     `;
   }
 
-  // Create the subcuenta
+  // Create the subcuenta with tercero_ref for future lookups
   await sql`
-    INSERT INTO pgc_cuentas_180 (empresa_id, codigo, nombre, tipo, grupo, subgrupo, nivel, padre_codigo, activa, es_estandar)
-    VALUES (${empresaId}, ${nuevoCodigo}, ${nuevaCuentaNombre}, ${tipoContable}, 4, ${tipo === "cliente" ? 43 : 40}, 4, ${cuentaPadre}, true, false)
+    INSERT INTO pgc_cuentas_180 (empresa_id, codigo, nombre, tipo, grupo, subgrupo, nivel, padre_codigo, activa, es_estandar, tercero_ref, tercero_aliases)
+    VALUES (${empresaId}, ${nuevoCodigo}, ${nuevaCuentaNombre}, ${tipoContable}, 4, ${tipo === "cliente" ? 43 : 40}, 4, ${cuentaPadre}, true, false, ${nombreNorm || null}, '[]'::jsonb)
     ON CONFLICT DO NOTHING
   `;
 
