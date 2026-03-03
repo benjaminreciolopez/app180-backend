@@ -100,6 +100,26 @@ export async function marcarTodasLeidas(req, res) {
 }
 
 /**
+ * DELETE /admin/notificaciones/limpiar
+ * Elimina todas las notificaciones leídas
+ */
+export async function limpiarNotificaciones(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+
+    const result = await sql`
+      DELETE FROM notificaciones_180
+      WHERE empresa_id = ${empresaId} AND leida = TRUE
+    `;
+
+    res.json({ success: true, deleted: result.count });
+  } catch (err) {
+    console.error("Error limpiarNotificaciones:", err);
+    res.status(500).json({ error: "Error limpiando notificaciones" });
+  }
+}
+
+/**
  * DELETE /admin/notificaciones/:id
  * Elimina una notificación (solo admin)
  */

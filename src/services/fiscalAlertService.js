@@ -426,9 +426,11 @@ async function checkCashPayments(empresaId, startDate, endDate, config) {
 // ──────────────────────────────────────────────
 
 async function checkMissingRetentions(empresaId, startDate, endDate) {
+    // Keywords de servicios profesionales que deberían llevar retención IRPF
+    // NO incluir 'autonomo' porque aparece en recibos de SS (TGSS) que no son servicios profesionales
     const keywords = ['profesional', 'asesoria', 'asesoría', 'legal', 'consultoria', 'consultoría',
         'notario', 'abogado', 'gestor', 'gestoria', 'gestoría', 'arquitecto', 'ingeniero',
-        'diseñador', 'programador', 'freelance', 'autonomo', 'autónomo'];
+        'diseñador', 'programador', 'freelance'];
 
     const keywordPattern = keywords.join('|');
 
@@ -448,8 +450,13 @@ async function checkMissingRetentions(empresaId, startDate, endDate) {
 
     // Excluir proveedores que son sociedades (S.L., S.A., etc.) — no necesitan retención IRPF
     const sociedadRegex = /\b(S\.?L\.?U?\.?|S\.?A\.?|S\.?C\.?|S\.?COOP\.?|SOCIEDAD|CORPORACION|CORP\.?)\b/i;
+    // Excluir pagos a Seguridad Social, TGSS, cuotas de autónomo, hacienda, etc.
+    const ssExcludeRegex = /\b(TGSS|SEGURIDAD\s*SOCIAL|TESORERIA\s*GENERAL|CUOTA\s*AUTONOMO|RECIBO\s*(DE\s*)?(EL\s*)?AUTONOMO|RETA\b|HACIENDA|AEAT|AGENCIA\s*TRIBUTARIA)\b/i;
     const realSuspects = suspects.filter(s => {
         if (s.proveedor && sociedadRegex.test(s.proveedor)) return false;
+        // Excluir pagos a organismos públicos (SS, Hacienda)
+        const textoCompleto = `${s.proveedor || ''} ${s.descripcion || ''} ${s.categoria || ''}`;
+        if (ssExcludeRegex.test(textoCompleto)) return false;
         return true;
     });
 
