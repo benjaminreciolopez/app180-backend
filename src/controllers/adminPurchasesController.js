@@ -424,7 +424,7 @@ export async function eliminarCompra(req, res) {
 
         const [deleted] = await sql`
       UPDATE purchases_180
-      SET activo = false, updated_at = NOW()
+      SET activo = false, deleted_at = NOW(), updated_at = NOW()
       WHERE id = ${id} AND empresa_id = ${empresa_id}
       RETURNING id
     `;

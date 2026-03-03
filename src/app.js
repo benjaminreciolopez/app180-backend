@@ -4,8 +4,10 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import morgan from "morgan";
 import cron from "node-cron";
 import { config } from "./config.js";
+import logger from "./utils/logger.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
@@ -99,16 +101,16 @@ cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada h
   try {
     const { sql } = await import("./db.js");
     await sql`UPDATE qr_sessions_180 SET status = 'expired' WHERE status = 'pending' AND expires_at < NOW()`;
-  } catch (e) { console.error("Error limpiando QR sessions:", e.message); }
+  } catch (e) { logger.warn("Error limpiando QR sessions", { error: e.message }); }
 });
 
 // =========================
 // MIDDLEWARES
 // =========================
-app.use((req, res, next) => {
-  console.log(`📡 REQUEST: ${req.method} ${req.url}`);
-  next();
-});
+app.use(morgan("short", {
+  stream: { write: (msg) => logger.info(msg.trim()) },
+  skip: (req) => req.url === "/" || req.url === "/health",
+}));
 
 // =========================
 // SECURITY
@@ -166,7 +168,7 @@ app.use(
         return callback(null, true);
       }
 
-      console.warn(`[CORS] Intento bloqueado: ${origin}`);
+      logger.warn(`CORS bloqueado: ${origin}`);
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
@@ -317,7 +319,7 @@ app.use((err, req, res, _next) => {
   const message = status < 500 ? err.message : "Error interno del servidor";
 
   if (status >= 500) {
-    console.error(`[ERROR] ${req.method} ${req.url}:`, err.message || err);
+    logger.error(`${req.method} ${req.url}: ${err.message || err}`, { stack: err.stack });
   }
 
   res.status(status).json({ error: message });
@@ -325,11 +327,11 @@ app.use((err, req, res, _next) => {
 
 // Catch unhandled rejections
 process.on("unhandledRejection", (reason) => {
-  console.error("[UNHANDLED REJECTION]", reason);
+  logger.error("Unhandled rejection", { reason: String(reason) });
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("[UNCAUGHT EXCEPTION]", err);
+  logger.error("Uncaught exception", { message: err.message, stack: err.stack });
   process.exit(1);
 });
 
@@ -414,9 +416,9 @@ process.on("uncaughtException", (err) => {
             RAISE NOTICE 'Error en migración automática: %', SQLERRM;
         END $$;
     `);
-    console.log("✅ Migraciones automáticas (geo_policy, backup_path) ejecutadas en DB");
+    logger.info("Migraciones automaticas ejecutadas");
   } catch (e) {
-    console.error("⚠️ Error en migración automática geo_policy:", e.message);
+    logger.warn("Error en migracion automatica", { error: e.message });
   }
 })();
 
@@ -425,25 +427,24 @@ export default app;
 
 if (process.env.NODE_ENV !== 'test') {
   const server = app.listen(config.port, () =>
-    console.log(`Servidor iniciado en puerto ${config.port}`),
+    logger.info(`Servidor iniciado en puerto ${config.port}`),
   );
 
   // Graceful shutdown
   const gracefulShutdown = (signal) => {
-    console.log(`\n${signal} recibido. Cerrando servidor...`);
+    logger.info(`${signal} recibido. Cerrando servidor...`);
     server.close(async () => {
       try {
         const { sql } = await import("./db.js");
         await sql.end({ timeout: 5 });
-        console.log("Conexiones DB cerradas.");
+        logger.info("Conexiones DB cerradas");
       } catch (e) {
-        console.error("Error cerrando DB:", e.message);
+        logger.error("Error cerrando DB", { error: e.message });
       }
       process.exit(0);
     });
-    // Forzar cierre si tarda más de 10s
     setTimeout(() => {
-      console.error("Forzando cierre tras 10s...");
+      logger.error("Forzando cierre tras 10s");
       process.exit(1);
     }, 10000);
   };

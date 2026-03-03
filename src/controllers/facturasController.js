@@ -136,6 +136,7 @@ export async function listFacturas(req, res) {
       left join storage_180 s on s.nombre = 'Factura_' || replace(f.numero, '/', '-') || '.pdf' 
         AND s.empresa_id = f.empresa_id
       where f.empresa_id = ${empresaId}
+        AND f.deleted_at IS NULL
     `;
 
     if (estado && estado !== 'TODOS') {

@@ -759,7 +759,7 @@ export async function eliminarProforma(req, res) {
 
     await sql.begin(async (tx) => {
       await tx`DELETE FROM lineafactura_180 WHERE factura_id = ${id}`;
-      await tx`DELETE FROM factura_180 WHERE id = ${id}`;
+      await tx`UPDATE factura_180 SET deleted_at = NOW() WHERE id = ${id}`;
     });
 
     await auditProforma({
