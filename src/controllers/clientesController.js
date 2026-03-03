@@ -351,6 +351,7 @@ export async function actualizarCliente(req, res) {
     "retencion_tipo": "retencion_tipo"
   };
 
+  // Primera pasada: asignar campos directos (sin sincronización)
   for (const k of Object.keys(body)) {
     let val = body[k] === undefined ? null : body[k];
 
@@ -366,33 +367,42 @@ export async function actualizarCliente(req, res) {
       val = Number(val);
     }
 
-    // Agregar a fieldsGeneral si está en allowedGeneral
     if (allowedGeneral.includes(k)) {
       fieldsGeneral[k] = val;
-
-      // Si este campo tiene sincronización, agregarlo a fieldsFiscal con el nombre correcto
-      if (syncMap[k]) {
-        const syncedFieldName = syncMap[k];
-        // Si la sincronización va a la tabla fiscal, agregar a fieldsFiscal
-        if (allowedFiscal.includes(syncedFieldName)) {
-          fieldsFiscal[syncedFieldName] = val;
-        }
-      }
     }
 
-    // Agregar a fieldsFiscal si está en allowedFiscal
     if (allowedFiscal.includes(k)) {
       fieldsFiscal[k] = val;
-
-      // Si este campo tiene sincronización, agregarlo a fieldsGeneral con el nombre correcto
-      if (syncMap[k]) {
-        const syncedFieldName = syncMap[k];
-        // Si la sincronización va a la tabla general, agregar a fieldsGeneral
-        if (allowedGeneral.includes(syncedFieldName)) {
-          fieldsGeneral[syncedFieldName] = val;
-        }
-      }
     }
+  }
+
+  // Segunda pasada: sincronización entre tablas
+  // Solo sincronizar valores no-null/no-vacíos, y nunca sobrescribir un campo
+  // que ya fue establecido explícitamente en el body
+  for (const [sourceField, targetField] of Object.entries(syncMap)) {
+    // Solo sincronizar si el campo fuente fue enviado en el body
+    if (!(sourceField in body)) continue;
+
+    const val = fieldsGeneral[sourceField] ?? fieldsFiscal[sourceField];
+
+    // No sincronizar valores null/vacíos (evita que razon_social=null machaque nombre)
+    if (val === null || val === undefined || val === "") continue;
+
+    // No sobrescribir si el campo destino ya fue enviado explícitamente en el body
+    if (targetField in body) continue;
+
+    // Aplicar sincronización al destino correcto
+    if (allowedGeneral.includes(targetField)) {
+      fieldsGeneral[targetField] = val;
+    }
+    if (allowedFiscal.includes(targetField)) {
+      fieldsFiscal[targetField] = val;
+    }
+  }
+
+  // Validación defensiva: nombre nunca puede ser null/vacío en un UPDATE
+  if ("nombre" in fieldsGeneral && !fieldsGeneral.nombre) {
+    return sendError(res, "El nombre del cliente es obligatorio", 400);
   }
 
   // Actualizar tabla general
