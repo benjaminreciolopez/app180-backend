@@ -488,6 +488,111 @@ export const deleteKioskDevice = async (req, res) => {
   }
 };
 
+// ─── ADMIN: Generar token de activación QR ──────────────────
+
+export const generateActivationToken = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const empresaId = req.user.empresa_id;
+
+    // Verificar que el device pertenece a esta empresa
+    const [device] = await sql`
+      SELECT id, nombre FROM kiosk_devices_180
+      WHERE id = ${id} AND empresa_id = ${empresaId}
+    `;
+    if (!device) {
+      return res.status(404).json({ error: "Dispositivo no encontrado" });
+    }
+
+    // Invalidar tokens previos no usados de este device
+    await sql`
+      UPDATE kiosk_activation_tokens_180
+      SET used = true
+      WHERE kiosk_device_id = ${id} AND used = false
+    `;
+
+    // Generar nuevo token
+    const token = crypto.randomBytes(32).toString("hex");
+
+    await sql`
+      INSERT INTO kiosk_activation_tokens_180 (token, kiosk_device_id, empresa_id, expires_at)
+      VALUES (${token}, ${id}, ${empresaId}, NOW() + INTERVAL '30 minutes')
+    `;
+
+    const frontendUrl = process.env.FRONTEND_URL || "https://contendo.es";
+    const activationUrl = `${frontendUrl}/kiosko/activar?token=${token}`;
+
+    return res.json({
+      success: true,
+      activation_url: activationUrl,
+      token,
+      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      device_name: device.nombre,
+    });
+  } catch (err) {
+    console.error("❌ Error en generateActivationToken:", err);
+    return res.status(500).json({ error: "Error al generar token de activación" });
+  }
+};
+
+// ─── PÚBLICO: Activar dispositivo kiosko vía token QR ───────
+
+export const activateKioskDevice = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Token de activación requerido" });
+    }
+
+    // Buscar token válido
+    const [activation] = await sql`
+      SELECT at.id, at.kiosk_device_id, at.empresa_id
+      FROM kiosk_activation_tokens_180 at
+      WHERE at.token = ${token}
+        AND at.used = false
+        AND at.expires_at > NOW()
+    `;
+
+    if (!activation) {
+      return res.status(400).json({ error: "Token de activación inválido o expirado" });
+    }
+
+    // Obtener device_token y datos
+    const [device] = await sql`
+      SELECT kd.device_token, kd.nombre, kd.activo, e.nombre AS empresa_nombre
+      FROM kiosk_devices_180 kd
+      JOIN empresa_180 e ON e.id = kd.empresa_id
+      WHERE kd.id = ${activation.kiosk_device_id}
+    `;
+
+    if (!device) {
+      return res.status(404).json({ error: "Dispositivo no encontrado" });
+    }
+
+    if (!device.activo) {
+      return res.status(403).json({ error: "Dispositivo desactivado" });
+    }
+
+    // Marcar token como usado
+    await sql`
+      UPDATE kiosk_activation_tokens_180
+      SET used = true, used_at = NOW()
+      WHERE id = ${activation.id}
+    `;
+
+    return res.json({
+      success: true,
+      device_token: device.device_token,
+      device_name: device.nombre,
+      empresa_nombre: device.empresa_nombre,
+    });
+  } catch (err) {
+    console.error("❌ Error en activateKioskDevice:", err);
+    return res.status(500).json({ error: "Error al activar dispositivo" });
+  }
+};
+
 // ─── KIOSK: Verificar PIN offline ────────────────────────────
 
 export const verifyOfflinePin = async (req, res) => {

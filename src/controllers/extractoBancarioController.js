@@ -3,6 +3,10 @@ import { sql } from "../db.js";
 import {
   parsearExtracto,
   matchearMovimientos,
+  guardarMovimientos,
+  actualizarMatchesPorIds,
+  confirmarTransacciones,
+  listarTransacciones,
 } from "../services/extractoBancarioService.js";
 import {
   generarAsientoCobro,
@@ -11,7 +15,8 @@ import {
 
 /**
  * POST /contabilidad/importar-extracto
- * Sube un fichero de extracto bancario (CSV/Excel/OFX), lo parsea y devuelve movimientos.
+ * Sube un fichero de extracto bancario (CSV/Excel/OFX/N43), lo parsea,
+ * persiste los movimientos en bank_transactions_180 y devuelve resultado.
  */
 export async function importarExtracto(req, res) {
   try {
@@ -32,12 +37,21 @@ export async function importarExtracto(req, res) {
       });
     }
 
+    // Persist movements to bank_transactions_180
+    const { importacionId, txIds } = await guardarMovimientos(
+      movimientos,
+      empresaId,
+      req.file.originalname
+    );
+
     res.json({
       movimientos,
       total: movimientos.length,
       ingresos: movimientos.filter((m) => m.importe > 0).length,
       gastos: movimientos.filter((m) => m.importe < 0).length,
       filename: req.file.originalname,
+      importacionId,
+      txIds,
     });
   } catch (err) {
     console.error("Error importarExtracto:", err);
@@ -48,17 +62,23 @@ export async function importarExtracto(req, res) {
 /**
  * POST /contabilidad/extracto/matchear
  * Recibe movimientos parseados y usa IA para matchearlos con facturas/gastos/nóminas.
+ * Persiste los resultados del matching en bank_transactions_180.
  */
 export async function matchearExtracto(req, res) {
   try {
     const empresaId = req.user.empresa_id;
-    const { movimientos } = req.body;
+    const { movimientos, txIds } = req.body;
 
     if (!Array.isArray(movimientos) || movimientos.length === 0) {
       return res.status(400).json({ error: "No hay movimientos para matchear" });
     }
 
     const resultado = await matchearMovimientos(movimientos, empresaId);
+
+    // Persist matching results if txIds provided
+    if (Array.isArray(txIds) && txIds.length === resultado.length) {
+      await actualizarMatchesPorIds(txIds, resultado);
+    }
 
     // Stats
     const stats = {
@@ -79,20 +99,23 @@ export async function matchearExtracto(req, res) {
 /**
  * POST /contabilidad/extracto/confirmar
  * Genera asientos contables para los matches confirmados por el usuario.
+ * Actualiza estado en bank_transactions_180.
  *
- * Body: { confirmados: [{ fecha, concepto, importe, match_tipo, match_id }] }
+ * Body: { confirmados: [{ fecha, concepto, importe, match_tipo, match_id, txId? }], txIds?: string[] }
  */
 export async function confirmarExtracto(req, res) {
   try {
     const empresaId = req.user.empresa_id;
     const creadoPor = req.user.id;
-    const { confirmados } = req.body;
+    const { confirmados, txIds: allTxIds } = req.body;
 
     if (!Array.isArray(confirmados) || confirmados.length === 0) {
       return res.status(400).json({ error: "No hay movimientos confirmados" });
     }
 
     const resultados = { generados: 0, errores: [], omitidos: 0 };
+    const txConfirmados = []; // { txId, asientoId }
+    const txIdsConfirmados = new Set();
 
     for (const mov of confirmados) {
       try {
@@ -100,6 +123,8 @@ export async function confirmarExtracto(req, res) {
           resultados.omitidos++;
           continue;
         }
+
+        let asientoId = null;
 
         if (mov.match_tipo === "factura") {
           // Cobro de factura → generar asiento de cobro
@@ -113,7 +138,7 @@ export async function confirmarExtracto(req, res) {
 
           if (factura) {
             const importe = Math.abs(mov.importe);
-            await generarAsientoCobro(empresaId, {
+            const asientoResult = await generarAsientoCobro(empresaId, {
               paymentId: `extracto_${Date.now()}_${mov.match_id}`,
               metodo: "transferencia",
               importe,
@@ -124,6 +149,8 @@ export async function confirmarExtracto(req, res) {
               clienteNombre: factura.cliente_nombre,
               creadoPor,
             });
+
+            asientoId = asientoResult?.id || null;
 
             // Update factura pagado
             await sql`
@@ -146,27 +173,63 @@ export async function confirmarExtracto(req, res) {
           `;
 
           if (gasto) {
-            // Use the gasto with metodo_pago = transferencia (from bank)
-            await generarAsientoPagoGasto(
+            const asientoResult = await generarAsientoPagoGasto(
               empresaId,
               { ...gasto, metodo_pago: gasto.metodo_pago || "transferencia" },
               creadoPor
             );
+            asientoId = asientoResult?.id || null;
             resultados.generados++;
           }
         } else if (mov.match_tipo === "nomina") {
-          // For nóminas, we'd generate a payment entry (465→572)
-          // Simplified: mark as informational
           resultados.omitidos++;
+        }
+
+        // Track confirmed txId
+        if (mov.txId) {
+          txConfirmados.push({ txId: mov.txId, asientoId });
+          txIdsConfirmados.add(mov.txId);
         }
       } catch (err) {
         resultados.errores.push(`${mov.concepto}: ${err.message}`);
       }
     }
 
+    // Update bank_transactions_180 states
+    if (txConfirmados.length > 0 || (Array.isArray(allTxIds) && allTxIds.length > 0)) {
+      const omitidosTxIds = Array.isArray(allTxIds)
+        ? allTxIds.filter((id) => !txIdsConfirmados.has(id))
+        : [];
+      await confirmarTransacciones(txConfirmados, omitidosTxIds);
+    }
+
     res.json(resultados);
   } catch (err) {
     console.error("Error confirmarExtracto:", err);
     res.status(500).json({ error: "Error generando asientos desde extracto" });
+  }
+}
+
+/**
+ * GET /contabilidad/extracto/transacciones
+ * Lista transacciones bancarias importadas con filtros y paginación.
+ */
+export async function listarTransaccionesBancarias(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { estado, desde, hasta, limit, offset } = req.query;
+
+    const result = await listarTransacciones(empresaId, {
+      estado,
+      desde,
+      hasta,
+      limit: limit ? parseInt(limit) : 50,
+      offset: offset ? parseInt(offset) : 0,
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error("Error listarTransaccionesBancarias:", err);
+    res.status(500).json({ error: "Error listando transacciones bancarias" });
   }
 }

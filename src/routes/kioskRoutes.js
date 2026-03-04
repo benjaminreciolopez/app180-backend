@@ -10,6 +10,8 @@ import {
   listKioskDevices,
   updateKioskDevice,
   deleteKioskDevice,
+  generateActivationToken,
+  activateKioskDevice,
   getKioskConfig,
   identifyEmployee,
   getKioskEstado,
@@ -36,6 +38,15 @@ const kioskLimiter = rateLimit({
   message: { error: "Demasiadas peticiones desde este dispositivo. Espera unos minutos." },
 });
 
+// Rate limiter para activación pública (más restrictivo)
+const kioskActivationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados intentos de activación. Espera unos minutos." },
+});
+
 // ═══════════════════════════════════════
 // ADMIN: Gestión de dispositivos kiosko
 // ═══════════════════════════════════════
@@ -45,10 +56,19 @@ router.get("/devices", authRequired, roleRequired("admin"), listKioskDevices);
 router.patch("/devices/:id", authRequired, roleRequired("admin"), updateKioskDevice);
 router.delete("/devices/:id", authRequired, roleRequired("admin"), deleteKioskDevice);
 
+// Activación QR
+router.post("/devices/:id/activation-token", authRequired, roleRequired("admin"), generateActivationToken);
+
 // Asignación de empleados a kioscos
 router.get("/devices/:id/employees", authRequired, roleRequired("admin"), getKioskEmployees);
 router.post("/devices/:id/employees", authRequired, roleRequired("admin"), assignEmployeesToKiosk);
 router.delete("/devices/:id/employees/:empleado_id", authRequired, roleRequired("admin"), removeEmployeeFromKiosk);
+
+// ═══════════════════════════════════════
+// PÚBLICO: Activación de dispositivo
+// ═══════════════════════════════════════
+
+router.post("/activate", kioskActivationLimiter, activateKioskDevice);
 
 // ═══════════════════════════════════════
 // KIOSK: Endpoints para dispositivos

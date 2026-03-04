@@ -8,7 +8,7 @@ const anthropic = new Anthropic({
 });
 
 /**
- * Parsea un extracto bancario desde un buffer (CSV, Excel, OFX).
+ * Parsea un extracto bancario desde un buffer (CSV, Excel, OFX, N43).
  * Devuelve un array normalizado de movimientos.
  *
  * @param {Buffer} buffer
@@ -16,11 +16,13 @@ const anthropic = new Anthropic({
  * @returns {Array<{fecha: string, concepto: string, importe: number, referencia?: string}>}
  */
 export async function parsearExtracto(buffer, filename) {
-  const ext = (filename || "").toLowerCase();
+  const ext = (filename || "").toLowerCase().split(".").pop();
 
-  if (ext.endsWith(".xlsx") || ext.endsWith(".xls")) {
+  if (["n43", "q43", "c43"].includes(ext)) {
+    return parsearN43(buffer);
+  } else if (["xlsx", "xls"].includes(ext)) {
     return parsearExcel(buffer);
-  } else if (ext.endsWith(".ofx") || ext.endsWith(".qfx")) {
+  } else if (["ofx", "qfx"].includes(ext)) {
     return parsearOFX(buffer.toString("utf-8"));
   } else {
     // Default: CSV
@@ -177,6 +179,75 @@ function parsearOFX(content) {
   }
 
   return movimientos;
+}
+
+/**
+ * Parse Norma 43 (Cuaderno 43 AEB) bank statement.
+ * Standard Spanish bank format: fixed-width 80-char lines, ISO-8859-1 encoding.
+ *
+ * Record types:
+ *   00 - File header (skip)
+ *   11 - Account header (skip)
+ *   22 - Transaction (fecha, importe, signo, concepto)
+ *   23 - Complementary concept (appended to previous 22)
+ *   33 - Account footer (skip)
+ *   88 - File footer (skip)
+ */
+function parsearN43(buffer) {
+  const content = buffer.toString("latin1"); // ISO-8859-1
+  const lines = content.split(/\r?\n/).filter((l) => l.length >= 2);
+  const movimientos = [];
+  let current = null;
+
+  for (const line of lines) {
+    const tipo = line.substring(0, 2);
+
+    if (tipo === "22" && line.length >= 40) {
+      // Finalize previous transaction
+      if (current) movimientos.push(finalizarN43(current));
+
+      // AEB Cuaderno 43 positions (0-based substring):
+      // [0,2)="22" [2,6)=oficina [6,12)=fecha_op [12,18)=fecha_valor
+      // [18,20)=concepto_comun [20,23)=concepto_propio [23,26)=clave_DH
+      // [26,40)=importe(14dig) [40,50)=nº_doc [50,52)=ref1 [52,64)=ref2 [64,80)=concepto_libre
+      const fechaStr = line.substring(12, 18); // DDMMAA (fecha valor)
+      const signo = line.substring(23, 24); // 1=cargo(debe), 2=abono(haber)
+      const importeRaw = line.substring(26, 40); // 14 digits, last 2 are decimals
+      const referencia = line.substring(40, 50).trim();
+      const concepto1 = line.substring(64, 80).trim();
+
+      const importe = parseInt(importeRaw, 10) / 100;
+      const importeFinal = signo === "1" ? -importe : importe; // cargo = negativo
+
+      const dd = fechaStr.substring(0, 2);
+      const mm = fechaStr.substring(2, 4);
+      const aa = fechaStr.substring(4, 6);
+      const year = parseInt(aa) > 50 ? `19${aa}` : `20${aa}`;
+      const fecha = `${year}-${mm}-${dd}`;
+
+      current = { fecha, concepto: concepto1, importe: importeFinal, referencia };
+    } else if (tipo === "23" && current && line.length >= 6) {
+      // Complementary concept line — append to current transaction
+      const textoExtra = line.substring(6, 80).trim();
+      if (textoExtra) {
+        current.concepto = (current.concepto + " " + textoExtra).trim();
+      }
+    }
+  }
+
+  // Don't forget the last transaction
+  if (current) movimientos.push(finalizarN43(current));
+
+  return movimientos;
+}
+
+function finalizarN43(mov) {
+  return {
+    fecha: mov.fecha,
+    concepto: mov.concepto.replace(/\s+/g, " ").trim(),
+    importe: mov.importe,
+    referencia: mov.referencia || undefined,
+  };
 }
 
 // =============================================
@@ -395,4 +466,129 @@ function parseImporte(raw) {
   }
 
   return parseFloat(cleaned) || 0;
+}
+
+// =============================================
+// Persistencia - bank_transactions_180
+// =============================================
+
+/**
+ * Guarda movimientos parseados en bank_transactions_180.
+ * Genera un importacion_id común para todo el lote.
+ *
+ * @param {Array} movimientos - [{fecha, concepto, importe, referencia?}]
+ * @param {string} empresaId
+ * @param {string} filename
+ * @returns {{ importacionId: string, txIds: string[] }}
+ */
+export async function guardarMovimientos(movimientos, empresaId, filename) {
+  const importacionId = crypto.randomUUID();
+  const txIds = [];
+
+  for (const mov of movimientos) {
+    const [row] = await sql`
+      INSERT INTO bank_transactions_180 (
+        empresa_id, importacion_id, fecha, concepto, importe, referencia, filename
+      ) VALUES (
+        ${empresaId}, ${importacionId}, ${mov.fecha}, ${mov.concepto},
+        ${mov.importe}, ${mov.referencia || null}, ${filename}
+      )
+      RETURNING id
+    `;
+    txIds.push(row.id);
+  }
+
+  return { importacionId, txIds };
+}
+
+/**
+ * Actualiza los campos de matching (match_tipo, match_id, match_desc, confianza)
+ * para transacciones ya guardadas, por posición.
+ *
+ * @param {string[]} txIds - IDs de transacciones en orden
+ * @param {Array} movimientosMatcheados - movimientos enriquecidos con match_tipo etc. en mismo orden
+ */
+export async function actualizarMatchesPorIds(txIds, movimientosMatcheados) {
+  for (let i = 0; i < txIds.length; i++) {
+    const m = movimientosMatcheados[i];
+    if (!m) continue;
+    await sql`
+      UPDATE bank_transactions_180
+      SET match_tipo = ${m.match_tipo || null},
+          match_id = ${m.match_id || null},
+          match_desc = ${m.match_desc || null},
+          confianza = ${m.confianza || "sin_match"}
+      WHERE id = ${txIds[i]}
+    `;
+  }
+}
+
+/**
+ * Marca transacciones como confirmadas u omitidas y guarda asiento_id.
+ *
+ * @param {Array<{txId: string, asientoId?: number}>} confirmados - transacciones confirmadas con su asiento
+ * @param {string[]} omitidosTxIds - transacciones no seleccionadas
+ */
+export async function confirmarTransacciones(confirmados, omitidosTxIds) {
+  for (const { txId, asientoId } of confirmados) {
+    await sql`
+      UPDATE bank_transactions_180
+      SET estado = 'confirmado', asiento_id = ${asientoId || null}
+      WHERE id = ${txId}
+    `;
+  }
+
+  if (omitidosTxIds.length > 0) {
+    await sql`
+      UPDATE bank_transactions_180
+      SET estado = 'omitido'
+      WHERE id = ANY(${omitidosTxIds}::uuid[])
+    `;
+  }
+}
+
+/**
+ * Lista transacciones bancarias con filtros y paginación.
+ *
+ * @param {string} empresaId
+ * @param {{ estado?: string, desde?: string, hasta?: string, limit?: number, offset?: number }} filtros
+ * @returns {{ transacciones: Array, total: number }}
+ */
+export async function listarTransacciones(empresaId, filtros = {}) {
+  const { estado, desde, hasta, limit = 50, offset = 0 } = filtros;
+
+  // Build WHERE conditions
+  const conditions = [sql`empresa_id = ${empresaId}`];
+
+  if (estado && estado !== "todos") {
+    conditions.push(sql`estado = ${estado}`);
+  }
+  if (desde) {
+    conditions.push(sql`fecha >= ${desde}`);
+  }
+  if (hasta) {
+    conditions.push(sql`fecha <= ${hasta}`);
+  }
+
+  const where = conditions.reduce((acc, cond, i) =>
+    i === 0 ? cond : sql`${acc} AND ${cond}`
+  );
+
+  const transacciones = await sql`
+    SELECT id, importacion_id, fecha, concepto, importe, referencia,
+           match_tipo, match_id, match_desc, confianza, asiento_id,
+           estado, filename, created_at
+    FROM bank_transactions_180
+    WHERE ${where}
+    ORDER BY fecha DESC, created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+
+  const [{ count }] = await sql`
+    SELECT count(*)::int AS count
+    FROM bank_transactions_180
+    WHERE ${where}
+  `;
+
+  return { transacciones, total: count };
 }

@@ -35,6 +35,7 @@ import {
   importarExtracto,
   matchearExtracto,
   confirmarExtracto,
+  listarTransaccionesBancarias,
 } from "../controllers/extractoBancarioController.js";
 
 const router = Router();
@@ -80,6 +81,7 @@ router.get("/exportar-paquete", exportarPaquete);
 router.post("/importar-extracto", upload.single("file"), importarExtracto);
 router.post("/extracto/matchear", matchearExtracto);
 router.post("/extracto/confirmar", confirmarExtracto);
+router.get("/extracto/transacciones", listarTransaccionesBancarias);
 
 // Ejercicios
 router.get("/ejercicios", getEjercicios);
