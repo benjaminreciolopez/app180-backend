@@ -1301,7 +1301,24 @@ async function getOrCreateCuentaTercero(empresaId, tipo, terceroId, nombre) {
 // =============================================
 
 function mapCategoriaToCuenta(categoria) {
+  const cat = (categoria || "").toLowerCase().trim();
   const map = {
+    // Grupo 60 - Compras
+    compras: { codigo: "600", nombre: "Compras de mercaderías" },
+    mercaderias: { codigo: "600", nombre: "Compras de mercaderías" },
+    mercancia: { codigo: "600", nombre: "Compras de mercaderías" },
+    productos: { codigo: "600", nombre: "Compras de mercaderías" },
+    stock: { codigo: "600", nombre: "Compras de mercaderías" },
+    inventario: { codigo: "600", nombre: "Compras de mercaderías" },
+    materiales: { codigo: "600", nombre: "Compras de mercaderías" },
+    material: { codigo: "600", nombre: "Compras de mercaderías" },
+    materias_primas: { codigo: "601", nombre: "Compras de materias primas" },
+    combustible: { codigo: "602", nombre: "Compras de otros aprovisionamientos" },
+    gasolina: { codigo: "602", nombre: "Compras de otros aprovisionamientos" },
+    herramientas: { codigo: "602", nombre: "Compras de otros aprovisionamientos" },
+    subcontratacion: { codigo: "607", nombre: "Trabajos realizados por otras empresas" },
+
+    // Grupo 62 - Servicios exteriores
     alquiler: { codigo: "621", nombre: "Arrendamientos y cánones" },
     reparaciones: { codigo: "622", nombre: "Reparaciones y conservación" },
     profesionales: { codigo: "623", nombre: "Servicios de profesionales independientes" },
@@ -1311,18 +1328,21 @@ function mapCategoriaToCuenta(categoria) {
     publicidad: { codigo: "627", nombre: "Publicidad, propaganda y relaciones públicas" },
     suministros: { codigo: "628", nombre: "Suministros" },
     material_oficina: { codigo: "629", nombre: "Otros servicios" },
-    compras: { codigo: "600", nombre: "Compras de mercaderías" },
-    materias_primas: { codigo: "601", nombre: "Compras de materias primas" },
-    subcontratacion: { codigo: "607", nombre: "Trabajos realizados por otras empresas" },
+
+    // Grupo 63/64
     tributos: { codigo: "631", nombre: "Otros tributos" },
+    multas: { codigo: "659", nombre: "Otras pérdidas en gestión corriente" },
     sueldos: { codigo: "640", nombre: "Sueldos y salarios" },
     ss_empresa: { codigo: "642", nombre: "Seguridad Social a cargo de la empresa" },
+
+    // Otros
     amortizacion: { codigo: "681", nombre: "Amortización del inmovilizado material" },
     intereses: { codigo: "662", nombre: "Intereses de deudas" },
     otros_gastos: { codigo: "629", nombre: "Otros servicios" },
+    general: { codigo: "629", nombre: "Otros servicios" },
   };
 
-  return map[categoria] || { codigo: "629", nombre: "Otros servicios" };
+  return map[cat] || { codigo: "629", nombre: "Otros servicios" };
 }
 
 /**
@@ -1330,16 +1350,16 @@ function mapCategoriaToCuenta(categoria) {
  * Devuelve null si no puede determinar una cuenta específica (se usará el fallback por categoría).
  *
  * Esto resuelve casos como:
- * - "RECIBO DE AUTÓNOMO ENERO-2026" → 642 (SS a cargo empresa)
- * - "SEGURIDAD SOCIAL" → 642
- * - "CUOTA AUTÓNOMOS RETA" → 642
- * - "TESORERÍA GENERAL SS" → 642
- * - "MUTUA ACCIDENTES" → 649
- * - "ALQUILER LOCAL" → 621
- * - "FACTURA LUZ / GAS / AGUA / TELÉFONO" → 628
- * - "GESTORÍA / ASESORÍA" → 623
- * - "NOTARÍA / REGISTRO" → 623
- * - "ABOGADO / LETRADO" → 623
+ * - "COMPRA MERCADERÍA" → 600 | "MATERIA PRIMA" → 601 | "COMBUSTIBLE" → 602
+ * - "SUBCONTRATACIÓN" → 607 | "DEVOLUCIÓN COMPRA" → 608
+ * - "RECIBO DE AUTÓNOMO" → 642 | "SEGURIDAD SOCIAL" → 642
+ * - "NÓMINA / SUELDO" → 640 | "INDEMNIZACIÓN" → 641 | "MUTUA" → 649
+ * - "ALQUILER LOCAL" → 621 | "FACTURA LUZ" → 628 | "SEGURO" → 625
+ * - "GESTORÍA S.L." → 629 | "GESTORÍA (autónomo)" → 623
+ * - "PUBLICIDAD" → 627 | "COMISIÓN BANCARIA" → 626 | "TRANSPORTE" → 624
+ * - "DIFERENCIA CAMBIO" → 668 | "FACTORING" → 669 | "INTERESES PRÉSTAMO" → 662
+ * - "MULTA" → 659 | "INCOBRABLE" → 650 | "DETERIORO CRÉDITO" → 694
+ * - "AMORTIZACIÓN SOFTWARE" → 680 | "AMORTIZACIÓN" → 681
  */
 function detectarCuentaPorDescripcion(descripcion, proveedor) {
   if (!descripcion && !proveedor) return null;
@@ -1378,6 +1398,62 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
     {
       patron: /INDEMNIZACION|DESPIDO|ERE\b|ERTE\b/,
       cuenta: { codigo: "641", nombre: "Indemnizaciones" },
+    },
+
+    // =============================================
+    // GRUPO 60 - COMPRAS (ordenadas de más específica a menos)
+    // =============================================
+
+    // --- DEVOLUCIONES DE COMPRAS (608) --- (antes de patrones de "COMPRA")
+    {
+      patron: /DEVOLUCION\s*(DE\s*)?(COMPRA|MERCADERIA|MERCANCIA|MATERIAL|PRODUCTO)|ABONO\s*(DE\s*)?(PROVEEDOR|COMPRA|MERCADERIA)|NOTA\s*(DE\s*)?CREDITO\s*(PROVEEDOR|COMPRA)|RECTIFICATIVA\s*(PROVEEDOR|COMPRA)/,
+      cuenta: { codigo: "608", nombre: "Devoluciones de compras y operaciones similares" },
+    },
+
+    // --- DESCUENTOS PRONTO PAGO COMPRAS (606) ---
+    {
+      patron: /DESCUENTO\s*(POR\s*)?(PRONTO\s*PAGO|PAGO\s*(ANTICIPADO|INMEDIATO))\s*(COMPRA|PROVEEDOR)?|PRONTO\s*PAGO\s*(COMPRA|PROVEEDOR)/,
+      cuenta: { codigo: "606", nombre: "Descuentos sobre compras por pronto pago" },
+    },
+
+    // --- RAPPELS POR COMPRAS (609) ---
+    {
+      patron: /RAPPEL(S)?\s*(POR\s*)?(COMPRA|VOLUMEN|PROVEEDOR)|DESCUENTO\s*(POR\s*)?(VOLUMEN|CANTIDAD)\s*(DE\s*)?(COMPRA|PROVEEDOR)|BONIFICACION\s*(POR\s*)?(VOLUMEN|COMPRA)/,
+      cuenta: { codigo: "609", nombre: "Rappels por compras" },
+    },
+
+    // --- SUBCONTRATACIÓN (607) --- (antes de profesionales 623/629)
+    {
+      patron: /SUBCONTRAT|TRABAJO(S)?\s*(REALIZADO|ENCARGADO|EXTERNO)|EXTERNALIZACION|OUTSOURCING/,
+      cuenta: { codigo: "607", nombre: "Trabajos realizados por otras empresas" },
+    },
+
+    // --- MATERIAS PRIMAS (601) --- (antes de mercaderías 600)
+    {
+      patron: /MATERIA(S)?\s*PRIMA|COMPRA(S)?\s*(DE\s*)?MATERIA|SUMINISTRO\s*(DE\s*)?(MATERIA|CHAPA|ACERO|MADERA|TELA|TEJIDO|HILO|CUERO|PLASTICO|RESINA|METAL|HIERRO|ALUMINIO|COBRE|VIDRIO|CEMENTO|ARIDO|ARENA|GRAVA|HORMIGON)/,
+      cuenta: { codigo: "601", nombre: "Compras de materias primas" },
+    },
+
+    // --- OTROS APROVISIONAMIENTOS (602) --- (combustible, embalajes, EPIs, recambios)
+    {
+      patron: /EMBALAJE|ENVASE(S)?|EMPAQUETADO|PACKAGING|COMBUSTIBLE(S)?|GASOLINA|GASOIL|DIESEL|REPOSTAJE|CARBURANTE|RECAMBIO(S)?|REPUESTO(S)?|HERRAMIENTA(S)?\s*(DE\s*)?(TALLER|TRABAJO|PRODUCCION)|CONSUMIBLE(S)?\s*(DE\s*)?(PRODUCCION|TALLER|FABRICA)|EPI(S)?\b|EQUIPO(S)?\s*(DE\s*)?PROTECCION\s*(INDIVIDUAL)?/,
+      cuenta: { codigo: "602", nombre: "Compras de otros aprovisionamientos" },
+    },
+
+    // --- COMPRAS DE MERCADERÍAS (600) --- (bienes para reventa sin transformar)
+    {
+      patron: /MERCADERIA|MERCANCIA|GENERO(S)?\s*(PARA\s*)?(VENTA|REVENTA|TIENDA)|COMPRA(S)?\s*(DE\s*)?(MERCADERIA|MERCANCIA|PRODUCTO|ARTICULO|STOCK|GENERO)|REPOSICION\s*(DE\s*)?(STOCK|MERCANCIA|TIENDA|ALMACEN)/,
+      cuenta: { codigo: "600", nombre: "Compras de mercaderías" },
+    },
+
+    // =============================================
+    // GRUPO 62 - SERVICIOS EXTERIORES
+    // =============================================
+
+    // --- INVESTIGACIÓN Y DESARROLLO (620) ---
+    {
+      patron: /INVESTIGACION\s*(Y\s*)?DESARROLLO|I\+D\b|R\+D\b|R&D\b|DESARROLLO\s*(TECNOLOGICO|EXPERIMENTAL|CIENTIFICO)|INNOVACION\s*(TECNOLOGICA)?/,
+      cuenta: { codigo: "620", nombre: "Gastos en investigación y desarrollo del ejercicio" },
     },
 
     // --- ALQUILERES (621) ---
@@ -1435,6 +1511,22 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
       cuenta: { codigo: "626", nombre: "Servicios bancarios y similares" },
     },
 
+    // =============================================
+    // GRUPO 66 - GASTOS FINANCIEROS
+    // =============================================
+
+    // --- DIFERENCIAS NEGATIVAS DE CAMBIO (668) ---
+    {
+      patron: /DIFERENCIA(S)?\s*(NEGATIVA)?\s*(DE\s*)?CAMBIO|PERDIDA(S)?\s*(POR\s*)?(TIPO\s*(DE\s*)?CAMBIO|CAMBIO\s*DIVISA)/,
+      cuenta: { codigo: "668", nombre: "Diferencias negativas de cambio" },
+    },
+
+    // --- OTROS GASTOS FINANCIEROS (669) --- (factoring, confirming, avales)
+    {
+      patron: /GASTO(S)?\s*FINANCIERO|COSTE\s*FINANCIERO|DESCUENTO\s*(DE\s*)?(EFECTO|PAGARE|LETRA|CONFIRMING)|FACTORING\s*(COSTE|GASTO|COMISION)|COMISION\s*(DE\s*)?(AVAL|GARANTIA\s*BANCARIA)/,
+      cuenta: { codigo: "669", nombre: "Otros gastos financieros" },
+    },
+
     // --- INTERESES (662) ---
     {
       patron: /INTERESES?\s*(PRESTAMO|HIPOTECA|CREDITO|DEUDA|FINANC)/,
@@ -1459,7 +1551,61 @@ function detectarCuentaPorDescripcion(descripcion, proveedor) {
       cuenta: { codigo: "631", nombre: "Otros tributos" },
     },
 
-    // --- AMORTIZACIÓN (681) ---
+    // =============================================
+    // GRUPO 65 - OTROS GASTOS DE GESTIÓN
+    // =============================================
+
+    // --- MULTAS, SANCIONES, DONACIONES (659) ---
+    {
+      patron: /MULTA|SANCION\s*(ADMINISTRATIVA|TRIBUTARIA|TRAFICO|HACIENDA|MUNICIPAL)?|PENALIZACION|RECARGO\s*(POR\s*)?(APREMIO|MORA|EXTEMPORANEO)|DONACION|DONATIVO/,
+      cuenta: { codigo: "659", nombre: "Otras pérdidas en gestión corriente" },
+    },
+
+    // --- CRÉDITOS INCOBRABLES (650) --- (definitivo, baja)
+    {
+      patron: /INCOBRABLE|INSOLVENCIA|CREDITO(S)?\s*(COMERCIAL)?\s*(INCOBRABLE|FALLIDO|IMPAGADO)|FALLIDO(S)?/,
+      cuenta: { codigo: "650", nombre: "Pérdidas de créditos comerciales incobrables" },
+    },
+
+    // --- DETERIORO CRÉDITOS COMERCIALES (694) --- (provisión reversible)
+    {
+      patron: /DETERIORO\s*(DE\s*)?(CREDITO|VALOR)\s*(COMERCIAL|CLIENTE)|PROVISION\s*(POR\s*)?(INSOLVENCIA|MOROSIDAD|IMPAGO|CREDITO)|DOTACION\s*(PROVISION\s*)?(INSOLVENCIA|MOROSIDAD)/,
+      cuenta: { codigo: "694", nombre: "Pérdidas por deterioro de créditos por operaciones comerciales" },
+    },
+
+    // =============================================
+    // GRUPO 67 - PÉRDIDAS INMOVILIZADO Y EXCEPCIONALES
+    // =============================================
+
+    // --- PÉRDIDA INMOVILIZADO MATERIAL (671) ---
+    {
+      patron: /PERDIDA(S)?\s*(POR\s*)?(VENTA|BAJA|ENAJENACION)\s*(DE(L)?\s*)?(INMOVILIZADO|MAQUINARIA|VEHICULO|MOBILIARIO)|SINIESTRO\s*(DE\s*)?(MAQUINARIA|VEHICULO|EQUIPO)/,
+      cuenta: { codigo: "671", nombre: "Pérdidas procedentes del inmovilizado material" },
+    },
+
+    // --- GASTOS EXCEPCIONALES (678) ---
+    {
+      patron: /GASTO(S)?\s*EXCEPCIONAL|PERDIDA(S)?\s*EXCEPCIONAL|CATASTROFE|INUNDACION|INCENDIO\s*(PERDIDA|DANO|SINIESTRO)/,
+      cuenta: { codigo: "678", nombre: "Gastos excepcionales" },
+    },
+
+    // =============================================
+    // GRUPO 68 - AMORTIZACIONES (de específica a genérica)
+    // =============================================
+
+    // --- AMORTIZACIÓN INMOVILIZADO INTANGIBLE (680) --- (software, licencias, patentes)
+    {
+      patron: /AMORTIZACION\s*(DE(L)?\s*)?(INMOVILIZADO\s*INTANGIBLE|SOFTWARE|PROGRAMA|LICENCIA|PATENTE|MARCA|PROPIEDAD\s*INDUSTRIAL|PROPIEDAD\s*INTELECTUAL|FONDO\s*(DE\s*)?COMERCIO|APLICACION\s*INFORMATICA)/,
+      cuenta: { codigo: "680", nombre: "Amortización del inmovilizado intangible" },
+    },
+
+    // --- AMORTIZACIÓN INVERSIONES INMOBILIARIAS (682) ---
+    {
+      patron: /AMORTIZACION\s*(DE\s*)?(LAS?\s*)?(INVERSION|INMUEBLE|LOCAL|NAVE|EDIFICIO)\s*(INMOBILIARIA|ALQUILADO|EN\s*ALQUILER|ARRENDADO|DE\s*INVERSION)?|AMORTIZACION\s*INMOBILIARIA/,
+      cuenta: { codigo: "682", nombre: "Amortización de las inversiones inmobiliarias" },
+    },
+
+    // --- AMORTIZACIÓN INMOVILIZADO MATERIAL (681) --- (catch-all para amortización)
     {
       patron: /AMORTIZACION|DEPRECIACION/,
       cuenta: { codigo: "681", nombre: "Amortización del inmovilizado material" },
@@ -1519,7 +1665,36 @@ Tu ÚNICA tarea: clasificar gastos en la cuenta PGC correcta.
 CUENTAS (Grupo 6 - Compras y gastos):
 ${cuentasGasto}
 
-REGLAS: Autónomos/RETA/SS→642, Mutuas→649, Sueldos→640, Alquiler→621, Suministros(luz,agua,gas,tel)→628, Seguros→625, Gestoría/abogado de AUTÓNOMO→623, Gestoría/abogado de SOCIEDAD (S.L.,S.A.)→629, Publicidad→627, Comisiones bancarias→626, Transporte→624, IBI/IAE/tasas→631, Reparaciones→622, Material oficina→629, Compras mercaderías→600, Subcontratación→607, Intereses→662.
+REGLA CRÍTICA - DISTINGUIR SIEMPRE:
+- 600: Compras de mercaderías (bienes para REVENDER sin transformar)
+- 601: Materias primas (bienes para TRANSFORMAR/fabricar)
+- 602: Otros aprovisionamientos (combustible, embalajes, EPIs, recambios, herramientas)
+- 607: Subcontratación (trabajos externalizados a terceros)
+- 608: Devoluciones de compras (abonos de proveedor, notas de crédito)
+- 620: Investigación y desarrollo
+- 621: Arrendamientos (alquiler, leasing)
+- 622: Reparaciones y conservación
+- 623: Profesionales independientes (autónomos: gestoría, abogado, notario)
+- 624: Transportes (envíos, mensajería, portes)
+- 625: Primas de seguros
+- 626: Servicios bancarios (comisiones cuenta, tarjeta, transferencia)
+- 627: Publicidad, propaganda, marketing
+- 628: Suministros (luz, agua, gas calefacción, teléfono, internet)
+- 629: Otros servicios (profesionales sociedad S.L./S.A., material oficina, limpieza)
+- 631: Tributos (IBI, IAE, tasas municipales)
+- 640: Sueldos y salarios
+- 642: Seguridad Social / autónomos (RETA, TGSS, cuotas)
+- 649: Gastos sociales (mutuas, prevención riesgos)
+- 650: Créditos incobrables (baja definitiva)
+- 659: Multas, sanciones, donaciones
+- 662: Intereses de deudas (préstamos, hipotecas)
+- 668: Diferencias negativas de cambio
+- 669: Otros gastos financieros (factoring, confirming, avales)
+- 680: Amortización intangible (software, licencias, patentes)
+- 681: Amortización inmovilizado material (maquinaria, vehículos, mobiliario)
+- 694: Deterioro créditos comerciales (provisión por morosidad)
+
+NUNCA usar 629 como cajón de sastre. Si el concepto menciona compra/producto/material/stock/mercancía → preferir 600.
 
 Responde SOLO: CODIGO|NOMBRE`,
       messages: [{
@@ -1622,7 +1797,15 @@ ${cuentasGasto}
 CUENTAS DE INGRESO (Grupo 7) - Para items marcados [FACTURA]:
 ${cuentasIngreso}
 
-REGLAS GASTOS: Autónomos/RETA/SS→642, Mutuas/prevención→649, Sueldos→640, Indemnización→641, Alquiler→621, Reparaciones→622, Gestoría/abogado/notario de AUTÓNOMO (persona física)→623, Gestoría/abogado/notario de SOCIEDAD (S.L., S.A.)→629, Transporte/envíos→624, Seguros→625, Comisiones bancarias→626, Publicidad/marketing→627, Suministros(luz,agua,gas,tel,internet)→628, Material oficina/limpieza/otros→629, Compras mercaderías→600, Materias primas→601, Subcontratación→607, IBI/IAE/tasas→631, Intereses préstamos→662, Amortización→681.
+REGLA CRÍTICA GASTOS - DISTINGUIR SIEMPRE:
+600: Mercaderías (bienes para REVENDER) | 601: Materias primas (para TRANSFORMAR) | 602: Otros aprovisionamientos (combustible, embalajes, EPIs, recambios)
+607: Subcontratación | 608: Devoluciones compras | 620: I+D
+621: Alquiler/leasing | 622: Reparaciones | 623: Profesionales autónomos | 624: Transporte/envíos
+625: Seguros | 626: Comisiones bancarias | 627: Publicidad | 628: Suministros (luz,agua,gas,tel) | 629: Otros servicios (profesionales SL/SA, material oficina)
+631: Tributos (IBI/IAE/tasas) | 640: Sueldos | 641: Indemnizaciones | 642: SS/autónomos/RETA | 649: Mutuas/prevención
+650: Créditos incobrables | 659: Multas/sanciones/donaciones | 662: Intereses | 668: Diferencias cambio | 669: Gastos financieros (factoring/confirming)
+680: Amortización intangible (software/licencias) | 681: Amortización material | 694: Deterioro créditos
+NUNCA usar 629 como cajón de sastre. Si menciona compra/producto/material/stock → preferir 600.
 
 REGLAS FACTURAS (CLAVE):
 - 700: Venta de PRODUCTOS FÍSICOS, mercaderías, bienes tangibles

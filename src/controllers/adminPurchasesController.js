@@ -41,6 +41,7 @@ INSTRUCCIONES CRÍTICAS:
 7. Total: Importe final con impuestos.
 8. Retención (IRPF): Si existe, el porcentaje e importe.
 9. Descripción: Resumen breve de lo comprado.
+10. Categoría contable sugerida: Clasifica el tipo de gasto según estas opciones EXACTAS: "compras" (mercaderías para reventa), "materias_primas" (para fabricar/transformar), "combustible", "subcontratacion", "suministros" (luz/agua/gas/tel), "alquiler", "profesionales" (gestoría/abogados), "material_oficina", "transporte", "publicidad", "reparaciones", "seguros", "bancarios", "tributos", "otros_gastos".
 
 Responde EXCLUSIVAMENTE un objeto JSON con este formato:
 {
@@ -55,7 +56,8 @@ Responde EXCLUSIVAMENTE un objeto JSON con este formato:
             "iva_porcentaje": number,
             "iva_importe": number,
             "retencion_porcentaje": number,
-            "retencion_importe": number
+            "retencion_importe": number,
+            "categoria_sugerida": string
         }
     ]
 }
@@ -290,16 +292,20 @@ export async function crearCompra(req, res) {
             }
         }
 
+        // Usar categoría sugerida por OCR como fallback si el usuario no especificó
+        const ocrCategoria = parsedOcrData?.categoria_sugerida || null;
+        const categoriaFinal = categoria || ocrCategoria || 'general';
+
         const [newPurchase] = await sql`
       INSERT INTO purchases_180 (
         empresa_id, proveedor, descripcion, cantidad, precio_unitario,
         total, fecha_compra, categoria, base_imponible, iva_importe,
-        iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre, 
+        iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre,
         numero_factura, retencion_porcentaje, retencion_importe, activo
       ) VALUES (
         ${empresa_id}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
-        ${total}, ${fechaFinal}, 
-        ${categoria || 'general'}, ${base_imponible || total}, ${iva_importe || 0},
+        ${total}, ${fechaFinal},
+        ${categoriaFinal}, ${base_imponible || total}, ${iva_importe || 0},
         ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'}, 
         ${finalDocumentUrl}, ${parsedOcrData ? JSON.stringify(parsedOcrData) : null},
         ${finalAnio}, ${finalTri}, ${numero_factura || null}, 
