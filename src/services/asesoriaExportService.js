@@ -554,3 +554,356 @@ export async function generateZipPack(empresaId, anio, trimestre) {
     archive.finalize();
   });
 }
+
+// ============================================================
+// 4. generateExcelMensual
+// ============================================================
+
+/**
+ * Genera un workbook Excel con datos de un mes concreto.
+ * Reutiliza la misma estructura que el trimestral.
+ */
+export async function generateExcelMensual(empresaId, anio, mes) {
+  const y = parseInt(anio, 10);
+  const m = parseInt(mes, 10);
+  const desde = `${y}-${String(m).padStart(2, "0")}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const hasta = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+  const [facturas, gastos, nominas, datosFiscales] = await Promise.all([
+    fetchFacturasEmitidas(empresaId, desde, hasta),
+    fetchGastosCompras(empresaId, desde, hasta),
+    fetchNominas(empresaId, anio, m, m),
+    fetchDatosFiscales(empresaId),
+  ]);
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "APP180 - Contendo";
+  workbook.created = new Date();
+
+  buildFacturasSheet(workbook, facturas);
+  buildGastosSheet(workbook, gastos);
+  buildNominasSheet(workbook, nominas);
+  buildResumenIvaSheet(workbook, facturas, gastos);
+  buildDatosFiscalesSheet(workbook, datosFiscales);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ============================================================
+// 5. generateExcelMultiCliente
+// ============================================================
+
+/**
+ * Genera un workbook Excel con datos de TODOS los clientes de una asesoria.
+ * Incluye hoja "Resumen" con totales por cliente.
+ */
+export async function generateExcelMultiCliente(asesoriaId, anio, trimestre) {
+  const { desde, hasta } = getTrimestreDates(anio, trimestre);
+
+  // Obtener clientes activos
+  const clientes = await sql`
+    SELECT ac.empresa_id, e.nombre
+    FROM asesoria_clientes_180 ac
+    JOIN empresa_180 e ON e.id = ac.empresa_id
+    WHERE ac.asesoria_id = ${asesoriaId} AND ac.estado = 'activo'
+    ORDER BY e.nombre
+  `;
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "APP180 - Contendo";
+  workbook.created = new Date();
+
+  const resumenData = [];
+
+  for (const cliente of clientes) {
+    const facturas = await fetchFacturasEmitidas(cliente.empresa_id, desde, hasta);
+    const gastos = await fetchGastosCompras(cliente.empresa_id, desde, hasta);
+
+    const totalFacturado = facturas.reduce((s, f) => s + parseFloat(f.total || 0), 0);
+    const totalGastos = gastos.reduce((s, g) => s + parseFloat(g.total || 0), 0);
+    const totalIvaRep = facturas.reduce((s, f) => s + parseFloat(f.iva_total || 0), 0);
+    const totalIvaSop = gastos.reduce((s, g) => s + parseFloat(g.iva_importe || 0), 0);
+
+    resumenData.push({
+      nombre: cliente.nombre,
+      facturas_count: facturas.length,
+      total_facturado: Math.round(totalFacturado * 100) / 100,
+      gastos_count: gastos.length,
+      total_gastos: Math.round(totalGastos * 100) / 100,
+      iva_repercutido: Math.round(totalIvaRep * 100) / 100,
+      iva_soportado: Math.round(totalIvaSop * 100) / 100,
+      diferencia_iva: Math.round((totalIvaRep - totalIvaSop) * 100) / 100,
+      beneficio: Math.round((totalFacturado - totalGastos) * 100) / 100,
+    });
+  }
+
+  // Hoja Resumen
+  const wsResumen = workbook.addWorksheet("Resumen");
+  wsResumen.columns = [
+    { header: "Cliente", key: "nombre", width: 30 },
+    { header: "Facturas", key: "facturas_count", width: 12 },
+    { header: "Facturado", key: "total_facturado", width: 16 },
+    { header: "Gastos", key: "gastos_count", width: 12 },
+    { header: "Total Gastos", key: "total_gastos", width: 16 },
+    { header: "IVA Rep.", key: "iva_repercutido", width: 14 },
+    { header: "IVA Sop.", key: "iva_soportado", width: 14 },
+    { header: "Dif. IVA", key: "diferencia_iva", width: 14 },
+    { header: "Beneficio", key: "beneficio", width: 16 },
+  ];
+
+  for (const row of resumenData) {
+    wsResumen.addRow(row);
+  }
+
+  // Fila de totales
+  if (resumenData.length > 0) {
+    const totalsRow = wsResumen.addRow({
+      nombre: "TOTAL",
+      facturas_count: resumenData.reduce((s, r) => s + r.facturas_count, 0),
+      total_facturado: resumenData.reduce((s, r) => s + r.total_facturado, 0),
+      gastos_count: resumenData.reduce((s, r) => s + r.gastos_count, 0),
+      total_gastos: resumenData.reduce((s, r) => s + r.total_gastos, 0),
+      iva_repercutido: resumenData.reduce((s, r) => s + r.iva_repercutido, 0),
+      iva_soportado: resumenData.reduce((s, r) => s + r.iva_soportado, 0),
+      diferencia_iva: resumenData.reduce((s, r) => s + r.diferencia_iva, 0),
+      beneficio: resumenData.reduce((s, r) => s + r.beneficio, 0),
+    });
+    totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
+  }
+
+  wsResumen.getColumn("total_facturado").numFmt = CURRENCY_FORMAT;
+  wsResumen.getColumn("total_gastos").numFmt = CURRENCY_FORMAT;
+  wsResumen.getColumn("iva_repercutido").numFmt = CURRENCY_FORMAT;
+  wsResumen.getColumn("iva_soportado").numFmt = CURRENCY_FORMAT;
+  wsResumen.getColumn("diferencia_iva").numFmt = CURRENCY_FORMAT;
+  wsResumen.getColumn("beneficio").numFmt = CURRENCY_FORMAT;
+
+  styleSheet(wsResumen);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ============================================================
+// 6. generateResumenFiscal
+// ============================================================
+
+/**
+ * Genera un Excel con resumen fiscal anual: IVA por trimestre, IRPF, totales.
+ */
+export async function generateResumenFiscal(empresaId, anio) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "APP180 - Contendo";
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet("Resumen Fiscal " + anio);
+  ws.columns = [
+    { header: "Trimestre", key: "trimestre", width: 14 },
+    { header: "Facturacion", key: "facturacion", width: 16 },
+    { header: "Gastos", key: "gastos", width: 16 },
+    { header: "IVA Repercutido", key: "iva_rep", width: 16 },
+    { header: "IVA Soportado", key: "iva_sop", width: 16 },
+    { header: "Dif. IVA", key: "dif_iva", width: 14 },
+    { header: "Beneficio", key: "beneficio", width: 16 },
+  ];
+
+  let totalFact = 0, totalGast = 0, totalIvaRep = 0, totalIvaSop = 0;
+
+  for (let q = 1; q <= 4; q++) {
+    const { desde, hasta } = getTrimestreDates(anio, q);
+    const [facturas, gastos] = await Promise.all([
+      fetchFacturasEmitidas(empresaId, desde, hasta),
+      fetchGastosCompras(empresaId, desde, hasta),
+    ]);
+
+    const sumFact = facturas.reduce((s, f) => s + parseFloat(f.total || 0), 0);
+    const sumGast = gastos.reduce((s, g) => s + parseFloat(g.total || 0), 0);
+    const ivaRep = facturas.reduce((s, f) => s + parseFloat(f.iva_total || 0), 0);
+    const ivaSop = gastos.reduce((s, g) => s + parseFloat(g.iva_importe || 0), 0);
+
+    totalFact += sumFact;
+    totalGast += sumGast;
+    totalIvaRep += ivaRep;
+    totalIvaSop += ivaSop;
+
+    ws.addRow({
+      trimestre: `T${q}`,
+      facturacion: Math.round(sumFact * 100) / 100,
+      gastos: Math.round(sumGast * 100) / 100,
+      iva_rep: Math.round(ivaRep * 100) / 100,
+      iva_sop: Math.round(ivaSop * 100) / 100,
+      dif_iva: Math.round((ivaRep - ivaSop) * 100) / 100,
+      beneficio: Math.round((sumFact - sumGast) * 100) / 100,
+    });
+  }
+
+  // Fila totales
+  const totalsRow = ws.addRow({
+    trimestre: "TOTAL ANUAL",
+    facturacion: Math.round(totalFact * 100) / 100,
+    gastos: Math.round(totalGast * 100) / 100,
+    iva_rep: Math.round(totalIvaRep * 100) / 100,
+    iva_sop: Math.round(totalIvaSop * 100) / 100,
+    dif_iva: Math.round((totalIvaRep - totalIvaSop) * 100) / 100,
+    beneficio: Math.round((totalFact - totalGast) * 100) / 100,
+  });
+  totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
+
+  ["facturacion", "gastos", "iva_rep", "iva_sop", "dif_iva", "beneficio"].forEach((col) => {
+    ws.getColumn(col).numFmt = CURRENCY_FORMAT;
+  });
+
+  styleSheet(ws);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ============================================================
+// Sheet builder helpers (para reutilizar en mensual/trimestral)
+// ============================================================
+
+function buildFacturasSheet(workbook, facturas) {
+  const ws = workbook.addWorksheet("Facturas Emitidas");
+  ws.columns = [
+    { header: "N° Factura", key: "numero", width: 16 },
+    { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Cliente", key: "cliente", width: 28 },
+    { header: "NIF Cliente", key: "nif_cliente", width: 16 },
+    { header: "Base Imponible", key: "base_imponible", width: 16 },
+    { header: "Tipo IVA (%)", key: "iva_porcentaje", width: 14 },
+    { header: "IVA", key: "iva_total", width: 14 },
+    { header: "Total", key: "total", width: 14 },
+    { header: "Estado", key: "estado", width: 14 },
+    { header: "Cobrada", key: "cobrada", width: 10 },
+  ];
+  for (const f of facturas) {
+    ws.addRow({
+      numero: f.numero || "Borrador",
+      fecha: f.fecha ? new Date(f.fecha) : "",
+      cliente: f.cliente_nombre || "",
+      nif_cliente: f.nif_cliente || "",
+      base_imponible: parseFloat(f.base_imponible),
+      iva_porcentaje: parseFloat(f.iva_porcentaje),
+      iva_total: parseFloat(f.iva_total),
+      total: parseFloat(f.total),
+      estado: f.estado,
+      cobrada: f.estado_pago === "cobrada" || f.estado_pago === "pagada" ? "Si" : "No",
+    });
+  }
+  ws.getColumn("base_imponible").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("iva_total").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("total").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("fecha").numFmt = "DD/MM/YYYY";
+  styleSheet(ws);
+}
+
+function buildGastosSheet(workbook, gastos) {
+  const ws = workbook.addWorksheet("Gastos-Compras");
+  ws.columns = [
+    { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Proveedor", key: "proveedor", width: 28 },
+    { header: "NIF Proveedor", key: "nif_proveedor", width: 16 },
+    { header: "Concepto", key: "concepto", width: 32 },
+    { header: "Categoria", key: "categoria", width: 16 },
+    { header: "Base", key: "base_imponible", width: 14 },
+    { header: "IVA (%)", key: "iva_porcentaje", width: 12 },
+    { header: "IVA Importe", key: "iva_importe", width: 14 },
+    { header: "Total", key: "total", width: 14 },
+  ];
+  for (const g of gastos) {
+    ws.addRow({
+      fecha: g.fecha ? new Date(g.fecha) : "",
+      proveedor: g.proveedor,
+      nif_proveedor: g.nif_proveedor,
+      concepto: g.concepto,
+      categoria: g.categoria,
+      base_imponible: parseFloat(g.base_imponible),
+      iva_porcentaje: parseFloat(g.iva_porcentaje),
+      iva_importe: parseFloat(g.iva_importe),
+      total: parseFloat(g.total),
+    });
+  }
+  ws.getColumn("base_imponible").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("iva_importe").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("total").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("fecha").numFmt = "DD/MM/YYYY";
+  styleSheet(ws);
+}
+
+function buildNominasSheet(workbook, nominas) {
+  const ws = workbook.addWorksheet("Nominas");
+  ws.columns = [
+    { header: "Empleado", key: "empleado", width: 28 },
+    { header: "Mes", key: "mes", width: 8 },
+    { header: "Salario Bruto", key: "bruto", width: 16 },
+    { header: "IRPF Retencion", key: "irpf_retencion", width: 16 },
+    { header: "SS Trabajador", key: "ss_empleado", width: 16 },
+    { header: "SS Empresa", key: "ss_empresa", width: 16 },
+    { header: "Salario Neto", key: "neto", width: 16 },
+  ];
+  for (const n of nominas) {
+    ws.addRow({
+      empleado: n.empleado,
+      mes: parseInt(n.mes, 10),
+      bruto: parseFloat(n.bruto),
+      irpf_retencion: parseFloat(n.irpf_retencion),
+      ss_empleado: parseFloat(n.ss_empleado),
+      ss_empresa: parseFloat(n.ss_empresa),
+      neto: parseFloat(n.neto),
+    });
+  }
+  ["bruto", "irpf_retencion", "ss_empleado", "ss_empresa", "neto"].forEach((col) => {
+    ws.getColumn(col).numFmt = CURRENCY_FORMAT;
+  });
+  styleSheet(ws);
+}
+
+function buildResumenIvaSheet(workbook, facturas, gastos) {
+  const ws = workbook.addWorksheet("Resumen IVA");
+  ws.columns = [
+    { header: "Concepto", key: "concepto", width: 32 },
+    { header: "Importe", key: "importe", width: 18 },
+  ];
+  const totalIvaRep = facturas.reduce((s, f) => s + parseFloat(f.iva_total || 0), 0);
+  const totalIvaSop = gastos.reduce((s, g) => s + parseFloat(g.iva_importe || 0), 0);
+  const dif = totalIvaRep - totalIvaSop;
+
+  ws.addRow({ concepto: "IVA Repercutido (Ventas)", importe: Math.round(totalIvaRep * 100) / 100 });
+  ws.addRow({ concepto: "IVA Soportado (Compras)", importe: Math.round(totalIvaSop * 100) / 100 });
+  ws.addRow({});
+  const filaDif = ws.addRow({
+    concepto: dif >= 0 ? "A INGRESAR" : "A COMPENSAR / DEVOLVER",
+    importe: Math.round(dif * 100) / 100,
+  });
+  filaDif.eachCell((cell) => { cell.font = { bold: true, size: 12 }; });
+  ws.getColumn("importe").numFmt = CURRENCY_FORMAT;
+  styleSheet(ws);
+}
+
+function buildDatosFiscalesSheet(workbook, datosFiscales) {
+  const ws = workbook.addWorksheet("Datos Fiscales");
+  ws.columns = [
+    { header: "Campo", key: "campo", width: 24 },
+    { header: "Valor", key: "valor", width: 40 },
+  ];
+  const campos = [
+    { campo: "NIF / CIF", valor: datosFiscales.nif },
+    { campo: "Razon Social", valor: datosFiscales.razon_social },
+    { campo: "Nombre Comercial", valor: datosFiscales.nombre_comercial },
+    { campo: "Tipo Contribuyente", valor: datosFiscales.tipo_contribuyente },
+    { campo: "Direccion", valor: datosFiscales.direccion },
+    { campo: "Poblacion", valor: datosFiscales.poblacion },
+    { campo: "Provincia", valor: datosFiscales.provincia },
+    { campo: "Codigo Postal", valor: datosFiscales.cp },
+    { campo: "Pais", valor: datosFiscales.pais },
+    { campo: "Telefono", valor: datosFiscales.telefono },
+    { campo: "Email", valor: datosFiscales.email },
+    { campo: "IBAN", valor: datosFiscales.iban },
+    { campo: "Registro Mercantil", valor: datosFiscales.registro_mercantil },
+  ];
+  for (const row of campos) ws.addRow(row);
+  styleSheet(ws);
+}
