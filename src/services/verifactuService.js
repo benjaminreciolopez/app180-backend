@@ -162,7 +162,7 @@ export async function verificarVerifactu(factura, tx = sql) {
         }
 
         // Guardar registro
-        await tx`
+        const [nuevoRegistro] = await tx`
       INSERT INTO registroverifactu_180 (
         factura_id, numero_factura, fecha_factura, total_factura,
         hash_actual, hash_anterior, fecha_registro, estado_envio, empresa_id,
@@ -185,6 +185,7 @@ export async function verificarVerifactu(factura, tx = sql) {
         ${firmaData?.fechaFirma || null},
         ${firmaData?.algoritmo || 'SHA-256-RSA'}
       )
+      RETURNING id
     `;
 
         // Actualizar factura con hash
@@ -195,10 +196,13 @@ export async function verificarVerifactu(factura, tx = sql) {
       WHERE id = ${factura.id}
     `;
 
-        // TODO: Enviar a AEAT (usando verifactu_envio logic)
-        // Por ahora solo generamos el hash encadenado.
-
         console.log(`✅ Veri*Factu: Registro generado para factura ${factura.numero}`);
+
+        // Retornar datos necesarios para el envío post-transacción
+        return {
+            registroId: nuevoRegistro.id,
+            config,
+        };
 
     } catch (error) {
         console.error("❌ Error en verificarVerifactu:", error);

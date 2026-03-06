@@ -26,6 +26,7 @@ import { renewCalendarWebhooks } from "./jobs/renewCalendarWebhooks.js";
 import { verificarCertificadosJob } from "./jobs/verificarCertificados.js";
 import { runFiscalAlertScan } from "./jobs/fiscalAlertScan.js";
 import { runAsesorDailyAlertScan, runAsesorMonthlyCheck } from "./jobs/asesorAlertScan.js";
+import { verifactuEnvioJob } from "./jobs/verifactuEnvioJob.js";
 
 import empleadoAdjuntosRoutes from "./routes/empleadoAdjuntosRoutes.js";
 import adminAdjuntosRoutes from "./routes/adminAdjuntosRoutes.js";
@@ -100,6 +101,7 @@ cron.schedule("0 9 * * *", () => verificarCertificadosJob()); // Verificar certi
 cron.schedule("0 8 * * 1", () => runFiscalAlertScan()); // Escaneo fiscal semanal lunes 8 AM
 cron.schedule("0 9 * * *", () => runAsesorDailyAlertScan()); // Alertas asesor: plazos fiscales + docs nuevos
 cron.schedule("0 8 1 * *", () => runAsesorMonthlyCheck()); // Revision mensual: clientes inactivos + alertas
+cron.schedule("*/30 * * * *", () => verifactuEnvioJob()); // VeriFactu: reintentar pendientes cada 30 min
 cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada hora
   try {
     const { sql } = await import("./db.js");

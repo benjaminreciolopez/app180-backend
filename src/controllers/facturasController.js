@@ -4,6 +4,7 @@ import { sql } from "../db.js";
 import { generarPdfFactura } from "../services/facturaPdfService.js";
 import * as emailService from "../services/emailService.js";
 import { verificarVerifactu } from "../services/verifactuService.js";
+import { enviarRegistroAeat } from "../services/verifactuAeatService.js";
 import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 import { generarAsientoFactura } from "../services/contabilidadService.js";
 import { saveToStorage } from "./storageController.js";
@@ -704,8 +705,9 @@ export async function validarFactura(req, res) {
 
       // Verificar Veri*Factu (si aplica) con el registro actualizado
       // PROFORMA: NO se envía a VeriFactu
+      let verifactuResult = null;
       if (factura.tipo_factura !== 'PROFORMA') {
-        await verificarVerifactu(updatedRecord, tx);
+        verifactuResult = await verificarVerifactu(updatedRecord, tx);
       }
 
       // Bloquear numeración SOLO si VeriFactu está en PRODUCCION (o desactivado)
@@ -744,6 +746,14 @@ export async function validarFactura(req, res) {
         }
       } // Cierre del if para factura no-proforma
     });
+
+    // Envío a AEAT post-transacción (fire-and-forget, no bloquea la respuesta HTTP)
+    if (verifactuResult?.registroId) {
+      const { registroId, config: vfConfig } = verifactuResult;
+      const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
+      enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
+        .catch(err => console.error('⚠️ VeriFactu: envío async falló:', err.message));
+    }
 
     // Auditoría
     await auditFactura({
@@ -952,6 +962,7 @@ export async function anularFactura(req, res) {
       });
     }
 
+    let verifactuResultRect = null;
     await sql.begin(async (tx) => {
       // Marcar original como anulada
       await tx`
@@ -1005,8 +1016,16 @@ export async function anularFactura(req, res) {
       }
 
       // REGISTRAR EN VERIFACTU la rectificativa
-      await verificarVerifactu(rect, tx);
+      verifactuResultRect = await verificarVerifactu(rect, tx);
     });
+
+    // Envío a AEAT post-transacción rectificativa (fire-and-forget)
+    if (verifactuResultRect?.registroId) {
+      const { registroId, config: vfConfig } = verifactuResultRect;
+      const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
+      enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
+        .catch(err => console.error('⚠️ VeriFactu: envío async rectificativa falló:', err.message));
+    }
 
     // --- AUTO-GENERAR PDF RECTIFICATIVA ---
     try {
