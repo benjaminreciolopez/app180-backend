@@ -62,6 +62,7 @@ function construirXmlRegistro(registro, factura, emisor) {
           </vf:IDEmisorFactura>
           <vf:NumSerieFactura>${escaparXml(factura.numero)}</vf:NumSerieFactura>
           <vf:FechaExpedicionFactura>${formatFecha(fechaExpedicion)}</vf:FechaExpedicionFactura>
+          <vf:TipoFactura>${escaparXml(factura.tipo_factura || 'F')}</vf:TipoFactura>
         </vf:IDFactura>
         <vf:Huella>
           <vf:Hash>${registro.hash_actual}</vf:Hash>

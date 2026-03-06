@@ -134,8 +134,11 @@ export async function protegerVerifactuProduccion(req, res, next) {
     next();
 
   } catch (error) {
-    console.error('Error en protegerVerifactuProduccion:', error);
-    next(); // En caso de error, permitir continuar (fail-open)
+    console.error('Error crítico en protegerVerifactuProduccion:', error);
+    return res.status(500).json({
+      error: 'VERIFACTU_COMPLIANCE_ERROR',
+      mensaje: 'No se pudo verificar el cumplimiento VeriFactu. Operación bloqueada por seguridad.',
+    });
   }
 }
 
@@ -228,8 +231,11 @@ export async function validarActivacionProduccion(req, res, next) {
     next();
 
   } catch (error) {
-    console.error('Error en validarActivacionProduccion:', error);
-    next();
+    console.error('Error crítico en validarActivacionProduccion:', error);
+    return res.status(500).json({
+      error: 'VERIFACTU_COMPLIANCE_ERROR',
+      mensaje: 'No se pudo validar los requisitos de activación VeriFactu. Operación bloqueada por seguridad.',
+    });
   }
 }
 

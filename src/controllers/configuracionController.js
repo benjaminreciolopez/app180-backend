@@ -377,16 +377,17 @@ export async function updateSistemaConfig(req, res) {
                 });
             }
 
-            // Regla 2: Si hay facturas emitidas con VeriFactu, no se puede volver a OFF/TEST
+            // Regla 2: Si hay facturas YA ENVIADAS a la AEAT, no se puede volver a OFF/TEST
             if (nuevoModo === 'OFF' || nuevoModo === 'TEST') {
                 const [reg] = await sql`
                     SELECT COUNT(*)::int as total FROM registroverifactu_180
                     WHERE empresa_id=${empresaId}
+                      AND estado_envio = 'ENVIADO'
                 `;
                 if (reg && reg.total > 0) {
                     return res.status(400).json({
                         success: false,
-                        error: `No puedes cambiar a ${nuevoModo}. Ya has emitido ${reg.total} factura(s) con VeriFactu registradas en la AEAT. Este cambio es irreversible.`,
+                        error: `No puedes cambiar a ${nuevoModo}. Ya has enviado ${reg.total} factura(s) a la AEAT. Este cambio es irreversible.`,
                         es_irreversible: true
                     });
                 }

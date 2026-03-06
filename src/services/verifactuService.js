@@ -32,12 +32,14 @@ async function getEmisor(empresaId) {
 }
 
 /**
- * Obtiene el hash anterior encadenado
+ * Obtiene el hash anterior encadenado, filtrado por modo (TEST o PRODUCCION).
+ * Esto garantiza que la cadena TEST y la cadena PRODUCCION son completamente independientes.
  */
-async function obtenerHashAnterior(empresaId) {
+async function obtenerHashAnterior(empresaId, modo = 'PRODUCCION') {
     const [ultimo] = await sql`
     SELECT hash_actual FROM registroverifactu_180
     WHERE empresa_id = ${empresaId}
+      AND modo_verifactu = ${modo}
     ORDER BY fecha_registro DESC
     LIMIT 1
   `;
@@ -51,7 +53,7 @@ function generarHashVerifactu(factura, nifEmisor, fechaGeneracion, hashAnterior)
     if (!factura.numero) throw new Error("Factura sin número");
     if (!factura.fecha) throw new Error("Factura sin fecha");
 
-    // Payload canónico
+    // Payload canónico — campos obligatorios según RD 1007/2023 / Orden HAC/1177/2024
     const payload = {
         emisor: {
             nif: nifEmisor.trim().toUpperCase(),
@@ -59,6 +61,8 @@ function generarHashVerifactu(factura, nifEmisor, fechaGeneracion, hashAnterior)
         factura: {
             numero: factura.numero.trim(),
             fecha: new Date(factura.fecha).toISOString().slice(0, 10), // YYYY-MM-DD
+            tipo: (factura.tipo_factura || 'F').trim().toUpperCase(),
+            cuota_iva: parseFloat(factura.iva_total || 0),
             total: parseFloat(factura.total || 0),
         },
         registro: {
@@ -132,7 +136,8 @@ export async function verificarVerifactu(factura, tx = sql) {
         }
 
         const fechaGeneracion = new Date(); // UTC
-        const hashAnterior = await obtenerHashAnterior(empresaId);
+        const modoActual = config.verifactu_modo; // 'TEST' o 'PRODUCCION'
+        const hashAnterior = await obtenerHashAnterior(empresaId, modoActual);
 
         const nuevoHash = generarHashVerifactu(
             factura,
@@ -166,6 +171,7 @@ export async function verificarVerifactu(factura, tx = sql) {
       INSERT INTO registroverifactu_180 (
         factura_id, numero_factura, fecha_factura, total_factura,
         hash_actual, hash_anterior, fecha_registro, estado_envio, empresa_id,
+        modo_verifactu,
         firma_cliente, firma_fabricante, info_cert_cliente, info_cert_fabricante,
         fecha_firma, algoritmo_firma
       ) VALUES (
@@ -178,6 +184,7 @@ export async function verificarVerifactu(factura, tx = sql) {
         ${fechaGeneracion},
         'PENDIENTE',
         ${empresaId},
+        ${modoActual},
         ${firmaData?.firmaCliente || null},
         ${firmaData?.firmaFabricante || null},
         ${firmaData ? JSON.stringify(firmaData.infoCliente) : null},
