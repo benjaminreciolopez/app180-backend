@@ -53,7 +53,8 @@ export async function chat(req, res) {
     res.json({
       mensaje: respuesta.mensaje,
       timestamp: new Date().toISOString(),
-      accion_realizada: respuesta.accion_realizada || false
+      accion_realizada: respuesta.accion_realizada || false,
+      clarificacion: respuesta.clarificacion || null
     });
 
   } catch (error) {
@@ -162,6 +163,7 @@ export async function chatWithFile(req, res) {
       mensaje: respuesta.mensaje,
       timestamp: new Date().toISOString(),
       accion_realizada: respuesta.accion_realizada || false,
+      clarificacion: respuesta.clarificacion || null,
       qr_detectado: !!qrResult?.qrData,
       qr_data: qrResult?.qrData || null
     });

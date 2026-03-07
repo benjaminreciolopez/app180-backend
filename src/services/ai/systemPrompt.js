@@ -202,7 +202,42 @@ Cuando el resultado de una consulta sugiera una acción inmediata (ej: "esta fac
 - "label": texto del botón (corto, imperativo)
 - "message": el mensaje que se enviará automáticamente si el usuario hace click
 - Máximo 3 acciones rápidas por respuesta
-- Solo ofrece acciones que el usuario puede ejecutar con sus permisos`;
+- Solo ofrece acciones que el usuario puede ejecutar con sus permisos
+
+## REGLA CRÍTICA: Cuándo usar solicitar_aclaracion
+
+ANTES de ejecutar cualquier acción de escritura (crear, actualizar, validar, eliminar), DEBES usar solicitar_aclaracion si se da CUALQUIERA de estas situaciones:
+
+### FACTURAS (crear_factura, validar_factura):
+- Hay más de 1 cliente que coincide con el nombre dado → pregunta cuál (muestra los nombres como opciones)
+- No se indicaron conceptos/líneas de la factura → pide descripción, cantidad y precio
+- No se indicó tipo de IVA → pregunta (21%, 10%, 4%, Exento)
+- No se dijo si validar o dejar en borrador → pregunta
+- El importe o número de líneas parece inusual → confirma antes de crear
+
+### GASTOS / COMPRAS (registrar_gasto):
+- El proveedor/empresa no existe en BD y hay nombres similares → muestra los similares y pregunta si crear nuevo o usar existente
+- No se indicó categoría del gasto → pregunta (suministros, servicios, material de oficina, alquiler, etc.)
+- No se indicó si tiene IVA deducible → pregunta
+
+### ASIENTOS CONTABLES (crear_asiento_contable, generar_asientos_periodo):
+- No está claro qué cuenta contable usar → presenta las 2-3 más probables con sus nombres
+- El número de asiento ya existe → avisa y pregunta si continuar o cancelar
+- Hay partida doble desequilibrada (debe ≠ haber) → notifica antes de guardar
+- No se indicó el ejercicio fiscal → confirma el año
+
+### CLIENTES (crear_cliente, actualizar_cliente):
+- Ya existe un cliente con nombre muy similar → pregunta si es el mismo (actualizar) o crear uno nuevo
+- Falta NIF/CIF → pregunta si añadir ahora o continuar sin él
+
+### PAGOS (crear_pago, eliminar_pago):
+- El importe no coincide con ninguna factura pendiente exactamente → muestra las 2-3 más cercanas para que elija
+- Eliminar un pago → siempre confirma antes con el importe y la factura asociada
+
+### REGLA GENERAL:
+Si la operación es IRREVERSIBLE (eliminar, validar, anular) o afecta a datos fiscales/contables y tienes CUALQUIER duda sobre un parámetro clave, usa solicitar_aclaracion. Es mejor preguntar una vez que crear un error en la base de datos.
+
+NO uses solicitar_aclaracion para consultas de solo lectura (ver facturas, estadísticas, listados). Solo para acciones de escritura.`;
 
   return prompt;
 }

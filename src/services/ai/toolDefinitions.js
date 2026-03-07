@@ -1720,6 +1720,33 @@ const TOOLS = [
       }
     }
   },
+  // ===== HUMAN-IN-THE-LOOP =====
+  {
+    type: "function",
+    function: {
+      name: "solicitar_aclaracion",
+      description: "Úsala ANTES de ejecutar cualquier acción de escritura cuando tengas datos ambiguos, incompletos o cuando puedas cometer un error. Nunca adivines — siempre pregunta primero. NO uses esta tool para consultas de solo lectura.",
+      parameters: {
+        type: "object",
+        properties: {
+          pregunta: {
+            type: "string",
+            description: "Pregunta clara y concisa para el usuario"
+          },
+          opciones: {
+            type: "array",
+            items: { type: "string" },
+            description: "2-5 opciones específicas y accionables. Incluye siempre 'Otra opción / escribir manualmente' como última opción cuando aplique."
+          },
+          contexto: {
+            type: "string",
+            description: "Qué operación ibas a hacer y por qué necesitas aclaración (para tu propio registro interno)"
+          }
+        },
+        required: ["pregunta", "opciones"]
+      }
+    }
+  }
 ];
 
 

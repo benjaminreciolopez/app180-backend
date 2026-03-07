@@ -215,6 +215,16 @@ function detectPlaceholders(args, nombreHerramienta) {
 async function ejecutarHerramienta(nombreHerramienta, argumentos, empresaId, userId = null) {
   const args = coerceBooleans(argumentos);
 
+  // Human-in-the-loop: pausa y devuelve sentinel al loop principal
+  if (nombreHerramienta === 'solicitar_aclaracion') {
+    return {
+      __tipo: "clarification",
+      pregunta: argumentos.pregunta,
+      opciones: argumentos.opciones || [],
+      contexto: argumentos.contexto || ""
+    };
+  }
+
   // Meta-herramienta: consultar requisitos (no necesita validación)
   if (nombreHerramienta === 'consultar_requisitos') {
     return consultarRequisitos(args);
@@ -3989,6 +3999,16 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
         const resultado = await ejecutarHerramienta(toolUse.name, toolUse.input || {}, empresaId, userId);
+
+        // Human-in-the-loop: si el agente pide aclaración, pausar y devolver al frontend
+        if (resultado?.__tipo === "clarification") {
+          console.log(`[AI] Aclaración solicitada: "${resultado.pregunta}"`);
+          return {
+            mensaje: resultado.pregunta,
+            clarificacion: { pregunta: resultado.pregunta, opciones: resultado.opciones },
+            accion_realizada: false
+          };
+        }
 
         if (WRITE_TOOLS.has(toolUse.name) && resultado?.success) {
           accionRealizada = true;
