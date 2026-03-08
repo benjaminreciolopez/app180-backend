@@ -68,6 +68,7 @@ import adminPartesDiaRoutes from "./routes/adminPartesDiaRoutes.js";
 import adminPurchasesRoutes from "./routes/adminPurchasesRoutes.js";
 import adminFiscalRoutes from "./routes/adminFiscalRoutes.js";
 import adminRentaRoutes from "./routes/adminRentaRoutes.js";
+import adminFiscalRulesRoutes from "./routes/adminFiscalRulesRoutes.js";
 import nominasRoutes from "./routes/nominasRoutes.js";
 import notificacionesRoutes from "./routes/notificacionesRoutes.js";
 import { verifactuEventosController } from "./controllers/verifactuEventosController.js";
@@ -270,6 +271,7 @@ app.use("/api/admin", authRequired, adminPartesDiaRoutes);
 app.use("/api/admin/purchases", adminPurchasesRoutes);
 app.use("/api/admin/fiscal", adminFiscalRoutes);
 app.use("/api/admin/fiscal/renta", adminRentaRoutes);
+app.use("/api/admin/fiscal/reglas", adminFiscalRulesRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 app.use("/api/admin/nominas", nominaEntregasRoutes); // Entregas y firma de nóminas
 app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
@@ -292,6 +294,7 @@ app.use("/admin/verifactu", adminExportVerifactuRoutes);
 app.use("/admin/verifactu", adminFirmaDigitalRoutes);
 app.use("/admin/fiscal", adminFiscalRoutes);
 app.use("/admin/fiscal/renta", adminRentaRoutes);
+app.use("/admin/fiscal/reglas", adminFiscalRulesRoutes);
 app.use("/admin/purchases", adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
 app.use("/admin/notificaciones", notificacionesRoutes);

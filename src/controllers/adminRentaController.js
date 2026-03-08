@@ -3,6 +3,13 @@ import { sql } from "../db.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFullPdfText } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
+import {
+    FiscalRules,
+    calcularCuotaTramos,
+    calcularMinimosPersonales,
+    extractCasillasConRegex,
+    parseImporteEspanol
+} from "../services/fiscalRulesEngine.js";
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -53,193 +60,136 @@ export async function uploadRentaPdf(req, res) {
             });
         }
 
-        // 2. Usar Claude Sonnet para extraer casillas + datos personales
-        const systemPrompt = `Eres un experto fiscal español especializado en la Declaración de la Renta (Modelo 100 IRPF de la AEAT).
-Tu tarea es extraer con MÁXIMA PRECISIÓN las casillas clave y los datos personales de un PDF de declaración de renta.
+        // 2. PASO 1: Intentar extracción con REGEX (gratis, instantáneo)
+        const regexResult = await extractCasillasConRegex(pdfText);
+        console.log(`📋 Regex extrajo ${regexResult.totalResueltas} casillas (confianza: ${(regexResult.confianza * 100).toFixed(0)}%)`);
 
-## FORMATO DEL PDF DE LA AEAT (Modelo 100)
-El PDF de la declaración de la renta de la AEAT tiene un formato muy específico:
-- Las casillas se identifican con NÚMEROS DE 3 DÍGITOS entre corchetes [xxx] o precedidos del texto "Casilla" o simplemente como número seguido de un importe.
-- Los formatos típicos de casilla son:
-  * "[003]  25.432,18" → Casilla 003 con valor 25432.18
-  * "003    25.432,18" → Casilla 003 con valor 25432.18
-  * "Casilla 003: 25.432,18" → Casilla 003 con valor 25432.18
-  * "Rendimientos del trabajo [003]    25.432,18"
-- Los importes en el PDF de la AEAT usan formato ESPAÑOL: punto para miles, coma para decimales.
-  * "25.432,18" → 25432.18
-  * "1.234,56" → 1234.56
-  * "432,00" → 432.00
-  * "-1.500,00" → -1500.00 (negativo)
-- El PDF tiene secciones: Datos personales, Rendimientos del trabajo, Capital mobiliario, Capital inmobiliario,
-  Actividades económicas, Ganancias patrimoniales, Base imponible, Cuota íntegra, Deducciones, Resultado.
-- Las primeras páginas contienen datos personales (NIF, nombre, dirección, estado civil, cónyuge, descendientes).
-- Las páginas centrales tienen las casillas de ingresos, gastos y deducciones.
-- Las últimas páginas tienen el resumen: base imponible, cuota, retenciones y resultado final.
-
-## CASILLAS PRINCIPALES A EXTRAER (busca específicamente estos números de casilla)
-| Casilla | Concepto | Sección del PDF |
-|---------|----------|-----------------|
-| 003 | Rendimientos íntegros del trabajo | Rendimientos del trabajo |
-| 012 | Retenciones del trabajo | Rendimientos del trabajo |
-| 015 | Rendimiento neto del trabajo | Rendimientos del trabajo |
-| 027 | Rendimientos del capital mobiliario | Capital mobiliario |
-| 028 | Retenciones capital mobiliario | Capital mobiliario |
-| 063 | Rendimientos del capital inmobiliario (imputación) | Capital inmobiliario |
-| 109 | Rendimiento neto actividades económicas (estimación directa) | Actividades económicas |
-| 110 | Rendimiento neto actividades económicas (estimación objetiva) | Actividades económicas |
-| 130 | Retenciones de actividades económicas | Actividades económicas |
-| 231 | Ganancias patrimoniales sometidas a retención | Ganancias y pérdidas |
-| 235 | Ganancias patrimoniales no sometidas a retención | Ganancias y pérdidas |
-| 366 | Saldo neto ganancias/pérdidas base general | Ganancias y pérdidas |
-| 420 | Saldo neto ganancias/pérdidas base ahorro | Ganancias y pérdidas |
-| 435 | Base imponible general | Determinación de la base |
-| 460 | Base imponible del ahorro | Determinación de la base |
-| 505 | Base liquidable general | Adecuación del impuesto |
-| 510 | Base liquidable del ahorro | Adecuación del impuesto |
-| 520 | Mínimo personal y familiar | Adecuación del impuesto |
-| 595 | Cuota íntegra estatal | Cálculo del impuesto |
-| 600 | Cuota íntegra autonómica | Cálculo del impuesto |
-| 609 | Cuota líquida estatal | Cuota líquida |
-| 610 | Cuota líquida total | Cuota líquida |
-| 611 | Total deducciones de la cuota | Deducciones |
-| 618 | Deducción vivienda habitual | Deducciones |
-| 623 | Deducción donativos | Deducciones |
-| 595 | Cuota resultante autoliquidación | Resultado |
-| 670 | Retenciones y demás pagos a cuenta | Resultado |
-| 695 | Resultado de la declaración | Resultado final |
-
-## INSTRUCCIONES DE EXTRACCIÓN
-1. Busca CADA número de casilla en el texto. Los números de casilla son siempre 3 dígitos (003, 027, 505, etc.).
-2. El valor de la casilla suele estar a la DERECHA del número de casilla, en la misma línea o separado por espacios/tabulaciones.
-3. Convierte importes españoles a número: "25.432,18" → 25432.18, "1.500,00" → 1500.00
-4. Si un número aparece con signo negativo (- o entre paréntesis), devuélvelo como negativo.
-5. Si una casilla NO aparece en el documento, pon 0 (no inventes valores).
-6. Busca también el texto "A INGRESAR" o "A DEVOLVER" cerca del resultado final.
-
-## FORMATO DE RESPUESTA
-Responde EXCLUSIVAMENTE con un JSON válido (sin explicaciones ni texto extra):
-{
-    "tipo_declaracion": "individual|conjunta",
-    "casillas": {
-        "003": 0, "012": 0, "015": 0, "027": 0, "028": 0, "063": 0,
-        "109": 0, "110": 0, "130": 0, "231": 0, "235": 0, "366": 0,
-        "420": 0, "435": 0, "460": 0, "505": 0, "510": 0, "520": 0,
-        "595": 0, "600": 0, "609": 0, "610": 0, "611": 0, "618": 0,
-        "623": 0, "670": 0, "695": 0
-    },
-    "resultado_declaracion": 0,
-    "retenciones_trabajo": 0,
-    "retenciones_actividades": 0,
-    "pagos_fraccionados": 0,
-    "rendimientos_trabajo": 0,
-    "rendimientos_actividades": 0,
-    "rendimientos_capital_inmob": 0,
-    "rendimientos_capital_mob": 0,
-    "ganancias_patrimoniales": 0,
-    "datos_personales": {
-        "estado_civil": "soltero|casado|pareja_hecho|viudo|separado|divorciado",
-        "fecha_nacimiento": "YYYY-MM-DD o null",
-        "discapacidad_porcentaje": 0,
-        "conyuge_nif": "string o null",
-        "conyuge_nombre": "string o null",
-        "conyuge_fecha_nacimiento": "YYYY-MM-DD o null",
-        "conyuge_rendimientos": 0,
-        "conyuge_discapacidad": 0,
-        "descendientes": [
-            {"nombre": "string", "fecha_nacimiento": "YYYY-MM-DD", "discapacidad_porcentaje": 0, "convivencia": true}
-        ],
-        "ascendientes": [
-            {"nombre": "string", "fecha_nacimiento": "YYYY-MM-DD", "discapacidad_porcentaje": 0, "convivencia": true}
-        ],
-        "vivienda_tipo": "propiedad|alquiler|otro",
-        "vivienda_referencia_catastral": "string o null",
-        "alquiler_anual": 0,
-        "hipoteca_anual": 0,
-        "aportacion_plan_pensiones": 0,
-        "donaciones_ong": 0,
-        "donaciones_otras": 0
-    },
-    "casillas_extra": {},
-    "confianza": 0.85,
-    "notas": "Observaciones sobre la extracción"
-}
-
-IMPORTANTE para "casillas_extra": Si encuentras CUALQUIER otra casilla con valor > 0 que no esté en la lista principal,
-inclúyela en "casillas_extra" con formato { "NNN": valor }. Esto permite capturar casillas que varían entre declaraciones.`;
-
-        // Enviar TODO el texto (Sonnet maneja hasta 200K tokens), sin truncar
-        const textToSend = pdfText.length > 150000 ? pdfText.substring(0, 150000) : pdfText;
-
-        const response = await anthropic.messages.create({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 8192,
-            system: systemPrompt,
-            messages: [{
-                role: "user",
-                content: `Analiza este texto extraído de la Declaración de la Renta (Modelo 100 IRPF) del ejercicio ${year}.\n\nEXTRAE TODAS las casillas con sus valores numéricos exactos. Presta especial atención a los números de casilla (3 dígitos) y sus importes asociados.\n\n---\n${textToSend}`
-            }]
-        });
-
-        // Parsear JSON con manejo robusto de errores
-        const rawText = response.content.find(b => b.type === "text")?.text || "{}";
         let extracted;
-        try {
-            // Intentar parsear directamente
-            extracted = JSON.parse(rawText);
-        } catch {
-            // Si falla, buscar el JSON dentro del texto (puede tener texto antes/después)
-            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                try {
-                    extracted = JSON.parse(jsonMatch[0]);
-                } catch (e2) {
-                    // Limpiar posibles caracteres problemáticos y reintentar
-                    const cleaned = jsonMatch[0]
-                        .replace(/,\s*}/g, '}')           // trailing commas
-                        .replace(/,\s*]/g, ']')            // trailing commas en arrays
-                        .replace(/[\x00-\x1F\x7F]/g, ' ') // caracteres de control
-                        .replace(/"""/g, '"');              // triple quotes
-                    try {
-                        extracted = JSON.parse(cleaned);
-                    } catch (e3) {
-                        console.error("Error parseando JSON de Claude. Raw:", rawText.substring(0, 500));
-                        return res.status(500).json({
-                            success: false,
-                            error: "La IA no pudo devolver datos válidos. Intenta subir el PDF de nuevo.",
-                            debug_raw: process.env.NODE_ENV === 'development' ? rawText.substring(0, 1000) : undefined
-                        });
-                    }
-                }
-            } else {
-                console.error("No se encontró JSON en respuesta de Claude:", rawText.substring(0, 500));
-                return res.status(500).json({
-                    success: false,
-                    error: "La IA no devolvió datos estructurados. Intenta subir el PDF de nuevo."
+        let metodoExtraccion = 'regex';
+
+        if (regexResult.confianza >= 0.7 && regexResult.sinResolver.length <= 4) {
+            // Regex capturó suficientes casillas — no necesitamos IA para casillas
+            // Pero sí usamos IA (Haiku, barato) solo para datos personales
+            extracted = {
+                tipo_declaracion: 'individual',
+                casillas: regexResult.casillas,
+                confianza: regexResult.confianza,
+                notas: `Extracción por regex: ${regexResult.totalResueltas} casillas. Sin resolver: ${regexResult.sinResolver.join(', ') || 'ninguna'}`,
+                datos_personales: {}
+            };
+
+            // IA ligera solo para datos personales (primeras 3 páginas, Haiku = barato)
+            try {
+                const dpText = pdfText.substring(0, 8000); // Solo primeras páginas
+                const dpResponse = await anthropic.messages.create({
+                    model: "claude-haiku-4-5-20251001",
+                    max_tokens: 2048,
+                    system: `Extrae SOLO los datos personales/familiares de un PDF de declaración de renta española.
+Responde con JSON: {"estado_civil":"soltero|casado|viudo|separado|divorciado","fecha_nacimiento":"YYYY-MM-DD o null","discapacidad_porcentaje":0,"conyuge_nif":"o null","conyuge_nombre":"o null","descendientes":[{"nombre":"","fecha_nacimiento":"","discapacidad_porcentaje":0,"convivencia":true}],"ascendientes":[],"vivienda_tipo":"propiedad|alquiler|otro","tipo_declaracion":"individual|conjunta"}`,
+                    messages: [{ role: "user", content: dpText }]
                 });
+                const dpRaw = dpResponse.content.find(b => b.type === "text")?.text || "{}";
+                const dpMatch = dpRaw.match(/\{[\s\S]*\}/);
+                if (dpMatch) {
+                    extracted.datos_personales = JSON.parse(dpMatch[0]);
+                    extracted.tipo_declaracion = extracted.datos_personales.tipo_declaracion || 'individual';
+                }
+                metodoExtraccion = 'regex+haiku_dp';
+            } catch (dpErr) {
+                console.warn("⚠️ Error extrayendo datos personales con IA:", dpErr.message);
             }
+        } else {
+            // Regex no fue suficiente — usar IA completa (Sonnet) como fallback
+            metodoExtraccion = 'sonnet_completo';
+            console.log(`🤖 Regex insuficiente, usando Sonnet para casillas pendientes: ${regexResult.sinResolver.join(', ')}`);
+
+            // Cargar lista de casillas desde reglas configurables
+            const rules = await FiscalRules.forYear(year);
+            const casillasRef = rules.get('casillas_modelo100', 'principales', {});
+
+            const systemPrompt = `Eres un experto fiscal español. Extrae casillas y datos personales de un PDF de declaración de renta (Modelo 100 IRPF).
+
+FORMATO IMPORTES ESPAÑOLES: punto=miles, coma=decimal. "25.432,18" → 25432.18
+Las casillas son números de 3 dígitos: [003], [505], [695], etc.
+
+Casillas a buscar: ${Object.entries(casillasRef).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+
+Responde SOLO con JSON válido:
+{"tipo_declaracion":"individual|conjunta","casillas":{"003":0,"012":0,"015":0,"027":0,"028":0,"063":0,"109":0,"110":0,"130":0,"231":0,"235":0,"366":0,"420":0,"435":0,"460":0,"505":0,"510":0,"520":0,"595":0,"600":0,"609":0,"610":0,"611":0,"618":0,"623":0,"670":0,"695":0},"resultado_declaracion":0,"rendimientos_trabajo":0,"rendimientos_actividades":0,"rendimientos_capital_inmob":0,"rendimientos_capital_mob":0,"ganancias_patrimoniales":0,"retenciones_trabajo":0,"retenciones_actividades":0,"pagos_fraccionados":0,"datos_personales":{"estado_civil":"","fecha_nacimiento":null,"discapacidad_porcentaje":0,"conyuge_nif":null,"conyuge_nombre":null,"descendientes":[],"ascendientes":[],"vivienda_tipo":"propiedad","aportacion_plan_pensiones":0,"donaciones_ong":0,"donaciones_otras":0},"casillas_extra":{},"confianza":0.85,"notas":""}`;
+
+            const textToSend = pdfText.length > 150000 ? pdfText.substring(0, 150000) : pdfText;
+
+            const response = await anthropic.messages.create({
+                model: "claude-sonnet-4-20250514",
+                max_tokens: 8192,
+                system: systemPrompt,
+                messages: [{
+                    role: "user",
+                    content: `Declaración de la Renta ejercicio ${year}. Extrae casillas y datos personales:\n\n${textToSend}`
+                }]
+            });
+
+            // Parseo robusto de JSON
+            const rawText = response.content.find(b => b.type === "text")?.text || "{}";
+            try {
+                extracted = JSON.parse(rawText);
+            } catch {
+                const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        extracted = JSON.parse(jsonMatch[0]);
+                    } catch {
+                        const cleaned = jsonMatch[0]
+                            .replace(/,\s*}/g, '}').replace(/,\s*]/g, ']')
+                            .replace(/[\x00-\x1F\x7F]/g, ' ').replace(/"""/g, '"');
+                        try {
+                            extracted = JSON.parse(cleaned);
+                        } catch {
+                            console.error("Error parseando JSON de Claude:", rawText.substring(0, 500));
+                            return res.status(500).json({
+                                success: false,
+                                error: "La IA no pudo devolver datos válidos. Intenta subir el PDF de nuevo."
+                            });
+                        }
+                    }
+                } else {
+                    return res.status(500).json({
+                        success: false,
+                        error: "La IA no devolvió datos estructurados. Intenta subir el PDF de nuevo."
+                    });
+                }
+            }
+
+            // Mezclar: regex tiene prioridad (más fiable), IA rellena huecos
+            const iaCasillas = extracted.casillas || {};
+            for (const [casilla, valor] of Object.entries(regexResult.casillas)) {
+                iaCasillas[casilla] = valor; // Regex sobreescribe IA
+            }
+            extracted.casillas = iaCasillas;
         }
 
-        // Mapear casillas del nuevo formato al formato de BD
+        // Mapear casillas al formato plano de BD
         const casillas = extracted.casillas || {};
-        extracted.casilla_003 = casillas["003"] || extracted.casilla_003 || 0;
-        extracted.casilla_027 = casillas["027"] || extracted.casilla_027 || 0;
-        extracted.casilla_063 = casillas["063"] || extracted.casilla_063 || 0;
-        extracted.casilla_109 = casillas["109"] || extracted.casilla_109 || 0;
-        extracted.casilla_505 = casillas["505"] || extracted.casilla_505 || 0;
-        extracted.casilla_510 = casillas["510"] || extracted.casilla_510 || 0;
-        extracted.casilla_595 = casillas["595"] || extracted.casilla_595 || 0;
-        extracted.casilla_600 = casillas["600"] || extracted.casilla_600 || 0;
-        extracted.casilla_610 = casillas["610"] || extracted.casilla_610 || 0;
-        extracted.casilla_611 = casillas["611"] || extracted.casilla_611 || 0;
+        extracted.casilla_003 = casillas["003"] || 0;
+        extracted.casilla_027 = casillas["027"] || 0;
+        extracted.casilla_063 = casillas["063"] || 0;
+        extracted.casilla_109 = casillas["109"] || 0;
+        extracted.casilla_505 = casillas["505"] || 0;
+        extracted.casilla_510 = casillas["510"] || 0;
+        extracted.casilla_595 = casillas["595"] || 0;
+        extracted.casilla_600 = casillas["600"] || 0;
+        extracted.casilla_610 = casillas["610"] || 0;
+        extracted.casilla_611 = casillas["611"] || 0;
 
-        // Mapear campos de rendimientos desde casillas si no vienen directamente
-        if (!extracted.rendimientos_trabajo && casillas["003"]) extracted.rendimientos_trabajo = casillas["003"];
-        if (!extracted.rendimientos_actividades && casillas["109"]) extracted.rendimientos_actividades = casillas["109"];
-        if (!extracted.rendimientos_capital_inmob && casillas["063"]) extracted.rendimientos_capital_inmob = casillas["063"];
-        if (!extracted.rendimientos_capital_mob && casillas["027"]) extracted.rendimientos_capital_mob = casillas["027"];
-        if (!extracted.retenciones_trabajo && casillas["012"]) extracted.retenciones_trabajo = casillas["012"];
-        if (!extracted.retenciones_actividades && casillas["130"]) extracted.retenciones_actividades = casillas["130"];
-        if (!extracted.resultado_declaracion && casillas["695"]) extracted.resultado_declaracion = casillas["695"];
+        // Mapear campos de rendimientos
+        if (!extracted.rendimientos_trabajo) extracted.rendimientos_trabajo = casillas["003"] || 0;
+        if (!extracted.rendimientos_actividades) extracted.rendimientos_actividades = casillas["109"] || 0;
+        if (!extracted.rendimientos_capital_inmob) extracted.rendimientos_capital_inmob = casillas["063"] || 0;
+        if (!extracted.rendimientos_capital_mob) extracted.rendimientos_capital_mob = casillas["027"] || 0;
+        if (!extracted.retenciones_trabajo) extracted.retenciones_trabajo = casillas["012"] || 0;
+        if (!extracted.retenciones_actividades) extracted.retenciones_actividades = casillas["130"] || 0;
+        if (!extracted.resultado_declaracion) extracted.resultado_declaracion = casillas["695"] || 0;
+        extracted._metodo_extraccion = metodoExtraccion;
 
         // 3. Guardar PDF en storage
         const storageRecord = await saveToStorage({
@@ -629,140 +579,23 @@ export async function updateRenta(req, res) {
 }
 
 // =============================================
-// 4. SIMULADOR IRPF - CÁLCULO DE TRAMOS
+// 4. SIMULADOR IRPF - MOTOR DE REGLAS DINÁMICO
 // =============================================
-
-/**
- * Tramos IRPF estatal + autonómico 2025/2026 (general España)
- * El IRPF se divide: ~50% estatal, ~50% autonómico
- * Estos son los tramos de la escala general (Ley 35/2006, actualizada)
- */
-const TRAMOS_IRPF_ESTATAL = [
-    { hasta: 12450,  tipo: 9.50 },
-    { hasta: 20200,  tipo: 12.00 },
-    { hasta: 35200,  tipo: 15.00 },
-    { hasta: 60000,  tipo: 18.50 },
-    { hasta: 300000, tipo: 22.50 },
-    { hasta: Infinity, tipo: 24.50 },
-];
-
-const TRAMOS_IRPF_AUTONOMICO = [
-    { hasta: 12450,  tipo: 9.50 },
-    { hasta: 20200,  tipo: 12.00 },
-    { hasta: 35200,  tipo: 15.00 },
-    { hasta: 60000,  tipo: 18.50 },
-    { hasta: 300000, tipo: 22.50 },
-    { hasta: Infinity, tipo: 22.50 },
-];
-
-/**
- * Calcula cuota por tramos progresivos
- */
-function calcularCuotaTramos(baseImponible, tramos) {
-    let cuota = 0;
-    let baseRestante = baseImponible;
-    let limiteAnterior = 0;
-    const desglose = [];
-
-    for (const tramo of tramos) {
-        if (baseRestante <= 0) break;
-
-        const anchoTramo = tramo.hasta === Infinity
-            ? baseRestante
-            : tramo.hasta - limiteAnterior;
-        const baseEnTramo = Math.min(baseRestante, anchoTramo);
-        const cuotaTramo = baseEnTramo * tramo.tipo / 100;
-
-        desglose.push({
-            desde: limiteAnterior,
-            hasta: tramo.hasta === Infinity ? null : tramo.hasta,
-            tipo: tramo.tipo,
-            base: Math.round(baseEnTramo * 100) / 100,
-            cuota: Math.round(cuotaTramo * 100) / 100,
-        });
-
-        cuota += cuotaTramo;
-        baseRestante -= baseEnTramo;
-        limiteAnterior = tramo.hasta === Infinity ? limiteAnterior : tramo.hasta;
-    }
-
-    return { cuota: Math.round(cuota * 100) / 100, desglose };
-}
-
-/**
- * Reducciones personales y familiares (mínimo personal/familiar)
- */
-function calcularMinimosPersonales(datosPersonales) {
-    let minimo = 5550; // Mínimo personal general
-
-    if (!datosPersonales) return minimo;
-
-    // Edad > 65 años
-    if (datosPersonales.fecha_nacimiento) {
-        const nacimiento = new Date(datosPersonales.fecha_nacimiento);
-        const edad = Math.floor((Date.now() - nacimiento.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-        if (edad >= 75) minimo += 1400;
-        else if (edad >= 65) minimo += 1150;
-    }
-
-    // Discapacidad declarante
-    const disc = datosPersonales.discapacidad_porcentaje || 0;
-    if (disc >= 65) minimo += 12000;
-    else if (disc >= 33) minimo += 3000;
-
-    // Descendientes
-    const descendientes = datosPersonales.descendientes || [];
-    descendientes.forEach((d, i) => {
-        const nacDesc = d.fecha_nacimiento ? new Date(d.fecha_nacimiento) : null;
-        const edadDesc = nacDesc
-            ? Math.floor((Date.now() - nacDesc.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-            : 99;
-
-        if (edadDesc < 25 || (d.discapacidad_porcentaje && d.discapacidad_porcentaje >= 33)) {
-            // Mínimo por descendientes según orden
-            const minimosDesc = [2400, 2700, 4000, 4500]; // 1º, 2º, 3º, 4º y siguientes
-            minimo += minimosDesc[Math.min(i, 3)];
-
-            // Menor de 3 años: +2800
-            if (edadDesc < 3) minimo += 2800;
-
-            // Discapacidad del descendiente
-            const discDesc = d.discapacidad_porcentaje || 0;
-            if (discDesc >= 65) minimo += 12000;
-            else if (discDesc >= 33) minimo += 3000;
-        }
-    });
-
-    // Ascendientes
-    const ascendientes = datosPersonales.ascendientes || [];
-    ascendientes.forEach(a => {
-        const nacAsc = a.fecha_nacimiento ? new Date(a.fecha_nacimiento) : null;
-        const edadAsc = nacAsc
-            ? Math.floor((Date.now() - nacAsc.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-            : 0;
-
-        if (edadAsc >= 65 && a.convivencia) {
-            minimo += 1150;
-            if (edadAsc >= 75) minimo += 1400;
-
-            const discAsc = a.discapacidad_porcentaje || 0;
-            if (discAsc >= 65) minimo += 12000;
-            else if (discAsc >= 33) minimo += 3000;
-        }
-    });
-
-    return minimo;
-}
+// Tramos, mínimos, deducciones y límites se cargan desde fiscal_reglas_180
+// Para cambiar valores → actualizar BD, sin tocar código
 
 /**
  * GET /admin/fiscal/renta/simular/:ejercicio
- * Simula la declaración de la renta con datos reales de la app
+ * Simula la declaración de la renta con datos reales de la app + reglas configurables
  */
 export async function simularIRPF(req, res) {
     try {
         const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
         const { ejercicio } = req.params;
         const year = parseInt(ejercicio);
+
+        // Cargar reglas fiscales del ejercicio desde BD (con caché)
+        const rules = await FiscalRules.forYear(year);
 
         // 1. Recopilar datos reales del ejercicio
         const [facturacion] = await sql`
@@ -816,71 +649,76 @@ export async function simularIRPF(req, res) {
             + parseFloat(nominas.ss_empresa);
         const rendimientoNeto = ingresos - gastosDeducibles;
 
-        // Reducción por rendimientos del trabajo (si aplica, para empleados)
-        // Para autónomos solo aplica la reducción general
-
-        // 3. Reducciones
+        // 3. Reducciones (límites desde BD)
         const planPensiones = datosPersonales?.aportacion_plan_pensiones || 0;
-        const reduccionPensiones = Math.min(planPensiones, 1500); // Límite legal
+        const limitePensiones = rules.getNum('deducciones', 'pension_limite', 1500);
+        const reduccionPensiones = Math.min(planPensiones, limitePensiones);
 
-        // Cuota sindical, etc. — por ahora solo plan de pensiones
         const baseImponibleGeneral = Math.max(0, rendimientoNeto - reduccionPensiones);
 
-        // 4. Mínimo personal y familiar
-        const minimoPersonalFamiliar = calcularMinimosPersonales(datosPersonales);
+        // 4. Mínimo personal y familiar (valores desde BD)
+        const minimoPersonalFamiliar = calcularMinimosPersonales(datosPersonales, rules);
 
-        // Base liquidable = base imponible - mínimo (pero mínimo se aplica como reducción en cuota)
         const baseLiquidable = Math.max(0, baseImponibleGeneral);
 
-        // 5. Calcular cuota íntegra
-        const estatal = calcularCuotaTramos(baseLiquidable, TRAMOS_IRPF_ESTATAL);
-        const autonomico = calcularCuotaTramos(baseLiquidable, TRAMOS_IRPF_AUTONOMICO);
+        // 5. Calcular cuota íntegra (tramos desde BD)
+        const tramosEstatal = rules.getTramos('estatal');
+        const tramosAutonomico = rules.getTramos('autonomico_general');
 
-        // Cuota del mínimo personal (se resta de la cuota)
-        const minimoEstatal = calcularCuotaTramos(minimoPersonalFamiliar, TRAMOS_IRPF_ESTATAL);
-        const minimoAutonomico = calcularCuotaTramos(minimoPersonalFamiliar, TRAMOS_IRPF_AUTONOMICO);
+        const estatal = calcularCuotaTramos(baseLiquidable, tramosEstatal);
+        const autonomico = calcularCuotaTramos(baseLiquidable, tramosAutonomico);
+
+        const minimoEstatal = calcularCuotaTramos(minimoPersonalFamiliar, tramosEstatal);
+        const minimoAutonomico = calcularCuotaTramos(minimoPersonalFamiliar, tramosAutonomico);
 
         const cuotaIntegra = Math.max(0,
             (estatal.cuota - minimoEstatal.cuota) + (autonomico.cuota - minimoAutonomico.cuota)
         );
 
-        // 6. Deducciones
+        // 6. Deducciones (límites y porcentajes desde BD)
         let deducciones = 0;
 
-        // Deducción por vivienda habitual (solo hipotecas anteriores a 2013)
+        // Vivienda habitual
         if (datosPersonales?.vivienda_tipo === 'propiedad' && datosPersonales?.hipoteca_anual > 0) {
-            // La deducción por vivienda es transitoria, solo adquisiciones antes de 01/01/2013
+            const viviendaLimite = rules.getNum('deducciones', 'vivienda_limite', 9040);
+            const viviendaPct = rules.getNum('deducciones', 'vivienda_porcentaje', 15) / 100;
+            const viviendaFechaLimite = rules.getString('deducciones', 'vivienda_fecha_limite', '2013-01-01');
+
             const fechaCompra = datosPersonales.hipoteca_fecha_compra
                 ? new Date(datosPersonales.hipoteca_fecha_compra)
                 : null;
-            if (fechaCompra && fechaCompra < new Date('2013-01-01')) {
-                deducciones += Math.min(datosPersonales.hipoteca_anual, 9040) * 0.15;
+            if (fechaCompra && fechaCompra < new Date(viviendaFechaLimite)) {
+                deducciones += Math.min(datosPersonales.hipoteca_anual, viviendaLimite) * viviendaPct;
             }
         }
 
-        // Deducción por donaciones
+        // Donaciones
         const donacionesONG = datosPersonales?.donaciones_ong || 0;
         if (donacionesONG > 0) {
-            // Primeros 250€ al 80%, resto al 40%
-            deducciones += Math.min(donacionesONG, 250) * 0.80;
-            if (donacionesONG > 250) {
-                deducciones += (donacionesONG - 250) * 0.40;
+            const umbral = rules.getNum('deducciones', 'donacion_ong_umbral', 250);
+            const tipoBajo = rules.getNum('deducciones', 'donacion_ong_tipo_bajo', 80) / 100;
+            const tipoAlto = rules.getNum('deducciones', 'donacion_ong_tipo_alto', 40) / 100;
+
+            deducciones += Math.min(donacionesONG, umbral) * tipoBajo;
+            if (donacionesONG > umbral) {
+                deducciones += (donacionesONG - umbral) * tipoAlto;
             }
         }
         const donacionesOtras = datosPersonales?.donaciones_otras || 0;
         if (donacionesOtras > 0) {
-            deducciones += donacionesOtras * 0.10; // General 10%
+            const tipoOtras = rules.getNum('deducciones', 'donacion_otras_tipo', 10) / 100;
+            deducciones += donacionesOtras * tipoOtras;
         }
 
         // 7. Cuota líquida
         const cuotaLiquida = Math.max(0, cuotaIntegra - deducciones);
 
-        // 8. Retenciones y pagos a cuenta (ya anticipados)
+        // 8. Retenciones y pagos a cuenta
         const totalAnticipado = parseFloat(facturacion.retenciones_clientes)
             + parseFloat(nominas.irpf_nominas)
             + totalPagos130;
 
-        // 9. Resultado: positivo = a pagar, negativo = a devolver
+        // 9. Resultado
         const resultadoDeclaracion = Math.round((cuotaLiquida - totalAnticipado) * 100) / 100;
 
         // 10. Tipo efectivo
@@ -892,6 +730,7 @@ export async function simularIRPF(req, res) {
             success: true,
             data: {
                 ejercicio: year,
+                reglas_ejercicio: rules.ejercicio, // Confirma qué año de reglas se usó
                 rendimientos: {
                     ingresos_actividades: ingresos,
                     gastos_deducibles: gastosDeducibles,
@@ -899,6 +738,7 @@ export async function simularIRPF(req, res) {
                 },
                 reducciones: {
                     plan_pensiones: reduccionPensiones,
+                    limite_legal: limitePensiones,
                     total: reduccionPensiones,
                 },
                 base_imponible_general: baseImponibleGeneral,
