@@ -456,7 +456,7 @@ Responde SOLO con JSON válido:
  * POST /admin/fiscal/renta/datos-ejercicio/:ejercicio
  * Permite al usuario introducir manualmente ingresos, gastos, retenciones y pagos fraccionados
  * cuando no tiene facturas/gastos registrados en CONTENDO para ese ejercicio.
- * Guarda en renta_historica_180 como tipo_declaracion='manual_ejercicio_actual'
+ * Guarda en renta_historica_180 como tipo_declaracion='manual'
  */
 export async function saveDatosEjercicio(req, res) {
     try {
@@ -476,7 +476,7 @@ export async function saveDatosEjercicio(req, res) {
         const [existing] = await sql`
             SELECT id FROM renta_historica_180
             WHERE empresa_id = ${empresaId} AND ejercicio = ${year}
-            AND tipo_declaracion = 'manual_ejercicio_actual'
+            AND tipo_declaracion = 'manual'
         `;
 
         let record;
@@ -508,7 +508,7 @@ export async function saveDatosEjercicio(req, res) {
                     retenciones_actividades, pagos_fraccionados,
                     resultado_declaracion, confianza_extraccion, datos_extraidos_json
                 ) VALUES (
-                    ${empresaId}, ${year}, 'manual_ejercicio_actual',
+                    ${empresaId}, ${year}, 'manual',
                     ${ingresos_actividades}, ${gastos_actividades}, ${rendimientoNeto},
                     ${retenciones_actividades}, ${pagos_fraccionados},
                     ${rendimientoNeto - retenciones_clientes - retenciones_actividades - pagos_fraccionados},
@@ -1072,7 +1072,7 @@ export async function generarDossier(req, res) {
         const [datosManual] = await sql`
             SELECT * FROM renta_historica_180
             WHERE empresa_id = ${empresaId} AND ejercicio = ${year}
-            AND tipo_declaracion = 'manual_ejercicio_actual'
+            AND tipo_declaracion = 'manual'
         `;
 
         // Detectar si hay datos reales en CONTENDO para este ejercicio
