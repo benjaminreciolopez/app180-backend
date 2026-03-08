@@ -884,10 +884,23 @@ export async function generarDossier(req, res) {
             datos_personales: datosPersonales || null,
             renta_anterior: rentaAnterior ? {
                 ejercicio: rentaAnterior.ejercicio,
-                resultado: parseFloat(rentaAnterior.resultado_declaracion),
-                casilla_505: parseFloat(rentaAnterior.casilla_505),
-                casilla_610: parseFloat(rentaAnterior.casilla_610),
-                tipo_declaracion: rentaAnterior.tipo_declaracion
+                resultado: parseFloat(rentaAnterior.resultado_declaracion || 0),
+                casilla_505: parseFloat(rentaAnterior.casilla_505 || 0),
+                casilla_610: parseFloat(rentaAnterior.casilla_610 || 0),
+                tipo_declaracion: rentaAnterior.tipo_declaracion,
+                rendimientos_trabajo: parseFloat(rentaAnterior.rendimientos_trabajo || 0),
+                rendimientos_actividades: parseFloat(rentaAnterior.rendimientos_actividades || 0),
+                rendimientos_capital_inmob: parseFloat(rentaAnterior.rendimientos_capital_inmob || 0),
+                rendimientos_capital_mob: parseFloat(rentaAnterior.rendimientos_capital_mob || 0),
+                ganancias_patrimoniales: parseFloat(rentaAnterior.ganancias_patrimoniales || 0),
+                retenciones_trabajo: parseFloat(rentaAnterior.retenciones_trabajo || 0),
+                retenciones_actividades: parseFloat(rentaAnterior.retenciones_actividades || 0),
+                pagos_fraccionados: parseFloat(rentaAnterior.pagos_fraccionados || 0),
+                rendimiento_neto: parseFloat(rentaAnterior.rendimientos_trabajo || 0)
+                    + parseFloat(rentaAnterior.rendimientos_actividades || 0)
+                    + parseFloat(rentaAnterior.rendimientos_capital_inmob || 0)
+                    + parseFloat(rentaAnterior.rendimientos_capital_mob || 0)
+                    + parseFloat(rentaAnterior.ganancias_patrimoniales || 0)
             } : null,
             rendimientos_actividades: {
                 ingresos: ingresos,
