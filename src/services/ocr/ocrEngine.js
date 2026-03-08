@@ -38,12 +38,78 @@ async function convertPdfToImage(pdfBuffer) {
 }
 
 /**
- * Extrae texto de imágenes o PDFs
+ * Reconstruye texto de una página preservando la estructura de líneas y columnas.
+ * Usa las coordenadas X/Y de cada item para agrupar en líneas y mantener espaciado.
  */
+function reconstructPageLayout(textContent) {
+  const items = textContent.items.filter(item => item.str && item.str.trim().length > 0);
+  if (items.length === 0) return "";
+
+  // Cada item tiene item.transform = [scaleX, skewX, skewY, scaleY, x, y]
+  // y = coordenada vertical (crece hacia arriba en PDF), x = horizontal
+  const positioned = items.map(item => ({
+    str: item.str,
+    x: Math.round(item.transform[4]),
+    y: Math.round(item.transform[5]),
+    width: item.width || 0,
+    height: Math.abs(item.transform[3]) || 10
+  }));
+
+  // Agrupar items en líneas: items con Y similar (±tolerancia basada en altura del texto)
+  positioned.sort((a, b) => b.y - a.y || a.x - b.x); // top-to-bottom, left-to-right
+
+  const lines = [];
+  let currentLine = [positioned[0]];
+  let currentY = positioned[0].y;
+
+  for (let i = 1; i < positioned.length; i++) {
+    const item = positioned[i];
+    const tolerance = Math.max(item.height * 0.5, 3);
+
+    if (Math.abs(item.y - currentY) <= tolerance) {
+      currentLine.push(item);
+    } else {
+      lines.push(currentLine);
+      currentLine = [item];
+      currentY = item.y;
+    }
+  }
+  lines.push(currentLine);
+
+  // Construir texto preservando espaciado horizontal
+  const result = lines.map(line => {
+    line.sort((a, b) => a.x - b.x);
+    let lineText = "";
+    let lastEndX = 0;
+
+    for (const item of line) {
+      // Calcular espacio entre este item y el anterior
+      const gap = item.x - lastEndX;
+      if (lastEndX > 0 && gap > 8) {
+        // Gran espacio → separador de columna (tab o múltiples espacios)
+        const numSpaces = Math.min(Math.max(Math.round(gap / 6), 2), 10);
+        lineText += " ".repeat(numSpaces);
+      } else if (lastEndX > 0 && gap > 2) {
+        lineText += " ";
+      }
+      lineText += item.str;
+      lastEndX = item.x + (item.width || item.str.length * 6);
+    }
+    return lineText;
+  });
+
+  return result.join("\n");
+}
+
 /**
- * Extrae texto de TODAS las páginas de un PDF (para extractos bancarios)
+ * Extrae texto de TODAS las páginas de un PDF.
+ * @param {Buffer} buffer - Buffer del PDF
+ * @param {number} maxPages - Máximo de páginas a extraer (default 20)
+ * @param {string|null} password - Contraseña si el PDF está protegido
+ * @param {Object} options - Opciones adicionales
+ * @param {boolean} options.preserveLayout - Si true, reconstruye layout con posiciones X/Y (ideal para formularios fiscales)
  */
-export async function extractFullPdfText(buffer, maxPages = 20, password = null) {
+export async function extractFullPdfText(buffer, maxPages = 20, password = null, options = {}) {
   const data = new Uint8Array(buffer);
   const opts = { data };
   if (password) opts.password = password;
@@ -62,10 +128,18 @@ export async function extractFullPdfText(buffer, maxPages = 20, password = null)
   }
   let fullText = "";
   const numPages = Math.min(pdf.numPages, maxPages);
+  const useLayout = options.preserveLayout === true;
+
   for (let i = 1; i <= numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    fullText += textContent.items.map(item => item.str).join(" ") + "\n";
+
+    if (useLayout) {
+      fullText += `\n--- PÁGINA ${i} ---\n`;
+      fullText += reconstructPageLayout(textContent) + "\n";
+    } else {
+      fullText += textContent.items.map(item => item.str).join(" ") + "\n";
+    }
   }
   return fullText.trim();
 }

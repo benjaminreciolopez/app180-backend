@@ -44,8 +44,8 @@ export async function uploadRentaPdf(req, res) {
             return res.status(400).json({ error: "Ejercicio inválido" });
         }
 
-        // 1. Extraer texto del PDF
-        const pdfText = await extractFullPdfText(file.buffer, 30);
+        // 1. Extraer texto del PDF con layout preservado (posiciones X/Y para casillas)
+        const pdfText = await extractFullPdfText(file.buffer, 30, null, { preserveLayout: true });
 
         if (!pdfText || pdfText.trim().length < 100) {
             return res.status(400).json({
@@ -53,30 +53,80 @@ export async function uploadRentaPdf(req, res) {
             });
         }
 
-        // 2. Usar Claude para extraer casillas + datos personales
-        const systemPrompt = `Eres un experto fiscal español especializado en la Declaración de la Renta (Modelo 100 IRPF).
-Tu tarea es extraer las casillas clave Y los datos personales/familiares de un PDF de declaración de la renta.
+        // 2. Usar Claude Sonnet para extraer casillas + datos personales
+        const systemPrompt = `Eres un experto fiscal español especializado en la Declaración de la Renta (Modelo 100 IRPF de la AEAT).
+Tu tarea es extraer con MÁXIMA PRECISIÓN las casillas clave y los datos personales de un PDF de declaración de renta.
 
-INSTRUCCIONES:
-1. Busca e identifica las casillas con sus importes exactos.
-2. Los importes deben ser números (sin símbolo €, sin puntos de miles, con punto decimal).
-3. Si una casilla no aparece en el documento, pon 0.
-4. Identifica si es declaración individual o conjunta.
-5. Extrae TODOS los datos personales y familiares que aparezcan.
+## FORMATO DEL PDF DE LA AEAT (Modelo 100)
+El PDF de la declaración de la renta de la AEAT tiene un formato muy específico:
+- Las casillas se identifican con NÚMEROS DE 3 DÍGITOS entre corchetes [xxx] o precedidos del texto "Casilla" o simplemente como número seguido de un importe.
+- Los formatos típicos de casilla son:
+  * "[003]  25.432,18" → Casilla 003 con valor 25432.18
+  * "003    25.432,18" → Casilla 003 con valor 25432.18
+  * "Casilla 003: 25.432,18" → Casilla 003 con valor 25432.18
+  * "Rendimientos del trabajo [003]    25.432,18"
+- Los importes en el PDF de la AEAT usan formato ESPAÑOL: punto para miles, coma para decimales.
+  * "25.432,18" → 25432.18
+  * "1.234,56" → 1234.56
+  * "432,00" → 432.00
+  * "-1.500,00" → -1500.00 (negativo)
+- El PDF tiene secciones: Datos personales, Rendimientos del trabajo, Capital mobiliario, Capital inmobiliario,
+  Actividades económicas, Ganancias patrimoniales, Base imponible, Cuota íntegra, Deducciones, Resultado.
+- Las primeras páginas contienen datos personales (NIF, nombre, dirección, estado civil, cónyuge, descendientes).
+- Las páginas centrales tienen las casillas de ingresos, gastos y deducciones.
+- Las últimas páginas tienen el resumen: base imponible, cuota, retenciones y resultado final.
 
-Responde EXCLUSIVAMENTE con este JSON:
+## CASILLAS PRINCIPALES A EXTRAER (busca específicamente estos números de casilla)
+| Casilla | Concepto | Sección del PDF |
+|---------|----------|-----------------|
+| 003 | Rendimientos íntegros del trabajo | Rendimientos del trabajo |
+| 012 | Retenciones del trabajo | Rendimientos del trabajo |
+| 015 | Rendimiento neto del trabajo | Rendimientos del trabajo |
+| 027 | Rendimientos del capital mobiliario | Capital mobiliario |
+| 028 | Retenciones capital mobiliario | Capital mobiliario |
+| 063 | Rendimientos del capital inmobiliario (imputación) | Capital inmobiliario |
+| 109 | Rendimiento neto actividades económicas (estimación directa) | Actividades económicas |
+| 110 | Rendimiento neto actividades económicas (estimación objetiva) | Actividades económicas |
+| 130 | Retenciones de actividades económicas | Actividades económicas |
+| 231 | Ganancias patrimoniales sometidas a retención | Ganancias y pérdidas |
+| 235 | Ganancias patrimoniales no sometidas a retención | Ganancias y pérdidas |
+| 366 | Saldo neto ganancias/pérdidas base general | Ganancias y pérdidas |
+| 420 | Saldo neto ganancias/pérdidas base ahorro | Ganancias y pérdidas |
+| 435 | Base imponible general | Determinación de la base |
+| 460 | Base imponible del ahorro | Determinación de la base |
+| 505 | Base liquidable general | Adecuación del impuesto |
+| 510 | Base liquidable del ahorro | Adecuación del impuesto |
+| 520 | Mínimo personal y familiar | Adecuación del impuesto |
+| 595 | Cuota íntegra estatal | Cálculo del impuesto |
+| 600 | Cuota íntegra autonómica | Cálculo del impuesto |
+| 609 | Cuota líquida estatal | Cuota líquida |
+| 610 | Cuota líquida total | Cuota líquida |
+| 611 | Total deducciones de la cuota | Deducciones |
+| 618 | Deducción vivienda habitual | Deducciones |
+| 623 | Deducción donativos | Deducciones |
+| 595 | Cuota resultante autoliquidación | Resultado |
+| 670 | Retenciones y demás pagos a cuenta | Resultado |
+| 695 | Resultado de la declaración | Resultado final |
+
+## INSTRUCCIONES DE EXTRACCIÓN
+1. Busca CADA número de casilla en el texto. Los números de casilla son siempre 3 dígitos (003, 027, 505, etc.).
+2. El valor de la casilla suele estar a la DERECHA del número de casilla, en la misma línea o separado por espacios/tabulaciones.
+3. Convierte importes españoles a número: "25.432,18" → 25432.18, "1.500,00" → 1500.00
+4. Si un número aparece con signo negativo (- o entre paréntesis), devuélvelo como negativo.
+5. Si una casilla NO aparece en el documento, pon 0 (no inventes valores).
+6. Busca también el texto "A INGRESAR" o "A DEVOLVER" cerca del resultado final.
+
+## FORMATO DE RESPUESTA
+Responde EXCLUSIVAMENTE con un JSON válido (sin explicaciones ni texto extra):
 {
-    "tipo_declaracion": "individual" o "conjunta",
-    "casilla_003": 0,
-    "casilla_027": 0,
-    "casilla_063": 0,
-    "casilla_109": 0,
-    "casilla_505": 0,
-    "casilla_510": 0,
-    "casilla_595": 0,
-    "casilla_600": 0,
-    "casilla_610": 0,
-    "casilla_611": 0,
+    "tipo_declaracion": "individual|conjunta",
+    "casillas": {
+        "003": 0, "012": 0, "015": 0, "027": 0, "028": 0, "063": 0,
+        "109": 0, "110": 0, "130": 0, "231": 0, "235": 0, "366": 0,
+        "420": 0, "435": 0, "460": 0, "505": 0, "510": 0, "520": 0,
+        "595": 0, "600": 0, "609": 0, "610": 0, "611": 0, "618": 0,
+        "623": 0, "670": 0, "695": 0
+    },
     "resultado_declaracion": 0,
     "retenciones_trabajo": 0,
     "retenciones_actividades": 0,
@@ -109,48 +159,87 @@ Responde EXCLUSIVAMENTE con este JSON:
         "donaciones_ong": 0,
         "donaciones_otras": 0
     },
+    "casillas_extra": {},
     "confianza": 0.85,
-    "notas": "Texto breve con observaciones"
+    "notas": "Observaciones sobre la extracción"
 }
 
-CASILLAS CLAVE:
-- 003: Rendimientos íntegros del trabajo
-- 027: Rendimientos del capital mobiliario
-- 063: Rendimientos del capital inmobiliario
-- 109: Rendimiento neto de actividades económicas
-- 505: Base imponible general
-- 510: Base imponible del ahorro
-- 595: Cuota íntegra estatal
-- 600: Cuota íntegra autonómica
-- 610: Cuota líquida total
-- 611: Total deducciones
-- Resultado: Cantidad final a ingresar (positivo) o devolver (negativo)
+IMPORTANTE para "casillas_extra": Si encuentras CUALQUIER otra casilla con valor > 0 que no esté en la lista principal,
+inclúyela en "casillas_extra" con formato { "NNN": valor }. Esto permite capturar casillas que varían entre declaraciones.`;
 
-DATOS PERSONALES A EXTRAER:
-- Estado civil del declarante (aparece en las primeras páginas)
-- Fecha de nacimiento del declarante
-- Grado de discapacidad (si aplica)
-- Datos del cónyuge: NIF, nombre, fecha nacimiento, rendimientos, discapacidad
-- Descendientes: nombre, fecha nacimiento, discapacidad, si convive
-- Ascendientes a cargo: nombre, fecha nacimiento, discapacidad, si convive
-- Vivienda habitual: tipo (propiedad/alquiler), referencia catastral
-- Aportaciones a planes de pensiones
-- Donaciones a ONGs y otras entidades
-- Si no encuentras un dato personal, pon null o array vacío`;
+        // Enviar TODO el texto (Sonnet maneja hasta 200K tokens), sin truncar
+        const textToSend = pdfText.length > 150000 ? pdfText.substring(0, 150000) : pdfText;
 
         const response = await anthropic.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 4096,
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 8192,
             system: systemPrompt,
             messages: [{
                 role: "user",
-                content: `Texto extraído de la Declaración de la Renta del ejercicio ${year}:\n\n${pdfText.substring(0, 20000)}`
+                content: `Analiza este texto extraído de la Declaración de la Renta (Modelo 100 IRPF) del ejercicio ${year}.\n\nEXTRAE TODAS las casillas con sus valores numéricos exactos. Presta especial atención a los números de casilla (3 dígitos) y sus importes asociados.\n\n---\n${textToSend}`
             }]
         });
 
-        const textContent = response.content.find(b => b.type === "text")?.text || "{}";
-        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-        const extracted = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
+        // Parsear JSON con manejo robusto de errores
+        const rawText = response.content.find(b => b.type === "text")?.text || "{}";
+        let extracted;
+        try {
+            // Intentar parsear directamente
+            extracted = JSON.parse(rawText);
+        } catch {
+            // Si falla, buscar el JSON dentro del texto (puede tener texto antes/después)
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    extracted = JSON.parse(jsonMatch[0]);
+                } catch (e2) {
+                    // Limpiar posibles caracteres problemáticos y reintentar
+                    const cleaned = jsonMatch[0]
+                        .replace(/,\s*}/g, '}')           // trailing commas
+                        .replace(/,\s*]/g, ']')            // trailing commas en arrays
+                        .replace(/[\x00-\x1F\x7F]/g, ' ') // caracteres de control
+                        .replace(/"""/g, '"');              // triple quotes
+                    try {
+                        extracted = JSON.parse(cleaned);
+                    } catch (e3) {
+                        console.error("Error parseando JSON de Claude. Raw:", rawText.substring(0, 500));
+                        return res.status(500).json({
+                            success: false,
+                            error: "La IA no pudo devolver datos válidos. Intenta subir el PDF de nuevo.",
+                            debug_raw: process.env.NODE_ENV === 'development' ? rawText.substring(0, 1000) : undefined
+                        });
+                    }
+                }
+            } else {
+                console.error("No se encontró JSON en respuesta de Claude:", rawText.substring(0, 500));
+                return res.status(500).json({
+                    success: false,
+                    error: "La IA no devolvió datos estructurados. Intenta subir el PDF de nuevo."
+                });
+            }
+        }
+
+        // Mapear casillas del nuevo formato al formato de BD
+        const casillas = extracted.casillas || {};
+        extracted.casilla_003 = casillas["003"] || extracted.casilla_003 || 0;
+        extracted.casilla_027 = casillas["027"] || extracted.casilla_027 || 0;
+        extracted.casilla_063 = casillas["063"] || extracted.casilla_063 || 0;
+        extracted.casilla_109 = casillas["109"] || extracted.casilla_109 || 0;
+        extracted.casilla_505 = casillas["505"] || extracted.casilla_505 || 0;
+        extracted.casilla_510 = casillas["510"] || extracted.casilla_510 || 0;
+        extracted.casilla_595 = casillas["595"] || extracted.casilla_595 || 0;
+        extracted.casilla_600 = casillas["600"] || extracted.casilla_600 || 0;
+        extracted.casilla_610 = casillas["610"] || extracted.casilla_610 || 0;
+        extracted.casilla_611 = casillas["611"] || extracted.casilla_611 || 0;
+
+        // Mapear campos de rendimientos desde casillas si no vienen directamente
+        if (!extracted.rendimientos_trabajo && casillas["003"]) extracted.rendimientos_trabajo = casillas["003"];
+        if (!extracted.rendimientos_actividades && casillas["109"]) extracted.rendimientos_actividades = casillas["109"];
+        if (!extracted.rendimientos_capital_inmob && casillas["063"]) extracted.rendimientos_capital_inmob = casillas["063"];
+        if (!extracted.rendimientos_capital_mob && casillas["027"]) extracted.rendimientos_capital_mob = casillas["027"];
+        if (!extracted.retenciones_trabajo && casillas["012"]) extracted.retenciones_trabajo = casillas["012"];
+        if (!extracted.retenciones_actividades && casillas["130"]) extracted.retenciones_actividades = casillas["130"];
+        if (!extracted.resultado_declaracion && casillas["695"]) extracted.resultado_declaracion = casillas["695"];
 
         // 3. Guardar PDF en storage
         const storageRecord = await saveToStorage({
