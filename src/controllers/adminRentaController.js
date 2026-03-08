@@ -110,12 +110,25 @@ Responde con JSON: {"estado_civil":"soltero|casado|viudo|separado|divorciado","f
             const systemPrompt = `Eres un experto fiscal español. Extrae casillas y datos personales de un PDF de declaración de renta (Modelo 100 IRPF).
 
 FORMATO IMPORTES ESPAÑOLES: punto=miles, coma=decimal. "25.432,18" → 25432.18
-Las casillas son números de 3 dígitos: [003], [505], [695], etc.
+FORMATO CASILLAS EN PDF AEAT: Los números de casilla van al FINAL de cada línea tras el importe.
+Ejemplo: "Base liquidable general sometida a gravamen 14.980,65 0505" → casilla 505 = 14980.65
+Las casillas pueden tener 3 o 4 dígitos (003 o 0003 = misma casilla).
+Si una casilla no existe en el PDF, déjala en 0.
 
-Casillas a buscar: ${Object.entries(casillasRef).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+CASILLAS PRIORITARIAS A EXTRAER:
+- Rendimientos: 003(trabajo), 180(ingresos AAEE), 223(gastos AAEE), 224(rto neto AAEE), 231(suma rtos netos), 235(total rto neto AAEE ED)
+- Capital: 027(mobiliario), 063(inmobiliario)
+- Ganancias: 420(saldo ganancias BI general)
+- Bases: 435(BI general), 460(BI ahorro), 505(BL general), 510(BL ahorro)
+- Mínimos: 519(mínimo personal familiar estatal), 520(mínimo personal familiar autonómico)
+- Cuotas: 545(CI estatal), 546(CI autonómica), 570(CL estatal), 571(CL autonómica), 587(CL incrementada), 595(cuota resultante)
+- Retenciones: 012(ret. trabajo), 130(ret. actividades), 604(pagos fraccionados AAEE), 609(total pagos a cuenta)
+- Resultado: 610(cuota diferencial), 670(resultado declaración), 695(resultado final), 700(a ingresar/devolver)
+
+Casillas configurables: ${Object.entries(casillasRef).map(([k, v]) => `${k}: ${v}`).join(' | ')}
 
 Responde SOLO con JSON válido:
-{"tipo_declaracion":"individual|conjunta","casillas":{"003":0,"012":0,"015":0,"027":0,"028":0,"063":0,"109":0,"110":0,"130":0,"231":0,"235":0,"366":0,"420":0,"435":0,"460":0,"505":0,"510":0,"520":0,"595":0,"600":0,"609":0,"610":0,"611":0,"618":0,"623":0,"670":0,"695":0},"resultado_declaracion":0,"rendimientos_trabajo":0,"rendimientos_actividades":0,"rendimientos_capital_inmob":0,"rendimientos_capital_mob":0,"ganancias_patrimoniales":0,"retenciones_trabajo":0,"retenciones_actividades":0,"pagos_fraccionados":0,"datos_personales":{"estado_civil":"","fecha_nacimiento":null,"discapacidad_porcentaje":0,"conyuge_nif":null,"conyuge_nombre":null,"descendientes":[],"ascendientes":[],"vivienda_tipo":"propiedad","aportacion_plan_pensiones":0,"donaciones_ong":0,"donaciones_otras":0},"casillas_extra":{},"confianza":0.85,"notas":""}`;
+{"tipo_declaracion":"individual|conjunta","casillas":{"003":0,"012":0,"015":0,"027":0,"028":0,"063":0,"109":0,"110":0,"130":0,"180":0,"223":0,"224":0,"231":0,"235":0,"366":0,"420":0,"435":0,"460":0,"505":0,"510":0,"519":0,"520":0,"545":0,"546":0,"570":0,"571":0,"587":0,"595":0,"604":0,"609":0,"610":0,"611":0,"618":0,"623":0,"670":0,"695":0,"700":0},"resultado_declaracion":0,"ingresos_actividades":0,"gastos_actividades":0,"rendimientos_trabajo":0,"rendimientos_actividades":0,"rendimientos_capital_inmob":0,"rendimientos_capital_mob":0,"ganancias_patrimoniales":0,"retenciones_trabajo":0,"retenciones_actividades":0,"pagos_fraccionados":0,"deducciones_autonomicas":0,"datos_personales":{"estado_civil":"","fecha_nacimiento":null,"discapacidad_porcentaje":0,"conyuge_nif":null,"conyuge_nombre":null,"conyuge_fecha_nacimiento":null,"descendientes":[],"ascendientes":[],"vivienda_tipo":"propiedad","aportacion_plan_pensiones":0,"donaciones_ong":0,"donaciones_otras":0},"casillas_extra":{},"confianza":0.85,"notas":""}`;
 
             const textToSend = pdfText.length > 150000 ? pdfText.substring(0, 150000) : pdfText;
 
@@ -170,6 +183,8 @@ Responde SOLO con JSON válido:
 
         // Mapear casillas al formato plano de BD
         const casillas = extracted.casillas || {};
+
+        // Casillas directas
         extracted.casilla_003 = casillas["003"] || 0;
         extracted.casilla_027 = casillas["027"] || 0;
         extracted.casilla_063 = casillas["063"] || 0;
@@ -181,14 +196,54 @@ Responde SOLO con JSON válido:
         extracted.casilla_610 = casillas["610"] || 0;
         extracted.casilla_611 = casillas["611"] || 0;
 
-        // Mapear campos de rendimientos
+        // Nuevas casillas extendidas
+        extracted.casilla_435 = casillas["435"] || 0;
+        extracted.casilla_545 = casillas["545"] || 0;
+        extracted.casilla_546 = casillas["546"] || 0;
+        extracted.casilla_570 = casillas["570"] || 0;
+        extracted.casilla_571 = casillas["571"] || 0;
+        extracted.casilla_604 = casillas["604"] || 0;
+        extracted.casilla_609 = casillas["609"] || 0;
+        extracted.casilla_670 = casillas["670"] || 0;
+        extracted.casilla_700 = casillas["700"] || 0;
+
+        // Mapear campos de rendimientos CON FALLBACKS para autónomos
+        // Rendimientos trabajo: casilla 003
         if (!extracted.rendimientos_trabajo) extracted.rendimientos_trabajo = casillas["003"] || 0;
-        if (!extracted.rendimientos_actividades) extracted.rendimientos_actividades = casillas["109"] || 0;
+
+        // Rendimientos actividades: casilla 109, FALLBACK a 235 → 231 → 224 (formato AEAT autónomos)
+        if (!extracted.rendimientos_actividades) {
+            extracted.rendimientos_actividades = casillas["109"] || casillas["235"] || casillas["231"] || casillas["224"] || 0;
+        }
+
+        // Capital
         if (!extracted.rendimientos_capital_inmob) extracted.rendimientos_capital_inmob = casillas["063"] || 0;
         if (!extracted.rendimientos_capital_mob) extracted.rendimientos_capital_mob = casillas["027"] || 0;
+
+        // Ganancias patrimoniales: casilla 420
+        if (!extracted.ganancias_patrimoniales) extracted.ganancias_patrimoniales = casillas["420"] || 0;
+
+        // Retenciones
         if (!extracted.retenciones_trabajo) extracted.retenciones_trabajo = casillas["012"] || 0;
         if (!extracted.retenciones_actividades) extracted.retenciones_actividades = casillas["130"] || 0;
-        if (!extracted.resultado_declaracion) extracted.resultado_declaracion = casillas["695"] || 0;
+
+        // Pagos fraccionados: casilla 604
+        if (!extracted.pagos_fraccionados) extracted.pagos_fraccionados = casillas["604"] || 0;
+
+        // Ingresos y gastos actividades económicas (NUEVO)
+        if (!extracted.ingresos_actividades) extracted.ingresos_actividades = casillas["180"] || 0;
+        if (!extracted.gastos_actividades) extracted.gastos_actividades = casillas["223"] || casillas["218"] || 0;
+
+        // Deducciones autonómicas
+        if (!extracted.deducciones_autonomicas) extracted.deducciones_autonomicas = casillas["564"] || 0;
+
+        // Mínimo personal y familiar (mayor de estatal/autonómico)
+        if (!extracted.minimo_personal_familiar) extracted.minimo_personal_familiar = casillas["520"] || casillas["519"] || 0;
+
+        // Resultado declaración: casilla 695, FALLBACK a 670 → 700 (formato AEAT)
+        if (!extracted.resultado_declaracion) {
+            extracted.resultado_declaracion = casillas["695"] || casillas["670"] || casillas["700"] || 0;
+        }
         extracted._metodo_extraccion = metodoExtraccion;
 
         // 3. Guardar PDF en storage
@@ -217,15 +272,28 @@ Responde SOLO con JSON válido:
                     casilla_600 = ${extracted.casilla_600 || 0},
                     casilla_610 = ${extracted.casilla_610 || 0},
                     casilla_611 = ${extracted.casilla_611 || 0},
+                    casilla_435 = ${extracted.casilla_435 || 0},
+                    casilla_545 = ${extracted.casilla_545 || 0},
+                    casilla_546 = ${extracted.casilla_546 || 0},
+                    casilla_570 = ${extracted.casilla_570 || 0},
+                    casilla_571 = ${extracted.casilla_571 || 0},
+                    casilla_604 = ${extracted.casilla_604 || 0},
+                    casilla_609 = ${extracted.casilla_609 || 0},
+                    casilla_670 = ${extracted.casilla_670 || 0},
+                    casilla_700 = ${extracted.casilla_700 || 0},
                     resultado_declaracion = ${extracted.resultado_declaracion || 0},
-                    rendimientos_trabajo = ${extracted.rendimientos_trabajo || extracted.casilla_003 || 0},
-                    rendimientos_actividades = ${extracted.rendimientos_actividades || extracted.casilla_109 || 0},
-                    rendimientos_capital_inmob = ${extracted.rendimientos_capital_inmob || extracted.casilla_063 || 0},
-                    rendimientos_capital_mob = ${extracted.rendimientos_capital_mob || extracted.casilla_027 || 0},
+                    rendimientos_trabajo = ${extracted.rendimientos_trabajo || 0},
+                    rendimientos_actividades = ${extracted.rendimientos_actividades || 0},
+                    rendimientos_capital_inmob = ${extracted.rendimientos_capital_inmob || 0},
+                    rendimientos_capital_mob = ${extracted.rendimientos_capital_mob || 0},
                     ganancias_patrimoniales = ${extracted.ganancias_patrimoniales || 0},
                     retenciones_trabajo = ${extracted.retenciones_trabajo || 0},
                     retenciones_actividades = ${extracted.retenciones_actividades || 0},
                     pagos_fraccionados = ${extracted.pagos_fraccionados || 0},
+                    ingresos_actividades = ${extracted.ingresos_actividades || 0},
+                    gastos_actividades = ${extracted.gastos_actividades || 0},
+                    deducciones_autonomicas = ${extracted.deducciones_autonomicas || 0},
+                    minimo_personal_familiar = ${extracted.minimo_personal_familiar || 0},
                     tipo_declaracion = ${extracted.tipo_declaracion || 'individual'},
                     pdf_storage_path = ${storageRecord?.storage_path || null},
                     pdf_nombre_archivo = ${file.originalname},
@@ -241,24 +309,36 @@ Responde SOLO con JSON válido:
                 INSERT INTO renta_historica_180 (
                     empresa_id, ejercicio, tipo_declaracion,
                     casilla_505, casilla_510, casilla_595, casilla_600, casilla_610, casilla_611,
+                    casilla_435, casilla_545, casilla_546, casilla_570, casilla_571,
+                    casilla_604, casilla_609, casilla_670, casilla_700,
                     resultado_declaracion, rendimientos_trabajo, rendimientos_actividades,
                     rendimientos_capital_inmob, rendimientos_capital_mob, ganancias_patrimoniales,
                     retenciones_trabajo, retenciones_actividades, pagos_fraccionados,
+                    ingresos_actividades, gastos_actividades, deducciones_autonomicas, minimo_personal_familiar,
                     pdf_storage_path, pdf_nombre_archivo, datos_extraidos_json, confianza_extraccion
                 ) VALUES (
                     ${empresaId}, ${year}, ${extracted.tipo_declaracion || 'individual'},
                     ${extracted.casilla_505 || 0}, ${extracted.casilla_510 || 0},
                     ${extracted.casilla_595 || 0}, ${extracted.casilla_600 || 0},
                     ${extracted.casilla_610 || 0}, ${extracted.casilla_611 || 0},
+                    ${extracted.casilla_435 || 0}, ${extracted.casilla_545 || 0},
+                    ${extracted.casilla_546 || 0}, ${extracted.casilla_570 || 0},
+                    ${extracted.casilla_571 || 0}, ${extracted.casilla_604 || 0},
+                    ${extracted.casilla_609 || 0}, ${extracted.casilla_670 || 0},
+                    ${extracted.casilla_700 || 0},
                     ${extracted.resultado_declaracion || 0},
-                    ${extracted.rendimientos_trabajo || extracted.casilla_003 || 0},
-                    ${extracted.rendimientos_actividades || extracted.casilla_109 || 0},
-                    ${extracted.rendimientos_capital_inmob || extracted.casilla_063 || 0},
-                    ${extracted.rendimientos_capital_mob || extracted.casilla_027 || 0},
+                    ${extracted.rendimientos_trabajo || 0},
+                    ${extracted.rendimientos_actividades || 0},
+                    ${extracted.rendimientos_capital_inmob || 0},
+                    ${extracted.rendimientos_capital_mob || 0},
                     ${extracted.ganancias_patrimoniales || 0},
                     ${extracted.retenciones_trabajo || 0},
                     ${extracted.retenciones_actividades || 0},
                     ${extracted.pagos_fraccionados || 0},
+                    ${extracted.ingresos_actividades || 0},
+                    ${extracted.gastos_actividades || 0},
+                    ${extracted.deducciones_autonomicas || 0},
+                    ${extracted.minimo_personal_familiar || 0},
                     ${storageRecord?.storage_path || null}, ${file.originalname},
                     ${sql.json(extracted)}, ${extracted.confianza || 0}
                 )
@@ -885,22 +965,44 @@ export async function generarDossier(req, res) {
             renta_anterior: rentaAnterior ? {
                 ejercicio: rentaAnterior.ejercicio,
                 resultado: parseFloat(rentaAnterior.resultado_declaracion || 0),
-                casilla_505: parseFloat(rentaAnterior.casilla_505 || 0),
-                casilla_610: parseFloat(rentaAnterior.casilla_610 || 0),
                 tipo_declaracion: rentaAnterior.tipo_declaracion,
+                // Rendimientos desglosados
                 rendimientos_trabajo: parseFloat(rentaAnterior.rendimientos_trabajo || 0),
                 rendimientos_actividades: parseFloat(rentaAnterior.rendimientos_actividades || 0),
                 rendimientos_capital_inmob: parseFloat(rentaAnterior.rendimientos_capital_inmob || 0),
                 rendimientos_capital_mob: parseFloat(rentaAnterior.rendimientos_capital_mob || 0),
                 ganancias_patrimoniales: parseFloat(rentaAnterior.ganancias_patrimoniales || 0),
+                // Detalle actividades económicas
+                ingresos_actividades: parseFloat(rentaAnterior.ingresos_actividades || 0),
+                gastos_actividades: parseFloat(rentaAnterior.gastos_actividades || 0),
+                // Retenciones y pagos
                 retenciones_trabajo: parseFloat(rentaAnterior.retenciones_trabajo || 0),
                 retenciones_actividades: parseFloat(rentaAnterior.retenciones_actividades || 0),
                 pagos_fraccionados: parseFloat(rentaAnterior.pagos_fraccionados || 0),
+                // Casillas principales
+                casilla_435: parseFloat(rentaAnterior.casilla_435 || 0),
+                casilla_505: parseFloat(rentaAnterior.casilla_505 || 0),
+                casilla_510: parseFloat(rentaAnterior.casilla_510 || 0),
+                casilla_545: parseFloat(rentaAnterior.casilla_545 || 0),
+                casilla_546: parseFloat(rentaAnterior.casilla_546 || 0),
+                casilla_570: parseFloat(rentaAnterior.casilla_570 || 0),
+                casilla_571: parseFloat(rentaAnterior.casilla_571 || 0),
+                casilla_595: parseFloat(rentaAnterior.casilla_595 || 0),
+                casilla_604: parseFloat(rentaAnterior.casilla_604 || 0),
+                casilla_609: parseFloat(rentaAnterior.casilla_609 || 0),
+                casilla_610: parseFloat(rentaAnterior.casilla_610 || 0),
+                casilla_670: parseFloat(rentaAnterior.casilla_670 || 0),
+                deducciones_autonomicas: parseFloat(rentaAnterior.deducciones_autonomicas || 0),
+                minimo_personal_familiar: parseFloat(rentaAnterior.minimo_personal_familiar || 0),
+                // Calculados
                 rendimiento_neto: parseFloat(rentaAnterior.rendimientos_trabajo || 0)
                     + parseFloat(rentaAnterior.rendimientos_actividades || 0)
                     + parseFloat(rentaAnterior.rendimientos_capital_inmob || 0)
                     + parseFloat(rentaAnterior.rendimientos_capital_mob || 0)
-                    + parseFloat(rentaAnterior.ganancias_patrimoniales || 0)
+                    + parseFloat(rentaAnterior.ganancias_patrimoniales || 0),
+                total_anticipado: parseFloat(rentaAnterior.retenciones_trabajo || 0)
+                    + parseFloat(rentaAnterior.retenciones_actividades || 0)
+                    + parseFloat(rentaAnterior.pagos_fraccionados || 0)
             } : null,
             rendimientos_actividades: {
                 ingresos: ingresos,

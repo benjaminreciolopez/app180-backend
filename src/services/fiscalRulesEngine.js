@@ -400,10 +400,26 @@ export async function extractCasillasConRegex(pdfText) {
         FiscalRules.registerPatternResult(r.casilla, r.pattern, r.success).catch(() => {});
     }
 
-    // Casillas esperadas que no se resolvieron
-    const casillasEsperadas = ['003', '012', '027', '063', '109', '505', '510', '595', '600', '610', '611', '670', '695'];
-    const sinResolver = casillasEsperadas.filter(c => !resueltas.has(c));
-    const confianza = resueltas.size / casillasEsperadas.length;
+    // Casillas esperadas (ampliadas para formato AEAT autónomos)
+    const casillasEsperadas = [
+        '003', '012', '027', '063', '109',        // Rendimientos clásicos
+        '180', '223', '224', '231', '235',         // Actividades económicas detalle
+        '420', '435', '460',                       // Bases imponibles
+        '505', '510', '519', '520',                // Bases liquidables + mínimos
+        '545', '546', '570', '571',                // Cuotas íntegras y líquidas
+        '587', '595', '604', '609',                // Cuota resultante + pagos a cuenta
+        '610', '670', '695', '700'                 // Resultado
+    ];
+
+    // Para autónomos sin rendimientos del trabajo, no penalizar confianza
+    // por casillas de trabajo (003, 012) si hay casillas de actividades (224, 235)
+    const tieneActividades = resueltas.has('224') || resueltas.has('235') || resueltas.has('231');
+    const casillasRelevantes = tieneActividades
+        ? casillasEsperadas.filter(c => !['003', '012', '109'].includes(c))
+        : casillasEsperadas;
+
+    const sinResolver = casillasRelevantes.filter(c => !resueltas.has(c));
+    const confianza = Math.min(1, resueltas.size / Math.max(1, casillasRelevantes.length * 0.4));
 
     return { casillas, confianza, sinResolver, totalResueltas: resueltas.size };
 }
