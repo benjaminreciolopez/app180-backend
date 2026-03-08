@@ -5,6 +5,7 @@ import { roleRequired } from "../middlewares/roleRequired.js";
 import upload from "../middlewares/uploadMiddleware.js";
 import {
     uploadRentaPdf,
+    saveDatosEjercicio,
     getDatosPersonales,
     saveDatosPersonales,
     getHistorialRentas,
@@ -26,6 +27,12 @@ router.use(authRequired, roleRequired("admin"));
  * @body ejercicio (año), file (PDF)
  */
 router.post("/upload-pdf", upload.single("file"), uploadRentaPdf);
+
+/**
+ * @route POST /admin/fiscal/renta/datos-ejercicio/:ejercicio
+ * @desc Guardar datos manuales del ejercicio (ingresos, gastos, retenciones)
+ */
+router.post("/datos-ejercicio/:ejercicio", saveDatosEjercicio);
 
 /**
  * @route GET /admin/fiscal/renta/datos-personales

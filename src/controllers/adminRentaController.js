@@ -449,6 +449,90 @@ Responde SOLO con JSON válido:
 }
 
 // =============================================
+// 1b. DATOS MANUALES DEL EJERCICIO (cuando no hay facturas/gastos en CONTENDO)
+// =============================================
+
+/**
+ * POST /admin/fiscal/renta/datos-ejercicio/:ejercicio
+ * Permite al usuario introducir manualmente ingresos, gastos, retenciones y pagos fraccionados
+ * cuando no tiene facturas/gastos registrados en CONTENDO para ese ejercicio.
+ * Guarda en renta_historica_180 como tipo_declaracion='manual_ejercicio_actual'
+ */
+export async function saveDatosEjercicio(req, res) {
+    try {
+        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const year = parseInt(req.params.ejercicio);
+        const {
+            ingresos_actividades = 0,
+            gastos_actividades = 0,
+            retenciones_clientes = 0,
+            retenciones_actividades = 0,
+            pagos_fraccionados = 0
+        } = req.body;
+
+        const rendimientoNeto = ingresos_actividades - gastos_actividades;
+
+        // Buscar si ya existe un registro manual para este ejercicio
+        const [existing] = await sql`
+            SELECT id FROM renta_historica_180
+            WHERE empresa_id = ${empresaId} AND ejercicio = ${year}
+            AND tipo_declaracion = 'manual_ejercicio_actual'
+        `;
+
+        let record;
+        if (existing) {
+            [record] = await sql`
+                UPDATE renta_historica_180 SET
+                    ingresos_actividades = ${ingresos_actividades},
+                    gastos_actividades = ${gastos_actividades},
+                    rendimientos_actividades = ${rendimientoNeto},
+                    retenciones_actividades = ${retenciones_actividades},
+                    pagos_fraccionados = ${pagos_fraccionados},
+                    resultado_declaracion = ${rendimientoNeto - retenciones_clientes - retenciones_actividades - pagos_fraccionados},
+                    datos_extraidos_json = ${sql.json({
+                        retenciones_clientes,
+                        retenciones_actividades,
+                        pagos_fraccionados,
+                        fuente: 'manual'
+                    })},
+                    confianza_extraccion = 1,
+                    updated_at = NOW()
+                WHERE id = ${existing.id}
+                RETURNING *
+            `;
+        } else {
+            [record] = await sql`
+                INSERT INTO renta_historica_180 (
+                    empresa_id, ejercicio, tipo_declaracion,
+                    ingresos_actividades, gastos_actividades, rendimientos_actividades,
+                    retenciones_actividades, pagos_fraccionados,
+                    resultado_declaracion, confianza_extraccion, datos_extraidos_json
+                ) VALUES (
+                    ${empresaId}, ${year}, 'manual_ejercicio_actual',
+                    ${ingresos_actividades}, ${gastos_actividades}, ${rendimientoNeto},
+                    ${retenciones_actividades}, ${pagos_fraccionados},
+                    ${rendimientoNeto - retenciones_clientes - retenciones_actividades - pagos_fraccionados},
+                    1, ${sql.json({
+                        retenciones_clientes,
+                        retenciones_actividades,
+                        pagos_fraccionados,
+                        fuente: 'manual'
+                    })}
+                )
+                RETURNING *
+            `;
+        }
+
+        console.log(`📝 Datos manuales guardados para ejercicio ${year}: ingresos=${ingresos_actividades}, gastos=${gastos_actividades}, rend=${rendimientoNeto}`);
+
+        res.json({ success: true, data: record });
+    } catch (error) {
+        console.error("Error saveDatosEjercicio:", error);
+        res.status(500).json({ success: false, error: "Error guardando datos del ejercicio" });
+    }
+}
+
+// =============================================
 // 2. DATOS PERSONALES / FAMILIARES
 // =============================================
 
@@ -984,20 +1068,53 @@ export async function generarDossier(req, res) {
             AND EXTRACT(YEAR FROM fecha_compra) = ${year}
         `;
 
-        // Calcular rendimiento neto estimado
-        const ingresos = parseFloat(facturacion.base_total);
-        const gastosDeducibles = parseFloat(gastos.base_total) + parseFloat(nominas.bruto_total) + parseFloat(nominas.ss_empresa);
-        const rendimientoNeto = ingresos - gastosDeducibles;
+        // 9. Datos manuales del ejercicio (si el usuario los introdujo)
+        const [datosManual] = await sql`
+            SELECT * FROM renta_historica_180
+            WHERE empresa_id = ${empresaId} AND ejercicio = ${year}
+            AND tipo_declaracion = 'manual_ejercicio_actual'
+        `;
 
         // Detectar si hay datos reales en CONTENDO para este ejercicio
         const tieneDataContendo = parseInt(facturacion.num_facturas) > 0 || parseInt(gastos.num_gastos) > 0;
 
-        console.log(`📊 Dossier ${year}: Facturas=${facturacion.num_facturas}, Ingresos=${ingresos}, Gastos=${gastosDeducibles}, Rend.Neto=${rendimientoNeto}, DataContendo=${tieneDataContendo}`);
+        // Calcular rendimiento neto estimado - PRIORIDAD: CONTENDO > Manual > 0
+        let ingresos, gastosDeducibles, rendimientoNeto;
+        let fuenteDatos = 'sin_datos';
+        let retencionesClientesManual = 0;
+
+        if (tieneDataContendo) {
+            // Datos de CONTENDO (facturas/gastos reales)
+            ingresos = parseFloat(facturacion.base_total);
+            gastosDeducibles = parseFloat(gastos.base_total) + parseFloat(nominas.bruto_total) + parseFloat(nominas.ss_empresa);
+            rendimientoNeto = ingresos - gastosDeducibles;
+            fuenteDatos = 'contendo';
+        } else if (datosManual) {
+            // Datos introducidos manualmente por el usuario
+            ingresos = parseFloat(datosManual.ingresos_actividades || 0);
+            gastosDeducibles = parseFloat(datosManual.gastos_actividades || 0);
+            rendimientoNeto = ingresos - gastosDeducibles;
+            fuenteDatos = 'manual';
+            const jsonExtra = datosManual.datos_extraidos_json || {};
+            retencionesClientesManual = parseFloat(jsonExtra.retenciones_clientes || 0);
+        } else if (rentaAnterior) {
+            fuenteDatos = 'renta_importada';
+            ingresos = 0;
+            gastosDeducibles = 0;
+            rendimientoNeto = 0;
+        } else {
+            ingresos = 0;
+            gastosDeducibles = 0;
+            rendimientoNeto = 0;
+        }
+
+        console.log(`📊 Dossier ${year}: Fuente=${fuenteDatos}, Ingresos=${ingresos}, Gastos=${gastosDeducibles}, Rend.Neto=${rendimientoNeto}`);
         console.log(`📊 Renta anterior: ${rentaAnterior ? `ejercicio=${rentaAnterior.ejercicio}, rend_act=${rentaAnterior.rendimientos_actividades}, resultado=${rentaAnterior.resultado_declaracion}` : 'NO ENCONTRADA'}`);
+        if (datosManual) console.log(`📝 Datos manuales: ingresos=${datosManual.ingresos_actividades}, gastos=${datosManual.gastos_actividades}`);
 
         const dossier = {
             ejercicio: year,
-            fuente_datos: tieneDataContendo ? 'contendo' : (rentaAnterior ? 'renta_importada' : 'sin_datos'),
+            fuente_datos: fuenteDatos,
             empresa: {
                 nombre: emisor?.nombre || '',
                 nif: emisor?.nif || '',
@@ -1049,21 +1166,27 @@ export async function generarDossier(req, res) {
             rendimientos_actividades: {
                 ingresos: ingresos,
                 gastos_deducibles: gastosDeducibles,
-                detalle_gastos: {
+                detalle_gastos: fuenteDatos === 'manual' ? {
+                    compras_servicios: gastosDeducibles,
+                    nominas: 0,
+                    seguridad_social_empresa: 0
+                } : {
                     compras_servicios: parseFloat(gastos.base_total),
                     nominas: parseFloat(nominas.bruto_total),
                     seguridad_social_empresa: parseFloat(nominas.ss_empresa)
                 },
                 rendimiento_neto: rendimientoNeto,
-                num_facturas: parseInt(facturacion.num_facturas),
-                num_gastos: parseInt(gastos.num_gastos)
+                num_facturas: fuenteDatos === 'manual' ? 0 : parseInt(facturacion.num_facturas),
+                num_gastos: fuenteDatos === 'manual' ? 0 : parseInt(gastos.num_gastos)
             },
             retenciones_y_pagos: {
-                retenciones_clientes: parseFloat(facturacion.retenciones_clientes),
-                retenciones_actividades: parseFloat(retencionesActividades.total),
-                pagos_fraccionados: totalPagosFraccionados,
-                detalle_130: pagos130,
-                total_anticipado: parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados
+                retenciones_clientes: fuenteDatos === 'manual' ? retencionesClientesManual : parseFloat(facturacion.retenciones_clientes),
+                retenciones_actividades: fuenteDatos === 'manual' ? parseFloat(datosManual.retenciones_actividades || 0) : parseFloat(retencionesActividades.total),
+                pagos_fraccionados: fuenteDatos === 'manual' ? parseFloat(datosManual.pagos_fraccionados || 0) : totalPagosFraccionados,
+                detalle_130: fuenteDatos === 'manual' ? [] : pagos130,
+                total_anticipado: fuenteDatos === 'manual'
+                    ? retencionesClientesManual + parseFloat(datosManual.retenciones_actividades || 0) + parseFloat(datosManual.pagos_fraccionados || 0)
+                    : parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados
             },
             iva_anual: {
                 repercutido: parseFloat(facturacion.iva_total),
@@ -1078,15 +1201,19 @@ export async function generarDossier(req, res) {
             },
             resumen: {
                 rendimiento_neto_estimado: rendimientoNeto,
-                total_anticipado: parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados,
+                total_anticipado: fuenteDatos === 'manual'
+                    ? retencionesClientesManual + parseFloat(datosManual?.retenciones_actividades || 0) + parseFloat(datosManual?.pagos_fraccionados || 0)
+                    : parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados,
                 tiene_datos_contendo: tieneDataContendo,
-                nota: !tieneDataContendo && rentaAnterior
-                    ? `Sin actividad registrada en CONTENDO para ${year}. Se muestra la renta importada del ejercicio ${rentaAnterior.ejercicio} como referencia. Los rendimientos del año actual se calcularán cuando se registren facturas y gastos.`
-                    : rendimientoNeto > 0
-                        ? `Rendimiento neto positivo de ${rendimientoNeto.toFixed(2)}€. Se han anticipado ${(parseFloat(facturacion.retenciones_clientes) + totalPagosFraccionados).toFixed(2)}€ en retenciones y pagos fraccionados.`
-                        : !tieneDataContendo
-                            ? `Sin actividad registrada en CONTENDO para ${year}. Importa una declaración anterior o registra facturas y gastos para generar el dossier.`
-                            : `Rendimiento neto negativo (pérdidas) de ${rendimientoNeto.toFixed(2)}€.`
+                nota: fuenteDatos === 'manual'
+                    ? `Datos introducidos manualmente para ${year}. Rendimiento neto: ${rendimientoNeto.toFixed(2)}€.`
+                    : fuenteDatos === 'renta_importada'
+                        ? `Sin actividad en CONTENDO para ${year}. Se muestra la renta importada del ejercicio ${rentaAnterior.ejercicio}. Puedes introducir los datos del ejercicio actual manualmente.`
+                        : fuenteDatos === 'contendo'
+                            ? rendimientoNeto >= 0
+                                ? `Rendimiento neto positivo de ${rendimientoNeto.toFixed(2)}€. Se han anticipado ${(parseFloat(facturacion.retenciones_clientes) + totalPagosFraccionados).toFixed(2)}€ en retenciones y pagos fraccionados.`
+                                : `Rendimiento neto negativo (pérdidas) de ${rendimientoNeto.toFixed(2)}€.`
+                            : `Sin datos disponibles para ${year}. Importa una declaración anterior o introduce los datos manualmente.`
             }
         };
 
