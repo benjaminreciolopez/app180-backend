@@ -60,6 +60,27 @@ export async function uploadRentaPdf(req, res) {
             });
         }
 
+        // 1b. AUTO-DETECTAR ejercicio del contenido del PDF
+        // Los PDFs de AEAT contienen "Ejercicio 2024" o "Ejercicio: 2024" o "EJERCICIO 2024"
+        const ejercicioMatch = pdfText.match(/[Ee]jercicio\s*:?\s*(20\d{2})/);
+        if (ejercicioMatch) {
+            const ejercicioDetectado = parseInt(ejercicioMatch[1]);
+            if (ejercicioDetectado !== year) {
+                console.log(`⚠️ Ejercicio del formulario: ${year}, detectado en PDF: ${ejercicioDetectado}. Usando el del PDF.`);
+            } else {
+                console.log(`✅ Ejercicio confirmado: ${year} (coincide con PDF)`);
+            }
+            // Siempre usar el ejercicio detectado del PDF si es válido
+            if (ejercicioDetectado >= 2000 && ejercicioDetectado <= 2099) {
+                // Sobrescribir year con el detectado del PDF
+                // No reasignamos year (const) sino que usaremos yearFinal
+            }
+        }
+        const yearFinal = ejercicioMatch
+            ? parseInt(ejercicioMatch[1])
+            : year;
+        console.log(`📋 Ejercicio final para guardar: ${yearFinal} (formulario: ${year}, PDF: ${ejercicioMatch ? ejercicioMatch[1] : 'no detectado'})`);
+
         // 2. PASO 1: Intentar extracción con REGEX (gratis, instantáneo)
         const regexResult = await extractCasillasConRegex(pdfText);
         console.log(`📋 Regex extrajo ${regexResult.totalResueltas} casillas (confianza: ${(regexResult.confianza * 100).toFixed(0)}%)`);
@@ -255,10 +276,10 @@ Responde SOLO con JSON válido:
             mimeType: file.mimetype
         });
 
-        // 4. Guardar o actualizar en BD
+        // 4. Guardar o actualizar en BD (usar yearFinal = ejercicio detectado del PDF)
         const [existing] = await sql`
             SELECT id FROM renta_historica_180
-            WHERE empresa_id = ${empresaId} AND ejercicio = ${year}
+            WHERE empresa_id = ${empresaId} AND ejercicio = ${yearFinal}
             AND tipo_declaracion = ${extracted.tipo_declaracion || 'individual'}
         `;
 
@@ -317,7 +338,7 @@ Responde SOLO con JSON válido:
                     ingresos_actividades, gastos_actividades, deducciones_autonomicas, minimo_personal_familiar,
                     pdf_storage_path, pdf_nombre_archivo, datos_extraidos_json, confianza_extraccion
                 ) VALUES (
-                    ${empresaId}, ${year}, ${extracted.tipo_declaracion || 'individual'},
+                    ${empresaId}, ${yearFinal}, ${extracted.tipo_declaracion || 'individual'},
                     ${extracted.casilla_505 || 0}, ${extracted.casilla_510 || 0},
                     ${extracted.casilla_595 || 0}, ${extracted.casilla_600 || 0},
                     ${extracted.casilla_610 || 0}, ${extracted.casilla_611 || 0},
@@ -878,10 +899,24 @@ export async function generarDossier(req, res) {
         `;
 
         // 2. Renta anterior (si existe)
-        const [rentaAnterior] = await sql`
+        // Primero buscar año exacto (year-1), si no existe buscar el más reciente disponible
+        let [rentaAnterior] = await sql`
             SELECT * FROM renta_historica_180
             WHERE empresa_id = ${empresaId} AND ejercicio = ${year - 1}
         `;
+        if (!rentaAnterior) {
+            console.log(`📋 No se encontró renta para ejercicio ${year - 1}, buscando la más reciente...`);
+            [rentaAnterior] = await sql`
+                SELECT * FROM renta_historica_180
+                WHERE empresa_id = ${empresaId}
+                ORDER BY ejercicio DESC LIMIT 1
+            `;
+            if (rentaAnterior) {
+                console.log(`📋 Encontrada renta del ejercicio ${rentaAnterior.ejercicio} como referencia`);
+            }
+        } else {
+            console.log(`📋 Renta anterior encontrada para ejercicio ${year - 1}`);
+        }
 
         // 3. Datos del emisor
         const [emisor] = await sql`SELECT * FROM emisor_180 WHERE empresa_id = ${empresaId}`;
@@ -954,8 +989,15 @@ export async function generarDossier(req, res) {
         const gastosDeducibles = parseFloat(gastos.base_total) + parseFloat(nominas.bruto_total) + parseFloat(nominas.ss_empresa);
         const rendimientoNeto = ingresos - gastosDeducibles;
 
+        // Detectar si hay datos reales en CONTENDO para este ejercicio
+        const tieneDataContendo = parseInt(facturacion.num_facturas) > 0 || parseInt(gastos.num_gastos) > 0;
+
+        console.log(`📊 Dossier ${year}: Facturas=${facturacion.num_facturas}, Ingresos=${ingresos}, Gastos=${gastosDeducibles}, Rend.Neto=${rendimientoNeto}, DataContendo=${tieneDataContendo}`);
+        console.log(`📊 Renta anterior: ${rentaAnterior ? `ejercicio=${rentaAnterior.ejercicio}, rend_act=${rentaAnterior.rendimientos_actividades}, resultado=${rentaAnterior.resultado_declaracion}` : 'NO ENCONTRADA'}`);
+
         const dossier = {
             ejercicio: year,
+            fuente_datos: tieneDataContendo ? 'contendo' : (rentaAnterior ? 'renta_importada' : 'sin_datos'),
             empresa: {
                 nombre: emisor?.nombre || '',
                 nif: emisor?.nif || '',
@@ -1037,9 +1079,14 @@ export async function generarDossier(req, res) {
             resumen: {
                 rendimiento_neto_estimado: rendimientoNeto,
                 total_anticipado: parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados,
-                nota: rendimientoNeto > 0
-                    ? `Rendimiento neto positivo de ${rendimientoNeto.toFixed(2)}€. Se han anticipado ${(parseFloat(facturacion.retenciones_clientes) + totalPagosFraccionados).toFixed(2)}€ en retenciones y pagos fraccionados.`
-                    : `Rendimiento neto negativo (pérdidas) de ${rendimientoNeto.toFixed(2)}€.`
+                tiene_datos_contendo: tieneDataContendo,
+                nota: !tieneDataContendo && rentaAnterior
+                    ? `Sin actividad registrada en CONTENDO para ${year}. Se muestra la renta importada del ejercicio ${rentaAnterior.ejercicio} como referencia. Los rendimientos del año actual se calcularán cuando se registren facturas y gastos.`
+                    : rendimientoNeto > 0
+                        ? `Rendimiento neto positivo de ${rendimientoNeto.toFixed(2)}€. Se han anticipado ${(parseFloat(facturacion.retenciones_clientes) + totalPagosFraccionados).toFixed(2)}€ en retenciones y pagos fraccionados.`
+                        : !tieneDataContendo
+                            ? `Sin actividad registrada en CONTENDO para ${year}. Importa una declaración anterior o registra facturas y gastos para generar el dossier.`
+                            : `Rendimiento neto negativo (pérdidas) de ${rendimientoNeto.toFixed(2)}€.`
             }
         };
 
