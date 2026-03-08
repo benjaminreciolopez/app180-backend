@@ -1199,6 +1199,33 @@ export async function generarDossier(req, res) {
                 ss_empresa: parseFloat(nominas.ss_empresa),
                 irpf_retenido_nominas: parseFloat(nominas.irpf_total)
             },
+            resultado_estimado: (() => {
+                // Calcular resultado estimado según fuente de datos
+                if (fuenteDatos === 'contendo') {
+                    // Con datos reales: rendimiento - anticipado (simplificado)
+                    const totalAnt = parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados;
+                    return {
+                        valor: Math.round((rendimientoNeto - totalAnt) * 100) / 100,
+                        fuente: 'contendo',
+                        descripcion: 'Estimación basada en facturas y gastos de CONTENDO'
+                    };
+                } else if (fuenteDatos === 'manual') {
+                    const totalAnt = retencionesClientesManual + parseFloat(datosManual?.retenciones_actividades || 0) + parseFloat(datosManual?.pagos_fraccionados || 0);
+                    return {
+                        valor: Math.round((rendimientoNeto - totalAnt) * 100) / 100,
+                        fuente: 'manual',
+                        descripcion: 'Estimación basada en datos introducidos manualmente'
+                    };
+                } else if (rentaAnterior) {
+                    return {
+                        valor: parseFloat(rentaAnterior.resultado_declaracion || 0),
+                        fuente: 'renta_anterior',
+                        ejercicio_referencia: rentaAnterior.ejercicio,
+                        descripcion: `Resultado de la declaración ${rentaAnterior.ejercicio} como referencia`
+                    };
+                }
+                return { valor: 0, fuente: 'sin_datos', descripcion: 'Sin datos para estimar' };
+            })(),
             resumen: {
                 rendimiento_neto_estimado: rendimientoNeto,
                 total_anticipado: fuenteDatos === 'manual'
@@ -1208,7 +1235,7 @@ export async function generarDossier(req, res) {
                 nota: fuenteDatos === 'manual'
                     ? `Datos introducidos manualmente para ${year}. Rendimiento neto: ${rendimientoNeto.toFixed(2)}€.`
                     : fuenteDatos === 'renta_importada'
-                        ? `Sin actividad en CONTENDO para ${year}. Se muestra la renta importada del ejercicio ${rentaAnterior.ejercicio}. Puedes introducir los datos del ejercicio actual manualmente.`
+                        ? `Sin actividad en CONTENDO para ${year}. Se muestra el resultado de la renta ${rentaAnterior.ejercicio} como referencia.`
                         : fuenteDatos === 'contendo'
                             ? rendimientoNeto >= 0
                                 ? `Rendimiento neto positivo de ${rendimientoNeto.toFixed(2)}€. Se han anticipado ${(parseFloat(facturacion.retenciones_clientes) + totalPagosFraccionados).toFixed(2)}€ en retenciones y pagos fraccionados.`
