@@ -540,7 +540,317 @@ export async function updateRenta(req, res) {
 }
 
 // =============================================
-// 4. DOSSIER PRE-RENTA
+// 4. SIMULADOR IRPF - CÁLCULO DE TRAMOS
+// =============================================
+
+/**
+ * Tramos IRPF estatal + autonómico 2025/2026 (general España)
+ * El IRPF se divide: ~50% estatal, ~50% autonómico
+ * Estos son los tramos de la escala general (Ley 35/2006, actualizada)
+ */
+const TRAMOS_IRPF_ESTATAL = [
+    { hasta: 12450,  tipo: 9.50 },
+    { hasta: 20200,  tipo: 12.00 },
+    { hasta: 35200,  tipo: 15.00 },
+    { hasta: 60000,  tipo: 18.50 },
+    { hasta: 300000, tipo: 22.50 },
+    { hasta: Infinity, tipo: 24.50 },
+];
+
+const TRAMOS_IRPF_AUTONOMICO = [
+    { hasta: 12450,  tipo: 9.50 },
+    { hasta: 20200,  tipo: 12.00 },
+    { hasta: 35200,  tipo: 15.00 },
+    { hasta: 60000,  tipo: 18.50 },
+    { hasta: 300000, tipo: 22.50 },
+    { hasta: Infinity, tipo: 22.50 },
+];
+
+/**
+ * Calcula cuota por tramos progresivos
+ */
+function calcularCuotaTramos(baseImponible, tramos) {
+    let cuota = 0;
+    let baseRestante = baseImponible;
+    let limiteAnterior = 0;
+    const desglose = [];
+
+    for (const tramo of tramos) {
+        if (baseRestante <= 0) break;
+
+        const anchoTramo = tramo.hasta === Infinity
+            ? baseRestante
+            : tramo.hasta - limiteAnterior;
+        const baseEnTramo = Math.min(baseRestante, anchoTramo);
+        const cuotaTramo = baseEnTramo * tramo.tipo / 100;
+
+        desglose.push({
+            desde: limiteAnterior,
+            hasta: tramo.hasta === Infinity ? null : tramo.hasta,
+            tipo: tramo.tipo,
+            base: Math.round(baseEnTramo * 100) / 100,
+            cuota: Math.round(cuotaTramo * 100) / 100,
+        });
+
+        cuota += cuotaTramo;
+        baseRestante -= baseEnTramo;
+        limiteAnterior = tramo.hasta === Infinity ? limiteAnterior : tramo.hasta;
+    }
+
+    return { cuota: Math.round(cuota * 100) / 100, desglose };
+}
+
+/**
+ * Reducciones personales y familiares (mínimo personal/familiar)
+ */
+function calcularMinimosPersonales(datosPersonales) {
+    let minimo = 5550; // Mínimo personal general
+
+    if (!datosPersonales) return minimo;
+
+    // Edad > 65 años
+    if (datosPersonales.fecha_nacimiento) {
+        const nacimiento = new Date(datosPersonales.fecha_nacimiento);
+        const edad = Math.floor((Date.now() - nacimiento.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (edad >= 75) minimo += 1400;
+        else if (edad >= 65) minimo += 1150;
+    }
+
+    // Discapacidad declarante
+    const disc = datosPersonales.discapacidad_porcentaje || 0;
+    if (disc >= 65) minimo += 12000;
+    else if (disc >= 33) minimo += 3000;
+
+    // Descendientes
+    const descendientes = datosPersonales.descendientes || [];
+    descendientes.forEach((d, i) => {
+        const nacDesc = d.fecha_nacimiento ? new Date(d.fecha_nacimiento) : null;
+        const edadDesc = nacDesc
+            ? Math.floor((Date.now() - nacDesc.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+            : 99;
+
+        if (edadDesc < 25 || (d.discapacidad_porcentaje && d.discapacidad_porcentaje >= 33)) {
+            // Mínimo por descendientes según orden
+            const minimosDesc = [2400, 2700, 4000, 4500]; // 1º, 2º, 3º, 4º y siguientes
+            minimo += minimosDesc[Math.min(i, 3)];
+
+            // Menor de 3 años: +2800
+            if (edadDesc < 3) minimo += 2800;
+
+            // Discapacidad del descendiente
+            const discDesc = d.discapacidad_porcentaje || 0;
+            if (discDesc >= 65) minimo += 12000;
+            else if (discDesc >= 33) minimo += 3000;
+        }
+    });
+
+    // Ascendientes
+    const ascendientes = datosPersonales.ascendientes || [];
+    ascendientes.forEach(a => {
+        const nacAsc = a.fecha_nacimiento ? new Date(a.fecha_nacimiento) : null;
+        const edadAsc = nacAsc
+            ? Math.floor((Date.now() - nacAsc.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+            : 0;
+
+        if (edadAsc >= 65 && a.convivencia) {
+            minimo += 1150;
+            if (edadAsc >= 75) minimo += 1400;
+
+            const discAsc = a.discapacidad_porcentaje || 0;
+            if (discAsc >= 65) minimo += 12000;
+            else if (discAsc >= 33) minimo += 3000;
+        }
+    });
+
+    return minimo;
+}
+
+/**
+ * GET /admin/fiscal/renta/simular/:ejercicio
+ * Simula la declaración de la renta con datos reales de la app
+ */
+export async function simularIRPF(req, res) {
+    try {
+        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const { ejercicio } = req.params;
+        const year = parseInt(ejercicio);
+
+        // 1. Recopilar datos reales del ejercicio
+        const [facturacion] = await sql`
+            SELECT
+                COALESCE(SUM(subtotal), 0) as ingresos,
+                COALESCE(SUM(retencion_importe), 0) as retenciones_clientes
+            FROM factura_180
+            WHERE empresa_id = ${empresaId}
+            AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+            AND EXTRACT(YEAR FROM fecha) = ${year}
+        `;
+
+        const [gastos] = await sql`
+            SELECT COALESCE(SUM(base_imponible), 0) as total_gastos
+            FROM purchases_180
+            WHERE empresa_id = ${empresaId}
+            AND activo = true
+            AND EXTRACT(YEAR FROM fecha_compra) = ${year}
+        `;
+
+        const [nominas] = await sql`
+            SELECT
+                COALESCE(SUM(bruto), 0) as bruto_total,
+                COALESCE(SUM(seguridad_social_empresa), 0) as ss_empresa,
+                COALESCE(SUM(irpf_retencion), 0) as irpf_nominas
+            FROM nominas_180
+            WHERE empresa_id = ${empresaId} AND anio = ${year}
+        `;
+
+        // Pagos fraccionados M130 presentados
+        let totalPagos130 = 0;
+        try {
+            const [p130] = await sql`
+                SELECT COALESCE(SUM(resultado_importe), 0) as total
+                FROM fiscal_models_180
+                WHERE empresa_id = ${empresaId} AND modelo = '130'
+                AND ejercicio = ${year} AND estado IN ('GENERADO', 'PRESENTADO')
+            `;
+            totalPagos130 = parseFloat(p130.total);
+        } catch (e) { /* tabla puede no existir */ }
+
+        // Datos personales
+        const [datosPersonales] = await sql`
+            SELECT * FROM renta_datos_personales_180 WHERE empresa_id = ${empresaId}
+        `.catch(() => [null]);
+
+        // 2. Calcular rendimiento neto
+        const ingresos = parseFloat(facturacion.ingresos);
+        const gastosDeducibles = parseFloat(gastos.total_gastos)
+            + parseFloat(nominas.bruto_total)
+            + parseFloat(nominas.ss_empresa);
+        const rendimientoNeto = ingresos - gastosDeducibles;
+
+        // Reducción por rendimientos del trabajo (si aplica, para empleados)
+        // Para autónomos solo aplica la reducción general
+
+        // 3. Reducciones
+        const planPensiones = datosPersonales?.aportacion_plan_pensiones || 0;
+        const reduccionPensiones = Math.min(planPensiones, 1500); // Límite legal
+
+        // Cuota sindical, etc. — por ahora solo plan de pensiones
+        const baseImponibleGeneral = Math.max(0, rendimientoNeto - reduccionPensiones);
+
+        // 4. Mínimo personal y familiar
+        const minimoPersonalFamiliar = calcularMinimosPersonales(datosPersonales);
+
+        // Base liquidable = base imponible - mínimo (pero mínimo se aplica como reducción en cuota)
+        const baseLiquidable = Math.max(0, baseImponibleGeneral);
+
+        // 5. Calcular cuota íntegra
+        const estatal = calcularCuotaTramos(baseLiquidable, TRAMOS_IRPF_ESTATAL);
+        const autonomico = calcularCuotaTramos(baseLiquidable, TRAMOS_IRPF_AUTONOMICO);
+
+        // Cuota del mínimo personal (se resta de la cuota)
+        const minimoEstatal = calcularCuotaTramos(minimoPersonalFamiliar, TRAMOS_IRPF_ESTATAL);
+        const minimoAutonomico = calcularCuotaTramos(minimoPersonalFamiliar, TRAMOS_IRPF_AUTONOMICO);
+
+        const cuotaIntegra = Math.max(0,
+            (estatal.cuota - minimoEstatal.cuota) + (autonomico.cuota - minimoAutonomico.cuota)
+        );
+
+        // 6. Deducciones
+        let deducciones = 0;
+
+        // Deducción por vivienda habitual (solo hipotecas anteriores a 2013)
+        if (datosPersonales?.vivienda_tipo === 'propiedad' && datosPersonales?.hipoteca_anual > 0) {
+            // La deducción por vivienda es transitoria, solo adquisiciones antes de 01/01/2013
+            const fechaCompra = datosPersonales.hipoteca_fecha_compra
+                ? new Date(datosPersonales.hipoteca_fecha_compra)
+                : null;
+            if (fechaCompra && fechaCompra < new Date('2013-01-01')) {
+                deducciones += Math.min(datosPersonales.hipoteca_anual, 9040) * 0.15;
+            }
+        }
+
+        // Deducción por donaciones
+        const donacionesONG = datosPersonales?.donaciones_ong || 0;
+        if (donacionesONG > 0) {
+            // Primeros 250€ al 80%, resto al 40%
+            deducciones += Math.min(donacionesONG, 250) * 0.80;
+            if (donacionesONG > 250) {
+                deducciones += (donacionesONG - 250) * 0.40;
+            }
+        }
+        const donacionesOtras = datosPersonales?.donaciones_otras || 0;
+        if (donacionesOtras > 0) {
+            deducciones += donacionesOtras * 0.10; // General 10%
+        }
+
+        // 7. Cuota líquida
+        const cuotaLiquida = Math.max(0, cuotaIntegra - deducciones);
+
+        // 8. Retenciones y pagos a cuenta (ya anticipados)
+        const totalAnticipado = parseFloat(facturacion.retenciones_clientes)
+            + parseFloat(nominas.irpf_nominas)
+            + totalPagos130;
+
+        // 9. Resultado: positivo = a pagar, negativo = a devolver
+        const resultadoDeclaracion = Math.round((cuotaLiquida - totalAnticipado) * 100) / 100;
+
+        // 10. Tipo efectivo
+        const tipoEfectivo = baseLiquidable > 0
+            ? Math.round((cuotaLiquida / baseLiquidable) * 10000) / 100
+            : 0;
+
+        res.json({
+            success: true,
+            data: {
+                ejercicio: year,
+                rendimientos: {
+                    ingresos_actividades: ingresos,
+                    gastos_deducibles: gastosDeducibles,
+                    rendimiento_neto: rendimientoNeto,
+                },
+                reducciones: {
+                    plan_pensiones: reduccionPensiones,
+                    total: reduccionPensiones,
+                },
+                base_imponible_general: baseImponibleGeneral,
+                base_liquidable: baseLiquidable,
+                minimo_personal_familiar: minimoPersonalFamiliar,
+                cuota_integra: {
+                    estatal: Math.round((estatal.cuota - minimoEstatal.cuota) * 100) / 100,
+                    autonomica: Math.round((autonomico.cuota - minimoAutonomico.cuota) * 100) / 100,
+                    total: Math.round(cuotaIntegra * 100) / 100,
+                },
+                tramos_desglose: {
+                    estatal: estatal.desglose,
+                    autonomico: autonomico.desglose,
+                },
+                deducciones: Math.round(deducciones * 100) / 100,
+                cuota_liquida: Math.round(cuotaLiquida * 100) / 100,
+                anticipado: {
+                    retenciones_clientes: parseFloat(facturacion.retenciones_clientes),
+                    retenciones_nominas: parseFloat(nominas.irpf_nominas),
+                    pagos_fraccionados_130: totalPagos130,
+                    total: Math.round(totalAnticipado * 100) / 100,
+                },
+                resultado: resultadoDeclaracion,
+                resultado_texto: resultadoDeclaracion > 0
+                    ? `A PAGAR: ${resultadoDeclaracion.toFixed(2)}€`
+                    : `A DEVOLVER: ${Math.abs(resultadoDeclaracion).toFixed(2)}€`,
+                tipo_efectivo: tipoEfectivo,
+                aviso: rendimientoNeto < 0
+                    ? 'Rendimiento negativo: las pérdidas se pueden compensar en los 4 ejercicios siguientes.'
+                    : null,
+            }
+        });
+
+    } catch (error) {
+        console.error("Error simularIRPF:", error);
+        res.status(500).json({ success: false, error: "Error simulando IRPF" });
+    }
+}
+
+// =============================================
+// 5. DOSSIER PRE-RENTA
 // =============================================
 
 /**

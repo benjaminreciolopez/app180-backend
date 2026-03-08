@@ -127,16 +127,33 @@ export const aeatService = {
             r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + 16);
         };
 
-        // IVA DEVENGADO
-        setCasilla(209, modelo303.devengado.base); // [01]
-        setCasilla(231, modelo303.devengado.cuota); // [03]
-        setCasilla(326, 0); // [07] 21% Base (Estructura 2026 usa otras posiciones)
-        setCasilla(348, 0); // [09] 21% Cuota
+        // IVA DEVENGADO - Desglosado por tipos
+        const porTipo = modelo303.devengado.por_tipo || {};
+        const al4  = porTipo.al_4  || { base: 0, cuota: 0 };
+        const al10 = porTipo.al_10 || { base: 0, cuota: 0 };
+        const al21 = porTipo.al_21 || { base: 0, cuota: 0 };
+
+        // Régimen general: casillas [01]-[09] (4%, 10%, 21%)
+        setCasilla(209, al4.base);   // [01] Base imponible 4%
+        setCasilla(226, 4);          // [02] Tipo %
+        setCasilla(231, al4.cuota);  // [03] Cuota 4%
+        setCasilla(248, al10.base);  // [04] Base imponible 10%
+        setCasilla(265, 10);         // [05] Tipo %
+        setCasilla(270, al10.cuota); // [06] Cuota 10%
+        setCasilla(287, al21.base);  // [07] Base imponible 21%
+        setCasilla(304, 21);         // [08] Tipo %
+        setCasilla(309, al21.cuota); // [09] Cuota 21%
+
         setCasilla(696, modelo303.devengado.cuota); // [27] Total cuota devengada
 
-        // IVA DEDUCIBLE
-        setCasilla(713, modelo303.deducible.base); // [28]
-        setCasilla(730, modelo303.deducible.cuota); // [29]
+        // IVA DEDUCIBLE - Desglosado por tipos
+        const porTipoDed = modelo303.deducible.por_tipo || {};
+        const ded4  = porTipoDed.al_4  || { base: 0, cuota: 0 };
+        const ded10 = porTipoDed.al_10 || { base: 0, cuota: 0 };
+        const ded21 = porTipoDed.al_21 || { base: 0, cuota: 0 };
+
+        setCasilla(713, ded4.base + ded10.base + ded21.base);   // [28] Base total op. interiores
+        setCasilla(730, ded4.cuota + ded10.cuota + ded21.cuota); // [29] Cuota total deducible
         setCasilla(1002, modelo303.deducible.cuota); // [45] Total a deducir
 
         setCasilla(1019, modelo303.resultado); // [46] Resultado régimen general
@@ -262,26 +279,146 @@ export const aeatService = {
     },
 
     /**
+     * Generar fichero BOE para Modelo 115 (Retenciones por arrendamientos)
+     */
+    generarBOE115(datos) {
+        const { year, trimestre, nif, nombre, modelo115 } = datos;
+        const u = BOE_UTILS;
+        const periodo = trimestre.padStart(2, '0');
+
+        // REGISTRO TIPO 1 (Cabecera)
+        let r1 = "<T";
+        r1 += "115";
+        r1 += "0";
+        r1 += year;
+        r1 += periodo;
+        r1 += "0000>";
+        r1 += "<AUX>";
+        r1 = r1.padEnd(322, ' ');
+        r1 += "</AUX>";
+        r1 = r1.padEnd(500, ' ');
+
+        // REGISTRO TIPO 2 (Liquidación)
+        let r2 = "<T";
+        r2 += "115";
+        r2 += "01";
+        r2 += "000>";
+        r2 += " ";    // Complementaria
+        r2 += "I";    // Tipo declaración
+        r2 += u.padText(nif, 9);
+        r2 += u.padText(nombre.split(' ')[0], 60);
+        r2 += u.padText(nombre.split(' ').slice(1).join(' '), 20);
+        r2 += year;
+        r2 += periodo;
+
+        let r2_liq = "".padEnd(600, ' ');
+        const setNum = (pos, valor, lon) => {
+            const formatted = u.padInt(valor, lon);
+            r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + lon - 1);
+        };
+        const setImporte = (pos, valor) => {
+            const formatted = u.padNumber(valor, 17);
+            r2_liq = r2_liq.substring(0, pos - 1) + formatted + r2_liq.substring(pos + 16);
+        };
+
+        // [01] Nº de perceptores (arrendadores)
+        setNum(109, modelo115.num_gastos, 8);
+        // [02] Base retenciones (total alquileres)
+        setImporte(117, modelo115.total_alquileres);
+        // [03] Retenciones e ingresos a cuenta
+        setImporte(134, modelo115.total_retenciones);
+        // [04] Resultado a ingresar
+        setImporte(151, modelo115.a_ingresar);
+
+        r2 += r2_liq.substring(108, 400);
+        r2 += "</T11501000>";
+
+        return r1 + "\n" + r2;
+    },
+
+    /**
+     * Generar fichero BOE para Modelo 349 (Operaciones intracomunitarias)
+     */
+    generarBOE349(datos) {
+        const { year, trimestre, nif, nombre, modelo349 } = datos;
+        const u = BOE_UTILS;
+        const periodo = trimestre.padStart(2, '0');
+
+        // REGISTRO TIPO 1 (Declarante)
+        let r1 = "1";                      // Pos 1: Tipo registro
+        r1 += "349";                       // Pos 2-4: Modelo
+        r1 += u.padText(year, 4);          // Pos 5-8: Ejercicio
+        r1 += u.padText(nif, 9);           // Pos 9-17: NIF declarante
+        r1 += u.padText(nombre, 40);       // Pos 18-57: Razón social
+        r1 += "T";                         // Pos 58: Soporte (T=telemático)
+        r1 += u.padText("", 9);            // Pos 59-67: Teléfono contacto
+        r1 += u.padText("", 40);           // Pos 68-107: Nombre contacto
+        r1 += "349" + year + periodo;      // Pos 108-116: Identificador
+        r1 += " ";                         // Pos 117: Complementaria
+        r1 += " ";                         // Pos 118: Sustitutiva
+        r1 += u.padInt(modelo349.operaciones.length, 9); // Pos 119-127: Nº operaciones
+        r1 += u.padNumber(modelo349.total_intracomunitario, 15); // Pos 128-142: Importe total
+        r1 += u.padInt(0, 9);              // Pos 143-151: Nº operadores rectificadas
+        r1 += u.padNumber(0, 15);          // Pos 152-166: Importe rectificaciones
+        r1 += periodo;                     // Pos 167-168: Período (trimestre)
+        r1 = r1.padEnd(500, ' ');
+
+        // REGISTROS TIPO 2 (Una línea por operador)
+        const lineas = [r1];
+        for (const op of (modelo349.operaciones || [])) {
+            let r2 = "2";                              // Pos 1: Tipo registro
+            r2 += "349";                               // Pos 2-4: Modelo
+            r2 += u.padText(year, 4);                  // Pos 5-8: Ejercicio
+            r2 += u.padText(nif, 9);                   // Pos 9-17: NIF declarante
+            r2 += u.padText(op.nif_cif || '', 17);     // Pos 18-34: NIF operador UE
+            r2 += u.padText(op.cliente || '', 40);     // Pos 35-74: Nombre operador
+            r2 += "E";                                 // Pos 75: Clave operación (E=Entregas)
+            r2 += u.padNumber(parseFloat(op.total), 13); // Pos 76-88: Base imponible
+            r2 = r2.padEnd(500, ' ');
+            lineas.push(r2);
+        }
+
+        return lineas.join("\n");
+    },
+
+    /**
      * Enviar presentación a la AEAT
-     * @param {string} empresaId 
-     * @param {string} contenidoBOE 
-     * @param {string} modelo '303', '130'
+     * URLs reales del servicio de presentación telemática AEAT
+     * Documentación: https://sede.agenciatributaria.gob.es/static_files/Sede/Tema/Presentacion_Declaraciones/
      */
     async presentarModelo(empresaId, contenidoBOE, modelo) {
-        // 1. Obtener certificado
         const cert = await this.getCertificado(empresaId);
 
-        // 2. Configuración de la petición HTTPS con certificado cliente
+        // URLs reales de presentación AEAT por modelo
+        // Preproducción (pruebas): www7.aeat.es
+        // Producción (real): www1.agenciatributaria.gob.es
+        const AEAT_PATHS = {
+            '303': '/wlpl/OVCT-CALC/ModificarDeclaracion?Ession_MOD=303&ESSION_AM=I',
+            '130': '/wlpl/OVCT-CALC/ModificarDeclaracion?Ession_MOD=130&ESSION_AM=I',
+            '111': '/wlpl/OVCT-CALC/ModificarDeclaracion?Ession_MOD=111&SESSION_AM=I',
+            '115': '/wlpl/OVCT-CALC/ModificarDeclaracion?Session_MOD=115&SESSION_AM=I',
+            '349': '/wlpl/INOI-PRES/PresentarDeclaracion?modelo=349',
+        };
+
+        const usarPreproduccion = process.env.AEAT_ENTORNO !== 'produccion';
+        const hostname = usarPreproduccion
+            ? 'www7.aeat.es'
+            : 'www1.agenciatributaria.gob.es';
+
+        const modeloPath = AEAT_PATHS[modelo];
+        if (!modeloPath) {
+            throw new Error(`Modelo ${modelo} no tiene URL de presentación configurada`);
+        }
+
         const options = {
-            hostname: 'www1.agenciatributaria.gob.es', // Entorno REAL (usar preproducción para pruebas)
-            // hostname: 'www7.aeat.es', // Entorno PRUEBAS (aprox)
+            hostname,
             port: 443,
-            path: `/wlpl/POI-CONTRO/ws/Presentacion${modelo}`, // URL ficticia, buscar la real en documentación AEAT
+            path: modeloPath,
             method: 'POST',
             pfx: cert.pfx,
             passphrase: cert.passphrase,
             headers: {
-                'Content-Type': 'text/plain',
+                'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': Buffer.byteLength(contenidoBOE)
             }
         };
@@ -289,28 +426,23 @@ export const aeatService = {
         return new Promise((resolve, reject) => {
             const req = https.request(options, (res) => {
                 let data = '';
-
-                res.on('data', (chunk) => {
-                    data += chunk;
-                });
-
+                res.on('data', (chunk) => { data += chunk; });
                 res.on('end', () => {
                     if (res.statusCode >= 200 && res.statusCode < 300) {
-                        try {
-                            // La AEAT suele devolver XML o HTML, hay que parsear
-                            // Aquí asumimos éxito para el esqueleto
-                            resolve({ success: true, raw_response: data });
-                        } catch (e) {
-                            reject(new Error("Error parseando respuesta AEAT"));
-                        }
+                        resolve({
+                            success: true,
+                            raw_response: data,
+                            entorno: usarPreproduccion ? 'preproduccion' : 'produccion',
+                            hostname
+                        });
                     } else {
-                        reject(new Error(`Error AEAT: ${res.statusCode} - ${data}`));
+                        reject(new Error(`Error AEAT (${hostname}): ${res.statusCode} - ${data}`));
                     }
                 });
             });
 
             req.on('error', (e) => {
-                reject(new Error(`Error de conexión AEAT: ${e.message}`));
+                reject(new Error(`Error de conexión con ${hostname}: ${e.message}`));
             });
 
             req.write(contenidoBOE);

@@ -29,29 +29,48 @@ function getTrimestreDates(year, quarter) {
 export async function calcularDatosModelos(empresaId, year, trimestre) {
     const { startDate, endDate } = getTrimestreDates(year, trimestre);
 
-    // 1. IVA DEVENGADO (VENTAS)
-    const [ventas] = await sql`
-        SELECT 
-            COALESCE(SUM(subtotal), 0) as base_imponible,
-            COALESCE(SUM(iva_total), 0) as iva_repercutido,
-            COUNT(*) as count
-        FROM factura_180
-        WHERE empresa_id = ${empresaId}
-        AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
-        AND fecha BETWEEN ${startDate} AND ${endDate}
+    // 1. IVA DEVENGADO (VENTAS) - Desglosado por tipo de IVA
+    const ventasPorTipo = await sql`
+        SELECT
+            COALESCE(lf.iva_percent, 21) as tipo_iva,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario), 0) as base_imponible,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario * lf.iva_percent / 100), 0) as cuota_iva
+        FROM factura_180 f
+        JOIN lineafactura_180 lf ON lf.factura_id = f.id
+        WHERE f.empresa_id = ${empresaId}
+        AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND f.fecha BETWEEN ${startDate} AND ${endDate}
+        GROUP BY COALESCE(lf.iva_percent, 21)
+        ORDER BY tipo_iva
     `;
 
-    // 2. IVA DEDUCIBLE (GASTOS)
-    const [compras] = await sql`
-        SELECT 
+    // Totales globales de ventas (compatibilidad)
+    const ventas = {
+        base_imponible: ventasPorTipo.reduce((s, r) => s + parseFloat(r.base_imponible), 0),
+        iva_repercutido: ventasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
+        count: ventasPorTipo.length
+    };
+
+    // 2. IVA DEDUCIBLE (GASTOS) - Desglosado por tipo de IVA
+    const comprasPorTipo = await sql`
+        SELECT
+            COALESCE(iva_porcentaje, 21) as tipo_iva,
             COALESCE(SUM(base_imponible), 0) as base_imponible,
-            COALESCE(SUM(cuota_iva), 0) as iva_soportado,
-            COUNT(*) as count
+            COALESCE(SUM(cuota_iva), 0) as cuota_iva
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
         AND activo = true
         AND fecha_compra BETWEEN ${startDate} AND ${endDate}
+        GROUP BY COALESCE(iva_porcentaje, 21)
+        ORDER BY tipo_iva
     `;
+
+    // Totales globales de compras (compatibilidad)
+    const compras = {
+        base_imponible: comprasPorTipo.reduce((s, r) => s + parseFloat(r.base_imponible), 0),
+        iva_soportado: comprasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
+        count: comprasPorTipo.length
+    };
 
     // 3. DATOS ACUMULADOS AÑO (Modelo 130)
     const startYear = `${year}-01-01`;
@@ -110,11 +129,18 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
         AND activo = true
-        AND LOWER(categoria) IN ('alquiler', 'arrendamiento', 'local', 'oficina')
+        AND (
+            LOWER(categoria) LIKE '%alquiler%'
+            OR LOWER(categoria) LIKE '%arrendamiento%'
+            OR LOWER(categoria) LIKE '%local%'
+            OR LOWER(categoria) LIKE '%oficina%'
+            OR LOWER(tipo_gasto) = 'alquiler'
+        )
         AND fecha_compra BETWEEN ${startDate} AND ${endDate}
     `;
 
-    // 6. DATOS MODELO 349 (Operaciones intracomunitarias)
+    // 6. DATOS MODELO 349 (Operaciones intracomunitarias - solo países UE)
+    const PAISES_UE = ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','SE'];
     const operaciones349 = await sql`
         SELECT c.nombre as cliente, c.nif_cif, COALESCE(SUM(f.total), 0)::numeric(12,2) as total
         FROM factura_180 f
@@ -123,8 +149,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         WHERE f.empresa_id = ${empresaId} AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
         AND f.fecha BETWEEN ${startDate} AND ${endDate}
         AND (
-            (cfd.pais IS NOT NULL AND cfd.pais != '' AND cfd.pais != 'ES')
-            OR (c.pais IS NOT NULL AND c.pais != '' AND c.pais != 'ES')
+            UPPER(COALESCE(cfd.pais, c.pais, '')) IN ${sql(PAISES_UE)}
         )
         GROUP BY c.id, c.nombre, c.nif_cif
     `;
@@ -132,16 +157,58 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
 
     const [emisor] = await sql`SELECT nif, nombre FROM emisor_180 WHERE empresa_id = ${empresaId}`;
 
+    // Helper para extraer base+cuota de un tipo de IVA concreto
+    const getDevengadoPorTipo = (tipo) => {
+        const row = ventasPorTipo.find(r => parseFloat(r.tipo_iva) === tipo);
+        return { base: row ? parseFloat(row.base_imponible) : 0, cuota: row ? parseFloat(row.cuota_iva) : 0 };
+    };
+    const getDeduciblePorTipo = (tipo) => {
+        const row = comprasPorTipo.find(r => parseFloat(r.tipo_iva) === tipo);
+        return { base: row ? parseFloat(row.base_imponible) : 0, cuota: row ? parseFloat(row.cuota_iva) : 0 };
+    };
+
     const modelo303 = {
-        devengado: { base: parseFloat(ventas.base_imponible), cuota: parseFloat(ventas.iva_repercutido) },
-        deducible: { base: parseFloat(compras.base_imponible), cuota: parseFloat(compras.iva_soportado) },
+        devengado: {
+            base: parseFloat(ventas.base_imponible),
+            cuota: parseFloat(ventas.iva_repercutido),
+            por_tipo: {
+                al_4:  getDevengadoPorTipo(4),
+                al_10: getDevengadoPorTipo(10),
+                al_21: getDevengadoPorTipo(21),
+            }
+        },
+        deducible: {
+            base: parseFloat(compras.base_imponible),
+            cuota: parseFloat(compras.iva_soportado),
+            por_tipo: {
+                al_4:  getDeduciblePorTipo(4),
+                al_10: getDeduciblePorTipo(10),
+                al_21: getDeduciblePorTipo(21),
+            }
+        },
         resultado: parseFloat(ventas.iva_repercutido) - parseFloat(compras.iva_soportado)
     };
 
     const totalGastos = parseFloat(acumuladoCompras.gastos) + parseFloat(acumuladoNominas.total_coste);
     const rendimientoNeto = parseFloat(acumuladoVentas.ingresos) - totalGastos;
     const pagoFraccionado = rendimientoNeto > 0 ? rendimientoNeto * 0.20 : 0;
-    const pagosAnteriores = 0; // TODO: Cargar de DB
+
+    // Cargar pagos fraccionados de trimestres anteriores del mismo año
+    let pagosAnteriores = 0;
+    const trimestreActual = parseInt(trimestre);
+    if (trimestreActual > 1) {
+        const previousQuarters = Array.from({ length: trimestreActual - 1 }, (_, i) => `${i + 1}T`);
+        const [prev] = await sql`
+            SELECT COALESCE(SUM(resultado_importe), 0) as total_pagado
+            FROM fiscal_models_180
+            WHERE empresa_id = ${empresaId}
+            AND modelo = '130'
+            AND ejercicio = ${parseInt(year)}
+            AND periodo IN ${sql(previousQuarters)}
+            AND estado IN ('GENERADO', 'PRESENTADO')
+        `;
+        pagosAnteriores = parseFloat(prev.total_pagado);
+    }
 
     const modelo130 = {
         ingresos: parseFloat(acumuladoVentas.ingresos),
@@ -218,21 +285,27 @@ export async function getLibroVentas(req, res) {
         const empresaId = req.user.empresa_id;
 
         const facturas = await sql`
-            SELECT 
-                fecha, numero, cliente_id, total, subtotal as base, iva_total as cuota, 
-                retencion_importe as retencion, 
-                '21' as tipo
-            FROM factura_180
-            WHERE empresa_id = ${empresaId}
-            AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
-            AND EXTRACT(YEAR FROM fecha) = ${year}
-            ORDER BY fecha ASC, numero ASC
+            SELECT
+                f.fecha, f.numero, f.cliente_id, f.total, f.subtotal as base, f.iva_total as cuota,
+                f.retencion_importe as retencion,
+                COALESCE(
+                    (SELECT ROUND(AVG(lf.iva_percent), 0)
+                     FROM lineafactura_180 lf
+                     WHERE lf.factura_id = f.id AND lf.iva_percent > 0),
+                    CASE WHEN f.subtotal > 0
+                         THEN ROUND((f.iva_total / f.subtotal) * 100, 0)
+                         ELSE 21 END
+                )::integer as tipo,
+                c.nombre as cliente_nombre
+            FROM factura_180 f
+            LEFT JOIN clients_180 c ON c.id = f.cliente_id
+            WHERE f.empresa_id = ${empresaId}
+            AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+            AND EXTRACT(YEAR FROM f.fecha) = ${year}
+            ORDER BY f.fecha ASC, f.numero ASC
         `;
 
-        const facturasWithClientName = await Promise.all(facturas.map(async f => {
-            const [client] = await sql`SELECT nombre FROM clients_180 WHERE id = ${f.cliente_id}`;
-            return { ...f, cliente_nombre: client?.nombre || 'Desconocido' };
-        }));
+        const facturasWithClientName = facturas;
 
         res.json({ success: true, data: facturasWithClientName });
     } catch (error) {
@@ -278,30 +351,18 @@ export async function getLibroNominas(req, res) {
 
         if (!year) return res.status(400).json({ error: "Año requerido" });
 
-        const nominas = await sql`
-            SELECT *
-            FROM nominas_180
-            WHERE empresa_id = ${empresaId}
-            AND anio = ${parseInt(year)}
-            ORDER BY mes ASC
+        const nominasConNombres = await sql`
+            SELECT
+                n.*,
+                COALESCE(u.nombre, 'Sin asignar') as nombre,
+                COALESCE(u.apellidos, '') as apellidos
+            FROM nominas_180 n
+            LEFT JOIN employees_180 e ON e.id = n.empleado_id
+            LEFT JOIN users_180 u ON u.id = e.user_id
+            WHERE n.empresa_id = ${empresaId}
+            AND n.anio = ${parseInt(year)}
+            ORDER BY n.mes ASC
         `;
-
-        const nominasConNombres = await Promise.all(nominas.map(async n => {
-            if (!n.empleado_id) return { ...n, nombre: 'Sin asignar', apellidos: '' };
-
-            const [emp] = await sql`
-                SELECT u.nombre, u.apellidos 
-                FROM users_180 u
-                JOIN employees_180 e ON e.user_id = u.id
-                WHERE e.id = ${n.empleado_id}
-            `;
-
-            return {
-                ...n,
-                nombre: emp?.nombre || 'Desconocido',
-                apellidos: emp?.apellidos || ''
-            };
-        }));
 
         res.json({ success: true, data: nominasConNombres });
     } catch (error) {

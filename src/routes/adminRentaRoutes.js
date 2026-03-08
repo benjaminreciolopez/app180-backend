@@ -11,6 +11,7 @@ import {
     getRentaDetalle,
     updateRenta,
     deleteRenta,
+    simularIRPF,
     generarDossier
 } from "../controllers/adminRentaController.js";
 
@@ -61,6 +62,12 @@ router.put("/historial/:ejercicio", updateRenta);
  * @desc Eliminar renta de un ejercicio
  */
 router.delete("/historial/:ejercicio", deleteRenta);
+
+/**
+ * @route GET /admin/fiscal/renta/simular/:ejercicio
+ * @desc Simular declaración de la renta con tramos IRPF reales
+ */
+router.get("/simular/:ejercicio", simularIRPF);
 
 /**
  * @route GET /admin/fiscal/renta/dossier/:ejercicio
