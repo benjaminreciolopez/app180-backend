@@ -400,7 +400,8 @@ export function calcularDeduccionesAutonomicas(datosPersonales, rules, ccaa, bas
     const esFamiliaNumerosa = numHijosConDerecho >= 3;
     const esFamiliaNumerosaEspecial = numHijosConDerecho >= 5;
 
-    // Deducción familia numerosa autonómica
+    // Deducción familia numerosa autonómica (por título, NO se prorratea entre progenitores)
+    // Se asigna íntegramente al declarante que la solicita
     if (esFamiliaNumerosa) {
         const limiteRenta = tipoDeclaracion === 'individual'
             ? rules.getNum('deducciones_autonomicas', 'familia_numerosa_limite_ind', 25000)
@@ -410,9 +411,8 @@ export function calcularDeduccionesAutonomicas(datosPersonales, rules, ccaa, bas
             const importe = esFamiliaNumerosaEspecial
                 ? rules.getNum('deducciones_autonomicas', 'familia_numerosa_especial', 400)
                 : rules.getNum('deducciones_autonomicas', 'familia_numerosa_general', 200);
-            const deduccion = importe * prorrateo;
-            desglose.familia_numerosa = deduccion;
-            total += deduccion;
+            desglose.familia_numerosa = importe;
+            total += importe;
         }
     }
 

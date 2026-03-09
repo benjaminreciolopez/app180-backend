@@ -579,7 +579,8 @@ export async function saveDatosPersonales(req, res) {
             donaciones_ong, donaciones_otras,
             deducciones_autonomicas,
             tipo_declaracion_preferida,
-            comunidad_autonoma
+            comunidad_autonoma,
+            anticipo_familia_numerosa
         } = req.body;
 
         const [existing] = await sql`
@@ -611,6 +612,7 @@ export async function saveDatosPersonales(req, res) {
                     deducciones_autonomicas = ${sql.json(deducciones_autonomicas || {})},
                     tipo_declaracion_preferida = ${tipo_declaracion_preferida || 'individual'},
                     comunidad_autonoma = ${comunidad_autonoma || 'andalucia'},
+                    anticipo_familia_numerosa = ${anticipo_familia_numerosa !== undefined ? anticipo_familia_numerosa : true},
                     updated_at = NOW()
                 WHERE id = ${existing.id}
                 RETURNING *
@@ -625,7 +627,8 @@ export async function saveDatosPersonales(req, res) {
                     vivienda_tipo, vivienda_referencia_catastral,
                     alquiler_anual, hipoteca_anual, hipoteca_fecha_compra,
                     aportacion_plan_pensiones, donaciones_ong, donaciones_otras,
-                    deducciones_autonomicas, tipo_declaracion_preferida, comunidad_autonoma
+                    deducciones_autonomicas, tipo_declaracion_preferida, comunidad_autonoma,
+                    anticipo_familia_numerosa
                 ) VALUES (
                     ${empresaId}, ${estado_civil || 'soltero'}, ${fecha_nacimiento || null},
                     ${discapacidad_porcentaje || 0},
@@ -638,7 +641,8 @@ export async function saveDatosPersonales(req, res) {
                     ${aportacion_plan_pensiones || 0}, ${donaciones_ong || 0}, ${donaciones_otras || 0},
                     ${sql.json(deducciones_autonomicas || {})},
                     ${tipo_declaracion_preferida || 'individual'},
-                    ${comunidad_autonoma || 'andalucia'}
+                    ${comunidad_autonoma || 'andalucia'},
+                    ${anticipo_familia_numerosa !== undefined ? anticipo_familia_numerosa : true}
                 )
                 RETURNING *
             `;
@@ -934,10 +938,14 @@ export async function simularIRPF(req, res) {
             + totalPagos130;
 
         // 8b. Deducción familia numerosa estatal (Art. 81 bis) - cuota diferencial
+        // Si cobra anticipos mensuales (Modelo 143), efecto neto = 0
+        // Si NO cobra anticipos, se aplica íntegra en la declaración
+        const cobraAnticipos = datosPersonales?.anticipo_familia_numerosa !== false; // default true
         const familiaNumerosa = calcularDeduccionFamiliaNumerosa(datosPersonales, rules, 0);
+        const famNumAnticipado = cobraAnticipos ? familiaNumerosa.deduccion_bruta : 0;
 
-        // 9. Resultado (cuota líquida - anticipos - familia numerosa neta)
-        const resultadoDeclaracion = Math.round((cuotaLiquida - totalAnticipado - familiaNumerosa.deduccion_neta) * 100) / 100;
+        // 9. Resultado
+        const resultadoDeclaracion = Math.round((cuotaLiquida - totalAnticipado - (familiaNumerosa.deduccion_bruta - famNumAnticipado)) * 100) / 100;
 
         // 10. Tipo efectivo
         const tipoEfectivo = baseLiquidable > 0
@@ -1329,8 +1337,10 @@ export async function generarDossier(req, res) {
                     }
 
                     // Familia numerosa estatal (Art. 81 bis)
+                    const cobraAnticiposFN = datosPersonales?.anticipo_familia_numerosa !== false;
                     const famNum = calcularDeduccionFamiliaNumerosa(datosPersonales, rules, 0);
-                    const resultado = Math.round((cuotaLiquida - totalAnt - famNum.deduccion_neta) * 100) / 100;
+                    const famNumNeta = cobraAnticiposFN ? 0 : famNum.deduccion_bruta;
+                    const resultado = Math.round((cuotaLiquida - totalAnt - famNumNeta) * 100) / 100;
 
                     console.log(`📊 Simulación IRPF dossier [${ccaa}]: RendNeto=${rendimientoNeto.toFixed(2)}, BL=${baseLiquidable.toFixed(2)}, MPF_est=${minimoEstatalVal.toFixed(2)}, MPF_aut=${minimoAutonomicoVal.toFixed(2)}, CI=${cuotaIntegra.toFixed(2)}, Ded_aut=${deduccionesAut.total}, FamNum=${famNum.deduccion_neta}, CL=${cuotaLiquida.toFixed(2)}, Ant=${totalAnt.toFixed(2)}, Resultado=${resultado.toFixed(2)}`);
 
