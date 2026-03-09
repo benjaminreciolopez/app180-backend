@@ -1199,32 +1199,112 @@ export async function generarDossier(req, res) {
                 ss_empresa: parseFloat(nominas.ss_empresa),
                 irpf_retenido_nominas: parseFloat(nominas.irpf_total)
             },
-            resultado_estimado: (() => {
-                // Calcular resultado estimado según fuente de datos
-                if (fuenteDatos === 'contendo') {
-                    // Con datos reales: rendimiento - anticipado (simplificado)
-                    const totalAnt = parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados;
+            resultado_estimado: await (async () => {
+                // Calcular resultado estimado con simulación IRPF real
+                try {
+                    if (fuenteDatos === 'sin_datos' && !rentaAnterior) {
+                        return { valor: 0, fuente: 'sin_datos', descripcion: 'Sin datos para estimar' };
+                    }
+
+                    // Si solo tenemos renta anterior (sin datos propios del año), usar su resultado directamente
+                    if (fuenteDatos === 'renta_importada') {
+                        return {
+                            valor: parseFloat(rentaAnterior.resultado_declaracion || 0),
+                            fuente: 'renta_anterior',
+                            ejercicio_referencia: rentaAnterior.ejercicio,
+                            descripcion: `Resultado de la declaración ${rentaAnterior.ejercicio} como referencia`
+                        };
+                    }
+
+                    // Para 'contendo' o 'manual': simular IRPF completo con tramos reales
+                    const rules = await FiscalRules.forYear(year);
+
+                    // Reducciones
+                    const planPensiones = datosPersonales?.aportacion_plan_pensiones || 0;
+                    const limitePensiones = rules.getNum('deducciones', 'pension_limite', 1500);
+                    const reduccionPensiones = Math.min(planPensiones, limitePensiones);
+                    const baseImponibleGeneral = Math.max(0, rendimientoNeto - reduccionPensiones);
+
+                    // Mínimo personal y familiar (hijos, discapacidad, familia numerosa, etc.)
+                    const minimoPersonalFamiliar = calcularMinimosPersonales(datosPersonales, rules);
+                    const baseLiquidable = Math.max(0, baseImponibleGeneral);
+
+                    // Tramos IRPF
+                    const tramosEstatal = rules.getTramos('estatal');
+                    const tramosAutonomico = rules.getTramos('autonomico_general');
+
+                    const estatalCuota = calcularCuotaTramos(baseLiquidable, tramosEstatal);
+                    const autonomicoCuota = calcularCuotaTramos(baseLiquidable, tramosAutonomico);
+                    const minimoEstatal = calcularCuotaTramos(minimoPersonalFamiliar, tramosEstatal);
+                    const minimoAutonomico = calcularCuotaTramos(minimoPersonalFamiliar, tramosAutonomico);
+
+                    const cuotaIntegra = Math.max(0,
+                        (estatalCuota.cuota - minimoEstatal.cuota) + (autonomicoCuota.cuota - minimoAutonomico.cuota)
+                    );
+
+                    // Deducciones
+                    let deduccionesTotal = 0;
+                    if (datosPersonales?.vivienda_tipo === 'propiedad' && datosPersonales?.hipoteca_anual > 0) {
+                        const viviendaLimite = rules.getNum('deducciones', 'vivienda_limite', 9040);
+                        const viviendaPct = rules.getNum('deducciones', 'vivienda_porcentaje', 15) / 100;
+                        const viviendaFechaLimite = rules.getString('deducciones', 'vivienda_fecha_limite', '2013-01-01');
+                        const fechaCompra = datosPersonales.hipoteca_fecha_compra ? new Date(datosPersonales.hipoteca_fecha_compra) : null;
+                        if (fechaCompra && fechaCompra < new Date(viviendaFechaLimite)) {
+                            deduccionesTotal += Math.min(datosPersonales.hipoteca_anual, viviendaLimite) * viviendaPct;
+                        }
+                    }
+                    const donacionesONG = datosPersonales?.donaciones_ong || 0;
+                    if (donacionesONG > 0) {
+                        const umbral = rules.getNum('deducciones', 'donacion_ong_umbral', 250);
+                        const tipoBajo = rules.getNum('deducciones', 'donacion_ong_tipo_bajo', 80) / 100;
+                        const tipoAlto = rules.getNum('deducciones', 'donacion_ong_tipo_alto', 40) / 100;
+                        deduccionesTotal += Math.min(donacionesONG, umbral) * tipoBajo;
+                        if (donacionesONG > umbral) deduccionesTotal += (donacionesONG - umbral) * tipoAlto;
+                    }
+
+                    const cuotaLiquida = Math.max(0, cuotaIntegra - deduccionesTotal);
+
+                    // Total anticipado
+                    let totalAnt;
+                    if (fuenteDatos === 'manual') {
+                        totalAnt = retencionesClientesManual + parseFloat(datosManual?.retenciones_actividades || 0) + parseFloat(datosManual?.pagos_fraccionados || 0);
+                    } else {
+                        totalAnt = parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados;
+                    }
+
+                    const resultado = Math.round((cuotaLiquida - totalAnt) * 100) / 100;
+
+                    console.log(`📊 Simulación IRPF dossier: RendNeto=${rendimientoNeto.toFixed(2)}, BL=${baseLiquidable.toFixed(2)}, MPF=${minimoPersonalFamiliar.toFixed(2)}, CI=${cuotaIntegra.toFixed(2)}, CL=${cuotaLiquida.toFixed(2)}, Ant=${totalAnt.toFixed(2)}, Resultado=${resultado.toFixed(2)}`);
+
                     return {
-                        valor: Math.round((rendimientoNeto - totalAnt) * 100) / 100,
-                        fuente: 'contendo',
-                        descripcion: 'Estimación basada en facturas y gastos de CONTENDO'
+                        valor: resultado,
+                        fuente: fuenteDatos,
+                        descripcion: fuenteDatos === 'manual'
+                            ? 'Simulación IRPF con datos manuales y tramos reales'
+                            : 'Simulación IRPF con datos de CONTENDO y tramos reales',
+                        desglose: {
+                            rendimiento_neto: Math.round(rendimientoNeto * 100) / 100,
+                            base_liquidable: Math.round(baseLiquidable * 100) / 100,
+                            minimo_personal_familiar: Math.round(minimoPersonalFamiliar * 100) / 100,
+                            cuota_integra: Math.round(cuotaIntegra * 100) / 100,
+                            deducciones: Math.round(deduccionesTotal * 100) / 100,
+                            cuota_liquida: Math.round(cuotaLiquida * 100) / 100,
+                            total_anticipado: Math.round(totalAnt * 100) / 100,
+                        }
                     };
-                } else if (fuenteDatos === 'manual') {
-                    const totalAnt = retencionesClientesManual + parseFloat(datosManual?.retenciones_actividades || 0) + parseFloat(datosManual?.pagos_fraccionados || 0);
-                    return {
-                        valor: Math.round((rendimientoNeto - totalAnt) * 100) / 100,
-                        fuente: 'manual',
-                        descripcion: 'Estimación basada en datos introducidos manualmente'
-                    };
-                } else if (rentaAnterior) {
-                    return {
-                        valor: parseFloat(rentaAnterior.resultado_declaracion || 0),
-                        fuente: 'renta_anterior',
-                        ejercicio_referencia: rentaAnterior.ejercicio,
-                        descripcion: `Resultado de la declaración ${rentaAnterior.ejercicio} como referencia`
-                    };
+                } catch (simErr) {
+                    console.error("Error simulando IRPF en dossier:", simErr.message);
+                    // Fallback: usar renta anterior si existe
+                    if (rentaAnterior) {
+                        return {
+                            valor: parseFloat(rentaAnterior.resultado_declaracion || 0),
+                            fuente: 'renta_anterior',
+                            ejercicio_referencia: rentaAnterior.ejercicio,
+                            descripcion: `Resultado de la declaración ${rentaAnterior.ejercicio} (simulación no disponible)`
+                        };
+                    }
+                    return { valor: 0, fuente: 'error', descripcion: 'Error en la simulación IRPF' };
                 }
-                return { valor: 0, fuente: 'sin_datos', descripcion: 'Sin datos para estimar' };
             })(),
             resumen: {
                 rendimiento_neto_estimado: rendimientoNeto,
