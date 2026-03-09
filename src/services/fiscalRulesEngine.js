@@ -290,28 +290,45 @@ export function calcularCuotaTramos(baseImponible, tramos) {
  * Calcula mínimos personales y familiares usando reglas dinámicas
  * @param {Object} datosPersonales
  * @param {FiscalRulesYear} rules
+ * @param {Object} options
+ * @param {string} options.tipo - 'estatal' | 'autonomico' (para usar mínimos autonómicos si existen)
+ * @param {string} options.ccaa - código CCAA (ej: 'andalucia') para mínimos autonómicos
  */
-export function calcularMinimosPersonales(datosPersonales, rules) {
-    let minimo = rules.getNum('minimos_personales', 'general', 5550);
+export function calcularMinimosPersonales(datosPersonales, rules, options = {}) {
+    const { tipo = 'estatal', ccaa = null } = options;
+
+    // Para autonómico, usar mínimos específicos de CCAA si existen, sino los estatales
+    const catMinimos = (tipo === 'autonomico' && ccaa && rules.has(`minimos_autonomicos_${ccaa}`, 'general'))
+        ? `minimos_autonomicos_${ccaa}`
+        : (tipo === 'autonomico' && rules.has('minimos_autonomicos', 'general'))
+            ? 'minimos_autonomicos'
+            : 'minimos_personales';
+
+    let minimo = rules.getNum(catMinimos, 'general', 5550);
 
     if (!datosPersonales) return minimo;
+
+    // Declaración individual con cónyuge → descendientes al 50%
+    const tipoDeclaracion = datosPersonales.tipo_declaracion_preferida || 'individual';
+    const tieneConyuge = datosPersonales.estado_civil === 'casado' || datosPersonales.estado_civil === 'pareja_hecho';
+    const prorrateoDesc = (tipoDeclaracion === 'individual' && tieneConyuge) ? 0.5 : 1;
 
     // Edad declarante
     if (datosPersonales.fecha_nacimiento) {
         const nacimiento = new Date(datosPersonales.fecha_nacimiento);
         const edad = Math.floor((Date.now() - nacimiento.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-        if (edad >= 75) minimo += rules.getNum('minimos_personales', 'edad_75', 1400);
-        else if (edad >= 65) minimo += rules.getNum('minimos_personales', 'edad_65', 1150);
+        if (edad >= 75) minimo += rules.getNum(catMinimos, 'edad_75', 1400);
+        else if (edad >= 65) minimo += rules.getNum(catMinimos, 'edad_65', 1150);
     }
 
     // Discapacidad declarante
     const disc = datosPersonales.discapacidad_porcentaje || 0;
-    if (disc >= 65) minimo += rules.getNum('minimos_personales', 'discapacidad_65', 12000);
-    else if (disc >= 33) minimo += rules.getNum('minimos_personales', 'discapacidad_33', 3000);
+    if (disc >= 65) minimo += rules.getNum(catMinimos, 'discapacidad_65', 12000);
+    else if (disc >= 33) minimo += rules.getNum(catMinimos, 'discapacidad_33', 3000);
 
     // Descendientes
-    const minimosDesc = rules.getArray('minimos_personales', 'descendientes', [2400, 2700, 4000, 4500]);
-    const menorDe3 = rules.getNum('minimos_personales', 'descendiente_menor_3', 2800);
+    const minimosDesc = rules.getArray(catMinimos, 'descendientes', [2400, 2700, 4000, 4500]);
+    const menorDe3 = rules.getNum(catMinimos, 'descendiente_menor_3', 2800);
     const descendientes = datosPersonales.descendientes || [];
 
     descendientes.forEach((d, i) => {
@@ -321,13 +338,14 @@ export function calcularMinimosPersonales(datosPersonales, rules) {
             : 99;
 
         if (edadDesc < 25 || (d.discapacidad_porcentaje && d.discapacidad_porcentaje >= 33)) {
-            minimo += minimosDesc[Math.min(i, minimosDesc.length - 1)] || minimosDesc[minimosDesc.length - 1];
+            const minimoBase = minimosDesc[Math.min(i, minimosDesc.length - 1)] || minimosDesc[minimosDesc.length - 1];
+            minimo += minimoBase * prorrateoDesc;
 
-            if (edadDesc < 3) minimo += menorDe3;
+            if (edadDesc < 3) minimo += menorDe3 * prorrateoDesc;
 
             const discDesc = d.discapacidad_porcentaje || 0;
-            if (discDesc >= 65) minimo += rules.getNum('minimos_personales', 'discapacidad_65', 12000);
-            else if (discDesc >= 33) minimo += rules.getNum('minimos_personales', 'discapacidad_33', 3000);
+            if (discDesc >= 65) minimo += rules.getNum(catMinimos, 'discapacidad_65', 12000) * prorrateoDesc;
+            else if (discDesc >= 33) minimo += rules.getNum(catMinimos, 'discapacidad_33', 3000) * prorrateoDesc;
         }
     });
 
@@ -340,17 +358,155 @@ export function calcularMinimosPersonales(datosPersonales, rules) {
             : 0;
 
         if (edadAsc >= 65 && a.convivencia) {
-            minimo += rules.getNum('minimos_personales', 'ascendiente_65', 1150);
-            if (edadAsc >= 75) minimo += rules.getNum('minimos_personales', 'ascendiente_75', 1400);
+            minimo += rules.getNum(catMinimos, 'ascendiente_65', 1150);
+            if (edadAsc >= 75) minimo += rules.getNum(catMinimos, 'ascendiente_75', 1400);
 
             const discAsc = a.discapacidad_porcentaje || 0;
-            if (discAsc >= 65) minimo += rules.getNum('minimos_personales', 'discapacidad_65', 12000);
-            else if (discAsc >= 33) minimo += rules.getNum('minimos_personales', 'discapacidad_33', 3000);
+            if (discAsc >= 65) minimo += rules.getNum(catMinimos, 'discapacidad_65', 12000);
+            else if (discAsc >= 33) minimo += rules.getNum(catMinimos, 'discapacidad_33', 3000);
         }
     });
 
     return minimo;
 }
+
+/**
+ * Calcula deducciones autonómicas según CCAA
+ * @param {Object} datosPersonales
+ * @param {FiscalRulesYear} rules
+ * @param {string} ccaa - código CCAA
+ * @param {number} baseImponibleGeneral - para comprobar límites de renta
+ * @returns {Object} { total, desglose: { familia_numerosa, discapacidad_desc, ... } }
+ */
+export function calcularDeduccionesAutonomicas(datosPersonales, rules, ccaa, baseImponibleGeneral = 0) {
+    const desglose = {};
+    let total = 0;
+
+    if (!datosPersonales || !ccaa) return { total: 0, desglose };
+
+    const tipoDeclaracion = datosPersonales.tipo_declaracion_preferida || 'individual';
+    const tieneConyuge = datosPersonales.estado_civil === 'casado' || datosPersonales.estado_civil === 'pareja_hecho';
+    const prorrateo = (tipoDeclaracion === 'individual' && tieneConyuge) ? 0.5 : 1;
+
+    // Descendientes con derecho a mínimo
+    const descendientes = datosPersonales.descendientes || [];
+    const numHijosConDerecho = descendientes.filter(d => {
+        const nac = d.fecha_nacimiento ? new Date(d.fecha_nacimiento) : null;
+        const edad = nac ? Math.floor((Date.now() - nac.getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 99;
+        return edad < 25 || (d.discapacidad_porcentaje && d.discapacidad_porcentaje >= 33);
+    }).length;
+
+    // Familia numerosa: 3+ hijos con derecho
+    const esFamiliaNumerosa = numHijosConDerecho >= 3;
+    const esFamiliaNumerosaEspecial = numHijosConDerecho >= 5;
+
+    // Deducción familia numerosa autonómica
+    if (esFamiliaNumerosa) {
+        const limiteRenta = tipoDeclaracion === 'individual'
+            ? rules.getNum('deducciones_autonomicas', 'familia_numerosa_limite_ind', 25000)
+            : rules.getNum('deducciones_autonomicas', 'familia_numerosa_limite_conj', 30000);
+
+        if (baseImponibleGeneral <= limiteRenta) {
+            const importe = esFamiliaNumerosaEspecial
+                ? rules.getNum('deducciones_autonomicas', 'familia_numerosa_especial', 400)
+                : rules.getNum('deducciones_autonomicas', 'familia_numerosa_general', 200);
+            const deduccion = importe * prorrateo;
+            desglose.familia_numerosa = deduccion;
+            total += deduccion;
+        }
+    }
+
+    // Deducción por discapacidad de descendientes (≥33%)
+    const descConDiscapacidad = descendientes.filter(d => {
+        const nac = d.fecha_nacimiento ? new Date(d.fecha_nacimiento) : null;
+        const edad = nac ? Math.floor((Date.now() - nac.getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 99;
+        return (edad < 25 || (d.discapacidad_porcentaje >= 33)) && d.discapacidad_porcentaje >= 33;
+    });
+
+    if (descConDiscapacidad.length > 0) {
+        const limitDiscInd = rules.getNum('deducciones_autonomicas', 'discapacidad_desc_limite_ind', 80000);
+        if (baseImponibleGeneral <= limitDiscInd) {
+            const importePorHijo = rules.getNum('deducciones_autonomicas', 'discapacidad_descendiente', 100);
+            const deduccion = importePorHijo * descConDiscapacidad.length * prorrateo;
+            desglose.discapacidad_descendientes = deduccion;
+            total += deduccion;
+        }
+    }
+
+    // Deducción por discapacidad del contribuyente (≥33%)
+    const discContrib = datosPersonales.discapacidad_porcentaje || 0;
+    if (discContrib >= 33) {
+        const importeDiscContrib = rules.getNum('deducciones_autonomicas', 'discapacidad_contribuyente', 150);
+        desglose.discapacidad_contribuyente = importeDiscContrib;
+        total += importeDiscContrib;
+    }
+
+    return { total: Math.round(total * 100) / 100, desglose };
+}
+
+/**
+ * Calcula deducción estatal por familia numerosa (Art. 81 bis LIRPF)
+ * Se aplica sobre la cuota diferencial (puede generar devolución)
+ * @param {Object} datosPersonales
+ * @param {FiscalRulesYear} rules
+ * @param {number} anticipoFamiliaNumerosa - pagos anticipados recibidos (Modelo 143)
+ * @returns {Object} { deduccion_bruta, anticipos, deduccion_neta }
+ */
+export function calcularDeduccionFamiliaNumerosa(datosPersonales, rules, anticipoFamiliaNumerosa = 0) {
+    if (!datosPersonales) return { deduccion_bruta: 0, anticipos: 0, deduccion_neta: 0 };
+
+    const descendientes = datosPersonales.descendientes || [];
+    const numHijosConDerecho = descendientes.filter(d => {
+        const nac = d.fecha_nacimiento ? new Date(d.fecha_nacimiento) : null;
+        const edad = nac ? Math.floor((Date.now() - nac.getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 99;
+        return edad < 25 || (d.discapacidad_porcentaje && d.discapacidad_porcentaje >= 33);
+    }).length;
+
+    if (numHijosConDerecho < 3) return { deduccion_bruta: 0, anticipos: 0, deduccion_neta: 0 };
+
+    const esEspecial = numHijosConDerecho >= 5;
+    const baseDeduccion = esEspecial
+        ? rules.getNum('deducciones_estatales', 'familia_numerosa_especial', 2400)
+        : rules.getNum('deducciones_estatales', 'familia_numerosa_general', 1200);
+
+    // Hijos adicionales sobre el mínimo de la categoría
+    const minimoCategoria = esEspecial ? 5 : 3;
+    const hijosExtra = Math.max(0, numHijosConDerecho - minimoCategoria);
+    const importeExtra = hijosExtra * rules.getNum('deducciones_estatales', 'familia_numerosa_hijo_extra', 600);
+
+    const deduccionBruta = baseDeduccion + importeExtra;
+    const deduccionNeta = deduccionBruta - anticipoFamiliaNumerosa;
+
+    return {
+        deduccion_bruta: deduccionBruta,
+        anticipos: anticipoFamiliaNumerosa,
+        deduccion_neta: deduccionNeta,
+        tipo: esEspecial ? 'especial' : 'general',
+        num_hijos: numHijosConDerecho
+    };
+}
+
+// Lista de CCAA disponibles para selector
+export const COMUNIDADES_AUTONOMAS = [
+    { codigo: 'andalucia', nombre: 'Andalucía', regimen: 'comun' },
+    { codigo: 'aragon', nombre: 'Aragón', regimen: 'comun' },
+    { codigo: 'asturias', nombre: 'Asturias', regimen: 'comun' },
+    { codigo: 'baleares', nombre: 'Islas Baleares', regimen: 'comun' },
+    { codigo: 'canarias', nombre: 'Canarias', regimen: 'comun' },
+    { codigo: 'cantabria', nombre: 'Cantabria', regimen: 'comun' },
+    { codigo: 'castilla_la_mancha', nombre: 'Castilla-La Mancha', regimen: 'comun' },
+    { codigo: 'castilla_y_leon', nombre: 'Castilla y León', regimen: 'comun' },
+    { codigo: 'cataluna', nombre: 'Cataluña', regimen: 'comun' },
+    { codigo: 'ceuta_melilla', nombre: 'Ceuta y Melilla', regimen: 'comun' },
+    { codigo: 'extremadura', nombre: 'Extremadura', regimen: 'comun' },
+    { codigo: 'galicia', nombre: 'Galicia', regimen: 'comun' },
+    { codigo: 'madrid', nombre: 'Madrid', regimen: 'comun' },
+    { codigo: 'murcia', nombre: 'Murcia', regimen: 'comun' },
+    { codigo: 'la_rioja', nombre: 'La Rioja', regimen: 'comun' },
+    { codigo: 'valencia', nombre: 'Comunitat Valenciana', regimen: 'comun' },
+    { codigo: 'pais_vasco', nombre: 'País Vasco', regimen: 'foral' },
+    { codigo: 'navarra', nombre: 'Navarra', regimen: 'foral' },
+];
 
 /**
  * Convierte importe español "25.432,18" a número 25432.18

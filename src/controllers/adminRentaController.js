@@ -7,6 +7,9 @@ import {
     FiscalRules,
     calcularCuotaTramos,
     calcularMinimosPersonales,
+    calcularDeduccionesAutonomicas,
+    calcularDeduccionFamiliaNumerosa,
+    COMUNIDADES_AUTONOMAS,
     extractCasillasConRegex,
     parseImporteEspanol
 } from "../services/fiscalRulesEngine.js";
@@ -539,6 +542,10 @@ export async function saveDatosEjercicio(req, res) {
 /**
  * GET /admin/fiscal/renta/datos-personales
  */
+export function getComunidadesAutonomas(req, res) {
+    res.json({ success: true, data: COMUNIDADES_AUTONOMAS });
+}
+
 export async function getDatosPersonales(req, res) {
     try {
         const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
@@ -571,7 +578,8 @@ export async function saveDatosPersonales(req, res) {
             aportacion_plan_pensiones,
             donaciones_ong, donaciones_otras,
             deducciones_autonomicas,
-            tipo_declaracion_preferida
+            tipo_declaracion_preferida,
+            comunidad_autonoma
         } = req.body;
 
         const [existing] = await sql`
@@ -602,6 +610,7 @@ export async function saveDatosPersonales(req, res) {
                     donaciones_otras = ${donaciones_otras || 0},
                     deducciones_autonomicas = ${sql.json(deducciones_autonomicas || {})},
                     tipo_declaracion_preferida = ${tipo_declaracion_preferida || 'individual'},
+                    comunidad_autonoma = ${comunidad_autonoma || 'andalucia'},
                     updated_at = NOW()
                 WHERE id = ${existing.id}
                 RETURNING *
@@ -616,7 +625,7 @@ export async function saveDatosPersonales(req, res) {
                     vivienda_tipo, vivienda_referencia_catastral,
                     alquiler_anual, hipoteca_anual, hipoteca_fecha_compra,
                     aportacion_plan_pensiones, donaciones_ong, donaciones_otras,
-                    deducciones_autonomicas, tipo_declaracion_preferida
+                    deducciones_autonomicas, tipo_declaracion_preferida, comunidad_autonoma
                 ) VALUES (
                     ${empresaId}, ${estado_civil || 'soltero'}, ${fecha_nacimiento || null},
                     ${discapacidad_porcentaje || 0},
@@ -628,7 +637,8 @@ export async function saveDatosPersonales(req, res) {
                     ${alquiler_anual || 0}, ${hipoteca_anual || 0}, ${hipoteca_fecha_compra || null},
                     ${aportacion_plan_pensiones || 0}, ${donaciones_ong || 0}, ${donaciones_otras || 0},
                     ${sql.json(deducciones_autonomicas || {})},
-                    ${tipo_declaracion_preferida || 'individual'}
+                    ${tipo_declaracion_preferida || 'individual'},
+                    ${comunidad_autonoma || 'andalucia'}
                 )
                 RETURNING *
             `;
@@ -841,34 +851,55 @@ export async function simularIRPF(req, res) {
 
         const baseImponibleGeneral = Math.max(0, rendimientoNeto - reduccionPensiones);
 
-        // 4. Mínimo personal y familiar (valores desde BD)
-        const minimoPersonalFamiliar = calcularMinimosPersonales(datosPersonales, rules);
+        // 4. Mínimo personal y familiar (estatal + autonómico por separado)
+        const ccaa = datosPersonales?.comunidad_autonoma || 'andalucia';
+        const esForal = ccaa === 'pais_vasco' || ccaa === 'navarra';
+        const minimoEstatalVal = calcularMinimosPersonales(datosPersonales, rules, { tipo: 'estatal' });
+        const minimoAutonomicoVal = calcularMinimosPersonales(datosPersonales, rules, { tipo: 'autonomico', ccaa });
 
         const baseLiquidable = Math.max(0, baseImponibleGeneral);
 
-        // 5. Calcular cuota íntegra (tramos desde BD)
-        const tramosEstatal = rules.getTramos('estatal');
-        const tramosAutonomico = rules.getTramos('autonomico_general');
+        // 5. Calcular cuota íntegra (tramos según CCAA)
+        let cuotaIntegraEstatal, cuotaIntegraAutonomica, cuotaIntegra;
+        let estatal, autonomico, minimoEstatal, minimoAutonomico;
 
-        const estatal = calcularCuotaTramos(baseLiquidable, tramosEstatal);
-        const autonomico = calcularCuotaTramos(baseLiquidable, tramosAutonomico);
+        if (esForal) {
+            // Régimen foral: tarifa única completa
+            const tramosForal = rules.getTramos(`foral_${ccaa}`);
+            estatal = calcularCuotaTramos(baseLiquidable, tramosForal);
+            minimoEstatal = calcularCuotaTramos(minimoEstatalVal, tramosForal);
+            autonomico = { cuota: 0, desglose: [] };
+            minimoAutonomico = { cuota: 0, desglose: [] };
+            cuotaIntegraEstatal = Math.max(0, estatal.cuota - minimoEstatal.cuota);
+            cuotaIntegraAutonomica = 0;
+        } else {
+            const tramosEstatal = rules.getTramos('estatal');
+            const tramosAutonomico = rules.getTramos(`autonomico_${ccaa}`);
 
-        const minimoEstatal = calcularCuotaTramos(minimoPersonalFamiliar, tramosEstatal);
-        const minimoAutonomico = calcularCuotaTramos(minimoPersonalFamiliar, tramosAutonomico);
+            estatal = calcularCuotaTramos(baseLiquidable, tramosEstatal);
+            autonomico = calcularCuotaTramos(baseLiquidable, tramosAutonomico);
+            minimoEstatal = calcularCuotaTramos(minimoEstatalVal, tramosEstatal);
+            minimoAutonomico = calcularCuotaTramos(minimoAutonomicoVal, tramosAutonomico);
 
-        const cuotaIntegra = Math.max(0,
-            (estatal.cuota - minimoEstatal.cuota) + (autonomico.cuota - minimoAutonomico.cuota)
-        );
+            cuotaIntegraEstatal = Math.max(0, estatal.cuota - minimoEstatal.cuota);
+            cuotaIntegraAutonomica = Math.max(0, autonomico.cuota - minimoAutonomico.cuota);
 
-        // 6. Deducciones (límites y porcentajes desde BD)
+            // Ceuta/Melilla: 50% deducción en cuota íntegra
+            if (ccaa === 'ceuta_melilla') {
+                cuotaIntegraEstatal *= 0.5;
+                cuotaIntegraAutonomica *= 0.5;
+            }
+        }
+
+        cuotaIntegra = Math.round((cuotaIntegraEstatal + cuotaIntegraAutonomica) * 100) / 100;
+
+        // 6. Deducciones estatales (vivienda, donaciones)
         let deducciones = 0;
 
-        // Vivienda habitual
         if (datosPersonales?.vivienda_tipo === 'propiedad' && datosPersonales?.hipoteca_anual > 0) {
             const viviendaLimite = rules.getNum('deducciones', 'vivienda_limite', 9040);
             const viviendaPct = rules.getNum('deducciones', 'vivienda_porcentaje', 15) / 100;
             const viviendaFechaLimite = rules.getString('deducciones', 'vivienda_fecha_limite', '2013-01-01');
-
             const fechaCompra = datosPersonales.hipoteca_fecha_compra
                 ? new Date(datosPersonales.hipoteca_fecha_compra)
                 : null;
@@ -876,24 +907,23 @@ export async function simularIRPF(req, res) {
                 deducciones += Math.min(datosPersonales.hipoteca_anual, viviendaLimite) * viviendaPct;
             }
         }
-
-        // Donaciones
         const donacionesONG = datosPersonales?.donaciones_ong || 0;
         if (donacionesONG > 0) {
             const umbral = rules.getNum('deducciones', 'donacion_ong_umbral', 250);
             const tipoBajo = rules.getNum('deducciones', 'donacion_ong_tipo_bajo', 80) / 100;
             const tipoAlto = rules.getNum('deducciones', 'donacion_ong_tipo_alto', 40) / 100;
-
             deducciones += Math.min(donacionesONG, umbral) * tipoBajo;
-            if (donacionesONG > umbral) {
-                deducciones += (donacionesONG - umbral) * tipoAlto;
-            }
+            if (donacionesONG > umbral) deducciones += (donacionesONG - umbral) * tipoAlto;
         }
         const donacionesOtras = datosPersonales?.donaciones_otras || 0;
         if (donacionesOtras > 0) {
             const tipoOtras = rules.getNum('deducciones', 'donacion_otras_tipo', 10) / 100;
             deducciones += donacionesOtras * tipoOtras;
         }
+
+        // 6b. Deducciones autonómicas
+        const deduccionesAut = calcularDeduccionesAutonomicas(datosPersonales, rules, ccaa, baseImponibleGeneral);
+        deducciones += deduccionesAut.total;
 
         // 7. Cuota líquida
         const cuotaLiquida = Math.max(0, cuotaIntegra - deducciones);
@@ -903,8 +933,11 @@ export async function simularIRPF(req, res) {
             + parseFloat(nominas.irpf_nominas)
             + totalPagos130;
 
-        // 9. Resultado
-        const resultadoDeclaracion = Math.round((cuotaLiquida - totalAnticipado) * 100) / 100;
+        // 8b. Deducción familia numerosa estatal (Art. 81 bis) - cuota diferencial
+        const familiaNumerosa = calcularDeduccionFamiliaNumerosa(datosPersonales, rules, 0);
+
+        // 9. Resultado (cuota líquida - anticipos - familia numerosa neta)
+        const resultadoDeclaracion = Math.round((cuotaLiquida - totalAnticipado - familiaNumerosa.deduccion_neta) * 100) / 100;
 
         // 10. Tipo efectivo
         const tipoEfectivo = baseLiquidable > 0
@@ -928,17 +961,26 @@ export async function simularIRPF(req, res) {
                 },
                 base_imponible_general: baseImponibleGeneral,
                 base_liquidable: baseLiquidable,
-                minimo_personal_familiar: minimoPersonalFamiliar,
+                comunidad_autonoma: ccaa,
+                regimen: esForal ? 'foral' : 'comun',
+                minimo_personal_familiar: {
+                    estatal: Math.round(minimoEstatalVal * 100) / 100,
+                    autonomico: Math.round(minimoAutonomicoVal * 100) / 100,
+                },
                 cuota_integra: {
-                    estatal: Math.round((estatal.cuota - minimoEstatal.cuota) * 100) / 100,
-                    autonomica: Math.round((autonomico.cuota - minimoAutonomico.cuota) * 100) / 100,
+                    estatal: Math.round(cuotaIntegraEstatal * 100) / 100,
+                    autonomica: Math.round(cuotaIntegraAutonomica * 100) / 100,
                     total: Math.round(cuotaIntegra * 100) / 100,
                 },
                 tramos_desglose: {
                     estatal: estatal.desglose,
                     autonomico: autonomico.desglose,
                 },
-                deducciones: Math.round(deducciones * 100) / 100,
+                deducciones: {
+                    estatales: Math.round((deducciones - deduccionesAut.total) * 100) / 100,
+                    autonomicas: deduccionesAut,
+                    total: Math.round(deducciones * 100) / 100,
+                },
                 cuota_liquida: Math.round(cuotaLiquida * 100) / 100,
                 anticipado: {
                     retenciones_clientes: parseFloat(facturacion.retenciones_clientes),
@@ -946,6 +988,7 @@ export async function simularIRPF(req, res) {
                     pagos_fraccionados_130: totalPagos130,
                     total: Math.round(totalAnticipado * 100) / 100,
                 },
+                familia_numerosa: familiaNumerosa,
                 resultado: resultadoDeclaracion,
                 resultado_texto: resultadoDeclaracion > 0
                     ? `A PAGAR: ${resultadoDeclaracion.toFixed(2)}€`
@@ -1200,13 +1243,12 @@ export async function generarDossier(req, res) {
                 irpf_retenido_nominas: parseFloat(nominas.irpf_total)
             },
             resultado_estimado: await (async () => {
-                // Calcular resultado estimado con simulación IRPF real
+                // Calcular resultado estimado con simulación IRPF real (CCAA-aware)
                 try {
                     if (fuenteDatos === 'sin_datos' && !rentaAnterior) {
                         return { valor: 0, fuente: 'sin_datos', descripcion: 'Sin datos para estimar' };
                     }
 
-                    // Si solo tenemos renta anterior (sin datos propios del año), usar su resultado directamente
                     if (fuenteDatos === 'renta_importada') {
                         return {
                             valor: parseFloat(rentaAnterior.resultado_declaracion || 0),
@@ -1216,39 +1258,49 @@ export async function generarDossier(req, res) {
                         };
                     }
 
-                    // Para 'contendo' o 'manual': simular IRPF completo con tramos reales
                     const rules = await FiscalRules.forYear(year);
+                    const ccaa = datosPersonales?.comunidad_autonoma || 'andalucia';
+                    const esForal = ccaa === 'pais_vasco' || ccaa === 'navarra';
 
                     // Reducciones
                     const planPensiones = datosPersonales?.aportacion_plan_pensiones || 0;
                     const limitePensiones = rules.getNum('deducciones', 'pension_limite', 1500);
                     const reduccionPensiones = Math.min(planPensiones, limitePensiones);
                     const baseImponibleGeneral = Math.max(0, rendimientoNeto - reduccionPensiones);
-
-                    // Mínimo personal y familiar (hijos, discapacidad, familia numerosa, etc.)
-                    const minimoPersonalFamiliar = calcularMinimosPersonales(datosPersonales, rules);
                     const baseLiquidable = Math.max(0, baseImponibleGeneral);
 
-                    // Tramos IRPF
-                    const tramosEstatal = rules.getTramos('estatal');
-                    const tramosAutonomico = rules.getTramos('autonomico_general');
+                    // Mínimos personales (estatal y autonómico por separado)
+                    const minimoEstatalVal = calcularMinimosPersonales(datosPersonales, rules, { tipo: 'estatal' });
+                    const minimoAutonomicoVal = calcularMinimosPersonales(datosPersonales, rules, { tipo: 'autonomico', ccaa });
 
-                    const estatalCuota = calcularCuotaTramos(baseLiquidable, tramosEstatal);
-                    const autonomicoCuota = calcularCuotaTramos(baseLiquidable, tramosAutonomico);
-                    const minimoEstatal = calcularCuotaTramos(minimoPersonalFamiliar, tramosEstatal);
-                    const minimoAutonomico = calcularCuotaTramos(minimoPersonalFamiliar, tramosAutonomico);
+                    // Tramos IRPF según CCAA
+                    let cuotaIntegraEst, cuotaIntegraAut;
+                    if (esForal) {
+                        const tramosForal = rules.getTramos(`foral_${ccaa}`);
+                        const foralCuota = calcularCuotaTramos(baseLiquidable, tramosForal);
+                        const foralMinimo = calcularCuotaTramos(minimoEstatalVal, tramosForal);
+                        cuotaIntegraEst = Math.max(0, foralCuota.cuota - foralMinimo.cuota);
+                        cuotaIntegraAut = 0;
+                    } else {
+                        const tramosEst = rules.getTramos('estatal');
+                        const tramosAut = rules.getTramos(`autonomico_${ccaa}`);
+                        const estCuota = calcularCuotaTramos(baseLiquidable, tramosEst);
+                        const autCuota = calcularCuotaTramos(baseLiquidable, tramosAut);
+                        const minEst = calcularCuotaTramos(minimoEstatalVal, tramosEst);
+                        const minAut = calcularCuotaTramos(minimoAutonomicoVal, tramosAut);
+                        cuotaIntegraEst = Math.max(0, estCuota.cuota - minEst.cuota);
+                        cuotaIntegraAut = Math.max(0, autCuota.cuota - minAut.cuota);
+                        if (ccaa === 'ceuta_melilla') { cuotaIntegraEst *= 0.5; cuotaIntegraAut *= 0.5; }
+                    }
+                    const cuotaIntegra = cuotaIntegraEst + cuotaIntegraAut;
 
-                    const cuotaIntegra = Math.max(0,
-                        (estatalCuota.cuota - minimoEstatal.cuota) + (autonomicoCuota.cuota - minimoAutonomico.cuota)
-                    );
-
-                    // Deducciones
+                    // Deducciones estatales
                     let deduccionesTotal = 0;
                     if (datosPersonales?.vivienda_tipo === 'propiedad' && datosPersonales?.hipoteca_anual > 0) {
                         const viviendaLimite = rules.getNum('deducciones', 'vivienda_limite', 9040);
                         const viviendaPct = rules.getNum('deducciones', 'vivienda_porcentaje', 15) / 100;
                         const viviendaFechaLimite = rules.getString('deducciones', 'vivienda_fecha_limite', '2013-01-01');
-                        const fechaCompra = datosPersonales.hipoteca_fecha_compra ? new Date(datosPersonales.hipoteca_fecha_compra) : null;
+                        const fechaCompra = datosPersonales?.hipoteca_fecha_compra ? new Date(datosPersonales.hipoteca_fecha_compra) : null;
                         if (fechaCompra && fechaCompra < new Date(viviendaFechaLimite)) {
                             deduccionesTotal += Math.min(datosPersonales.hipoteca_anual, viviendaLimite) * viviendaPct;
                         }
@@ -1262,6 +1314,10 @@ export async function generarDossier(req, res) {
                         if (donacionesONG > umbral) deduccionesTotal += (donacionesONG - umbral) * tipoAlto;
                     }
 
+                    // Deducciones autonómicas
+                    const deduccionesAut = calcularDeduccionesAutonomicas(datosPersonales, rules, ccaa, baseImponibleGeneral);
+                    deduccionesTotal += deduccionesAut.total;
+
                     const cuotaLiquida = Math.max(0, cuotaIntegra - deduccionesTotal);
 
                     // Total anticipado
@@ -1272,29 +1328,34 @@ export async function generarDossier(req, res) {
                         totalAnt = parseFloat(facturacion.retenciones_clientes) + parseFloat(retencionesActividades.total) + totalPagosFraccionados;
                     }
 
-                    const resultado = Math.round((cuotaLiquida - totalAnt) * 100) / 100;
+                    // Familia numerosa estatal (Art. 81 bis)
+                    const famNum = calcularDeduccionFamiliaNumerosa(datosPersonales, rules, 0);
+                    const resultado = Math.round((cuotaLiquida - totalAnt - famNum.deduccion_neta) * 100) / 100;
 
-                    console.log(`📊 Simulación IRPF dossier: RendNeto=${rendimientoNeto.toFixed(2)}, BL=${baseLiquidable.toFixed(2)}, MPF=${minimoPersonalFamiliar.toFixed(2)}, CI=${cuotaIntegra.toFixed(2)}, CL=${cuotaLiquida.toFixed(2)}, Ant=${totalAnt.toFixed(2)}, Resultado=${resultado.toFixed(2)}`);
+                    console.log(`📊 Simulación IRPF dossier [${ccaa}]: RendNeto=${rendimientoNeto.toFixed(2)}, BL=${baseLiquidable.toFixed(2)}, MPF_est=${minimoEstatalVal.toFixed(2)}, MPF_aut=${minimoAutonomicoVal.toFixed(2)}, CI=${cuotaIntegra.toFixed(2)}, Ded_aut=${deduccionesAut.total}, FamNum=${famNum.deduccion_neta}, CL=${cuotaLiquida.toFixed(2)}, Ant=${totalAnt.toFixed(2)}, Resultado=${resultado.toFixed(2)}`);
 
                     return {
                         valor: resultado,
                         fuente: fuenteDatos,
+                        comunidad_autonoma: ccaa,
                         descripcion: fuenteDatos === 'manual'
-                            ? 'Simulación IRPF con datos manuales y tramos reales'
-                            : 'Simulación IRPF con datos de CONTENDO y tramos reales',
+                            ? `Simulación IRPF ${ccaa} con datos manuales`
+                            : `Simulación IRPF ${ccaa} con datos de CONTENDO`,
                         desglose: {
                             rendimiento_neto: Math.round(rendimientoNeto * 100) / 100,
                             base_liquidable: Math.round(baseLiquidable * 100) / 100,
-                            minimo_personal_familiar: Math.round(minimoPersonalFamiliar * 100) / 100,
+                            minimo_personal_familiar: Math.round(minimoEstatalVal * 100) / 100,
+                            minimo_autonomico: Math.round(minimoAutonomicoVal * 100) / 100,
                             cuota_integra: Math.round(cuotaIntegra * 100) / 100,
-                            deducciones: Math.round(deduccionesTotal * 100) / 100,
+                            deducciones_estatales: Math.round((deduccionesTotal - deduccionesAut.total) * 100) / 100,
+                            deducciones_autonomicas: deduccionesAut,
+                            familia_numerosa: famNum,
                             cuota_liquida: Math.round(cuotaLiquida * 100) / 100,
                             total_anticipado: Math.round(totalAnt * 100) / 100,
                         }
                     };
                 } catch (simErr) {
                     console.error("Error simulando IRPF en dossier:", simErr.message);
-                    // Fallback: usar renta anterior si existe
                     if (rentaAnterior) {
                         return {
                             valor: parseFloat(rentaAnterior.resultado_declaracion || 0),

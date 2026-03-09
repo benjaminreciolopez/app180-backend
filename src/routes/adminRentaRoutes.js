@@ -8,6 +8,7 @@ import {
     saveDatosEjercicio,
     getDatosPersonales,
     saveDatosPersonales,
+    getComunidadesAutonomas,
     getHistorialRentas,
     getRentaDetalle,
     updateRenta,
@@ -39,6 +40,12 @@ router.post("/datos-ejercicio/:ejercicio", saveDatosEjercicio);
  * @desc Obtener datos personales/familiares para la renta
  */
 router.get("/datos-personales", getDatosPersonales);
+
+/**
+ * @route GET /admin/fiscal/renta/comunidades-autonomas
+ * @desc Lista de CCAA disponibles para selector
+ */
+router.get("/comunidades-autonomas", getComunidadesAutonomas);
 
 /**
  * @route POST /admin/fiscal/renta/datos-personales
