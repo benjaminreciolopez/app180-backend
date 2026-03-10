@@ -216,27 +216,6 @@ export async function crearPago(req, res) {
               creadoPor: req.user?.id || null,
             });
           }
-        } else if (workLogId) {
-          // Para trabajos sin factura, también generar asiento de cobro
-          const [trabajo] = await sql`
-            SELECT w.id, w.descripcion, w.cliente_id, c.nombre as cliente_nombre
-            FROM work_logs_180 w
-            LEFT JOIN clients_180 c ON c.id = w.cliente_id
-            WHERE w.id = ${workLogId} AND w.empresa_id = ${empresaId}
-          `;
-          if (trabajo) {
-            await generarAsientoCobro(empresaId, {
-              paymentId: result.id,
-              metodo,
-              importe: item.importe,
-              fecha: fecha_pago || new Date().toISOString().split("T")[0],
-              facturaId: null,
-              facturaNumero: null,
-              clienteId: trabajo.cliente_id,
-              clienteNombre: trabajo.cliente_nombre,
-              creadoPor: req.user?.id || null,
-            });
-          }
         }
       }
     } catch (contErr) {

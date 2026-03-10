@@ -491,6 +491,42 @@ export async function anularAsiento(req, res) {
   }
 }
 
+export async function eliminarAsiento(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { id } = req.params;
+
+    const [exists] = await sql`SELECT id FROM asientos_180 WHERE id = ${id} AND empresa_id = ${empresaId}`;
+    if (!exists) return res.status(404).json({ error: "Asiento no encontrado" });
+
+    await sql`DELETE FROM asiento_lineas_180 WHERE asiento_id = ${id}`;
+    await sql`DELETE FROM asientos_180 WHERE id = ${id} AND empresa_id = ${empresaId}`;
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error eliminarAsiento:", err);
+    res.status(500).json({ error: "Error eliminando asiento" });
+  }
+}
+
+export async function eliminarAsientosMultiple(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids requeridos" });
+
+    for (const id of ids) {
+      await sql`DELETE FROM asiento_lineas_180 WHERE asiento_id = ${id}`;
+      await sql`DELETE FROM asientos_180 WHERE id = ${id} AND empresa_id = ${empresaId}`;
+    }
+
+    res.json({ ok: true, eliminados: ids.length });
+  } catch (err) {
+    console.error("Error eliminarAsientosMultiple:", err);
+    res.status(500).json({ error: "Error eliminando asientos" });
+  }
+}
+
 // =============================================
 // LIBRO MAYOR
 // =============================================

@@ -16,6 +16,8 @@ import {
   validarAsiento,
   validarAsientosMultiple,
   anularAsiento,
+  eliminarAsiento,
+  eliminarAsientosMultiple,
   getLibroMayor,
   getBalance,
   getPyG,
@@ -62,7 +64,8 @@ router.put("/asientos/validar-multiple", validarAsientosMultiple);
 router.get("/asientos/:id", getAsientoById);
 router.put("/asientos/:id", editarAsiento);
 router.put("/asientos/:id/validar", validarAsiento);
-router.delete("/asientos/:id", anularAsiento);
+router.delete("/asientos/eliminar-multiple", eliminarAsientosMultiple);
+router.delete("/asientos/:id", eliminarAsiento);
 
 // Libro Mayor
 router.get("/mayor/exportar", exportarMayor);
