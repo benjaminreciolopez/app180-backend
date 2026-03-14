@@ -135,8 +135,67 @@ export const getAdminDashboard = async (req, res) => {
     let facturasPendientes = 0;
     let cobrosPendientes = 0;
     let saldoTotal = 0;
+    let facturacionMensual = { este_mes: 0, mes_anterior: 0, ytd: 0 };
+    let gastosMensuales = { este_mes: 0, mes_anterior: 0, ytd: 0 };
 
     if (modulos.facturacion !== false) {
+      // Facturación este mes, mes anterior y YTD
+      const [facMes] = await sql`
+        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
+          AND estado = 'VALIDADA'
+          AND tipo_factura != 'PROFORMA'
+          AND fecha >= DATE_TRUNC('month', CURRENT_DATE)
+      `;
+      const [facMesAnt] = await sql`
+        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
+          AND estado = 'VALIDADA'
+          AND tipo_factura != 'PROFORMA'
+          AND fecha >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND fecha < DATE_TRUNC('month', CURRENT_DATE)
+      `;
+      const [facYtd] = await sql`
+        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
+          AND estado = 'VALIDADA'
+          AND tipo_factura != 'PROFORMA'
+          AND fecha >= DATE_TRUNC('year', CURRENT_DATE)
+      `;
+      facturacionMensual = {
+        este_mes: Number(facMes.total),
+        mes_anterior: Number(facMesAnt.total),
+        ytd: Number(facYtd.total),
+      };
+
+      // Gastos este mes, mes anterior y YTD
+      const [gasMes] = await sql`
+        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha >= DATE_TRUNC('month', CURRENT_DATE)
+      `;
+      const [gasMesAnt] = await sql`
+        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND fecha < DATE_TRUNC('month', CURRENT_DATE)
+      `;
+      const [gasYtd] = await sql`
+        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${empresaId}
+          AND fecha >= DATE_TRUNC('year', CURRENT_DATE)
+      `;
+      gastosMensuales = {
+        este_mes: Number(gasMes.total),
+        mes_anterior: Number(gasMesAnt.total),
+        ytd: Number(gasYtd.total),
+      };
       const [{ count = 0 }] = await sql`
         SELECT COUNT(*)::int AS count
         FROM factura_180
@@ -305,12 +364,14 @@ export const getAdminDashboard = async (req, res) => {
       facturasPendientes,
       cobrosPendientes,
       saldoTotal,
+      facturacionMensual,
+      gastosMensuales,
       trabajosPendientes,
-      trabajosPendientesList: trabajosPendientesList || [], // Nueva lista
+      trabajosPendientesList: trabajosPendientesList || [],
       partesHoy,
       calendarioSyncStatus,
-      facturasPendientesList: await getFacturasPendientesList(empresaId, modulos.facturacion), // Nueva lista
-      beneficioReal, // Nueva métrica beneficio operativo
+      facturasPendientesList: await getFacturasPendientesList(empresaId, modulos.facturacion),
+      beneficioReal,
       stats: {
         fichajesUltimosDias,
         fichajesPorTipoHoy,

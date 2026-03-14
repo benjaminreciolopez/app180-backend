@@ -14,8 +14,13 @@ import { sql } from "../db.js";
 export function asesorClienteRequired(permissionKey = null, accessType = "read") {
   return async (req, res, next) => {
     try {
-      if (!req.user || req.user.role !== "asesor") {
+      if (!req.user || (req.user.role !== "asesor" && req.user.originalRole !== "asesor")) {
         return res.status(403).json({ error: "Acceso solo para asesores" });
+      }
+
+      // Restaurar role original si fue elevado por authMiddleware
+      if (req.user.originalRole === "asesor" && req.user.role === "admin") {
+        req.user.role = "asesor";
       }
 
       const empresaId = req.params.empresa_id || req.query.empresa_id;

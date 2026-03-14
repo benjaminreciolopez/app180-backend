@@ -1869,17 +1869,17 @@ Ejemplo:
  * @param {string} empresaId
  * @param {string[]} asientoIds - IDs específicos a revisar (opcional, si vacío revisa todos los auto_gasto)
  * @param {boolean} soloSimular - true = solo devuelve cambios sin aplicarlos
- * @returns {{ revisados, corregidos, sin_cambios, errores, cambios[] }}
+ * @returns {{ revisados, corregidos, sin_cambios, errores, cambios[], alertas[] }}
  */
 export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSimular = false) {
-  const resultado = { revisados: 0, corregidos: 0, sin_cambios: 0, omitidos_ia: 0, errores: [], cambios: [] };
+  const resultado = { revisados: 0, corregidos: 0, sin_cambios: 0, omitidos_ia: 0, errores: [], cambios: [], alertas: [] };
 
   // Obtener asientos auto (gastos + facturas)
   // Si se pasan IDs específicos, se revisan todos. Si no, solo los NO revisados por IA.
   let asientos;
   if (asientoIds.length > 0) {
     asientos = await sql`
-      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado, a.revisado_ia
+      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado, a.revisado_ia, a.fecha, a.numero
       FROM asientos_180 a
       WHERE a.empresa_id = ${empresaId}
         AND a.id = ANY(${asientoIds})
@@ -1887,7 +1887,7 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     `;
   } else {
     asientos = await sql`
-      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado, a.revisado_ia
+      SELECT a.id, a.concepto, a.referencia_id, a.tipo, a.estado, a.revisado_ia, a.fecha, a.numero
       FROM asientos_180 a
       WHERE a.empresa_id = ${empresaId}
         AND a.tipo IN ('auto_gasto', 'auto_factura')
@@ -1897,11 +1897,74 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     `;
   }
 
-  // Recopilar todos los items para clasificación por lotes
+  // ── FASE 1: Recopilar datos completos de cada asiento ──
   const itemsParaIA = [];
   const asientoDataMap = new Map();
+  const asientoLineasMap = new Map();
 
   for (const asiento of asientos) {
+    // Cargar líneas del asiento para revisión completa
+    const lineas = await sql`
+      SELECT id, cuenta_codigo, cuenta_nombre, debe, haber, orden
+      FROM asiento_lineas_180
+      WHERE asiento_id = ${asiento.id} AND empresa_id = ${empresaId}
+      ORDER BY orden
+    `;
+    asientoLineasMap.set(asiento.id, lineas);
+
+    // Pre-validaciones locales (sin IA)
+    const totalDebe = lineas.reduce((s, l) => s + Number(l.debe || 0), 0);
+    const totalHaber = lineas.reduce((s, l) => s + Number(l.haber || 0), 0);
+    const descuadre = Math.abs(totalDebe - totalHaber);
+
+    if (descuadre > 0.01) {
+      resultado.alertas.push({
+        asiento_id: asiento.id,
+        numero: asiento.numero,
+        concepto: asiento.concepto,
+        tipo_alerta: "DESCUADRE",
+        gravedad: "critica",
+        mensaje: `Asiento descuadrado: Debe ${totalDebe.toFixed(2)}€ ≠ Haber ${totalHaber.toFixed(2)}€ (dif: ${descuadre.toFixed(2)}€)`,
+      });
+    }
+
+    if (lineas.length === 0) {
+      resultado.alertas.push({
+        asiento_id: asiento.id,
+        numero: asiento.numero,
+        concepto: asiento.concepto,
+        tipo_alerta: "SIN_LINEAS",
+        gravedad: "critica",
+        mensaje: "Asiento sin líneas contables",
+      });
+    }
+
+    // Verificar que no haya cuentas genéricas/vacías
+    const lineaSinCuenta = lineas.find(l => !l.cuenta_codigo || l.cuenta_codigo === "000");
+    if (lineaSinCuenta) {
+      resultado.alertas.push({
+        asiento_id: asiento.id,
+        numero: asiento.numero,
+        concepto: asiento.concepto,
+        tipo_alerta: "CUENTA_VACIA",
+        gravedad: "critica",
+        mensaje: `Línea con cuenta vacía o inválida: "${lineaSinCuenta.cuenta_codigo}"`,
+      });
+    }
+
+    // Verificar importes en 0
+    const lineaCero = lineas.find(l => Number(l.debe || 0) === 0 && Number(l.haber || 0) === 0);
+    if (lineaCero) {
+      resultado.alertas.push({
+        asiento_id: asiento.id,
+        numero: asiento.numero,
+        concepto: asiento.concepto,
+        tipo_alerta: "IMPORTE_CERO",
+        gravedad: "aviso",
+        mensaje: `Línea con importe 0 en cuenta ${lineaCero.cuenta_codigo}`,
+      });
+    }
+
     if (asiento.tipo === "auto_gasto" && asiento.referencia_id) {
       const [g] = await sql`
         SELECT id, descripcion, proveedor, categoria
@@ -2032,13 +2095,33 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     }
   }
 
-  // Also mark sin_cambios asientos as reviewed (IA confirmed the account is correct)
+  // ── Determinar qué asientos marcar como revisados ──
+  // Solo marcar revisado_ia = true si:
+  // 1. No tiene cambios pendientes de cuenta
+  // 2. No tiene alertas CRÍTICAS (descuadre, sin líneas, cuenta vacía)
+  // Los que tienen alertas críticas quedan pendientes de revisión humana
+  const idsConAlertaCritica = new Set(
+    resultado.alertas.filter(a => a.gravedad === "critica").map(a => a.asiento_id)
+  );
+  const idsConCambio = new Set(resultado.cambios.map(c => c.asiento_id));
+  const idsConError = new Set(resultado.errores.map(e => {
+    const m = e.match(/Asiento ([a-f0-9-]+):/);
+    return m ? m[1] : null;
+  }).filter(Boolean));
+
+  const aptoParaMarcar = asientos.filter(a =>
+    !idsConAlertaCritica.has(a.id) && !idsConCambio.has(a.id) && !idsConError.has(a.id)
+  ).map(a => a.id);
+
+  if (aptoParaMarcar.length > 0) {
+    await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${aptoParaMarcar})`;
+  }
+
+  // Si se aplicaron correcciones (no simulación), marcar también los corregidos
   if (!soloSimular) {
-    const sinCambioIds = asientos
-      .filter(a => !resultado.cambios.some(c => c.asiento_id === a.id) && !resultado.errores.some(e => e.includes(a.id)))
-      .map(a => a.id);
-    if (sinCambioIds.length > 0) {
-      await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${sinCambioIds})`;
+    const corregidosIds = resultado.cambios.map(c => c.asiento_id);
+    if (corregidosIds.length > 0) {
+      await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${corregidosIds})`;
     }
   }
 
