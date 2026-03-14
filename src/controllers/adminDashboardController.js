@@ -141,7 +141,7 @@ export const getAdminDashboard = async (req, res) => {
     if (modulos.facturacion !== false) {
       // Facturación este mes, mes anterior y YTD
       const [facMes] = await sql`
-        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        SELECT COALESCE(SUM(subtotal), 0)::numeric AS total
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
@@ -149,7 +149,7 @@ export const getAdminDashboard = async (req, res) => {
           AND fecha >= DATE_TRUNC('month', CURRENT_DATE)
       `;
       const [facMesAnt] = await sql`
-        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        SELECT COALESCE(SUM(subtotal), 0)::numeric AS total
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
@@ -158,7 +158,7 @@ export const getAdminDashboard = async (req, res) => {
           AND fecha < DATE_TRUNC('month', CURRENT_DATE)
       `;
       const [facYtd] = await sql`
-        SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
+        SELECT COALESCE(SUM(subtotal), 0)::numeric AS total
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
@@ -176,20 +176,23 @@ export const getAdminDashboard = async (req, res) => {
         SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
-          AND fecha >= DATE_TRUNC('month', CURRENT_DATE)
+          AND activo = true
+          AND fecha_compra >= DATE_TRUNC('month', CURRENT_DATE)
       `;
       const [gasMesAnt] = await sql`
         SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
-          AND fecha >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-          AND fecha < DATE_TRUNC('month', CURRENT_DATE)
+          AND activo = true
+          AND fecha_compra >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND fecha_compra < DATE_TRUNC('month', CURRENT_DATE)
       `;
       const [gasYtd] = await sql`
         SELECT COALESCE(SUM(base_imponible), 0)::numeric AS total
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
-          AND fecha >= DATE_TRUNC('year', CURRENT_DATE)
+          AND activo = true
+          AND fecha_compra >= DATE_TRUNC('year', CURRENT_DATE)
       `;
       gastosMensuales = {
         este_mes: Number(gasMes.total),
