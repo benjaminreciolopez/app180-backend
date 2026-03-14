@@ -267,17 +267,22 @@ export async function getDashboardWidgets(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
     const [row] = await sql`
-      SELECT dashboard_widgets FROM asesorias_180 WHERE id = ${asesoriaId}
+      SELECT dashboard_widgets, dashboard_widgets_mobile FROM asesorias_180 WHERE id = ${asesoriaId}
     `;
     if (!row) return res.status(404).json({ error: "Asesoría no encontrada" });
 
     let widgets = row.dashboard_widgets || [];
+    let widgets_mobile = row.dashboard_widgets_mobile || [];
     // Handle double-encoded JSON
     if (typeof widgets === "string") {
       try { widgets = JSON.parse(widgets); } catch { widgets = []; }
     }
+    if (typeof widgets_mobile === "string") {
+      try { widgets_mobile = JSON.parse(widgets_mobile); } catch { widgets_mobile = []; }
+    }
 
-    return res.json({ success: true, widgets });
+    console.log(`📊 [getAsesorDashboardWidgets] Asesoria: ${asesoriaId}, Desktop: ${widgets.length}, Mobile: ${widgets_mobile.length}`);
+    return res.json({ success: true, widgets, widgets_mobile });
   } catch (err) {
     console.error("Error getDashboardWidgets (asesoria):", err);
     return res.status(500).json({ error: "Error obteniendo widgets" });
@@ -287,22 +292,44 @@ export async function getDashboardWidgets(req, res) {
 /**
  * PUT /asesor/configuracion/widgets
  * Save dashboard widget config for this asesoria
+ * Accepts { widgets, widgets_mobile } independently
  */
 export async function updateDashboardWidgets(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
-    const { widgets } = req.body;
+    const { widgets, widgets_mobile } = req.body;
 
-    if (!Array.isArray(widgets)) {
+    if (widgets !== undefined && !Array.isArray(widgets)) {
       return res.status(400).json({ error: "widgets debe ser un array" });
     }
+    if (widgets_mobile !== undefined && !Array.isArray(widgets_mobile)) {
+      return res.status(400).json({ error: "widgets_mobile debe ser un array" });
+    }
 
-    await sql`
-      UPDATE asesorias_180
-      SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb,
-          updated_at = now()
-      WHERE id = ${asesoriaId}
-    `;
+    // Build dynamic update
+    if (widgets !== undefined && widgets_mobile !== undefined) {
+      await sql`
+        UPDATE asesorias_180
+        SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb,
+            dashboard_widgets_mobile = ${JSON.stringify(widgets_mobile)}::jsonb,
+            updated_at = now()
+        WHERE id = ${asesoriaId}
+      `;
+    } else if (widgets !== undefined) {
+      await sql`
+        UPDATE asesorias_180
+        SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb,
+            updated_at = now()
+        WHERE id = ${asesoriaId}
+      `;
+    } else if (widgets_mobile !== undefined) {
+      await sql`
+        UPDATE asesorias_180
+        SET dashboard_widgets_mobile = ${JSON.stringify(widgets_mobile)}::jsonb,
+            updated_at = now()
+        WHERE id = ${asesoriaId}
+      `;
+    }
 
     return res.json({ success: true });
   } catch (err) {
