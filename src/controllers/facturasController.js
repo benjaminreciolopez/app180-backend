@@ -446,6 +446,102 @@ export async function createFactura(req, res) {
       });
     });
 
+    // --- AUTO-VALIDACIÓN EN MODO TEST ---
+    // En modo TEST las facturas son ficticias (prueba de envío a AEAT),
+    // no necesitan pasar por BORRADOR → se validan automáticamente.
+    const [verifactuCfg] = await sql`
+      select verifactu_activo, verifactu_modo
+      from configuracionsistema_180
+      where empresa_id = ${empresaId}
+      limit 1
+    `;
+
+    const esModoTest = verifactuCfg?.verifactu_activo && verifactuCfg?.verifactu_modo === 'TEST';
+
+    if (esModoTest && tipo_factura !== 'PROFORMA') {
+      const facturaId = createdFactura.id;
+      const numero = await generarNumeroFactura(empresaId, fecha);
+
+      let verifactuResult = null;
+      await sql.begin(async (tx) => {
+        const lineas_db = await tx`select * from lineafactura_180 where factura_id=${facturaId}`;
+
+        let subtotal = 0;
+        let iva_total = 0;
+        for (const l of lineas_db) {
+          const base = l.cantidad * l.precio_unitario;
+          subtotal += base;
+          iva_total += (base * (l.iva_percent || createdFactura.iva_global || 0) / 100);
+        }
+
+        const ret_pct = createdFactura.retencion_porcentaje || 0;
+        const ret_imp = (subtotal * ret_pct) / 100;
+        const total = Math.round((subtotal + iva_total - ret_imp) * 100) / 100;
+
+        const [updatedRecord] = await tx`
+          update factura_180
+          set estado = 'VALIDADA',
+              numero = ${numero},
+              serie = 'TEST',
+              fecha = ${fecha}::date,
+              fecha_validacion = current_date,
+              es_test = true,
+              subtotal = ${Math.round(subtotal * 100) / 100},
+              iva_total = ${Math.round(iva_total * 100) / 100},
+              iva_global = ${Math.round(iva_total * 100) / 100},
+              retencion_importe = ${Math.round(ret_imp * 100) / 100},
+              total = ${total}
+          where id = ${facturaId}
+          returning *
+        `;
+
+        verifactuResult = await verificarVerifactu(updatedRecord, tx);
+
+        // TEST: no bloquear numeración
+        const year = new Date(fecha).getFullYear();
+        await tx`
+          update emisor_180
+          set ultimo_anio_numerado = ${year}
+          where empresa_id = ${empresaId}
+        `;
+      });
+
+      // Envío a AEAT post-transacción (fire-and-forget)
+      if (verifactuResult?.registroId) {
+        const { registroId, config: vfConfig } = verifactuResult;
+        enviarRegistroAeat(registroId, 'PRUEBAS', vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
+          .catch(err => console.error('⚠️ VeriFactu TEST: envío async falló:', err.message));
+      }
+
+      // Auditoría
+      await auditFactura({
+        empresaId,
+        userId: req.user.id,
+        accion: 'factura_validada',
+        entidadTipo: 'factura',
+        entidadId: facturaId,
+        req,
+        datosNuevos: { numero, fecha, estado: 'VALIDADA', es_test: true }
+      });
+
+      registrarEventoVerifactu({
+        empresaId,
+        userId: req.user.id,
+        tipoEvento: 'ALTA',
+        descripcion: `Factura TEST ${numero} auto-validada — Total: ${createdFactura.total}€ — Hash: ${verifactuResult?.hash || 'N/A'}`,
+        metaData: { factura_id: facturaId, numero, total: createdFactura.total, hash: verifactuResult?.hash, es_test: true }
+      });
+
+      console.log(`🧪 Factura TEST ${numero} auto-validada y enviada a AEAT (PRUEBAS)`);
+
+      return res.status(201).json({
+        success: true,
+        message: "Factura de prueba creada y validada automáticamente",
+        numero,
+        es_test: true
+      });
+    }
+
     res.status(201).json({ success: true, message: "Factura creada en borrador" });
   } catch (err) {
     console.error("❌ createFactura:", err);

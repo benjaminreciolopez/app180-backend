@@ -256,7 +256,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   const esRectificativa = String(factura.numero).endsWith('R');
   const titulo = esRectificativa ? 'FACTURA RECTIFICATIVA' : 'FACTURA';
 
-  const isTest = config && config.verifactu_activo && config.verifactu_modo === 'TEST';
+  const isTest = factura.es_test === true || factura.serie === 'TEST' || (config && config.verifactu_activo && config.verifactu_modo === 'TEST');
 
   // 1. Logo
   let logoHtml = '';
@@ -375,7 +375,7 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   ${FACTURA_STYLES}
 </head>
 <body>
-  ${isTest ? '<div class="watermark">ENTORNO DE PRUEBAS</div>' : ''}
+  ${isTest ? '<div class="watermark">FACTURA FICTICIA - ENTORNO DE PRUEBAS</div>' : ''}
 
   <!-- HEADER COMPLETO (solo pagina 1, es flujo normal) -->
   <div class="first-page-header">
