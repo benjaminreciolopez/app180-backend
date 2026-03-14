@@ -1,14 +1,18 @@
 import { sql } from "../db.js";
 
-async function getEmpresaId(userId) {
-    const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+    if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+        if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+        userIdOrReq = userIdOrReq.user.id;
+    }
+    const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
     if (!r[0]) throw new Error("Empresa no encontrada");
     return r[0].id;
 }
 
 export async function listConceptos(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { q, cliente_id } = req.query;
 
         let query = sql`select * from concepto_180 where empresa_id=${empresaId}`;
@@ -38,7 +42,7 @@ export async function listConceptos(req, res) {
 
 export async function autocompleteConceptos(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { q, cliente_id } = req.query;
 
         if (!q || q.length < 1) {
@@ -65,7 +69,7 @@ export async function autocompleteConceptos(req, res) {
 
 export async function createConcepto(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { nombre, descripcion, precio_unitario, iva_default, cliente_id, categoria } = req.body;
 
         if (!nombre) return res.status(400).json({ error: "Nombre requerido" });
@@ -91,7 +95,7 @@ export async function createConcepto(req, res) {
 
 export async function updateConcepto(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { id } = req.params;
         const { nombre, descripcion, precio_unitario, iva_default, cliente_id, categoria } = req.body;
 
@@ -123,7 +127,7 @@ function n(v) {
 export async function deleteConcepto(req, res) {
     // ...
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { id } = req.params;
 
         const [deleted] = await sql`

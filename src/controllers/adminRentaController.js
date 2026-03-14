@@ -21,8 +21,12 @@ const anthropic = new Anthropic({
 /**
  * Helper: obtener empresa_id del usuario
  */
-async function getEmpresaId(userId) {
-    const r = await sql`SELECT id FROM empresa_180 WHERE user_id=${userId} LIMIT 1`;
+async function getEmpresaId(userIdOrReq) {
+    if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+        if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+        userIdOrReq = userIdOrReq.user.id;
+    }
+    const r = await sql`SELECT id FROM empresa_180 WHERE user_id=${userIdOrReq} LIMIT 1`;
     if (!r[0]) {
         const e = new Error("Empresa no asociada");
         e.status = 403;
@@ -44,7 +48,7 @@ export async function uploadRentaPdf(req, res) {
         const file = req.file;
         const { ejercicio } = req.body;
         const userId = req.user.id;
-        const empresaId = req.user.empresa_id || await getEmpresaId(userId);
+        const empresaId = await getEmpresaId(req);
 
         if (!file) return res.status(400).json({ error: "No se subió ningún archivo" });
         if (!ejercicio) return res.status(400).json({ error: "El ejercicio (año) es requerido" });
@@ -463,7 +467,7 @@ Responde SOLO con JSON válido:
  */
 export async function saveDatosEjercicio(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const year = parseInt(req.params.ejercicio);
         const {
             ingresos_actividades = 0,
@@ -548,7 +552,7 @@ export function getComunidadesAutonomas(req, res) {
 
 export async function getDatosPersonales(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
 
         const [datos] = await sql`
             SELECT * FROM renta_datos_personales_180 WHERE empresa_id = ${empresaId}
@@ -567,7 +571,7 @@ export async function getDatosPersonales(req, res) {
  */
 export async function saveDatosPersonales(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const {
             estado_civil, fecha_nacimiento, discapacidad_porcentaje,
             conyuge_nif, conyuge_nombre, conyuge_fecha_nacimiento,
@@ -665,7 +669,7 @@ export async function saveDatosPersonales(req, res) {
  */
 export async function getHistorialRentas(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
 
         const rentas = await sql`
             SELECT id, ejercicio, tipo_declaracion, resultado_declaracion,
@@ -689,7 +693,7 @@ export async function getHistorialRentas(req, res) {
  */
 export async function getRentaDetalle(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { ejercicio } = req.params;
 
         const [renta] = await sql`
@@ -711,7 +715,7 @@ export async function getRentaDetalle(req, res) {
  */
 export async function deleteRenta(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { ejercicio } = req.params;
 
         const [deleted] = await sql`
@@ -735,7 +739,7 @@ export async function deleteRenta(req, res) {
  */
 export async function updateRenta(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { ejercicio } = req.params;
         const {
             casilla_505, casilla_510, casilla_595, casilla_600, casilla_610, casilla_611,
@@ -789,7 +793,7 @@ export async function updateRenta(req, res) {
  */
 export async function simularIRPF(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { ejercicio } = req.params;
         const year = parseInt(ejercicio);
 
@@ -1024,7 +1028,7 @@ export async function simularIRPF(req, res) {
  */
 export async function generarDossier(req, res) {
     try {
-        const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { ejercicio } = req.params;
         const year = parseInt(ejercicio);
 

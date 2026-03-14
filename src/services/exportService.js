@@ -25,14 +25,14 @@ export const generatePdf = async (htmlContent, options = {}) => {
         console.log("📂 Puppeteer Cache Directory (Configured):", join(process.cwd(), '.cache', 'puppeteer'));
         
         // Opciones optimizadas para Render / Docker
+        const isWindows = process.platform === 'win32';
         const launchOptions = {
             args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--no-zygote',
-                '--single-process', // A veces ayuda en entornos con recursos limitados
+                ...(isWindows ? [] : ['--no-zygote', '--single-process']),
             ],
             headless: 'new'
         };

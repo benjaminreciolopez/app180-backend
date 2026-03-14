@@ -5,9 +5,13 @@ import {
 } from "../services/paymentAllocationService.js";
 import { generarAsientoCobro } from "../services/contabilidadService.js";
 
-async function getEmpresaId(userId) {
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
   const r =
-    await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+    await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
   if (!r[0]) {
     const e = new Error("Empresa no asociada");
     e.status = 403;
@@ -17,7 +21,7 @@ async function getEmpresaId(userId) {
 }
 
 export async function crearPago(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
 
   const { cliente_id, importe, metodo, fecha_pago, referencia, notas } =
     req.body;
@@ -232,7 +236,7 @@ export async function crearPago(req, res) {
 
 export async function listarPagosCliente(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const rows = await sql`
@@ -253,7 +257,7 @@ export async function listarPagosCliente(req, res) {
 
 export async function listarTodosLosPagos(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const rows = await sql`
       select p.*, c.nombre as cliente_nombre
@@ -276,7 +280,7 @@ export async function listarTodosLosPagos(req, res) {
  */
 export async function getPendientesParaPago(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { paymentId } = req.params;
 
     const p = await sql`
@@ -349,7 +353,7 @@ export async function getPendientesParaPago(req, res) {
 }
 
 export async function imputarPago(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { paymentId } = req.params;
 
   const { cliente_id, asignaciones } = req.body;
@@ -424,7 +428,7 @@ export async function imputarPago(req, res) {
  */
 export async function getTrabajosPendientes(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params; // clienteId
 
     const deudas = [];
@@ -488,7 +492,7 @@ export async function getTrabajosPendientes(req, res) {
 
 export async function getPagoDetalle(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const pago = await sql`
@@ -524,7 +528,7 @@ export async function getPagoDetalle(req, res) {
 
 export async function eliminarPago(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     await sql.begin(async (sql) => {

@@ -9,15 +9,19 @@ const forge = require("node-forge");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-async function getEmpresaId(userId) {
-    const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+    if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+        if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+        userIdOrReq = userIdOrReq.user.id;
+    }
+    const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
     if (!r[0]) throw new Error("Empresa no encontrada");
     return r[0].id;
 }
 
 export async function getEmisorConfig(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         let [emisor] = await sql`select * from emisor_180 where empresa_id=${empresaId}`;
 
         // Intentar autocompletar con datos de perfil si emisor está vacío
@@ -60,7 +64,7 @@ export async function getEmisorConfig(req, res) {
 
 export async function updateEmisorConfig(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const data = req.body;
 
         // 1. Actualizar emisor_180
@@ -137,7 +141,7 @@ export async function updateEmisorConfig(req, res) {
 
 export async function uploadLogo(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { file } = req.body; // Base64 string
 
         if (!file) {
@@ -162,7 +166,7 @@ export async function uploadLogo(req, res) {
 
 export async function uploadCertificado(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { file, fileName, password } = req.body;
         console.log("📤 Iniciando subida certificado:", fileName);
 
@@ -273,7 +277,7 @@ export async function uploadCertificado(req, res) {
 
 export async function deleteCertificado(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
 
         await sql`
             update emisor_180 
@@ -309,7 +313,7 @@ export async function generateLegalText(req, res) {
 
 export async function getSistemaConfig(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const [config] = await sql`select * from configuracionsistema_180 where empresa_id=${empresaId}`;
 
         // Textos legales viven en emisor_180 — los recuperamos aquí para que el frontend
@@ -353,7 +357,7 @@ export async function getSistemaConfig(req, res) {
 
 export async function updateSistemaConfig(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const data = req.body;
 
         console.log("📝 Update Sistema Config:", { empresaId, ...data });
@@ -513,7 +517,7 @@ export async function updateSistemaConfig(req, res) {
 
 export async function uploadEvidencia(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { file } = req.body; // Base64 string
 
         if (!file) {
@@ -582,7 +586,7 @@ export async function ocrMigracion(req, res) {
  */
 export async function getVerifactuStatus(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
 
         // Obtener tipo contribuyente
         const [emp] = await sql`SELECT tipo_contribuyente FROM empresa_180 WHERE id=${empresaId}`;
@@ -651,7 +655,7 @@ export async function getVerifactuStatus(req, res) {
  */
 export async function getDeclaracionResponsableProductor(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
 
         // Leer template
         const templatePath = join(__dirname, '../../templates/declaracion_responsable_productor_verifactu.html');

@@ -428,6 +428,7 @@ async function checkCashPayments(empresaId, startDate, endDate, config) {
 async function checkMissingRetentions(empresaId, startDate, endDate) {
     // Keywords de servicios profesionales que deberían llevar retención IRPF
     // NO incluir 'autonomo' porque aparece en recibos de SS (TGSS) que no son servicios profesionales
+    // Solo buscar en proveedor y categoría, NO en descripción (nombres de productos contienen "profesional", "ingeniero", etc.)
     const keywords = ['profesional', 'asesoria', 'asesoría', 'legal', 'consultoria', 'consultoría',
         'notario', 'abogado', 'gestor', 'gestoria', 'gestoría', 'arquitecto', 'ingeniero',
         'diseñador', 'programador', 'freelance'];
@@ -444,19 +445,22 @@ async function checkMissingRetentions(empresaId, startDate, endDate) {
         AND (
             LOWER(COALESCE(categoria, '')) ~ ${keywordPattern}
             OR LOWER(COALESCE(proveedor, '')) ~ ${keywordPattern}
-            OR LOWER(COALESCE(descripcion, '')) ~ ${keywordPattern}
         )
     `;
 
-    // Excluir proveedores que son sociedades (S.L., S.A., etc.) — no necesitan retención IRPF
-    const sociedadRegex = /\b(S\.?L\.?U?\.?|S\.?A\.?|S\.?C\.?|S\.?COOP\.?|SOCIEDAD|CORPORACION|CORP\.?)\b/i;
+    // Excluir proveedores que son sociedades (S.L., S.A., S.à r.l., etc.) — no necesitan retención IRPF
+    const sociedadRegex = /\b(S\.?L\.?U?\.?|S\.?A\.?|S\.?C\.?|S\.?COOP\.?|SOCIEDAD|CORPORACION|CORP\.?|S\.?[àa]\.?\s*r\.?\s*l\.?)\b/i;
     // Excluir pagos a Seguridad Social, TGSS, cuotas de autónomo, hacienda, etc.
     const ssExcludeRegex = /\b(TGSS|SEGURIDAD\s*SOCIAL|TESORERIA\s*GENERAL|CUOTA\s*AUTONOMO|RECIBO\s*(DE\s*)?(EL\s*)?AUTONOMO|RETA\b|HACIENDA|AEAT|AGENCIA\s*TRIBUTARIA)\b/i;
+    // Categorías que son compras de material/producto, no servicios profesionales
+    const materialCategories = /^(herramientas|material|suministros|equipamiento|mobiliario|informatica|electronica|papeleria|limpieza|ferreteria|repuestos|consumibles|maquinaria)$/i;
     const realSuspects = suspects.filter(s => {
         if (s.proveedor && sociedadRegex.test(s.proveedor)) return false;
         // Excluir pagos a organismos públicos (SS, Hacienda)
         const textoCompleto = `${s.proveedor || ''} ${s.descripcion || ''} ${s.categoria || ''}`;
         if (ssExcludeRegex.test(textoCompleto)) return false;
+        // Excluir compras de material — la palabra "profesional" en el nombre de un producto no implica servicio profesional
+        if (s.categoria && materialCategories.test(s.categoria.trim())) return false;
         return true;
     });
 

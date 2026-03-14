@@ -6,8 +6,12 @@ import { sql } from "../db.js";
    Helpers
 ========================= */
 
-async function getEmpresaId(userId) {
-  const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
+  const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
   if (!r[0]) {
     const e = new Error("Empresa no asociada");
     e.status = 403;
@@ -22,8 +26,7 @@ async function getEmpresaId(userId) {
 
 export async function listarCentros(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const rows = await sql`
       SELECT ct.*,
@@ -42,8 +45,7 @@ export async function listarCentros(req, res) {
 
 export async function getCentroDetalle(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const [centro] = await sql`
       SELECT * FROM centros_trabajo_180
@@ -60,8 +62,7 @@ export async function getCentroDetalle(req, res) {
 
 export async function crearCentro(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const { nombre, direccion, lat, lng, radio_m, geo_policy, notas } = req.body;
 
@@ -104,8 +105,7 @@ export async function crearCentro(req, res) {
 
 export async function actualizarCentro(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const { id } = req.params;
     const { nombre, direccion, lat, lng, radio_m, geo_policy, notas, activo } = req.body;
@@ -157,8 +157,7 @@ export async function actualizarCentro(req, res) {
 
 export async function desactivarCentro(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const [updated] = await sql`
       UPDATE centros_trabajo_180
@@ -181,8 +180,7 @@ export async function desactivarCentro(req, res) {
 
 export async function asignarCentroEmpleado(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const { empleado_id, centro_trabajo_id } = req.body;
 
@@ -232,8 +230,7 @@ export async function asignarCentroEmpleado(req, res) {
 
 export async function desasignarCentroEmpleado(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const { empleado_id } = req.body;
 
@@ -260,8 +257,7 @@ export async function desasignarCentroEmpleado(req, res) {
 
 export async function listarEmpleadosCentro(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     const { id } = req.params;
 

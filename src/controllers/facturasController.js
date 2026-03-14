@@ -8,15 +8,22 @@ import { enviarRegistroAeat } from "../services/verifactuAeatService.js";
 import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 import { generarAsientoFactura } from "../services/contabilidadService.js";
 import { saveToStorage } from "./storageController.js";
+import { registrarEventoVerifactu } from "./verifactuEventosController.js";
 
 /* =========================
    Helpers
 ========================= */
 
-async function getEmpresaId(userId) {
+async function getEmpresaId(userIdOrReq) {
+  // Soportar tanto getEmpresaId(req) como getEmpresaId(req)
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
+
   const r = await sql`
     select id from empresa_180
-    where user_id=${userId}
+    where user_id=${userIdOrReq}
     limit 1
   `;
 
@@ -120,7 +127,7 @@ export async function listFacturas(req, res) {
   try {
     let empresaId = req.user.empresa_id;
     if (!empresaId) {
-      empresaId = await getEmpresaId(req.user.id);
+      empresaId = await getEmpresaId(req);
     }
 
     const { estado, cliente_id, fecha_desde, fecha_hasta, year } = req.query;
@@ -187,7 +194,7 @@ export async function listFacturas(req, res) {
 
 export async function getLastValidDate(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
 
     // Obtener la fecha de la última factura validada
     const [lastInvoice] = await sql`
@@ -214,7 +221,7 @@ export async function getLastValidDate(req, res) {
 
 export async function getFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [factura] = await sql`
@@ -278,7 +285,7 @@ export async function getFactura(req, res) {
 
 export async function createFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [], retencion_porcentaje = 0, tipo_factura = 'NORMAL' } = req.body;
 
     if (!cliente_id) {
@@ -452,7 +459,7 @@ export async function createFactura(req, res) {
 
 export async function updateFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, work_log_ids = [], retencion_porcentaje = 0 } = req.body;
 
@@ -608,7 +615,7 @@ export async function updateFactura(req, res) {
 
 export async function validarFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { fecha, mensaje_iva } = req.body;
 
@@ -669,6 +676,7 @@ export async function validarFactura(req, res) {
       numero = await generarNumeroFactura(empresaId, fecha);
     }
 
+    let verifactuResult = null;
     await sql.begin(async (tx) => {
       // Obtener líneas para recalcular
       const lineas = await tx`select * from lineafactura_180 where factura_id=${id}`;
@@ -705,7 +713,6 @@ export async function validarFactura(req, res) {
 
       // Verificar Veri*Factu (si aplica) con el registro actualizado
       // PROFORMA: NO se envía a VeriFactu
-      let verifactuResult = null;
       if (factura.tipo_factura !== 'PROFORMA') {
         verifactuResult = await verificarVerifactu(updatedRecord, tx);
       }
@@ -764,6 +771,15 @@ export async function validarFactura(req, res) {
       entidadId: id,
       req,
       datosNuevos: { numero, fecha, estado: 'VALIDADA' }
+    });
+
+    // Registro evento Veri*Factu para auditoría fiscal
+    registrarEventoVerifactu({
+      empresaId,
+      userId: req.user.id,
+      tipoEvento: 'ALTA',
+      descripcion: `Factura ${numero} validada — Total: ${factura.total}€ — Hash: ${verifactuResult?.hash || 'N/A'}`,
+      metaData: { factura_id: id, numero, total: factura.total, hash: verifactuResult?.hash }
     });
 
     // --- AUTO-GENERAR ASIENTO CONTABLE ---
@@ -928,7 +944,7 @@ async function generarNumeroFactura(empresaId, fecha) {
 
 export async function anularFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [factura] = await sql`
@@ -1064,6 +1080,15 @@ export async function anularFactura(req, res) {
       motivo: `Generada rectificativa ${numeroRect}`
     });
 
+    // Registro evento Veri*Factu
+    registrarEventoVerifactu({
+      empresaId,
+      userId: req.user.id,
+      tipoEvento: 'ANULACION',
+      descripcion: `Factura ${factura.numero} anulada — Rectificativa: ${numeroRect}`,
+      metaData: { factura_id: id, numero_original: factura.numero, numero_rectificativa: numeroRect }
+    });
+
     res.json({
       success: true,
       message: "Factura anulada y rectificativa generada",
@@ -1081,7 +1106,7 @@ export async function anularFactura(req, res) {
 
 export async function generarPdf(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { modo } = req.query; // TEST or PROD
 
@@ -1145,7 +1170,7 @@ export async function generarPdf(req, res) {
 
 export async function enviarEmail(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { para, asunto, cuerpo, cc, adjuntar_pdf } = req.body;
 
@@ -1227,7 +1252,7 @@ export async function enviarEmail(req, res) {
 
 export async function deleteFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [factura] = await sql`
@@ -1276,7 +1301,7 @@ export async function deleteFactura(req, res) {
 
 export async function convertirProformaANormal(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { fecha } = req.body;
 

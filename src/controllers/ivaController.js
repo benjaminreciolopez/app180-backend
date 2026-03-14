@@ -1,7 +1,11 @@
 import { sql } from "../db.js";
 
-async function getEmpresaId(userId) {
-    const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+    if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+        if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+        userIdOrReq = userIdOrReq.user.id;
+    }
+    const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
     if (!r[0]) throw new Error("Empresa no encontrada");
     return r[0].id;
 }
@@ -9,7 +13,7 @@ async function getEmpresaId(userId) {
 export async function listIVA(req, res) {
     try {
         console.log("🔄 listIVA: Obteniendo user...", req.user.id);
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         console.log("🏢 listIVA: EmpresaID:", empresaId);
 
         const ivas = await sql`
@@ -27,7 +31,7 @@ export async function listIVA(req, res) {
 
 export async function createIVA(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { porcentaje, descripcion } = req.body;
 
         const pct = parseFloat(porcentaje);
@@ -58,7 +62,7 @@ export async function createIVA(req, res) {
 
 export async function updateIVA(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { id } = req.params;
         const { porcentaje, descripcion } = req.body;
 
@@ -87,7 +91,7 @@ export async function updateIVA(req, res) {
 
 export async function deleteIVA(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { id } = req.params;
 
         // Soft delete

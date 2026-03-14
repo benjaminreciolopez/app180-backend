@@ -1,8 +1,12 @@
 import { sql } from "../db.js";
 import { seedKnowledge } from "../services/knowledgeSeedService.js";
 
-async function getEmpresaId(userId) {
-  const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
+  const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
   if (!r[0]) {
     const e = new Error("Empresa no asociada");
     e.status = 403;
@@ -16,7 +20,7 @@ async function getEmpresaId(userId) {
  */
 export async function listar(req, res) {
   try {
-    const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const rows = await sql`
       SELECT id, token, respuesta, categoria, prioridad, activo, created_at, updated_at
       FROM conocimiento_180
@@ -35,7 +39,7 @@ export async function listar(req, res) {
  */
 export async function crear(req, res) {
   try {
-    const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { token, respuesta, categoria, prioridad } = req.body;
 
     if (!token || !respuesta) {
@@ -67,7 +71,7 @@ export async function crear(req, res) {
  */
 export async function actualizar(req, res) {
   try {
-    const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { token, respuesta, categoria, prioridad, activo } = req.body;
 
@@ -102,7 +106,7 @@ export async function actualizar(req, res) {
  */
 export async function eliminar(req, res) {
   try {
-    const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const r = await sql`
@@ -123,7 +127,7 @@ export async function eliminar(req, res) {
  */
 export async function recargarSemilla(req, res) {
   try {
-    const empresaId = req.user.empresa_id || await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     await seedKnowledge(empresaId);
     res.json({ success: true, message: "Base de conocimiento actualizada con funciones de la app" });
   } catch (err) {

@@ -1,7 +1,11 @@
 import { sql } from "../db.js";
 
-async function getEmpresaId(userId) {
-  const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
+  const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
   if (!r[0]) throw new Error("Empresa no asociada");
   return r[0].id;
 }
@@ -14,7 +18,7 @@ async function getEmpresaId(userId) {
  * - Saldo Pendiente (Aproximado, basado en trabajos vs pagos)
  */
 export async function getBillingStatus(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { cliente_id, desde, hasta } = req.query;
 
   const d = desde || '2000-01-01';
@@ -78,7 +82,7 @@ export async function getBillingStatus(req, res) {
  * GET /admin/billing/clients?desde=...&hasta=...
  */
 export async function getBillingByClient(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { desde, hasta } = req.query;
 
   const d = desde || '2000-01-01';
@@ -126,7 +130,7 @@ export async function getBillingByClient(req, res) {
  */
 export async function getDeudasPendientesConsolidado(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { desde, hasta, cliente_id } = req.query;
 
     const d = desde || '2000-01-01';

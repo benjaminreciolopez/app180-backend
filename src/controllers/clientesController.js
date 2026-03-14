@@ -7,9 +7,13 @@ import { sendSuccess, sendError } from "../utils/responseHelpers.js";
    Helpers
 ========================= */
 
-async function getEmpresaId(userId) {
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
   const r =
-    await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+    await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
 
   if (!r[0]) {
     const e = new Error("Empresa no asociada");
@@ -28,10 +32,7 @@ function n(v) {
 ========================= */
 
 export async function listarClientes(req, res) {
-  let empresaId = req.user.empresa_id;
-  if (!empresaId) {
-    empresaId = await getEmpresaId(req.user.id);
-  }
+  const empresaId = await getEmpresaId(req);
 
   // Unimos con datos fiscales para que el frontend tenga la información completa al listar y editar
   // También añadimos un resumen de tarifas activas desde client_tariffs_180
@@ -59,7 +60,7 @@ export async function listarClientes(req, res) {
 /* ----------------------- */
 
 export async function getClienteDetalle(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { id } = req.params;
 
   // Hacemos JOIN con datos fiscales y comprobamos tarifas
@@ -98,7 +99,7 @@ async function obtenerSiguienteCodigoCliente(empresaId) {
 }
 
 export async function getNextCodigoCliente(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const codigo = await obtenerSiguienteCodigoCliente(empresaId);
   res.json({ codigo });
 }
@@ -107,7 +108,7 @@ export async function getNextCodigoCliente(req, res) {
 /* ----------------------- */
 
 export async function crearCliente(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
 
   const {
     nombre,
@@ -299,7 +300,7 @@ export async function crearCliente(req, res) {
 /* ----------------------- */
 
 export async function actualizarCliente(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { id } = req.params;
 
   const body = req.body;
@@ -519,7 +520,7 @@ export async function actualizarCliente(req, res) {
 /* ----------------------- */
 
 export async function desactivarCliente(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { id } = req.params;
 
   await sql`
@@ -537,7 +538,7 @@ export async function desactivarCliente(req, res) {
 ========================= */
 
 export async function crearClienteHistorico(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
 
   const existe = await sql`
     select id
@@ -577,7 +578,7 @@ export async function crearClienteHistorico(req, res) {
 
 export async function asignarClienteEmpleado(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { empleado_id, cliente_id, fecha_inicio, fecha_fin } = req.body || {};
 
     if (!empleado_id || !cliente_id || !fecha_inicio) {
@@ -646,7 +647,7 @@ export async function asignarClienteEmpleado(req, res) {
 
 export async function listarAsignacionesClientes(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { empleado_id } = req.params;
 
     const rows = await sql`
@@ -667,7 +668,7 @@ export async function listarAsignacionesClientes(req, res) {
 
 export async function desasignarClienteEmpleado(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { empleado_id } = req.body || {};
 
     if (!empleado_id) {

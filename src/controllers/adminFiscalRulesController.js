@@ -5,8 +5,12 @@ import { FiscalRules } from "../services/fiscalRulesEngine.js";
 /**
  * Helper: obtener empresa_id del usuario
  */
-async function getEmpresaId(userId) {
-    const r = await sql`SELECT id FROM empresa_180 WHERE user_id=${userId} LIMIT 1`;
+async function getEmpresaId(userIdOrReq) {
+    if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+        if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+        userIdOrReq = userIdOrReq.user.id;
+    }
+    const r = await sql`SELECT id FROM empresa_180 WHERE user_id=${userIdOrReq} LIMIT 1`;
     if (!r[0]) {
         const e = new Error("Empresa no asociada");
         e.status = 403;

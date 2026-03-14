@@ -6,8 +6,12 @@ import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
 /**
  * Obtiene el ID de la empresa del usuario autenticado
  */
-async function getEmpresaId(userId) {
-  const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
+  const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
   if (!r[0]) {
     const e = new Error("Empresa no asociada");
     e.status = 403;

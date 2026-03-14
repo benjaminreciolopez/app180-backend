@@ -10,10 +10,14 @@ import { saveToStorage } from "./storageController.js";
    Helpers
 ========================= */
 
-async function getEmpresaId(userId) {
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
   const r = await sql`
     select id from empresa_180
-    where user_id=${userId}
+    where user_id=${userIdOrReq}
     limit 1
   `;
   if (!r[0]) {
@@ -68,10 +72,7 @@ async function generarNumeroProforma(empresaId, fecha) {
 
 export async function listProformas(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
-    if (!empresaId) {
-      empresaId = await getEmpresaId(req.user.id);
-    }
+    const empresaId = await getEmpresaId(req);
 
     const { estado, cliente_id, year } = req.query;
 
@@ -115,7 +116,7 @@ export async function listProformas(req, res) {
 
 export async function getProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [proforma] = await sql`
@@ -171,7 +172,7 @@ export async function getProforma(req, res) {
 
 export async function crearProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, retencion_porcentaje = 0 } = req.body;
 
     if (!cliente_id) {
@@ -319,7 +320,7 @@ export async function crearProforma(req, res) {
 
 export async function editarProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { cliente_id, fecha, iva_global, lineas = [], mensaje_iva, metodo_pago, retencion_porcentaje = 0 } = req.body;
 
@@ -427,7 +428,7 @@ export async function editarProforma(req, res) {
 
 export async function anularProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { motivo } = req.body;
 
@@ -486,7 +487,7 @@ export async function anularProforma(req, res) {
 
 export async function reactivarProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [proforma] = await sql`
@@ -605,7 +606,7 @@ export async function reactivarProforma(req, res) {
 
 export async function convertirProformaAFactura(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
     const { numero_confirmacion, fecha } = req.body;
 
@@ -740,7 +741,7 @@ export async function convertirProformaAFactura(req, res) {
 
 export async function eliminarProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [proforma] = await sql`
@@ -785,7 +786,7 @@ export async function eliminarProforma(req, res) {
 
 export async function generarPdfProforma(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.user.id);
+    const empresaId = await getEmpresaId(req);
     const { id } = req.params;
 
     const [proforma] = await sql`

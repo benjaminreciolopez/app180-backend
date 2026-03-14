@@ -3,8 +3,12 @@ import { sql } from '../db.js';
 /**
  * Helper para obtener empresa_id de manera segura
  */
-async function getEmpresaId(userId) {
-    const r = await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+async function getEmpresaId(userIdOrReq) {
+    if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+        if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+        userIdOrReq = userIdOrReq.user.id;
+    }
+    const r = await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
     if (!r[0]) {
         const e = new Error("Empresa no asociada");
         e.status = 403;
@@ -18,7 +22,7 @@ async function getEmpresaId(userId) {
  */
 export async function getDashboardData(req, res) {
     try {
-        const empresaId = await getEmpresaId(req.user.id);
+        const empresaId = await getEmpresaId(req);
         const { year, cliente_id, estado } = req.query;
 
         const currentYear = year ? parseInt(year) : new Date().getFullYear();

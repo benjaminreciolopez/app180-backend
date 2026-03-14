@@ -9,10 +9,14 @@ import { obtenerEstadoCumplimiento } from '../middlewares/verifactuComplianceMid
 /**
  * Obtiene el ID de empresa del usuario
  */
-async function getEmpresaId(userId) {
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
   const [empresa] = await sql`
     SELECT id FROM empresa_180
-    WHERE user_id = ${userId}
+    WHERE user_id = ${userIdOrReq}
     LIMIT 1
   `;
   if (!empresa) {
@@ -29,7 +33,7 @@ async function getEmpresaId(userId) {
  */
 export async function listarRegistros(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const { estado, limit = 100, offset = 0 } = req.query;
 
     let query = sql`
@@ -86,7 +90,7 @@ export async function listarRegistros(req, res) {
  */
 export async function obtenerEstadisticas(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
 
     const [stats] = await sql`
       SELECT
@@ -119,7 +123,7 @@ export async function obtenerEstadisticas(req, res) {
  */
 export async function enviarRegistro(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const { registroId } = req.params;
     const { entorno = 'PRUEBAS' } = req.body;
 
@@ -175,7 +179,7 @@ export async function enviarRegistro(req, res) {
  */
 export async function enviarPendientes(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const { entorno = 'PRUEBAS' } = req.body;
 
     // Obtener configuración de certificado
@@ -215,7 +219,7 @@ export async function enviarPendientes(req, res) {
  */
 export async function probarConexion(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const { entorno = 'PRUEBAS' } = req.body;
 
     // Obtener configuración de certificado
@@ -250,7 +254,7 @@ export async function probarConexion(req, res) {
  */
 export async function reintentarErrores(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const { entorno = 'PRUEBAS' } = req.body;
 
     // Marcar registros con ERROR como PENDIENTE
@@ -299,7 +303,7 @@ export async function reintentarErrores(req, res) {
  */
 export async function obtenerDetalleRegistro(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const { registroId } = req.params;
 
     const [registro] = await sql`
@@ -345,7 +349,7 @@ export async function obtenerDetalleRegistro(req, res) {
  */
 export async function obtenerCumplimiento(req, res) {
   try {
-    const empresaId = await getEmpresaId(req.userId);
+    const empresaId = await getEmpresaId(req);
     const estado = await obtenerEstadoCumplimiento(empresaId);
 
     res.json(estado);

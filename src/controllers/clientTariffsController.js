@@ -2,9 +2,13 @@
 
 import { sql } from "../db.js";
 
-async function getEmpresaId(userId) {
+async function getEmpresaId(userIdOrReq) {
+  if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
+    userIdOrReq = userIdOrReq.user.id;
+  }
   const r =
-    await sql`select id from empresa_180 where user_id=${userId} limit 1`;
+    await sql`select id from empresa_180 where user_id=${userIdOrReq} limit 1`;
 
   if (!r[0]) throw new Error("Empresa no asociada");
 
@@ -14,7 +18,7 @@ async function getEmpresaId(userId) {
 /* ===================== */
 
 export async function listarTarifasCliente(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { id } = req.params;
 
   const rows = await sql`
@@ -32,7 +36,7 @@ export async function listarTarifasCliente(req, res) {
 /* ===================== */
 
 export async function crearTarifaCliente(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { id } = req.params;
 
   const { tipo, work_item_id, precio, fecha_inicio, fecha_fin } = req.body;
@@ -101,7 +105,7 @@ export async function crearTarifaCliente(req, res) {
 /* ===================== */
 
 export async function cerrarTarifa(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { tarifaId } = req.params;
 
   await sql`
@@ -115,7 +119,7 @@ export async function cerrarTarifa(req, res) {
   res.json({ ok: true });
 }
 export async function getTarifaActiva(req, res) {
-  const empresaId = await getEmpresaId(req.user.id);
+  const empresaId = await getEmpresaId(req);
   const { id } = req.params;
   const { tipo, work_item_id } = req.query;
 
