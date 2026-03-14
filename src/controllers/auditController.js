@@ -1,5 +1,6 @@
 // backend/src/controllers/auditController.js
 import { sql } from '../db.js';
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 
 /**
  * Obtener logs de auditoría con filtros y paginación
@@ -16,15 +17,8 @@ export const getAuditLogs = async (req, res) => {
       offset = 0
     } = req.query;
 
-    const adminEmpresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (adminEmpresa.length === 0) {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
-
-    const empresaId = adminEmpresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Construir condiciones WHERE dinámicamente
     let conditions = [`a.empresa_id = ${empresaId}`];
@@ -102,15 +96,8 @@ export const getAuditLogs = async (req, res) => {
  */
 export const getFichajesRechazados = async (req, res) => {
   try {
-    const adminEmpresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (adminEmpresa.length === 0) {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
-
-    const empresaId = adminEmpresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const fichajes = await sql`
       SELECT 
@@ -142,15 +129,8 @@ export const getFichajesRechazados = async (req, res) => {
  */
 export const getAuditStats = async (req, res) => {
   try {
-    const adminEmpresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (adminEmpresa.length === 0) {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
-
-    const empresaId = adminEmpresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Estadísticas por acción (últimos 30 días)
     const statsByAction = await sql`
@@ -211,15 +191,8 @@ export const eliminarFichajeRechazado = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const adminEmpresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (adminEmpresa.length === 0) {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
-
-    const empresaId = adminEmpresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Verificar que el fichaje existe y está rechazado
     const [fichaje] = await sql`

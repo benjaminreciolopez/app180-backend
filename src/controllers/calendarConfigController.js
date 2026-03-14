@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { sql } from '../db.js';
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import {
   getCalendarConfig,
   saveOAuth2Config,
@@ -19,15 +20,10 @@ import {
  */
 export async function getConfig(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const config = await getCalendarConfig(empresa[0].id);
+    const config = await getCalendarConfig(empresaId);
 
     if (!config) {
       return res.json({
@@ -177,15 +173,10 @@ export async function handleGoogleCallback(req, res) {
  */
 export async function disconnect(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    await disconnectOAuth2(empresa[0].id);
+    await disconnectOAuth2(empresaId);
 
     res.json({
       success: true,
@@ -203,15 +194,8 @@ export async function disconnect(req, res) {
  */
 export async function testConnection(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Intentar listar eventos (próximos 7 días)
     const dateFrom = new Date();
@@ -243,13 +227,8 @@ export async function testConnection(req, res) {
  */
 export async function updateSettings(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const { sync_enabled, sync_direction, sync_types, sync_range_months } = req.body;
 
@@ -261,7 +240,7 @@ export async function updateSettings(req, res) {
         sync_types = ${sync_types ? JSON.stringify(sync_types) : sql`sync_types`},
         sync_range_months = ${sync_range_months || sql`sync_range_months`},
         updated_at = NOW()
-      WHERE empresa_id = ${empresa[0].id}
+      WHERE empresa_id = ${empresaId}
     `;
 
     res.json({

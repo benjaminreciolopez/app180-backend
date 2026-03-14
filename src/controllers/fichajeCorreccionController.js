@@ -7,6 +7,7 @@
  */
 
 import { sql } from "../db.js";
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import { generarHashFichajeNuevo } from "../services/fichajeIntegridadService.js";
 import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 import { recalcularJornada } from "../services/jornadaEngine.js";
@@ -130,12 +131,8 @@ export const listarCorrecciones = async (req, res) => {
   try {
     const { estado = "pendiente" } = req.query;
 
-    const [empresa] = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const correcciones = await sql`
       SELECT c.*,
@@ -145,7 +142,7 @@ export const listarCorrecciones = async (req, res) => {
       FROM fichaje_correcciones_180 c
       JOIN employees_180 e ON c.empleado_id = e.id
       LEFT JOIN fichajes_180 f ON c.fichaje_id = f.id
-      WHERE c.empresa_id = ${empresa.id}
+      WHERE c.empresa_id = ${empresaId}
         ${estado && estado !== "todas" ? sql`AND c.estado = ${estado}` : sql``}
       ORDER BY c.created_at DESC
       LIMIT 100
@@ -171,18 +168,14 @@ export const resolverCorreccion = async (req, res) => {
       return res.status(400).json({ error: "Acción inválida (aprobar/rechazar)" });
     }
 
-    const [empresa] = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const [correccion] = await sql`
       SELECT c.*, emp.user_id as empleado_user_id
       FROM fichaje_correcciones_180 c
       JOIN employees_180 emp ON c.empleado_id = emp.id
-      WHERE c.id = ${id} AND c.empresa_id = ${empresa.id}
+      WHERE c.id = ${id} AND c.empresa_id = ${empresaId}
     `;
     if (!correccion) {
       return res.status(404).json({ error: "Corrección no encontrada" });
@@ -205,7 +198,7 @@ export const resolverCorreccion = async (req, res) => {
 
       try {
         await registrarAuditoria({
-          empresaId: empresa.id,
+          empresaId: empresaId,
           userId: req.user.id,
           empleadoId: correccion.empleado_id,
           accion: "correccion_rechazada",
@@ -233,7 +226,7 @@ export const resolverCorreccion = async (req, res) => {
     // Hash chain
     const hashData = await generarHashFichajeNuevo({
       empleado_id: correccion.empleado_id,
-      empresa_id: empresa.id,
+      empresa_id: empresaId,
       fecha: new Date(dp.fecha),
       tipo: dp.tipo,
       jornada_id: jornadaId,
@@ -246,7 +239,7 @@ export const resolverCorreccion = async (req, res) => {
         sospechoso, creado_manual,
         hash_actual, hash_anterior, fecha_hash
       ) VALUES (
-        ${correccion.empleado_id}, ${empresa.id}, ${correccion.empleado_user_id},
+        ${correccion.empleado_id}, ${empresaId}, ${correccion.empleado_user_id},
         ${jornadaId}, ${dp.tipo}, ${dp.fecha},
         'confirmado', 'correccion',
         ${"Corrección aprobada: " + (notas_resolucion || correccion.motivo)},
@@ -276,7 +269,7 @@ export const resolverCorreccion = async (req, res) => {
 
     try {
       await registrarAuditoria({
-        empresaId: empresa.id,
+        empresaId: empresaId,
         userId: req.user.id,
         empleadoId: correccion.empleado_id,
         accion: "correccion_aprobada",

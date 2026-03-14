@@ -99,10 +99,11 @@ export async function getClientes(req, res) {
         ac.id AS vinculo_id,
         ac.empresa_id,
         e.nombre,
-        e.cif,
         ac.estado,
+        ac.invitado_por,
         ac.permisos,
         ac.connected_at,
+        ac.created_at,
         (
           SELECT u.email
           FROM users_180 u
@@ -177,7 +178,7 @@ export async function getClienteResumen(req, res) {
 
     // Ultimo modelo fiscal generado
     const ultimoModelo = await sql`
-      SELECT modelo, periodo, anio, created_at
+      SELECT modelo, trimestre, anio, created_at
       FROM modelos_fiscales_180
       WHERE empresa_id = ${empresaId}
       ORDER BY created_at DESC

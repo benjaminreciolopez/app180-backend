@@ -9,6 +9,7 @@ import { sql } from "../db.js";
 export async function getDashboardConsolidado(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
+    const asesoriaEmpresaId = req.user.empresa_id; // empresa propia de la asesoria
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
@@ -26,12 +27,85 @@ export async function getDashboardConsolidado(req, res) {
 
     const empresaIds = clientesActivos.map((c) => c.empresa_id);
 
+    // ── KPIs PROPIOS de la asesoria (su propia empresa) ──
+    const emptyFinancial = { este_mes: 0, mes_anterior: 0, ytd: 0 };
+    let facturacionPropia = { ...emptyFinancial };
+    let gastosPropia = { ...emptyFinancial };
+    let beneficioPropia = { este_mes: 0, ytd: 0 };
+
+    if (asesoriaEmpresaId) {
+      const [fpEsteMes] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${asesoriaEmpresaId}
+          AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND EXTRACT(YEAR FROM fecha) = ${currentYear}
+          AND EXTRACT(MONTH FROM fecha) = ${currentMonth}
+      `;
+      const [fpMesAnt] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${asesoriaEmpresaId}
+          AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND EXTRACT(YEAR FROM fecha) = ${prevMonthYear}
+          AND EXTRACT(MONTH FROM fecha) = ${prevMonth}
+      `;
+      const [fpYtd] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${asesoriaEmpresaId}
+          AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND EXTRACT(YEAR FROM fecha) = ${currentYear}
+      `;
+      const [gpEsteMes] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${asesoriaEmpresaId}
+          AND activo = true
+          AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
+          AND EXTRACT(MONTH FROM fecha_compra) = ${currentMonth}
+      `;
+      const [gpMesAnt] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${asesoriaEmpresaId}
+          AND activo = true
+          AND EXTRACT(YEAR FROM fecha_compra) = ${prevMonthYear}
+          AND EXTRACT(MONTH FROM fecha_compra) = ${prevMonth}
+      `;
+      const [gpYtd] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${asesoriaEmpresaId}
+          AND activo = true
+          AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
+      `;
+
+      facturacionPropia = {
+        este_mes: parseFloat(fpEsteMes.total),
+        mes_anterior: parseFloat(fpMesAnt.total),
+        ytd: parseFloat(fpYtd.total),
+      };
+      gastosPropia = {
+        este_mes: parseFloat(gpEsteMes.total),
+        mes_anterior: parseFloat(gpMesAnt.total),
+        ytd: parseFloat(gpYtd.total),
+      };
+      beneficioPropia = {
+        este_mes: facturacionPropia.este_mes - gastosPropia.este_mes,
+        ytd: facturacionPropia.ytd - gastosPropia.ytd,
+      };
+    }
+
     if (empresaIds.length === 0) {
       return res.json({
         success: true,
         data: {
-          facturacion: { este_mes: 0, mes_anterior: 0, ytd: 0 },
-          gastos: { este_mes: 0, mes_anterior: 0, ytd: 0 },
+          facturacion_propia: facturacionPropia,
+          gastos_propios: gastosPropia,
+          beneficio_propio: beneficioPropia,
+          facturacion_clientes: { ...emptyFinancial },
+          gastos_clientes: { ...emptyFinancial },
           clientes_facturas_pendientes: { total_clientes: 0, total_importe: 0 },
           clientes_con_alertas: 0,
           plazos_fiscales: [],
@@ -42,7 +116,9 @@ export async function getDashboardConsolidado(req, res) {
       });
     }
 
-    // 2. Facturacion agregada
+    // ── KPIs AGREGADOS de clientes ──
+
+    // 2. Facturacion agregada de clientes
     const [factEsteMes] = await sql`
       SELECT COALESCE(SUM(total), 0)::numeric AS total
       FROM factura_180
@@ -67,7 +143,7 @@ export async function getDashboardConsolidado(req, res) {
         AND EXTRACT(YEAR FROM fecha) = ${currentYear}
     `;
 
-    // 3. Gastos agregados
+    // 3. Gastos agregados de clientes
     const [gastosEsteMes] = await sql`
       SELECT COALESCE(SUM(total), 0)::numeric AS total
       FROM purchases_180
@@ -154,7 +230,7 @@ export async function getDashboardConsolidado(req, res) {
     // 6. Actividad reciente (ultimos 20 eventos)
     const actividadReciente = await sql`
       (
-        SELECT 'factura' AS tipo, f.fecha, e.nombre AS empresa_nombre,
+        SELECT 'factura' AS tipo, f.fecha, f.empresa_id, e.nombre AS empresa_nombre,
                'Factura ' || COALESCE(f.numero, '') || ' - ' || COALESCE(f.total::text, '0') || ' €' AS descripcion
         FROM factura_180 f
         JOIN empresa_180 e ON e.id = f.empresa_id
@@ -164,7 +240,7 @@ export async function getDashboardConsolidado(req, res) {
       )
       UNION ALL
       (
-        SELECT 'gasto' AS tipo, p.fecha_compra AS fecha, e.nombre AS empresa_nombre,
+        SELECT 'gasto' AS tipo, p.fecha_compra AS fecha, p.empresa_id, e.nombre AS empresa_nombre,
                COALESCE(p.proveedor, 'Gasto') || ' - ' || COALESCE(p.total::text, '0') || ' €' AS descripcion
         FROM purchases_180 p
         JOIN empresa_180 e ON e.id = p.empresa_id
@@ -229,12 +305,15 @@ export async function getDashboardConsolidado(req, res) {
     return res.json({
       success: true,
       data: {
-        facturacion: {
+        facturacion_propia: facturacionPropia,
+        gastos_propios: gastosPropia,
+        beneficio_propio: beneficioPropia,
+        facturacion_clientes: {
           este_mes: parseFloat(factEsteMes.total),
           mes_anterior: parseFloat(factMesAnterior.total),
           ytd: parseFloat(factYtd.total),
         },
-        gastos: {
+        gastos_clientes: {
           este_mes: parseFloat(gastosEsteMes.total),
           mes_anterior: parseFloat(gastosMesAnterior.total),
           ytd: parseFloat(gastosYtd.total),

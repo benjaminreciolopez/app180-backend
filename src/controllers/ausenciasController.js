@@ -1,6 +1,7 @@
 import { sql } from "../db.js";
 import { autoPushToGoogle } from "../services/calendarPushService.js";
 import { crearNotificacionSistema } from "./notificacionesController.js";
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 
 async function haySolapeAprobado({
   empleadoId,
@@ -51,7 +52,7 @@ export const aprobarVacaciones = async (req, res) => {
 
 
     // Push a Google Calendar (asíncrono)
-    const empresaId = update[0].empresa_id || (await sql`SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}`)[0]?.id;
+    const empresaId = update[0].empresa_id || await resolveEmpresaId(req);
     if (empresaId) autoPushToGoogle(empresaId, 'ausencias', id);
 
     // Notificar al empleado
@@ -130,13 +131,8 @@ export const crearBajaMedica = async (req, res) => {
     }
 
     // Empresa del admin
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa.length) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Validar que el empleado pertenece a la empresa
     const emp = await sql`
@@ -198,15 +194,8 @@ export const listarAusenciasEmpresa = async (req, res) => {
     const { estado } = req.query; // <-- nuevo (opcional)
     const estadoSafe = estado === undefined ? null : estado;
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const rows = await sql`
       SELECT a.*, e.nombre AS empleado_nombre
@@ -337,12 +326,8 @@ export const actualizarEstadoAusencia = async (req, res) => {
     }
 
     // 1) Obtener empresa
-    const empresa = await sql`
-  SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-`;
-    if (!empresa.length)
-      return res.status(403).json({ error: "No autorizado" });
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // 2) Leer ausencia actual
     const current = await sql`
@@ -426,13 +411,8 @@ export const crearAusenciaAdmin = async (req, res) => {
         .json({ error: "La fecha de inicio no puede ser mayor que la de fin" });
     }
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa.length) {
-      return res.status(403).json({ error: "Empresa no encontrada" });
-    }
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Validar que el empleado pertenece a la empresa
     const emp = await sql`
@@ -511,18 +491,11 @@ export const listarEventosCalendarioAdmin = async (req, res) => {
     const empleadoIdSafe = empleado_id ?? null;
     const estadoSafe = estado ?? null;
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (!empresa.length) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const rows = await sql`
-      SELECT 
+      SELECT
         a.id,
         a.empleado_id,
         e.nombre AS empleado_nombre,

@@ -1,4 +1,5 @@
 import { sql } from '../db.js';
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import {
   syncToGoogle,
   syncFromGoogle,
@@ -18,15 +19,8 @@ import { getCalendarConfig } from '../services/googleCalendarService.js';
  */
 export async function handleSyncToGoogle(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Rango de fechas (por defecto: próximos 12 meses)
     const dateFrom = req.body.dateFrom || new Date().toISOString().split('T')[0];
@@ -59,15 +53,8 @@ export async function handleSyncToGoogle(req, res) {
  */
 export async function handleSyncFromGoogle(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Rango de fechas (por defecto: próximos 12 meses)
     const dateFrom = req.body.dateFrom || new Date().toISOString().split('T')[0];
@@ -100,15 +87,8 @@ export async function handleSyncFromGoogle(req, res) {
  */
 export async function handleSyncBidirectional(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Rango de fechas (por defecto: próximos 12 meses)
     const dateFrom = req.body.dateFrom || new Date().toISOString().split('T')[0];
@@ -141,15 +121,10 @@ export async function handleSyncBidirectional(req, res) {
  */
 export async function getStatus(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const config = await getCalendarConfig(empresa[0].id);
+    const config = await getCalendarConfig(empresaId);
 
     if (!config) {
       return res.json({
@@ -161,7 +136,7 @@ export async function getStatus(req, res) {
     // Obtener última sincronización
     const lastSync = await sql`
       SELECT * FROM calendar_sync_log_180
-      WHERE empresa_id = ${empresa[0].id}
+      WHERE empresa_id = ${empresaId}
       ORDER BY created_at DESC
       LIMIT 1
     `;
@@ -184,16 +159,11 @@ export async function getStatus(req, res) {
  */
 export async function getHistory(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const limit = parseInt(req.query.limit) || 20;
-    const history = await getSyncHistory(empresa[0].id, limit);
+    const history = await getSyncHistory(empresaId, limit);
 
     res.json(history);
   } catch (err) {

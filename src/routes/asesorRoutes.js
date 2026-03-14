@@ -7,7 +7,7 @@ import { roleRequired } from "../middlewares/roleRequired.js";
 import { asesorClienteRequired } from "../middlewares/asesorRequired.js";
 import { getDashboard, getClientes, getClienteResumen, getConfiguracion, updateConfiguracion } from "../controllers/asesoriaController.js";
 import { getMensajes, enviarMensaje, marcarLeido, getNoLeidos, enviarMensajeConAdjunto } from "../controllers/asesoriaMensajesController.js";
-import { invitarClienteDesdeAsesor, registrarAsesoria } from "../controllers/asesoriaInvitacionController.js";
+import { invitarClienteDesdeAsesor, registrarAsesoria, aceptarVinculoDesdeAsesor, rechazarVinculoDesdeAsesor } from "../controllers/asesoriaInvitacionController.js";
 import { exportTrimestral, exportMensual, exportMultiCliente, exportResumenFiscal } from "../controllers/asesoriaExportController.js";
 import { getDashboardConsolidado } from "../controllers/asesorDashboardConsolidadoController.js";
 import { getNotificacionesAsesor, marcarLeidaAsesor, marcarTodasLeidasAsesor, limpiarNotificacionesAsesor } from "../controllers/asesorNotificacionesController.js";
@@ -27,6 +27,8 @@ router.get("/dashboard", getDashboard);
 router.get("/dashboard/consolidado", getDashboardConsolidado);
 router.get("/clientes", getClientes);
 router.post("/clientes/invitar", invitarClienteDesdeAsesor);
+router.put("/clientes/aceptar/:id", aceptarVinculoDesdeAsesor);
+router.put("/clientes/rechazar/:id", rechazarVinculoDesdeAsesor);
 
 // Configuración de la asesoría
 router.get("/configuracion", getConfiguracion);

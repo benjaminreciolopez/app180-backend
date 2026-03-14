@@ -86,6 +86,31 @@ export async function invitarAsesoriaDesdeCliente(req, res) {
       RETURNING id, estado, created_at
     `;
 
+    // Notificar a todos los usuarios de la asesoría (tabla notificaciones_asesor_180)
+    const empresaNombre = req.user.nombre || "Una empresa";
+    const asesorUsers = await sql`
+      SELECT user_id FROM asesoria_usuarios_180
+      WHERE asesoria_id = ${asesoria.id} AND activo = true
+    `;
+    for (const au of asesorUsers) {
+      await sql`
+        INSERT INTO notificaciones_asesor_180 (
+          asesoria_id, user_id, empresa_id, tipo, titulo, mensaje, leida, accion_url, accion_label, metadata
+        ) VALUES (
+          ${asesoria.id},
+          ${au.user_id},
+          ${empresaId},
+          'invitacion_cliente',
+          ${"Nueva solicitud de cliente"},
+          ${`${empresaNombre} quiere vincularse con tu asesoría`},
+          false,
+          '/asesor/clientes',
+          'Ver solicitud',
+          ${sql.json({ vinculo_id: vinculo.id, empresa_id: empresaId })}::jsonb
+        )
+      `;
+    }
+
     return res.status(201).json({
       success: true,
       data: {
@@ -190,6 +215,98 @@ export async function invitarClienteDesdeAsesor(req, res) {
   } catch (err) {
     console.error("Error invitarClienteDesdeAsesor:", err);
     return res.status(500).json({ error: "Error enviando invitación al cliente" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/aceptar/:id
+ * Asesor accepts a pending vinculo (invited by empresa)
+ */
+export async function aceptarVinculoDesdeAsesor(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const vinculoId = req.params.id;
+
+    const [updated] = await sql`
+      UPDATE asesoria_clientes_180
+      SET estado = 'activo',
+          connected_at = now()
+      WHERE id = ${vinculoId}
+        AND asesoria_id = ${asesoriaId}
+        AND estado = 'pendiente'
+      RETURNING id, empresa_id, estado, connected_at
+    `;
+
+    if (!updated) {
+      return res.status(404).json({ error: "Vínculo pendiente no encontrado" });
+    }
+
+    // Get empresa name for response
+    const [empresa] = await sql`
+      SELECT nombre FROM empresa_180 WHERE id = ${updated.empresa_id}
+    `;
+
+    // Mark related notification as read
+    await sql`
+      UPDATE notificaciones_asesor_180
+      SET leida = TRUE, leida_at = NOW()
+      WHERE asesoria_id = ${asesoriaId}
+        AND tipo = 'invitacion_cliente'
+        AND leida = FALSE
+        AND metadata->>'vinculo_id' = ${vinculoId}
+    `;
+
+    return res.json({
+      success: true,
+      data: {
+        vinculo_id: updated.id,
+        estado: updated.estado,
+        connected_at: updated.connected_at,
+        empresa_nombre: empresa?.nombre || null,
+      },
+    });
+  } catch (err) {
+    console.error("Error aceptarVinculoDesdeAsesor:", err);
+    return res.status(500).json({ error: "Error aceptando vínculo" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/rechazar/:id
+ * Asesor rejects a pending vinculo
+ */
+export async function rechazarVinculoDesdeAsesor(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const vinculoId = req.params.id;
+
+    const [updated] = await sql`
+      UPDATE asesoria_clientes_180
+      SET estado = 'rechazado'
+      WHERE id = ${vinculoId}
+        AND asesoria_id = ${asesoriaId}
+        AND estado = 'pendiente'
+      RETURNING id, estado
+    `;
+
+    if (!updated) {
+      return res.status(404).json({ error: "Vínculo pendiente no encontrado" });
+    }
+
+    // Mark related notification as read
+    await sql`
+      UPDATE notificaciones_asesor_180
+      SET leida = TRUE, leida_at = NOW()
+      WHERE asesoria_id = ${asesoriaId}
+        AND tipo = 'invitacion_cliente'
+        AND leida = FALSE
+        AND metadata->>'vinculo_id' = ${vinculoId}
+    `;
+
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error("Error rechazarVinculoDesdeAsesor:", err);
+    return res.status(500).json({ error: "Error rechazando vínculo" });
   }
 }
 
@@ -387,7 +504,21 @@ export async function registrarAsesoria(req, res) {
       user_nombre,
       user_email,
       user_password,
+      modulos: modulosInput,
     } = req.body;
+
+    // Default modules for asesoria
+    const defaultModulos = {
+      empleados: true,
+      fichajes: true,
+      calendario: true,
+      calendario_import: true,
+      clientes: true,
+      worklogs: true,
+      facturacion: false,
+      pagos: false,
+    };
+    const finalModulos = modulosInput ? { ...defaultModulos, ...modulosInput } : defaultModulos;
 
     // Validate required fields
     if (!nombre || !email_contacto || !user_nombre || !user_email || !user_password) {
@@ -447,6 +578,7 @@ export async function registrarAsesoria(req, res) {
           email_contacto,
           telefono,
           direccion,
+          modulos,
           created_at
         )
         VALUES (
@@ -455,6 +587,7 @@ export async function registrarAsesoria(req, res) {
           ${email_contacto.trim().toLowerCase()},
           ${telefono || null},
           ${direccion || null},
+          ${sql.json(finalModulos)},
           now()
         )
         RETURNING id, nombre
@@ -478,7 +611,36 @@ export async function registrarAsesoria(req, res) {
         )
       `;
 
-      return { user, asesoria };
+      // 4. Create empresa_180 for the asesoria's own business operations
+      const [empresa] = await tx`
+        INSERT INTO empresa_180 (user_id, nombre, activo, plan_status, tipo_contribuyente)
+        VALUES (${user.id}, ${nombre.trim()}, true, 'active', 'sociedad')
+        RETURNING id
+      `;
+
+      // 5. Create empresa_config_180 with same modules
+      await tx`
+        INSERT INTO empresa_config_180 (empresa_id, modulos)
+        VALUES (${empresa.id}, ${sql.json({
+          empleados: finalModulos.empleados !== false,
+          fichajes: finalModulos.fichajes !== false,
+          worklogs: finalModulos.worklogs !== false,
+          ausencias: true,
+          facturacion: finalModulos.facturacion === true,
+          calendario: finalModulos.calendario !== false,
+          calendario_import: finalModulos.calendario_import !== false,
+          pagos: finalModulos.pagos === true,
+          fiscal: finalModulos.fiscal === true,
+          contabilidad: true,
+        })})
+      `;
+
+      // 6. Link empresa to asesoria
+      await tx`
+        UPDATE asesorias_180 SET empresa_id = ${empresa.id} WHERE id = ${asesoria.id}
+      `;
+
+      return { user, asesoria, empresa };
     });
 
     // Generate JWT token
@@ -489,6 +651,8 @@ export async function registrarAsesoria(req, res) {
         role: result.user.role,
         nombre: result.user.nombre,
         asesoria_id: result.asesoria.id,
+        empresa_id: result.empresa.id,
+        modulos: finalModulos,
         password_forced: false,
       },
       config.jwtSecret,
@@ -505,6 +669,8 @@ export async function registrarAsesoria(req, res) {
         role: result.user.role,
         asesoria_id: result.asesoria.id,
         asesoria_nombre: result.asesoria.nombre,
+        empresa_id: result.empresa.id,
+        modulos: finalModulos,
         password_forced: false,
       },
     });

@@ -10,6 +10,12 @@ export const authRequired = async (req, res, next) => {
   if (req.method === "OPTIONS") {
     return next();
   }
+
+  // Si ya fue procesado por este middleware (doble authRequired), no re-procesar
+  // Usamos req._authProcessed (no req.user) porque req.user = decoded lo sobreescribiría
+  if (req._authProcessed) {
+    return next();
+  }
   // ==========================
   // 🌐 RUTAS PÚBLICAS
   // ==========================
@@ -124,9 +130,34 @@ export const authRequired = async (req, res, next) => {
           pagos: false,
           fiscal: false,
         };
-      }
+        req._authProcessed = true;
+        return next();
+      } else {
+        // Asesor accediendo a sus propios módulos (empresa propia de la asesoría)
+        // Si empresa_id no está en el JWT, buscarlo de la asesoría
+        if (!req.user.empresa_id) {
+          const asesoriaRows = await sql`
+            SELECT empresa_id FROM asesorias_180
+            WHERE id = ${req.user.asesoria_id}
+            LIMIT 1
+          `;
+          if (asesoriaRows.length > 0 && asesoriaRows[0].empresa_id) {
+            req.user.empresa_id = asesoriaRows[0].empresa_id;
+          }
+        }
 
-      return next();
+        if (req.user.empresa_id) {
+          // Elevamos el role a "admin" para que los controladores existentes funcionen sin cambios
+          req.user.isAsesorOwnBusiness = true;
+          req.user.originalRole = "asesor";
+          req.user.role = "admin";
+          // NO hacer return aquí — el asesor elevado debe pasar por ensureSelfEmployee y carga de módulos
+        } else {
+          // Asesor sin empresa propia ni X-Empresa-Id: solo rutas de asesor puras
+          req._authProcessed = true;
+          return next();
+        }
+      }
     }
 
     // ==========================
@@ -188,6 +219,8 @@ export const authRequired = async (req, res, next) => {
         fiscal: false,
       };
     }
+    req._authProcessed = true;
+
     // ==========================
     // 🔐 BLOQUEO POR PASSWORD FORZADA
     // ==========================

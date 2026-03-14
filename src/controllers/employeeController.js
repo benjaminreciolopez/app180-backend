@@ -1,4 +1,5 @@
 import { sql } from "../db.js";
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import bcrypt from "bcryptjs";
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { resolverPlanDia } from "../services/planificacionResolver.js";
@@ -10,17 +11,9 @@ import { saveToStorage } from "./storageController.js";
 export const createEmployee = async (req, res) => {
   try {
     // 1️⃣ Empresa del admin
-    const empresa = await sql`
-      SELECT id
-      FROM empresa_180
-      WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "El usuario no es una empresa" });
-    }
-
-    const empresaId = empresa[0].id;
     const { email, nombre } = req.body;
 
     if (!email || !nombre) {
@@ -99,15 +92,8 @@ export const getEmployeesAdmin = async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (!empresa.length) {
-      return res.status(403).json({ error: "Empresa no encontrada" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const empleados = await sql`
       SELECT DISTINCT ON (e.id)
@@ -346,15 +332,8 @@ export const updateEmployee = async (req, res) => {
     const { id } = req.params;
     const { nombre, email } = req.body;
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Validar formato de email si se proporciona
     if (email) {

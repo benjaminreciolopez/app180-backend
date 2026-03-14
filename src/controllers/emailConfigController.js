@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { sql } from '../db.js';
-import { 
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
+import {
   getEmailConfig, 
   saveOAuth2Config, 
   disconnectOAuth2,
@@ -13,15 +14,10 @@ import {
  */
 export async function getConfig(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const config = await getEmailConfig(empresa[0].id);
+    const config = await getEmailConfig(empresaId);
 
     if (!config) {
       return res.json({
@@ -323,15 +319,10 @@ export async function handleGoogleCallback(req, res) {
  */
 export async function disconnectOAuth2Handler(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    await disconnectOAuth2(empresa[0].id);
+    await disconnectOAuth2(empresaId);
 
     res.json({ success: true, message: "Gmail desconectado correctamente" });
   } catch (err) {
@@ -347,20 +338,14 @@ export async function disconnectOAuth2Handler(req, res) {
 export async function sendTestEmail(req, res) {
   console.log('🏁 sendTestEmail CONTROLLER START');
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const user = await sql`
       SELECT email FROM users_180 WHERE id = ${req.user.id}
     `;
 
     const userEmail = user[0].email;
-    const empresaId = empresa[0].id;
 
     // Capture the manually generated token to pass to sendEmail
     let manualAccessToken = null;

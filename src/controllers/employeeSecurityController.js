@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { sql } from "../db.js";
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 
 // Generar invitación de instalación para un empleado
 export const generateEmployeeInvite = async (req, res) => {
@@ -7,17 +8,8 @@ export const generateEmployeeInvite = async (req, res) => {
     const { id: empleadoId } = req.params; // id de employees_180
 
     // Buscar empresa del admin que hace la petición
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "El usuario no es una empresa válida" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Validar que el empleado pertenece a esta empresa
     const empleado = await sql`
@@ -88,17 +80,8 @@ export const updateEmployeeDeviceStatus = async (req, res) => {
     }
 
     // Comprobar que el empleado pertenece a la empresa del admin
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "El usuario no es una empresa válida" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const empleado = await sql`
       SELECT id FROM employees_180

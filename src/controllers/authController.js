@@ -95,13 +95,9 @@ export const registerFirstAdmin = async (req, res) => {
 // REGISTRO DE USUARIO (PÚBLICO)
 // =====================
 export const register = async (req, res) => {
-  // Registro deshabilitado temporalmente - solo via QR VIP del fabricante
-  return res.status(403).json({
-    error: "El registro está temporalmente deshabilitado. Contacta con el creador de Contendo para obtener acceso VIP."
-  });
-
+  // Registro habilitado
   try {
-    const { email, password, nombre, empresa_nombre } = req.body;
+    const { email, password, nombre, empresa_nombre, modulos: modulosInput } = req.body;
 
     if (!email || !password || !nombre || !empresa_nombre) {
       return res.status(400).json({ error: "Todos los campos son obligatorios" });
@@ -140,7 +136,7 @@ export const register = async (req, res) => {
       RETURNING id
     `;
 
-    // Crear config por defecto
+    // Crear config por defecto, mergeando con modulos opcionales del body
     const defaultModulos = {
       clientes: true,
       fichajes: true,
@@ -151,9 +147,12 @@ export const register = async (req, res) => {
       facturacion: false,
       pagos: false,
     };
+    const finalModulos = modulosInput
+      ? { ...defaultModulos, ...modulosInput }
+      : defaultModulos;
     await sql`
       INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
-      VALUES (${empresa.id}, ${defaultModulos}::jsonb, 1000)
+      VALUES (${empresa.id}, ${finalModulos}::jsonb, 1000)
     `;
 
     // Inicializar Base de Conocimiento
@@ -167,7 +166,7 @@ export const register = async (req, res) => {
     });
 
     // Cargar módulos para el token
-    let modulos = defaultModulos;
+    let modulos = finalModulos;
 
     const token = jwt.sign(
       {
@@ -364,7 +363,7 @@ export const login = async (req, res) => {
     // =========================
     if (user.role === "asesor") {
       const asesorRows = await sql`
-        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, au.activo
+        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, au.activo, a.modulos, a.empresa_id
         FROM asesoria_usuarios_180 au
         JOIN asesorias_180 a ON a.id = au.asesoria_id
         WHERE au.user_id = ${user.id}
@@ -383,6 +382,8 @@ export const login = async (req, res) => {
 
       const asesoriaId = asesorRows[0].asesoria_id;
       const asesoriaNombre = asesorRows[0].asesoria_nombre;
+      const modulos = asesorRows[0].modulos || {};
+      const asesorEmpresaId = asesorRows[0].empresa_id || null;
 
       const token = jwt.sign(
         {
@@ -391,6 +392,8 @@ export const login = async (req, res) => {
           role: user.role,
           nombre: user.nombre,
           asesoria_id: asesoriaId,
+          empresa_id: asesorEmpresaId,
+          modulos,
           avatar_url: user.avatar_url || null,
           password_forced: user.password_forced === true,
         },
@@ -408,6 +411,8 @@ export const login = async (req, res) => {
           avatar_url: user.avatar_url || null,
           asesoria_id: asesoriaId,
           asesoria_nombre: asesoriaNombre,
+          empresa_id: asesorEmpresaId,
+          modulos,
           password_forced: user.password_forced === true,
         },
       });
@@ -927,10 +932,10 @@ export const getMe = async (req, res) => {
 
     const r = rows[0];
 
-    // 🏢 ASESOR: respuesta especial sin empresa_id
+    // 🏢 ASESOR: respuesta con empresa_id propio de la asesoría
     if (r.role === "asesor") {
       const asesorRows = await sql`
-        SELECT au.asesoria_id, a.nombre AS asesoria_nombre
+        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, a.modulos, a.empresa_id
         FROM asesoria_usuarios_180 au
         JOIN asesorias_180 a ON a.id = au.asesoria_id
         WHERE au.user_id = ${r.id} AND au.activo = true
@@ -945,6 +950,8 @@ export const getMe = async (req, res) => {
         avatar_url: r.avatar_url || null,
         asesoria_id: asesorRows[0]?.asesoria_id || null,
         asesoria_nombre: asesorRows[0]?.asesoria_nombre || null,
+        empresa_id: asesorRows[0]?.empresa_id || null,
+        modulos: asesorRows[0]?.modulos || {},
         password_forced: r.password_forced === true,
       });
     }

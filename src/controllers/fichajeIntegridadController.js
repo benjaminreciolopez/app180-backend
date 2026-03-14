@@ -6,6 +6,7 @@
  */
 
 import { sql } from "../db.js";
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import {
   verificarIntegridadFichajes,
   obtenerEstadisticasCadena,
@@ -18,13 +19,11 @@ import {
  */
 export const verificarIntegridad = async (req, res) => {
   try {
-    const [empresa] = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa) return res.status(403).json({ error: "No autorizado" });
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const { empleado_id } = req.query;
-    const resultado = await verificarIntegridadFichajes(empresa.id, empleado_id || null);
+    const resultado = await verificarIntegridadFichajes(empresaId, empleado_id || null);
 
     res.json({
       verificacion: resultado,
@@ -42,12 +41,10 @@ export const verificarIntegridad = async (req, res) => {
  */
 export const estadisticasIntegridad = async (req, res) => {
   try {
-    const [empresa] = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa) return res.status(403).json({ error: "No autorizado" });
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    const stats = await obtenerEstadisticasCadena(empresa.id);
+    const stats = await obtenerEstadisticasCadena(empresaId);
     res.json(stats);
   } catch (err) {
     console.error("❌ Error estadísticas integridad:", err);
@@ -61,12 +58,10 @@ export const estadisticasIntegridad = async (req, res) => {
  */
 export const regenerarHashes = async (req, res) => {
   try {
-    const [empresa] = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-    if (!empresa) return res.status(403).json({ error: "No autorizado" });
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    const resultado = await regenerarHashesLegacy(empresa.id);
+    const resultado = await regenerarHashesLegacy(empresaId);
 
     if (resultado.procesados === 0) {
       return res.json({ mensaje: "No hay fichajes sin hash para regenerar", procesados: 0 });

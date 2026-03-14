@@ -7,16 +7,29 @@ import { sql } from "../db.js";
 export async function getNotificaciones(req, res) {
   try {
     const empresaId = req.user.empresa_id;
+    const asesoriaId = req.user.asesoria_id;
     const userId = req.user.id;
     const isEmpleado = req.user.role === "empleado";
+    const isAsesor = req.user.role === "asesor";
     const { limit = 20, offset = 0, solo_no_leidas = false } = req.query;
 
     const parsedLimit = parseInt(limit);
     const parsedOffset = parseInt(offset);
 
-    // Empleados solo ven sus propias notificaciones + broadcast (user_id IS NULL)
-    // Admin ve todas las de la empresa
-    const userFilter = isEmpleado ? sql`AND (user_id IS NULL OR user_id = ${userId})` : sql``;
+    // Asesores: filtrar por user_id (sus notificaciones personales)
+    // Empleados: solo sus propias notificaciones + broadcast
+    // Admin: todas las de la empresa
+    let whereClause;
+    let countClause;
+
+    if (isAsesor && asesoriaId) {
+      whereClause = sql`user_id = ${userId}`;
+      countClause = sql`user_id = ${userId}`;
+    } else {
+      const userFilter = isEmpleado ? sql`AND (user_id IS NULL OR user_id = ${userId})` : sql``;
+      whereClause = sql`empresa_id = ${empresaId} ${userFilter}`;
+      countClause = sql`empresa_id = ${empresaId} ${userFilter}`;
+    }
 
     let notificaciones;
     if (solo_no_leidas === 'true' || solo_no_leidas === true) {
@@ -24,9 +37,9 @@ export async function getNotificaciones(req, res) {
         SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
                metadata, created_at, leida_at,
                (SELECT COUNT(*)::int FROM notificaciones_180
-                WHERE empresa_id = ${empresaId} AND leida = FALSE ${userFilter}) AS _no_leidas
+                WHERE ${countClause} AND leida = FALSE) AS _no_leidas
         FROM notificaciones_180
-        WHERE empresa_id = ${empresaId} AND leida = FALSE ${userFilter}
+        WHERE ${whereClause} AND leida = FALSE
         ORDER BY created_at DESC
         LIMIT ${parsedLimit} OFFSET ${parsedOffset}
       `;
@@ -35,9 +48,9 @@ export async function getNotificaciones(req, res) {
         SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
                metadata, created_at, leida_at,
                (SELECT COUNT(*)::int FROM notificaciones_180
-                WHERE empresa_id = ${empresaId} AND leida = FALSE ${userFilter}) AS _no_leidas
+                WHERE ${countClause} AND leida = FALSE) AS _no_leidas
         FROM notificaciones_180
-        WHERE empresa_id = ${empresaId} ${userFilter}
+        WHERE ${whereClause}
         ORDER BY created_at DESC
         LIMIT ${parsedLimit} OFFSET ${parsedOffset}
       `;
@@ -64,12 +77,22 @@ export async function marcarLeida(req, res) {
   try {
     const { id } = req.params;
     const empresaId = req.user.empresa_id;
+    const userId = req.user.id;
+    const isAsesor = req.user.role === "asesor";
 
-    await sql`
-      UPDATE notificaciones_180
-      SET leida = TRUE, leida_at = NOW()
-      WHERE id = ${id} AND empresa_id = ${empresaId}
-    `;
+    if (isAsesor) {
+      await sql`
+        UPDATE notificaciones_180
+        SET leida = TRUE, leida_at = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+      `;
+    } else {
+      await sql`
+        UPDATE notificaciones_180
+        SET leida = TRUE, leida_at = NOW()
+        WHERE id = ${id} AND empresa_id = ${empresaId}
+      `;
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -85,12 +108,22 @@ export async function marcarLeida(req, res) {
 export async function marcarTodasLeidas(req, res) {
   try {
     const empresaId = req.user.empresa_id;
+    const userId = req.user.id;
+    const isAsesor = req.user.role === "asesor";
 
-    await sql`
-      UPDATE notificaciones_180
-      SET leida = TRUE, leida_at = NOW()
-      WHERE empresa_id = ${empresaId} AND leida = FALSE
-    `;
+    if (isAsesor) {
+      await sql`
+        UPDATE notificaciones_180
+        SET leida = TRUE, leida_at = NOW()
+        WHERE user_id = ${userId} AND leida = FALSE
+      `;
+    } else {
+      await sql`
+        UPDATE notificaciones_180
+        SET leida = TRUE, leida_at = NOW()
+        WHERE empresa_id = ${empresaId} AND leida = FALSE
+      `;
+    }
 
     res.json({ success: true });
   } catch (err) {

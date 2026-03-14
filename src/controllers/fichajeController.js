@@ -1,6 +1,7 @@
 // backend\src\controllers\fichajeController.js
 
 import { sql } from "../db.js";
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import { ejecutarAutocierre } from "../jobs/autocierre.js";
 import {
   obtenerJornadaAbierta,
@@ -358,17 +359,8 @@ export const getFichajesSospechosos = async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    const empresa = await sql`
-      SELECT id
-      FROM empresa_180
-      WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(400).json({ error: "Empresa no encontrada" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const rows = await sql`
       SELECT 
@@ -419,15 +411,8 @@ export const validarFichaje = async (req, res) => {
       return res.status(400).json({ error: "Acción inválida" });
     }
 
-    const adminEmpresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (adminEmpresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = adminEmpresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const fichajeRows = await sql`
       SELECT f.*, e.empresa_id, e.id as empleado_id
@@ -500,15 +485,8 @@ export const validarFichajesMasivo = async (req, res) => {
       return res.status(400).json({ error: "Acción inválida" });
     }
 
-    const adminEmpresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
-
-    if (adminEmpresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = adminEmpresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     // Obtener todos los fichajes a actualizar
     const fichajes = await sql`
@@ -777,16 +755,8 @@ export const getFichajeDetalle = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const empresa = await sql`
-      SELECT id FROM empresa_180
-      WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const empresaId = empresa[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const fichaje = await sql`
       SELECT 
@@ -816,17 +786,8 @@ export const getFichajes = async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    const empresaRows = await sql`
-      SELECT id
-      FROM empresa_180
-      WHERE user_id = ${req.user.id}
-    `;
-
-    if (empresaRows.length === 0) {
-      return res.status(400).json({ error: "Empresa no encontrada" });
-    }
-
-    const empresaId = empresaRows[0].id;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
     const fichajes = await sql`
       SELECT

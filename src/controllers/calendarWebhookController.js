@@ -1,4 +1,5 @@
 import { sql } from '../db.js';
+import { resolveEmpresaId } from "../services/resolveEmpresaId.js";
 import { setupCalendarWebhook, stopCalendarWebhook } from '../services/googleCalendarService.js';
 import { syncFromGoogle } from '../services/calendarSyncService.js';
 
@@ -81,15 +82,10 @@ export async function handleWebhook(req, res) {
  */
 export async function setup(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    const webhookData = await setupCalendarWebhook(empresa[0].id);
+    const webhookData = await setupCalendarWebhook(empresaId);
 
     res.json({
       success: true,
@@ -112,15 +108,10 @@ export async function setup(req, res) {
  */
 export async function stop(req, res) {
   try {
-    const empresa = await sql`
-      SELECT id FROM empresa_180 WHERE user_id = ${req.user.id}
-    `;
+    const empresaId = await resolveEmpresaId(req);
+    if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
 
-    if (empresa.length === 0) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
-
-    await stopCalendarWebhook(empresa[0].id);
+    await stopCalendarWebhook(empresaId);
 
     res.json({
       success: true,
