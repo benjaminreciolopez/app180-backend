@@ -306,26 +306,26 @@ export async function updateDashboardWidgets(req, res) {
       return res.status(400).json({ error: "widgets_mobile debe ser un array" });
     }
 
-    // Build dynamic update
+    // Build dynamic update — use sql.json() to avoid double-encoding JSONB
     if (widgets !== undefined && widgets_mobile !== undefined) {
       await sql`
         UPDATE asesorias_180
-        SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb,
-            dashboard_widgets_mobile = ${JSON.stringify(widgets_mobile)}::jsonb,
+        SET dashboard_widgets = ${sql.json(widgets)},
+            dashboard_widgets_mobile = ${sql.json(widgets_mobile)},
             updated_at = now()
         WHERE id = ${asesoriaId}
       `;
     } else if (widgets !== undefined) {
       await sql`
         UPDATE asesorias_180
-        SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb,
+        SET dashboard_widgets = ${sql.json(widgets)},
             updated_at = now()
         WHERE id = ${asesoriaId}
       `;
     } else if (widgets_mobile !== undefined) {
       await sql`
         UPDATE asesorias_180
-        SET dashboard_widgets_mobile = ${JSON.stringify(widgets_mobile)}::jsonb,
+        SET dashboard_widgets_mobile = ${sql.json(widgets_mobile)},
             updated_at = now()
         WHERE id = ${asesoriaId}
       `;
