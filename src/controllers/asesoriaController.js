@@ -260,6 +260,58 @@ export async function getConfiguracion(req, res) {
 }
 
 /**
+ * GET /asesor/configuracion/widgets
+ * Returns saved dashboard widget config for this asesoria
+ */
+export async function getDashboardWidgets(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const [row] = await sql`
+      SELECT dashboard_widgets FROM asesorias_180 WHERE id = ${asesoriaId}
+    `;
+    if (!row) return res.status(404).json({ error: "Asesoría no encontrada" });
+
+    let widgets = row.dashboard_widgets || [];
+    // Handle double-encoded JSON
+    if (typeof widgets === "string") {
+      try { widgets = JSON.parse(widgets); } catch { widgets = []; }
+    }
+
+    return res.json({ success: true, widgets });
+  } catch (err) {
+    console.error("Error getDashboardWidgets (asesoria):", err);
+    return res.status(500).json({ error: "Error obteniendo widgets" });
+  }
+}
+
+/**
+ * PUT /asesor/configuracion/widgets
+ * Save dashboard widget config for this asesoria
+ */
+export async function updateDashboardWidgets(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const { widgets } = req.body;
+
+    if (!Array.isArray(widgets)) {
+      return res.status(400).json({ error: "widgets debe ser un array" });
+    }
+
+    await sql`
+      UPDATE asesorias_180
+      SET dashboard_widgets = ${JSON.stringify(widgets)}::jsonb,
+          updated_at = now()
+      WHERE id = ${asesoriaId}
+    `;
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Error updateDashboardWidgets (asesoria):", err);
+    return res.status(500).json({ error: "Error guardando widgets" });
+  }
+}
+
+/**
  * PUT /asesor/configuracion
  * Update asesoria details
  */
