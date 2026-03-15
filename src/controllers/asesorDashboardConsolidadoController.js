@@ -260,7 +260,7 @@ export async function getDashboardConsolidado(req, res) {
       LIMIT 20
     `;
 
-    // 7. Salud de clientes
+    // 7. Salud de clientes (con datos financieros individuales)
     const clientesSalud = [];
     for (const cliente of clientesActivos) {
       const [factMes] = await sql`
@@ -281,6 +281,57 @@ export async function getDashboardConsolidado(req, res) {
           AND leida = false
       `;
 
+      // Datos financieros individuales del cliente
+      const [cFactEsteMes] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${cliente.empresa_id}
+          AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
+          AND EXTRACT(YEAR FROM fecha) = ${currentYear}
+          AND EXTRACT(MONTH FROM fecha) = ${currentMonth}
+      `;
+      const [cFactMesAnt] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${cliente.empresa_id}
+          AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
+          AND EXTRACT(YEAR FROM fecha) = ${prevMonthYear}
+          AND EXTRACT(MONTH FROM fecha) = ${prevMonth}
+      `;
+      const [cFactYtd] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM factura_180
+        WHERE empresa_id = ${cliente.empresa_id}
+          AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
+          AND EXTRACT(YEAR FROM fecha) = ${currentYear}
+      `;
+      const [cGastEsteMes] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${cliente.empresa_id}
+          AND activo = true
+          AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
+          AND EXTRACT(MONTH FROM fecha_compra) = ${currentMonth}
+      `;
+      const [cGastMesAnt] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${cliente.empresa_id}
+          AND activo = true
+          AND EXTRACT(YEAR FROM fecha_compra) = ${prevMonthYear}
+          AND EXTRACT(MONTH FROM fecha_compra) = ${prevMonth}
+      `;
+      const [cGastYtd] = await sql`
+        SELECT COALESCE(SUM(total), 0)::numeric AS total
+        FROM purchases_180
+        WHERE empresa_id = ${cliente.empresa_id}
+          AND activo = true
+          AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
+      `;
+
       let estado = "green";
       let issues = 0;
       if (factMes.total === 0) issues++;
@@ -288,12 +339,29 @@ export async function getDashboardConsolidado(req, res) {
       if (issues === 1) estado = "yellow";
       if (issues >= 2) estado = "red";
 
+      const facCliente = parseFloat(cFactEsteMes.total);
+      const gasCliente = parseFloat(cGastEsteMes.total);
+
       clientesSalud.push({
         empresa_id: cliente.empresa_id,
         nombre: cliente.nombre,
         estado,
         facturas_mes: factMes.total,
         alertas: alertas.total,
+        facturacion: {
+          este_mes: facCliente,
+          mes_anterior: parseFloat(cFactMesAnt.total),
+          ytd: parseFloat(cFactYtd.total),
+        },
+        gastos: {
+          este_mes: gasCliente,
+          mes_anterior: parseFloat(cGastMesAnt.total),
+          ytd: parseFloat(cGastYtd.total),
+        },
+        beneficio: {
+          este_mes: facCliente - gasCliente,
+          ytd: parseFloat(cFactYtd.total) - parseFloat(cGastYtd.total),
+        },
       });
     }
 
