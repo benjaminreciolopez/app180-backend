@@ -21,7 +21,17 @@ import crypto from 'crypto';
  */
 async function cargarCertificado(certificadoPath, password) {
   try {
-    const p12Buffer = await fs.readFile(certificadoPath);
+    let p12Buffer;
+
+    // Intentar leer como archivo del filesystem
+    try {
+      p12Buffer = await fs.readFile(certificadoPath);
+    } catch {
+      // Si falla lectura del filesystem, intentar como base64
+      // (para certificados almacenados en BD que se pasan como paths temporales)
+      throw new Error(`No se pudo leer el archivo: ${certificadoPath}`);
+    }
+
     const p12Der = forge.util.binary.raw.encode(new Uint8Array(p12Buffer));
     const p12Asn1 = forge.asn1.fromDer(p12Der);
     const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);

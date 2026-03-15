@@ -878,10 +878,9 @@ export async function validarFactura(req, res) {
       metaData: { factura_id: id, numero, total: factura.total, hash: verifactuResult?.hash }
     });
 
-    // --- AUTO-GENERAR ASIENTO CONTABLE ---
-    if (factura.tipo_factura !== 'PROFORMA') {
+    // --- AUTO-GENERAR ASIENTO CONTABLE (solo facturas reales, NO test) ---
+    if (factura.tipo_factura !== 'PROFORMA' && !factura.es_test) {
       try {
-        // Fetch factura actualizada con nombre del cliente
         const [facturaFinal] = await sql`
           SELECT f.*, c.nombre AS cliente_nombre
           FROM factura_180 f
@@ -895,31 +894,34 @@ export async function validarFactura(req, res) {
       } catch (contErr) {
         console.error("[Facturas] Error generando asiento de venta:", contErr.message);
       }
+    } else if (factura.es_test) {
+      console.log(`[Facturas] Factura TEST ${numero}: NO se genera asiento contable`);
     }
 
-    // --- AUTO-GENERAR Y GUARDAR EN STORAGE ---
-    try {
-      console.log(`📑 Generando PDF para auto-almacenamiento: ${numero}`);
-      const pdfBuffer = await generarPdfFactura(id);
-      const baseFolder = await getInvoiceStorageFolder(empresaId);
+    // --- AUTO-GENERAR Y GUARDAR EN STORAGE (solo facturas reales) ---
+    if (!factura.es_test) {
+      try {
+        console.log(`📑 Generando PDF para auto-almacenamiento: ${numero}`);
+        const pdfBuffer = await generarPdfFactura(id);
+        const baseFolder = await getInvoiceStorageFolder(empresaId);
 
-      const savedFile = await saveToStorage({
-        empresaId,
-        nombre: `Factura_${numero.replace(/\//g, '-')}.pdf`,
-        buffer: pdfBuffer,
-        folder: getStoragePath(fecha, baseFolder),
-        mimeType: 'application/pdf',
-        useTimestamp: false
-      });
+        const savedFile = await saveToStorage({
+          empresaId,
+          nombre: `Factura_${numero.replace(/\//g, '-')}.pdf`,
+          buffer: pdfBuffer,
+          folder: getStoragePath(fecha, baseFolder),
+          mimeType: 'application/pdf',
+          useTimestamp: false
+        });
 
-      // Actualizar path en la factura
-      if (savedFile && savedFile.storage_path) {
-        await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${id}`;
+        if (savedFile && savedFile.storage_path) {
+          await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${id}`;
+        }
+
+        console.log(`✅ PDF guardado en Storage para: ${numero}`);
+      } catch (storageErr) {
+        console.error("⚠️ No se pudo auto-almacenar el PDF:", storageErr);
       }
-
-      console.log(`✅ PDF guardado en Storage para: ${numero}`);
-    } catch (storageErr) {
-      console.error("⚠️ No se pudo auto-almacenar el PDF:", storageErr);
     }
 
     res.json({
@@ -963,27 +965,38 @@ async function generarNumeroFactura(empresaId, fecha) {
   const formato = config?.numeracion_formato || 'FAC-{YEAR}-';
   let serieBase = config?.serie || 'F';
 
-  // VeriFactu MODE TEST: Usar serie diferente para no consumir numeración oficial
+  // VeriFactu MODE TEST: Usar serie y secuencia COMPLETAMENTE separada
   const esModoTest = config?.verifactu_activo && config?.verifactu_modo === 'TEST';
   if (esModoTest) {
-    serieBase = 'TEST';
-    console.log('⚠️ Modo TEST VeriFactu: Usando serie TEST para no afectar numeración oficial');
+    // Serie TEST con secuencia independiente: TEST-0001, TEST-0002...
+    // Solo busca entre facturas es_test=true para no consumir numeración real
+    const testPrefix = 'TEST-';
+    const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
+        AND es_test = true
+        AND numero LIKE ${testPrefix + '%'}
+    `;
+    const testCorrelativo = (max?.ultimo || 0) + 1;
+    console.log(`⚠️ Modo TEST VeriFactu: Numeración independiente TEST-${String(testCorrelativo).padStart(4, '0')}`);
+    return `${testPrefix}${String(testCorrelativo).padStart(4, '0')}`;
   }
 
   let correlativoBase = (config?.correlativo_inicial || 0);
   let correlativo = 1;
   let numeroFinal = "";
 
-  // 2. Determinar correlativo según el tipo
+  // 2. Determinar correlativo según el tipo (solo facturas reales, excluir test)
   if (tipo === 'STANDARD') {
     // Numeración continua global: SERIE-0001, SERIE-0002...
     const prefix = `${serieBase}-`;
-    // Buscamos la última factura global válida con ese prefijo
     const [max] = await sql`
         SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
-        FROM factura_180 
-        WHERE empresa_id = ${empresaId} 
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
         AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND (es_test IS NOT TRUE)
         AND numero LIKE ${prefix + '%'}
     `;
     if (max && max.ultimo) correlativo = Math.max(correlativoBase, max.ultimo) + 1;
@@ -992,13 +1005,13 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   } else if (tipo === 'BY_YEAR') {
     // Numeración por año: SERIE-2026-0001
-    // Buscamos la última de ESTE año
     const prefix = `${serieBase}-${year}-`;
     const [max] = await sql`
         SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
-        FROM factura_180 
-        WHERE empresa_id = ${empresaId} 
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
         AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND (es_test IS NOT TRUE)
         AND numero LIKE ${prefix + '%'}
     `;
     if (max && max.ultimo) correlativo = Math.max(correlativoBase, max.ultimo) + 1;
@@ -1007,19 +1020,17 @@ async function generarNumeroFactura(empresaId, fecha) {
 
   } else if (tipo === 'PREFIXED') {
     // Formato personalizado: ej "AB-{YEAR}-" -> AB-2026-0001
-    // 1. Resolver las variables del prefijo
     let resolvedPrefix = formato
       .replace('{YEAR}', year.toString())
       .replace('{MONTH}', month.toString().padStart(2, '0'))
       .replace('{DAY}', day.toString().padStart(2, '0'));
 
-    // Buscamos el mayor número que coincida con el prefijo
-    // Intentamos extraer la parte numérica final
     const [max] = await sql`
         SELECT MAX(CAST(SUBSTRING(numero FROM '([0-9]+)$') AS INTEGER)) as ultimo
-        FROM factura_180 
-        WHERE empresa_id = ${empresaId} 
+        FROM factura_180
+        WHERE empresa_id = ${empresaId}
         AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND (es_test IS NOT TRUE)
         AND numero LIKE ${resolvedPrefix + '%'}
     `;
 

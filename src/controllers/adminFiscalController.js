@@ -40,6 +40,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         WHERE f.empresa_id = ${empresaId}
         AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
         AND f.fecha BETWEEN ${startDate} AND ${endDate}
+        AND (f.es_test IS NOT TRUE)
         GROUP BY COALESCE(lf.iva_percent, 21)
         ORDER BY tipo_iva
     `;
@@ -80,6 +81,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         WHERE empresa_id = ${empresaId}
         AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
         AND fecha BETWEEN ${startYear} AND ${endDate}
+        AND (es_test IS NOT TRUE)
     `;
     const [acumuladoCompras] = await sql`
         SELECT COALESCE(SUM(base_imponible), 0) as gastos
@@ -148,6 +150,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
         WHERE f.empresa_id = ${empresaId} AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
         AND f.fecha BETWEEN ${startDate} AND ${endDate}
+        AND (f.es_test IS NOT TRUE)
         AND (
             UPPER(COALESCE(cfd.pais, c.pais, '')) IN ${sql(PAISES_UE)}
         )
@@ -302,6 +305,7 @@ export async function getLibroVentas(req, res) {
             WHERE f.empresa_id = ${empresaId}
             AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
             AND EXTRACT(YEAR FROM f.fecha) = ${year}
+            AND (f.es_test IS NOT TRUE)
             ORDER BY f.fecha ASC, f.numero ASC
         `;
 

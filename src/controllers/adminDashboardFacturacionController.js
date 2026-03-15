@@ -47,13 +47,14 @@ export async function getDashboardData(req, res) {
         // 1. TOTALES ANUALES (Facturado este año)
         // ==========================================
         const [totalAnual] = await sql`
-      SELECT 
+      SELECT
         COALESCE(SUM(total), 0) as total,
         COUNT(id) as num_facturas
       FROM factura_180
       WHERE ${baseConditions}
         ${kpiStatus}
         ${clienteFilter}
+        AND (es_test IS NOT TRUE)
         AND EXTRACT(YEAR FROM fecha) = ${currentYear}
     `;
 
@@ -66,6 +67,7 @@ export async function getDashboardData(req, res) {
       WHERE ${baseConditions}
         ${kpiStatus}
         ${clienteFilter}
+        AND (es_test IS NOT TRUE)
         AND EXTRACT(YEAR FROM fecha) = ${prevYear}
     `;
 
@@ -78,6 +80,7 @@ export async function getDashboardData(req, res) {
       WHERE ${baseConditions}
         ${kpiStatus}
         ${clienteFilter}
+        AND (es_test IS NOT TRUE)
         AND fecha >= date_trunc('month', current_date - interval '1 month')
         AND fecha < date_trunc('month', current_date)
     `;
@@ -86,13 +89,14 @@ export async function getDashboardData(req, res) {
         // 3. EVOLUCIÓN MENSUAL (Gráfico)
         // ==========================================
         const mensualRows = await sql`
-      SELECT 
+      SELECT
         EXTRACT(MONTH FROM fecha) as mes,
         SUM(total) as total
       FROM factura_180
       WHERE ${baseConditions}
         ${kpiStatus}
         ${clienteFilter}
+        AND (es_test IS NOT TRUE)
         AND EXTRACT(YEAR FROM fecha) = ${currentYear}
       GROUP BY mes
       ORDER BY mes
@@ -132,10 +136,11 @@ export async function getDashboardData(req, res) {
 
         // Alerta: Borradores antiguos (>30 días)
         const [borradores] = await sql`
-      SELECT COUNT(*) as count 
-      FROM factura_180 
-      WHERE empresa_id = ${empresaId} 
-        AND estado = 'BORRADOR' 
+      SELECT COUNT(*) as count
+      FROM factura_180
+      WHERE empresa_id = ${empresaId}
+        AND estado = 'BORRADOR'
+        AND (es_test IS NOT TRUE)
         AND fecha < NOW() - INTERVAL '30 days'
     `;
 
@@ -149,10 +154,11 @@ export async function getDashboardData(req, res) {
 
         // Alerta: Pendientes de validar (Cualquier borrador)
         const [pendientes] = await sql`
-      SELECT COUNT(*) as count 
-      FROM factura_180 
-      WHERE empresa_id = ${empresaId} 
+      SELECT COUNT(*) as count
+      FROM factura_180
+      WHERE empresa_id = ${empresaId}
         AND estado = 'BORRADOR'
+        AND (es_test IS NOT TRUE)
     `;
 
         if (parseInt(pendientes.count) > 0) {

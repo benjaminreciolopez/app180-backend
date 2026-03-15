@@ -333,12 +333,12 @@ export async function enviarMensajeConAdjunto(req, res) {
 
 /**
  * Helper: Trigger notification when a message is sent
- * Admin sends → notify asesor; Asesor sends → no notification (admin sees in-app)
+ * Admin sends → notify asesor; Asesor sends → notify admin
  */
 async function triggerMensajeNotificacion({ asesoriaId, empresaId, autorTipo, req }) {
   try {
-    // Only notify asesor when admin sends a message
     if (autorTipo === "admin") {
+      // Admin envía → notificar al asesor
       const { crearNotificacionAsesor } = await import("./asesorNotificacionesController.js");
       const [empresa] = await sql`SELECT nombre FROM empresa_180 WHERE id = ${empresaId}`;
       await crearNotificacionAsesor({
@@ -349,6 +349,21 @@ async function triggerMensajeNotificacion({ asesoriaId, empresaId, autorTipo, re
         accionUrl: `/asesor/clientes/${empresaId}/mensajes`,
         accionLabel: "Ver mensaje",
         empresaId,
+      });
+    } else if (autorTipo === "asesor") {
+      // Asesor envía → notificar al admin/cliente
+      const { crearNotificacionSistema } = await import("./notificacionesController.js");
+      const [asesoria] = await sql`
+        SELECT a.nombre FROM asesorias_180 a
+        WHERE a.id = ${asesoriaId}
+      `;
+      await crearNotificacionSistema({
+        empresaId,
+        tipo: "nuevo_mensaje",
+        titulo: "Mensaje de tu asesoría",
+        mensaje: `${asesoria?.nombre || "Tu asesoría"} te ha enviado un mensaje`,
+        accionUrl: `/admin/mi-asesoria`,
+        accionLabel: "Ver mensaje",
       });
     }
   } catch (err) {

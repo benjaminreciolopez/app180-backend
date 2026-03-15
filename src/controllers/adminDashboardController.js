@@ -146,6 +146,7 @@ export const getAdminDashboard = async (req, res) => {
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
           AND tipo_factura != 'PROFORMA'
+          AND (es_test IS NOT TRUE)
           AND fecha >= DATE_TRUNC('month', CURRENT_DATE)
       `;
       const [facMesAnt] = await sql`
@@ -154,6 +155,7 @@ export const getAdminDashboard = async (req, res) => {
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
           AND tipo_factura != 'PROFORMA'
+          AND (es_test IS NOT TRUE)
           AND fecha >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           AND fecha < DATE_TRUNC('month', CURRENT_DATE)
       `;
@@ -163,6 +165,7 @@ export const getAdminDashboard = async (req, res) => {
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
           AND tipo_factura != 'PROFORMA'
+          AND (es_test IS NOT TRUE)
           AND fecha >= DATE_TRUNC('year', CURRENT_DATE)
       `;
       facturacionMensual = {
@@ -204,6 +207,7 @@ export const getAdminDashboard = async (req, res) => {
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
+          AND (es_test IS NOT TRUE)
           AND COALESCE(estado_pago, 'pendiente') IN ('pendiente', 'parcial')
       `;
       facturasPendientes = count;
@@ -213,6 +217,7 @@ export const getAdminDashboard = async (req, res) => {
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
+          AND (es_test IS NOT TRUE)
           AND COALESCE(estado_pago, 'pendiente') IN ('pendiente', 'parcial')
       `;
       saldoTotal = Number(saldo);
@@ -222,6 +227,7 @@ export const getAdminDashboard = async (req, res) => {
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
+          AND (es_test IS NOT TRUE)
           AND COALESCE(estado_pago, 'pendiente') = 'pendiente'
       `;
       cobrosPendientes = cobros;
@@ -406,6 +412,7 @@ async function getFacturasPendientesList(empresaId, moduloFacturacion) {
       LEFT JOIN clients_180 c ON c.id = f.cliente_id
       WHERE f.empresa_id = ${empresaId}
         AND f.estado = 'VALIDADA'
+        AND (f.es_test IS NOT TRUE)
         AND COALESCE(f.estado_pago, 'pendiente') IN ('pendiente', 'parcial')
       ORDER BY f.fecha DESC
       LIMIT 10
@@ -430,6 +437,7 @@ async function calculateBeneficio(empresaId, startDate, endDate) {
       WHERE empresa_id = ${empresaId}
         AND fecha BETWEEN ${startDate} AND ${endDate}
         AND estado NOT IN ('BORRADOR', 'ANULADA')
+        AND (es_test IS NOT TRUE)
     `;
 
   // 2. Gastos deducibles (Base Imponible)

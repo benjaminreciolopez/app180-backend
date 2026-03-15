@@ -145,9 +145,10 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       throw new Error('Emisor no encontrado');
     }
 
-    // 4. Verificar modo TEST vs PRODUCCIÓN
+    // 4. Verificar modo TEST vs PRODUCCIÓN y obtener certificado de BD
     const [config] = await sql`
-      SELECT verifactu_modo FROM configuracionsistema_180
+      SELECT verifactu_modo, verifactu_certificado_data, verifactu_cert_fabricante_data
+      FROM configuracionsistema_180
       WHERE empresa_id = ${registro.empresa_id}
       LIMIT 1
     `;
@@ -157,13 +158,19 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       ? ENDPOINTS.PRODUCCION
       : ENDPOINTS.PRUEBAS;
 
-    console.log(`📡 Enviando a AEAT (${entorno}): ${factura.numero}`);
+    // Obtener certificado data: primero de configuracionsistema, luego de emisor
+    let certData = config?.verifactu_certificado_data || null;
+    if (!certData && emisor?.certificado_data) {
+      certData = emisor.certificado_data;
+    }
+
+    console.log(`📡 Enviando a AEAT (${entorno}): ${factura.numero} [cert BD: ${certData ? 'SI' : 'NO'}]`);
 
     // 5. Construir XML
     const xmlBody = construirXmlRegistro(registro, factura, emisor);
 
-    // 6. Enviar a AEAT (SOAP)
-    const respuesta = await enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword);
+    // 6. Enviar a AEAT (SOAP) - pasar certificado data de BD
+    const respuesta = await enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword, certData);
 
     // 7. Actualizar estado en BD
     if (respuesta.success) {
@@ -212,11 +219,10 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
  * @param {string} certificadoPassword - Contraseña del certificado
  * @returns {Promise<object>}
  */
-async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword) {
+async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword, certificadoData = null) {
   return new Promise((resolve, reject) => {
     const url = new URL(endpoint);
 
-    // Opciones de la petición HTTPS
     const options = {
       hostname: url.hostname,
       port: url.port || 443,
@@ -229,18 +235,29 @@ async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPas
       }
     };
 
-    // Si hay certificado, configurar cliente HTTPS con autenticación mutua
-    if (certificadoPath && fs.existsSync(certificadoPath)) {
+    // Cargar certificado: primero base64 de BD, luego filesystem como fallback
+    let pfx = null;
+
+    if (certificadoData) {
       try {
-        const pfx = fs.readFileSync(certificadoPath);
-        options.pfx = pfx;
-        options.passphrase = certificadoPassword;
-        // Aceptar certificados autofirmados en entorno de pruebas
-        // En producción, esto debe ser false
-        options.rejectUnauthorized = endpoint.includes('prewww') ? false : true;
+        pfx = Buffer.from(certificadoData, 'base64');
+        console.log('🔐 Certificado cargado desde BD (base64)');
+      } catch (error) {
+        return reject(new Error(`Error al decodificar certificado desde BD: ${error.message}`));
+      }
+    } else if (certificadoPath && fs.existsSync(certificadoPath)) {
+      try {
+        pfx = fs.readFileSync(certificadoPath);
+        console.log('🔐 Certificado cargado desde filesystem');
       } catch (error) {
         return reject(new Error(`Error al cargar certificado: ${error.message}`));
       }
+    }
+
+    if (pfx) {
+      options.pfx = pfx;
+      options.passphrase = certificadoPassword;
+      options.rejectUnauthorized = endpoint.includes('prewww') ? false : true;
     } else {
       console.warn('⚠️ No se encontró certificado digital. La AEAT puede rechazar la petición.');
     }
@@ -399,7 +416,7 @@ export async function enviarRegistrosPendientes(empresaId, entorno = 'PRUEBAS', 
 /**
  * Endpoint de testing para verificar conexión con AEAT
  */
-export async function testConexionAeat(entorno = 'PRUEBAS', certificadoPath = null, certificadoPassword = null) {
+export async function testConexionAeat(entorno = 'PRUEBAS', certificadoPath = null, certificadoPassword = null, certificadoData = null) {
   const endpoint = entorno === 'PRODUCCION'
     ? ENDPOINTS.PRODUCCION
     : ENDPOINTS.PRUEBAS;
@@ -407,13 +424,14 @@ export async function testConexionAeat(entorno = 'PRUEBAS', certificadoPath = nu
   console.log(`🧪 Probando conexión con AEAT (${entorno})...`);
   console.log(`   Endpoint: ${endpoint}`);
 
-  if (certificadoPath) {
+  if (certificadoData) {
+    console.log(`   Certificado: desde BD (base64)`);
+  } else if (certificadoPath) {
     console.log(`   Certificado: ${certificadoPath}`);
   } else {
     console.warn(`   ⚠️ Sin certificado - la conexión puede fallar`);
   }
 
-  // Test básico de conectividad (sin enviar datos reales)
   return new Promise((resolve) => {
     const url = new URL(endpoint);
 
@@ -425,8 +443,16 @@ export async function testConexionAeat(entorno = 'PRUEBAS', certificadoPath = nu
       timeout: 10000
     };
 
-    if (certificadoPath && fs.existsSync(certificadoPath)) {
-      options.pfx = fs.readFileSync(certificadoPath);
+    // Cargar certificado: primero base64 de BD, luego filesystem
+    let pfx = null;
+    if (certificadoData) {
+      pfx = Buffer.from(certificadoData, 'base64');
+    } else if (certificadoPath && fs.existsSync(certificadoPath)) {
+      pfx = fs.readFileSync(certificadoPath);
+    }
+
+    if (pfx) {
+      options.pfx = pfx;
       options.passphrase = certificadoPassword;
       options.rejectUnauthorized = entorno === 'PRODUCCION';
     }

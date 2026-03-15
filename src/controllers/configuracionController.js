@@ -237,35 +237,60 @@ export async function uploadCertificado(req, res) {
         // 1. Verificar si existe registro de emisor
         const [emisorExists] = await sql`select id from emisor_180 where empresa_id=${empresaId}`;
 
+        // Guardar el contenido base64 del certificado para uso en AEAT
+        const certBase64 = file.split(',')[1] || file;
+
         if (emisorExists) {
             await sql`
-                update emisor_180 
-                set certificado_path = ${fileName}, 
+                update emisor_180
+                set certificado_path = ${fileName},
                     certificado_upload_date = now(),
                     certificado_info = ${JSON.stringify(certInfo)},
-                    certificado_password = ${password}
+                    certificado_password = ${password},
+                    certificado_data = ${certBase64}
                 where empresa_id = ${empresaId}
             `;
         } else {
-            // Crear registro vacío solo con la info del certificado (edge case raro pero posible)
             console.log("⚠️ No existe registro emisor, creando uno nuevo...");
             await sql`
                 insert into emisor_180 (
-                    empresa_id, 
-                    certificado_path, 
-                    certificado_upload_date, 
-                    certificado_info, 
+                    empresa_id,
+                    certificado_path,
+                    certificado_upload_date,
+                    certificado_info,
                     certificado_password,
+                    certificado_data,
                     nombre, nif
                 ) values (
-                    ${empresaId}, 
-                    ${fileName}, 
-                    now(), 
-                    ${JSON.stringify(certInfo)}, 
+                    ${empresaId},
+                    ${fileName},
+                    now(),
+                    ${JSON.stringify(certInfo)},
                     ${password},
+                    ${certBase64},
                     '', ''
                 )
             `;
+        }
+
+        // Sincronizar certificado con configuracionsistema_180 para Verifactu
+        try {
+            const [cfgExists] = await sql`SELECT 1 FROM configuracionsistema_180 WHERE empresa_id = ${empresaId}`;
+            if (cfgExists) {
+                await sql`
+                    UPDATE configuracionsistema_180
+                    SET verifactu_certificado_data = ${certBase64},
+                        verifactu_certificado_path = ${fileName},
+                        verifactu_certificado_password = ${password},
+                        verifactu_cert_fabricante_data = ${certBase64},
+                        verifactu_cert_fabricante_path = ${fileName},
+                        verifactu_cert_fabricante_password = ${password}
+                    WHERE empresa_id = ${empresaId}
+                `;
+                console.log("✅ Certificado sincronizado con configuracionsistema_180 para Verifactu");
+            }
+        } catch (syncErr) {
+            console.warn("⚠️ No se pudo sincronizar certificado con configuracionsistema:", syncErr.message);
         }
 
         res.json({ success: true, message: "Certificado registrado", data: certInfo });

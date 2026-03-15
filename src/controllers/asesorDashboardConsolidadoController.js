@@ -39,6 +39,7 @@ export async function getDashboardConsolidado(req, res) {
         FROM factura_180
         WHERE empresa_id = ${asesoriaEmpresaId}
           AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
           AND EXTRACT(YEAR FROM fecha) = ${currentYear}
           AND EXTRACT(MONTH FROM fecha) = ${currentMonth}
       `;
@@ -47,6 +48,7 @@ export async function getDashboardConsolidado(req, res) {
         FROM factura_180
         WHERE empresa_id = ${asesoriaEmpresaId}
           AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
           AND EXTRACT(YEAR FROM fecha) = ${prevMonthYear}
           AND EXTRACT(MONTH FROM fecha) = ${prevMonth}
       `;
@@ -55,6 +57,7 @@ export async function getDashboardConsolidado(req, res) {
         FROM factura_180
         WHERE empresa_id = ${asesoriaEmpresaId}
           AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
           AND EXTRACT(YEAR FROM fecha) = ${currentYear}
       `;
       const [gpEsteMes] = await sql`
@@ -124,6 +127,7 @@ export async function getDashboardConsolidado(req, res) {
       FROM factura_180
       WHERE empresa_id = ANY(${empresaIds})
         AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND (es_test IS NOT TRUE)
         AND EXTRACT(YEAR FROM fecha) = ${currentYear}
         AND EXTRACT(MONTH FROM fecha) = ${currentMonth}
     `;
@@ -132,6 +136,7 @@ export async function getDashboardConsolidado(req, res) {
       FROM factura_180
       WHERE empresa_id = ANY(${empresaIds})
         AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND (es_test IS NOT TRUE)
         AND EXTRACT(YEAR FROM fecha) = ${prevMonthYear}
         AND EXTRACT(MONTH FROM fecha) = ${prevMonth}
     `;
@@ -140,6 +145,7 @@ export async function getDashboardConsolidado(req, res) {
       FROM factura_180
       WHERE empresa_id = ANY(${empresaIds})
         AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND (es_test IS NOT TRUE)
         AND EXTRACT(YEAR FROM fecha) = ${currentYear}
     `;
 
@@ -174,6 +180,7 @@ export async function getDashboardConsolidado(req, res) {
       FROM factura_180
       WHERE empresa_id = ANY(${empresaIds})
         AND estado = 'VALIDADA'
+        AND (es_test IS NOT TRUE)
         AND COALESCE(estado_pago, 'pendiente') IN ('pendiente', 'parcial')
       GROUP BY empresa_id
     `;
@@ -236,6 +243,7 @@ export async function getDashboardConsolidado(req, res) {
         JOIN empresa_180 e ON e.id = f.empresa_id
         WHERE f.empresa_id = ANY(${empresaIds})
           AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (f.es_test IS NOT TRUE)
         ORDER BY f.fecha DESC LIMIT 10
       )
       UNION ALL
@@ -262,6 +270,7 @@ export async function getDashboardConsolidado(req, res) {
           AND EXTRACT(YEAR FROM fecha) = ${currentYear}
           AND EXTRACT(MONTH FROM fecha) = ${currentMonth}
           AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+          AND (es_test IS NOT TRUE)
       `;
 
       const [alertas] = await sql`

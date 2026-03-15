@@ -38,6 +38,7 @@ export async function getIvaTrimestral(req, res) {
                 WHERE empresa_id = ${empresaId}
                     AND estado IN ('VALIDADA', 'ANULADA')
                     AND EXTRACT(YEAR FROM fecha) = ${year}
+                    AND (es_test IS NOT TRUE)
                 GROUP BY trimestre
                 ORDER BY trimestre ASC
              `;
@@ -82,6 +83,7 @@ export async function getIvaTrimestral(req, res) {
         AND EXTRACT(YEAR FROM f.fecha) = ${year}
         AND EXTRACT(MONTH FROM f.fecha) >= ${range[0]}
         AND EXTRACT(MONTH FROM f.fecha) <= ${range[1]}
+        AND (f.es_test IS NOT TRUE)
       GROUP BY l.iva_percent
       ORDER BY l.iva_percent ASC
     `;
@@ -127,6 +129,7 @@ export async function getFacturacionAnual(req, res) {
       WHERE empresa_id = ${empresaId}
         AND estado IN ('VALIDADA', 'ANULADA')
         AND EXTRACT(YEAR FROM fecha) = ${year}
+        AND (es_test IS NOT TRUE)
       GROUP BY mes
       ORDER BY mes ASC
     `;
@@ -177,6 +180,7 @@ export async function getRankingClientes(req, res) {
       JOIN factura_180 f ON f.cliente_id = c.id
       WHERE f.empresa_id = ${empresaId}
         AND f.estado IN ('VALIDADA', 'ANULADA')
+        AND (f.es_test IS NOT TRUE)
         ${yearFilter}
       GROUP BY c.id, c.nombre, fd.nif_cif, c.nif_cif, c.nif
       ORDER BY total_facturado DESC
