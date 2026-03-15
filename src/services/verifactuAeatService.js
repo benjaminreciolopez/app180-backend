@@ -24,7 +24,7 @@ const ENDPOINTS = {
  * @param {object} emisor - Datos del emisor
  * @returns {string} XML formateado según XSD de AEAT
  */
-function construirXmlRegistro(registro, factura, emisor, facturaAnterior = null) {
+function construirXmlRegistro(registro, factura, emisor, facturaAnterior = null, cliente = null) {
   const fechaExpedicion = new Date(factura.fecha);
   const fechaRegistro = new Date(registro.fecha_registro);
 
@@ -92,7 +92,17 @@ function construirXmlRegistro(registro, factura, emisor, facturaAnterior = null)
           </sf:IDFactura>
           <sf:NombreRazonEmisor>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sf:NombreRazonEmisor>
           <sf:TipoFactura>F1</sf:TipoFactura>
-          <sf:DescripcionOperacion>${escaparXml(factura.concepto || factura.descripcion || 'Prestacion de servicios')}</sf:DescripcionOperacion>
+          <sf:DescripcionOperacion>${escaparXml(factura.concepto || factura.descripcion || 'Prestacion de servicios')}</sf:DescripcionOperacion>${cliente ? `
+          <sf:Destinatarios>
+            <sf:IDDestinatario>
+              <sf:NombreRazon>${escaparXml(cliente.nombre)}</sf:NombreRazon>
+              ${cliente.nif ? `<sf:NIF>${cliente.nif}</sf:NIF>` : `<sf:IDOtro>
+                <sf:CodigoPais>${cliente.pais || 'ES'}</sf:CodigoPais>
+                <sf:IDType>02</sf:IDType>
+                <sf:ID>${escaparXml(cliente.nif_extranjero || 'SIN-ID')}</sf:ID>
+              </sf:IDOtro>`}
+            </sf:IDDestinatario>
+          </sf:Destinatarios>` : ''}
           <sf:Desglose>
             <sf:DetalleDesglose>
               <sf:Impuesto>01</sf:Impuesto>
@@ -231,8 +241,17 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       }
     }
 
-    // 6. Construir XML
-    const xmlBody = construirXmlRegistro(registro, factura, emisor, facturaAnterior);
+    // 6. Obtener datos del cliente/destinatario
+    let cliente = null;
+    if (factura.cliente_id) {
+      const [cl] = await sql`
+        SELECT nombre, nif FROM clients_180 WHERE id = ${factura.cliente_id} LIMIT 1
+      `;
+      if (cl) cliente = cl;
+    }
+
+    // 7. Construir XML
+    const xmlBody = construirXmlRegistro(registro, factura, emisor, facturaAnterior, cliente);
 
     // 6. Enviar a AEAT (SOAP) - pasar certificado data de BD
     const respuesta = await enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword, certData);
@@ -388,11 +407,17 @@ function parsearRespuestaAeat(xmlResponse, statusCode) {
     }
 
     if (statusCode === 200) {
-      const tieneError = xmlResponse.includes('<CodigoError>') || xmlResponse.includes('<DescripcionError>');
-      const esCorrecto = xmlResponse.includes('Correcto') || xmlResponse.includes('<CSV>');
+      // Detectar EstadoEnvio y EstadoRegistro (respuesta VeriFactu real)
+      const estadoEnvioMatch = xmlResponse.match(/EstadoEnvio>([^<]+)</);
+      const estadoRegistroMatch = xmlResponse.match(/EstadoRegistro>([^<]+)</);
+      const estadoEnvio = estadoEnvioMatch ? estadoEnvioMatch[1] : null;
+      const estadoRegistro = estadoRegistroMatch ? estadoRegistroMatch[1] : null;
 
-      if (esCorrecto && !tieneError) {
-        const csvMatch = xmlResponse.match(/<CSV>([^<]+)<\/CSV>/);
+      const esCorrecto = estadoEnvio === 'Correcto' || estadoRegistro === 'Correcto' || xmlResponse.includes('<CSV>');
+      const esIncorrecto = estadoEnvio === 'Incorrecto' || estadoRegistro === 'Incorrecto';
+
+      if (esCorrecto && !esIncorrecto) {
+        const csvMatch = xmlResponse.match(/<CSV>([^<]+)<\/CSV>/) || xmlResponse.match(/CSV>([^<]+)</);
         return {
           success: true,
           mensaje: 'Registro aceptado por AEAT',
@@ -400,8 +425,11 @@ function parsearRespuestaAeat(xmlResponse, statusCode) {
           respuestaCompleta: xmlResponse
         };
       } else {
-        const errorMatch = xmlResponse.match(/<DescripcionError>([^<]+)<\/DescripcionError>/);
-        const codigoMatch = xmlResponse.match(/<CodigoError>([^<]+)<\/CodigoError>/);
+        // Buscar errores en formato VeriFactu (CodigoErrorRegistro, DescripcionErrorRegistro)
+        const errorMatch = xmlResponse.match(/DescripcionErrorRegistro>([^<]+)</) ||
+                          xmlResponse.match(/DescripcionError>([^<]+)</);
+        const codigoMatch = xmlResponse.match(/CodigoErrorRegistro>([^<]+)</) ||
+                           xmlResponse.match(/CodigoError>([^<]+)</);
         return {
           success: false,
           mensaje: errorMatch ? errorMatch[1] : 'Error en registro',
