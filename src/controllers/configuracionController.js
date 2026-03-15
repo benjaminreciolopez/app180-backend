@@ -406,12 +406,13 @@ export async function updateSistemaConfig(req, res) {
                 });
             }
 
-            // Regla 2: Si hay facturas YA ENVIADAS a la AEAT, no se puede volver a OFF/TEST
+            // Regla 2: Si hay facturas YA ENVIADAS a la AEAT en PRODUCCION, no se puede volver a OFF/TEST
             if (nuevoModo === 'OFF' || nuevoModo === 'TEST') {
                 const [reg] = await sql`
                     SELECT COUNT(*)::int as total FROM registroverifactu_180
                     WHERE empresa_id=${empresaId}
                       AND estado_envio = 'ENVIADO'
+                      AND modo_verifactu = 'PRODUCCION'
                 `;
                 if (reg && reg.total > 0) {
                     return res.status(400).json({
@@ -621,8 +622,8 @@ export async function getVerifactuStatus(req, res) {
         const [cfg] = await sql`SELECT verifactu_activo, verifactu_modo FROM configuracionsistema_180 WHERE empresa_id=${empresaId}`;
         const modoActual = cfg?.verifactu_modo || 'OFF';
 
-        // Contar facturas emitidas con VeriFactu
-        const [reg] = await sql`SELECT COUNT(*)::int as total FROM registroverifactu_180 WHERE empresa_id=${empresaId}`;
+        // Contar facturas emitidas con VeriFactu en PRODUCCION (las de TEST no cuentan para irreversibilidad)
+        const [reg] = await sql`SELECT COUNT(*)::int as total FROM registroverifactu_180 WHERE empresa_id=${empresaId} AND modo_verifactu = 'PRODUCCION'`;
         const facturasVerifactu = reg?.total || 0;
 
         // Calcular deadline segun tipo

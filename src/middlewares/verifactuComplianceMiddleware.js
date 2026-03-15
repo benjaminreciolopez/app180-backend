@@ -22,7 +22,7 @@ async function tieneVerifactuProduccion(empresaId) {
 }
 
 /**
- * Verifica si hay facturas YA registradas en VeriFactu
+ * Verifica si hay facturas YA registradas en VeriFactu en PRODUCCION
  */
 async function tieneFacturasVerifactu(empresaId) {
   const [count] = await sql`
@@ -30,6 +30,7 @@ async function tieneFacturasVerifactu(empresaId) {
     FROM registroverifactu_180
     WHERE empresa_id = ${empresaId}
       AND estado_envio = 'ENVIADO'
+      AND modo_verifactu = 'PRODUCCION'
     LIMIT 1
   `;
 
