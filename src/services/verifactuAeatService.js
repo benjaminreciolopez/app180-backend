@@ -446,15 +446,27 @@ function parsearRespuestaAeat(xmlResponse, statusCode) {
       const estadoEnvio = estadoEnvioMatch ? estadoEnvioMatch[1] : null;
       const estadoRegistro = estadoRegistroMatch ? estadoRegistroMatch[1] : null;
 
-      const esCorrecto = estadoEnvio === 'Correcto' || estadoRegistro === 'Correcto' || xmlResponse.includes('<CSV>');
+      const esCorrecto = estadoEnvio === 'Correcto' || estadoRegistro === 'Correcto';
+      const esAceptadoConErrores = estadoEnvio === 'ParcialmenteCorrecto' || estadoRegistro === 'AceptadoConErrores';
       const esIncorrecto = estadoEnvio === 'Incorrecto' || estadoRegistro === 'Incorrecto';
+      const csvMatch = xmlResponse.match(/CSV>([^<]+)</);
 
       if (esCorrecto && !esIncorrecto) {
-        const csvMatch = xmlResponse.match(/<CSV>([^<]+)<\/CSV>/) || xmlResponse.match(/CSV>([^<]+)</);
         return {
           success: true,
           mensaje: 'Registro aceptado por AEAT',
           csv: csvMatch ? csvMatch[1] : null,
+          respuestaCompleta: xmlResponse
+        };
+      } else if (esAceptadoConErrores && !esIncorrecto) {
+        const errorMatch = xmlResponse.match(/DescripcionErrorRegistro>([^<]+)</);
+        const codigoMatch = xmlResponse.match(/CodigoErrorRegistro>([^<]+)</);
+        return {
+          success: true,
+          mensaje: `Aceptado con advertencias: ${errorMatch ? errorMatch[1].substring(0, 100) : 'ver detalles'}`,
+          csv: csvMatch ? csvMatch[1] : null,
+          codigoError: codigoMatch ? codigoMatch[1] : null,
+          advertencia: true,
           respuestaCompleta: xmlResponse
         };
       } else {
