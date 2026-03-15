@@ -24,7 +24,7 @@ const ENDPOINTS = {
  * @param {object} emisor - Datos del emisor
  * @returns {string} XML formateado según XSD de AEAT
  */
-function construirXmlRegistro(registro, factura, emisor) {
+function construirXmlRegistro(registro, factura, emisor, facturaAnterior = null) {
   const fechaExpedicion = new Date(factura.fecha);
   const fechaRegistro = new Date(registro.fecha_registro);
 
@@ -53,13 +53,18 @@ function construirXmlRegistro(registro, factura, emisor) {
   const ivaPct = subtotal > 0 ? Math.round((ivaTotal / subtotal) * 10000) / 100 : 21;
 
   // Determinar si es primer registro
-  const encadenamiento = registro.hash_anterior
-    ? `<sf:RegistroAnterior>
+  let encadenamiento;
+  if (registro.hash_anterior && facturaAnterior) {
+    const fechaAnt = new Date(facturaAnterior.fecha);
+    encadenamiento = `<sf:RegistroAnterior>
             <sf:IDEmisorFactura>${emisor.nif}</sf:IDEmisorFactura>
-            <sf:NumSerieFactura>${escaparXml(registro.hash_anterior)}</sf:NumSerieFactura>
+            <sf:NumSerieFactura>${escaparXml(facturaAnterior.numero)}</sf:NumSerieFactura>
+            <sf:FechaExpedicionFactura>${formatFecha(fechaAnt)}</sf:FechaExpedicionFactura>
             <sf:Huella>${registro.hash_anterior}</sf:Huella>
-          </sf:RegistroAnterior>`
-    : `<sf:PrimerRegistro>S</sf:PrimerRegistro>`;
+          </sf:RegistroAnterior>`;
+  } else {
+    encadenamiento = `<sf:PrimerRegistro>S</sf:PrimerRegistro>`;
+  }
 
   const nsLR = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd';
   const nsSF = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd';
@@ -73,8 +78,8 @@ function construirXmlRegistro(registro, factura, emisor) {
     <sfLR:RegFactuSistemaFacturacion>
       <sfLR:Cabecera>
         <sf:ObligadoEmision>
+          <sf:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sf:NombreRazon>
           <sf:NIF>${emisor.nif}</sf:NIF>
-          <sf:NombreRazon>${escaparXml(emisor.nombre || emisor.razon_social)}</sf:NombreRazon>
         </sf:ObligadoEmision>
       </sfLR:Cabecera>
       <sfLR:RegistroFactura>
@@ -85,7 +90,7 @@ function construirXmlRegistro(registro, factura, emisor) {
             <sf:NumSerieFactura>${escaparXml(factura.numero)}</sf:NumSerieFactura>
             <sf:FechaExpedicionFactura>${formatFecha(fechaExpedicion)}</sf:FechaExpedicionFactura>
           </sf:IDFactura>
-          <sf:NombreRazonEmisor>${escaparXml(emisor.nombre || emisor.razon_social)}</sf:NombreRazonEmisor>
+          <sf:NombreRazonEmisor>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sf:NombreRazonEmisor>
           <sf:TipoFactura>F1</sf:TipoFactura>
           <sf:DescripcionOperacion>${escaparXml(factura.concepto || factura.descripcion || 'Prestacion de servicios')}</sf:DescripcionOperacion>
           <sf:Desglose>
@@ -210,8 +215,24 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
 
     console.log(`📡 Enviando a AEAT (${entorno}): ${factura.numero} [cert BD: ${certData ? 'SI' : 'NO'}]`);
 
-    // 5. Construir XML
-    const xmlBody = construirXmlRegistro(registro, factura, emisor);
+    // 5. Obtener factura anterior para encadenamiento
+    let facturaAnterior = null;
+    if (registro.hash_anterior) {
+      const [regAnterior] = await sql`
+        SELECT r.factura_id, f.numero, f.fecha
+        FROM registroverifactu_180 r
+        JOIN factura_180 f ON f.id = r.factura_id
+        WHERE r.empresa_id = ${registro.empresa_id}
+          AND r.hash_actual = ${registro.hash_anterior}
+        LIMIT 1
+      `;
+      if (regAnterior) {
+        facturaAnterior = { numero: regAnterior.numero, fecha: regAnterior.fecha };
+      }
+    }
+
+    // 6. Construir XML
+    const xmlBody = construirXmlRegistro(registro, factura, emisor, facturaAnterior);
 
     // 6. Enviar a AEAT (SOAP) - pasar certificado data de BD
     const respuesta = await enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword, certData);
@@ -356,32 +377,34 @@ async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPas
  */
 function parsearRespuestaAeat(xmlResponse, statusCode) {
   try {
-    // Respuesta HTTP OK
+    // Detectar SOAP Fault (error de esquema, autenticación, etc.)
+    if (xmlResponse.includes('Fault>') || xmlResponse.includes('<faultstring>')) {
+      const faultMatch = xmlResponse.match(/<faultstring>([^<]+)<\/faultstring>/);
+      return {
+        success: false,
+        mensaje: faultMatch ? faultMatch[1] : 'SOAP Fault desconocido',
+        respuestaCompleta: xmlResponse
+      };
+    }
+
     if (statusCode === 200) {
-      // Buscar indicadores de éxito en el XML
-      const esCorrecto = xmlResponse.includes('<EstadoRegistro>Correcto</EstadoRegistro>') ||
-                         xmlResponse.includes('<CSV>') ||
-                         !xmlResponse.includes('<CodigoError>');
+      const tieneError = xmlResponse.includes('<CodigoError>') || xmlResponse.includes('<DescripcionError>');
+      const esCorrecto = xmlResponse.includes('Correcto') || xmlResponse.includes('<CSV>');
 
-      if (esCorrecto) {
-        // Extraer CSV (Código Seguro de Verificación) si existe
+      if (esCorrecto && !tieneError) {
         const csvMatch = xmlResponse.match(/<CSV>([^<]+)<\/CSV>/);
-        const csv = csvMatch ? csvMatch[1] : null;
-
         return {
           success: true,
           mensaje: 'Registro aceptado por AEAT',
-          csv: csv,
+          csv: csvMatch ? csvMatch[1] : null,
           respuestaCompleta: xmlResponse
         };
       } else {
-        // Error en el registro
         const errorMatch = xmlResponse.match(/<DescripcionError>([^<]+)<\/DescripcionError>/);
         const codigoMatch = xmlResponse.match(/<CodigoError>([^<]+)<\/CodigoError>/);
-
         return {
           success: false,
-          mensaje: errorMatch ? errorMatch[1] : 'Error desconocido',
+          mensaje: errorMatch ? errorMatch[1] : 'Error en registro',
           codigoError: codigoMatch ? codigoMatch[1] : null,
           respuestaCompleta: xmlResponse
         };
@@ -389,7 +412,7 @@ function parsearRespuestaAeat(xmlResponse, statusCode) {
     } else {
       return {
         success: false,
-        mensaje: `HTTP ${statusCode}: ${xmlResponse}`,
+        mensaje: `HTTP ${statusCode}: ${xmlResponse.substring(0, 300)}`,
         respuestaCompleta: xmlResponse
       };
     }
