@@ -78,6 +78,8 @@ import fabricantePublicRoutes, { fabricanteProtectedRouter } from "./routes/fabr
 import sugerenciasRoutes, { sugerenciasFabricanteRouter } from "./routes/sugerenciasRoutes.js";
 import adminContabilidadRoutes from "./routes/adminContabilidadRoutes.js";
 import asesorRoutes from "./routes/asesorRoutes.js";
+import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
+import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
 import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
 import kioskRoutes from "./routes/kioskRoutes.js";
@@ -283,6 +285,8 @@ app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integrida
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
 app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
 app.use("/admin", adminParteConfigRoutes); // Partes configurables
+app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
+app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 
