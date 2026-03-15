@@ -245,9 +245,13 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
     let cliente = null;
     if (factura.cliente_id) {
       const [cl] = await sql`
-        SELECT nombre, nif FROM clients_180 WHERE id = ${factura.cliente_id} LIMIT 1
+        SELECT nombre, COALESCE(NULLIF(TRIM(nif),''), NULLIF(TRIM(nif_cif),'')) as nif FROM clients_180 WHERE id = ${factura.cliente_id} LIMIT 1
       `;
-      if (cl) cliente = cl;
+      if (cl) {
+        // Limpiar NIF: quitar espacios, guiones, puntos
+        if (cl.nif) cl.nif = cl.nif.replace(/[\s.\-]/g, '').toUpperCase();
+        cliente = cl;
+      }
     }
 
     // 7. Construir XML
