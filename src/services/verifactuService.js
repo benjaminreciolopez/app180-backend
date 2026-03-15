@@ -84,13 +84,13 @@ function generarHashVerifactu(factura, nifEmisor, fechaGeneracion, hashAnterior)
         `TipoFactura=F1`,
         `CuotaTotal=${cuotaTotal}`,
         `ImporteTotal=${importeTotal}`,
-        `Huella=${hashAnterior || ''}`,
+        `Huella=${(hashAnterior || '').toUpperCase()}`,
         `FechaHoraHusoGenRegistro=${fechaHoraHuso}`
     ].join('&');
 
     console.log('🔐 Hash VeriFactu cadena:', cadena);
 
-    return crypto.createHash('sha256').update(cadena, 'utf8').digest('hex');
+    return crypto.createHash('sha256').update(cadena, 'utf8').digest('hex').toUpperCase();
 }
 
 /**
