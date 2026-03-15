@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import https from 'https';
 import fs from 'fs';
+import forge from 'node-forge';
 import { sql } from '../db.js';
 
 /**
@@ -235,30 +236,49 @@ async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPas
       }
     };
 
-    // Cargar certificado: primero base64 de BD, luego filesystem como fallback
-    let pfx = null;
+    // Cargar certificado y convertir PKCS#12 a PEM con node-forge
+    // (Node.js https nativo no soporta todos los formatos PKCS#12, especialmente los de FNMT)
+    let certLoaded = false;
 
-    if (certificadoData) {
-      try {
-        pfx = Buffer.from(certificadoData, 'base64');
+    try {
+      let p12Der = null;
+
+      if (certificadoData) {
+        p12Der = forge.util.decode64(certificadoData);
         console.log('🔐 Certificado cargado desde BD (base64)');
-      } catch (error) {
-        return reject(new Error(`Error al decodificar certificado desde BD: ${error.message}`));
-      }
-    } else if (certificadoPath && fs.existsSync(certificadoPath)) {
-      try {
-        pfx = fs.readFileSync(certificadoPath);
+      } else if (certificadoPath && fs.existsSync(certificadoPath)) {
+        const fileBuffer = fs.readFileSync(certificadoPath);
+        p12Der = forge.util.decode64(fileBuffer.toString('base64'));
         console.log('🔐 Certificado cargado desde filesystem');
-      } catch (error) {
-        return reject(new Error(`Error al cargar certificado: ${error.message}`));
       }
+
+      if (p12Der) {
+        const p12Asn1 = forge.asn1.fromDer(p12Der);
+        const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, certificadoPassword || '', { strict: false });
+
+        // Extraer certificados
+        const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
+        const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] || [];
+
+        if (certBags.length > 0 && keyBags.length > 0) {
+          const certPem = forge.pki.certificateToPem(certBags[0].cert);
+          const keyPem = forge.pki.privateKeyToPem(keyBags[0].key);
+
+          options.cert = certPem;
+          options.key = keyPem;
+          options.rejectUnauthorized = endpoint.includes('prewww') ? false : true;
+          certLoaded = true;
+          console.log('🔐 Certificado convertido a PEM correctamente');
+        } else {
+          console.warn('⚠️ No se encontraron certificado/clave en el PKCS#12');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error al procesar certificado PKCS#12:', error.message);
+      return reject(new Error(`Error al procesar certificado: ${error.message}`));
     }
 
-    if (pfx) {
-      options.pfx = pfx;
-      options.passphrase = certificadoPassword;
-      options.rejectUnauthorized = endpoint.includes('prewww') ? false : true;
-    } else {
+    if (!certLoaded) {
       console.warn('⚠️ No se encontró certificado digital. La AEAT puede rechazar la petición.');
     }
 
