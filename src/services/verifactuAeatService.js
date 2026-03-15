@@ -11,10 +11,10 @@ import { sql } from '../db.js';
  * https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GI57.shtml
  */
 
-// URLs de los servicios AEAT VeriFactu
+// URLs de los servicios AEAT VeriFactu (del WSDL oficial SistemaFacturacion.wsdl)
 const ENDPOINTS = {
-  PRUEBAS: 'https://prewww1.aeat.es/wlpl/TIKE-CONT/SuministroLR',
-  PRODUCCION: 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/SuministroLR'
+  PRUEBAS: 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP',
+  PRODUCCION: 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
 };
 
 /**
@@ -28,7 +28,6 @@ function construirXmlRegistro(registro, factura, emisor) {
   const fechaExpedicion = new Date(factura.fecha);
   const fechaRegistro = new Date(registro.fecha_registro);
 
-  // Formato fecha: DD-MM-YYYY
   const formatFecha = (date) => {
     const d = String(date.getDate()).padStart(2, '0');
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -36,47 +35,91 @@ function construirXmlRegistro(registro, factura, emisor) {
     return `${d}-${m}-${y}`;
   };
 
-  // Formato hora: HH:MM:SS
-  const formatHora = (date) => {
+  // Formato ISO datetime con timezone para FechaHoraHusoGenRegistro
+  const formatDateTime = (date) => {
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
     const h = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
+    const mi = String(date.getMinutes()).padStart(2, '0');
     const s = String(date.getSeconds()).padStart(2, '0');
-    return `${h}:${min}:${s}`;
+    return `${y}-${mo}-${d}T${h}:${mi}:${s}+01:00`;
   };
+
+  // Calcular desglose IVA desde líneas de factura
+  const subtotal = Number(factura.subtotal || 0);
+  const ivaTotal = Number(factura.iva_total || factura.iva_global || 0);
+  const total = Number(factura.total || 0);
+  const ivaPct = subtotal > 0 ? Math.round((ivaTotal / subtotal) * 10000) / 100 : 21;
+
+  // Determinar si es primer registro
+  const encadenamiento = registro.hash_anterior
+    ? `<sf:RegistroAnterior>
+            <sf:IDEmisorFactura>${emisor.nif}</sf:IDEmisorFactura>
+            <sf:NumSerieFactura>${escaparXml(registro.hash_anterior)}</sf:NumSerieFactura>
+            <sf:Huella>${registro.hash_anterior}</sf:Huella>
+          </sf:RegistroAnterior>`
+    : `<sf:PrimerRegistro>S</sf:PrimerRegistro>`;
+
+  const nsLR = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd';
+  const nsSF = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:vf="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd">
+                  xmlns:sfLR="${nsLR}"
+                  xmlns:sf="${nsSF}">
   <soapenv:Header/>
   <soapenv:Body>
-    <vf:SuministroLRFacturasEmitidas>
-      <vf:Cabecera>
-        <vf:ObligadoEmision>
-          <vf:NIF>${emisor.nif}</vf:NIF>
-          <vf:NombreRazon>${escaparXml(emisor.nombre || emisor.razon_social)}</vf:NombreRazon>
-        </vf:ObligadoEmision>
-      </vf:Cabecera>
-      <vf:RegistroFactura>
-        <vf:IDFactura>
-          <vf:IDEmisorFactura>
-            <vf:NIF>${emisor.nif}</vf:NIF>
-          </vf:IDEmisorFactura>
-          <vf:NumSerieFactura>${escaparXml(factura.numero)}</vf:NumSerieFactura>
-          <vf:FechaExpedicionFactura>${formatFecha(fechaExpedicion)}</vf:FechaExpedicionFactura>
-          <vf:TipoFactura>${escaparXml(factura.tipo_factura || 'F')}</vf:TipoFactura>
-        </vf:IDFactura>
-        <vf:Huella>
-          <vf:Hash>${registro.hash_actual}</vf:Hash>
-          <vf:FechaHoraHuella>${formatFecha(fechaRegistro)}T${formatHora(fechaRegistro)}</vf:FechaHoraHuella>
-        </vf:Huella>
-        <vf:Encadenamiento>
-          <vf:RegistroAnterior>
-            ${registro.hash_anterior ? `<vf:HashRegistroAnterior>${registro.hash_anterior}</vf:HashRegistroAnterior>` : '<vf:PrimerRegistro>S</vf:PrimerRegistro>'}
-          </vf:RegistroAnterior>
-        </vf:Encadenamiento>
-        <vf:ImporteTotal>${Number(factura.total || 0).toFixed(2)}</vf:ImporteTotal>
-      </vf:RegistroFactura>
-    </vf:SuministroLRFacturasEmitidas>
+    <sfLR:RegFactuSistemaFacturacion>
+      <sfLR:Cabecera>
+        <sf:ObligadoEmision>
+          <sf:NIF>${emisor.nif}</sf:NIF>
+          <sf:NombreRazon>${escaparXml(emisor.nombre || emisor.razon_social)}</sf:NombreRazon>
+        </sf:ObligadoEmision>
+      </sfLR:Cabecera>
+      <sfLR:RegistroFactura>
+        <sf:RegistroAlta>
+          <sf:IDVersion>1.0</sf:IDVersion>
+          <sf:IDFactura>
+            <sf:IDEmisorFactura>${emisor.nif}</sf:IDEmisorFactura>
+            <sf:NumSerieFactura>${escaparXml(factura.numero)}</sf:NumSerieFactura>
+            <sf:FechaExpedicionFactura>${formatFecha(fechaExpedicion)}</sf:FechaExpedicionFactura>
+          </sf:IDFactura>
+          <sf:NombreRazonEmisor>${escaparXml(emisor.nombre || emisor.razon_social)}</sf:NombreRazonEmisor>
+          <sf:TipoFactura>F1</sf:TipoFactura>
+          <sf:DescripcionOperacion>${escaparXml(factura.concepto || factura.descripcion || 'Prestacion de servicios')}</sf:DescripcionOperacion>
+          <sf:Desglose>
+            <sf:DetalleDesglose>
+              <sf:Impuesto>01</sf:Impuesto>
+              <sf:ClaveRegimen>01</sf:ClaveRegimen>
+              <sf:CalificacionOperacion>S1</sf:CalificacionOperacion>
+              <sf:TipoImpositivo>${ivaPct.toFixed(2)}</sf:TipoImpositivo>
+              <sf:BaseImponibleOimporteNoSujeto>${subtotal.toFixed(2)}</sf:BaseImponibleOimporteNoSujeto>
+              <sf:CuotaRepercutida>${ivaTotal.toFixed(2)}</sf:CuotaRepercutida>
+            </sf:DetalleDesglose>
+          </sf:Desglose>
+          <sf:CuotaTotal>${ivaTotal.toFixed(2)}</sf:CuotaTotal>
+          <sf:ImporteTotal>${total.toFixed(2)}</sf:ImporteTotal>
+          <sf:Encadenamiento>
+            ${encadenamiento}
+          </sf:Encadenamiento>
+          <sf:SistemaInformatico>
+            <sf:NombreRazon>Contendo Gestiones</sf:NombreRazon>
+            <sf:NIF>${emisor.nif}</sf:NIF>
+            <sf:NombreSistemaInformatico>APP180</sf:NombreSistemaInformatico>
+            <sf:IdSistemaInformatico>01</sf:IdSistemaInformatico>
+            <sf:Version>1.0</sf:Version>
+            <sf:NumeroInstalacion>INST-001</sf:NumeroInstalacion>
+            <sf:TipoUsoPosibleSoloVerifactu>S</sf:TipoUsoPosibleSoloVerifactu>
+            <sf:TipoUsoPosibleMultiOT>N</sf:TipoUsoPosibleMultiOT>
+            <sf:IndicadorMultiplesOT>N</sf:IndicadorMultiplesOT>
+          </sf:SistemaInformatico>
+          <sf:FechaHoraHusoGenRegistro>${formatDateTime(fechaRegistro)}</sf:FechaHoraHusoGenRegistro>
+          <sf:TipoHuella>01</sf:TipoHuella>
+          <sf:Huella>${registro.hash_actual}</sf:Huella>
+        </sf:RegistroAlta>
+      </sfLR:RegistroFactura>
+    </sfLR:RegFactuSistemaFacturacion>
   </soapenv:Body>
 </soapenv:Envelope>`;
 }
@@ -232,7 +275,7 @@ async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPas
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
         'Content-Length': Buffer.byteLength(xmlBody),
-        'SOAPAction': 'SuministroLRFacturasEmitidas'
+        'SOAPAction': ''
       }
     };
 

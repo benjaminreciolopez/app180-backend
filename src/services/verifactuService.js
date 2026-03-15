@@ -49,61 +49,48 @@ async function obtenerHashAnterior(empresaId, modo = 'PRODUCCION') {
 /**
  * Genera el hash SHA-256 según especificación Veri*Factu
  */
+/**
+ * Genera la huella SHA-256 según especificación VeriFactu de la AEAT.
+ * Formato: IDEmisorFactura=X&NumSerieFactura=X&FechaExpedicionFactura=DD-MM-YYYY&TipoFactura=F1&CuotaTotal=X.XX&ImporteTotal=X.XX&Huella=HASH_ANTERIOR&FechaHoraHusoGenRegistro=YYYY-MM-DDTHH:MM:SS+01:00
+ */
 function generarHashVerifactu(factura, nifEmisor, fechaGeneracion, hashAnterior) {
     if (!factura.numero) throw new Error("Factura sin número");
     if (!factura.fecha) throw new Error("Factura sin fecha");
 
-    // Payload canónico — campos obligatorios según RD 1007/2023 / Orden HAC/1177/2024
-    const payload = {
-        emisor: {
-            nif: nifEmisor.trim().toUpperCase(),
-        },
-        factura: {
-            numero: factura.numero.trim(),
-            fecha: new Date(factura.fecha).toISOString().slice(0, 10), // YYYY-MM-DD
-            tipo: (factura.tipo_factura || 'F').trim().toUpperCase(),
-            cuota_iva: parseFloat(factura.iva_total || 0),
-            total: parseFloat(factura.total || 0),
-        },
-        registro: {
-            fecha_registro_utc: fechaGeneracion.toISOString(),
-            hash_anterior: hashAnterior || "",
-        },
-    };
+    // Formato fecha expedición: DD-MM-YYYY
+    const fechaExp = new Date(factura.fecha);
+    const day = String(fechaExp.getDate()).padStart(2, '0');
+    const month = String(fechaExp.getMonth() + 1).padStart(2, '0');
+    const year = fechaExp.getFullYear();
+    const fechaExpStr = `${day}-${month}-${year}`;
 
-    // Serialización determinista (equivalente a sort_keys=True, ensure_ascii=False)
-    // En JS JSON.stringify no garantiza orden de claves, debemos hacerlo manualmente o usar librería.
-    // Para simplificar, construiremos el objeto con orden fijo o usaremos una función deepSort.
-    // La especificación Veri*Factu real es más compleja (XML), esto es una adaptación interna.
+    // Formato FechaHoraHusoGenRegistro: YYYY-MM-DDTHH:MM:SS+01:00
+    const y = fechaGeneracion.getFullYear();
+    const mo = String(fechaGeneracion.getMonth() + 1).padStart(2, '0');
+    const d = String(fechaGeneracion.getDate()).padStart(2, '0');
+    const h = String(fechaGeneracion.getHours()).padStart(2, '0');
+    const mi = String(fechaGeneracion.getMinutes()).padStart(2, '0');
+    const s = String(fechaGeneracion.getSeconds()).padStart(2, '0');
+    const fechaHoraHuso = `${y}-${mo}-${d}T${h}:${mi}:${s}+01:00`;
 
-    // Vamos a usar un enfoque simple: serializar keys ordenadas.
-    const canonico = canonicalJsonStringify(payload);
+    const cuotaTotal = Number(factura.iva_total || 0).toFixed(2);
+    const importeTotal = Number(factura.total || 0).toFixed(2);
 
-    return crypto.createHash('sha256').update(canonico, 'utf8').digest('hex');
-}
+    // Concatenación según especificación AEAT
+    const cadena = [
+        `IDEmisorFactura=${nifEmisor.trim().toUpperCase()}`,
+        `NumSerieFactura=${(factura.numero || '').trim()}`,
+        `FechaExpedicionFactura=${fechaExpStr}`,
+        `TipoFactura=${(factura.tipo_factura || 'F1').trim().toUpperCase()}`,
+        `CuotaTotal=${cuotaTotal}`,
+        `ImporteTotal=${importeTotal}`,
+        `Huella=${hashAnterior || ''}`,
+        `FechaHoraHusoGenRegistro=${fechaHoraHuso}`
+    ].join('&');
 
-function canonicalJsonStringify(obj) {
-    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-        return JSON.stringify(obj);
-    }
-    const keys = Object.keys(obj).sort();
-    const result = {};
-    for (const key of keys) {
-        result[key] = canonicalJsonStringify(obj[key]);
-    }
-    // Remove quotes around values for recursive calls to match JSON.stringify structure but sorted
-    // Actually, better to just construct the string manually or use JSON.stringify on the sorted object.
-    // JSON.stringify respects insertion order for non-integer keys in modern JS engines.
-    const sortedObj = {};
-    keys.forEach(key => {
-        // Recursive sort
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-            sortedObj[key] = JSON.parse(canonicalJsonStringify(obj[key])); // Hacky but ensures order
-        } else {
-            sortedObj[key] = obj[key];
-        }
-    });
-    return JSON.stringify(sortedObj);
+    console.log('🔐 Hash VeriFactu cadena:', cadena);
+
+    return crypto.createHash('sha256').update(cadena, 'utf8').digest('hex');
 }
 
 /**
@@ -208,6 +195,7 @@ export async function verificarVerifactu(factura, tx = sql) {
         // Retornar datos necesarios para el envío post-transacción
         return {
             registroId: nuevoRegistro.id,
+            hash: nuevoHash,
             config,
         };
 
@@ -229,10 +217,10 @@ export async function verificarVerifactu(factura, tx = sql) {
 export function construirUrlQr(factura, emisor, config, entorno = 'PRODUCCION') {
     const isTest = entorno === 'PRUEBAS' || config.verifactu_modo === 'TEST';
 
-    // URLs base provisionales (AEAT)
+    // URLs oficiales AEAT para validación QR VeriFactu
     const baseUrl = isTest
-        ? 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ValidarTike'
-        : 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarTike';
+        ? 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR'
+        : 'https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR';
 
     const fechaObj = new Date(factura.fecha);
     const day = String(fechaObj.getDate()).padStart(2, '0');
@@ -242,20 +230,9 @@ export function construirUrlQr(factura, emisor, config, entorno = 'PRODUCCION') 
 
     const params = new URLSearchParams();
     params.append('nif', (emisor.nif || '').toUpperCase());
-    params.append('num', (factura.numero || '').toUpperCase());
+    params.append('numserie', (factura.numero || '').toUpperCase());
     params.append('fecha', fechaStr);
     params.append('importe', Number(factura.total || 0).toFixed(2));
-
-    // Añadir huella si existe (normalmente los primeros caracteres o completa)
-    // Se suele pedir que el QR lleve datos para verificar, a veces no la huella completa en la URL pública
-    // pero incluiremos lo que tengamos.
-    // Dependiendo de la especificación final, esto podría cambiar.
-    /* 
-       Según borrador Veri*Factu:
-       URL + ?nif=...&num=...&fecha=...&importe=...
-       
-       Si hay que incluir hash, se añade.
-    */
 
     return `${baseUrl}?${params.toString()}`;
 }
