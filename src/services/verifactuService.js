@@ -81,7 +81,7 @@ function generarHashVerifactu(factura, nifEmisor, fechaGeneracion, hashAnterior)
         `IDEmisorFactura=${nifEmisor.trim().toUpperCase()}`,
         `NumSerieFactura=${(factura.numero || '').trim()}`,
         `FechaExpedicionFactura=${fechaExpStr}`,
-        `TipoFactura=${(factura.tipo_factura || 'F1').trim().toUpperCase()}`,
+        `TipoFactura=F1`,
         `CuotaTotal=${cuotaTotal}`,
         `ImporteTotal=${importeTotal}`,
         `Huella=${hashAnterior || ''}`,
