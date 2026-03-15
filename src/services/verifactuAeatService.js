@@ -3,6 +3,7 @@ import https from 'https';
 import fs from 'fs';
 import forge from 'node-forge';
 import { sql } from '../db.js';
+import { registrarEventoVerifactu } from '../controllers/verifactuEventosController.js';
 
 /**
  * Servicio de envío de registros VeriFactu a la AEAT
@@ -119,7 +120,7 @@ function construirXmlRegistro(registro, factura, emisor, facturaAnterior = null,
             ${encadenamiento}
           </sf:Encadenamiento>
           <sf:SistemaInformatico>
-            <sf:NombreRazon>Contendo Gestiones</sf:NombreRazon>
+            <sf:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sf:NombreRazon>
             <sf:NIF>${emisor.nif}</sf:NIF>
             <sf:NombreSistemaInformatico>APP180</sf:NombreSistemaInformatico>
             <sf:IdSistemaInformatico>01</sf:IdSistemaInformatico>
@@ -271,6 +272,15 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       `;
 
       console.log(`✅ Registro ${registroId} enviado correctamente a AEAT`);
+
+      // Registrar éxito en auditoría
+      registrarEventoVerifactu({
+        empresaId: registro.empresa_id,
+        tipoEvento: 'ALTA',
+        descripcion: `✅ AEAT aceptó factura ${registro.numero_factura} — Envío correcto`,
+        metaData: { registroId, numero: registro.numero_factura, estado: 'ENVIADO' }
+      }).catch(() => {});
+
     } else {
       await sql`
         UPDATE registroverifactu_180
@@ -280,6 +290,14 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       `;
 
       console.error(`❌ Error al enviar registro ${registroId}:`, respuesta.mensaje);
+
+      // Registrar error AEAT en auditoría
+      registrarEventoVerifactu({
+        empresaId: registro.empresa_id,
+        tipoEvento: 'ERROR',
+        descripcion: `❌ AEAT rechazó factura ${registro.numero_factura} — Error ${respuesta.codigoError || ''}: ${respuesta.mensaje || 'Error desconocido'}`,
+        metaData: { registroId, numero: registro.numero_factura, codigoError: respuesta.codigoError, mensaje: respuesta.mensaje }
+      }).catch(() => {});
     }
 
     return respuesta;
@@ -294,6 +312,17 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
           respuesta_aeat = ${JSON.stringify({ error: error.message })}
       WHERE id = ${registroId}
     `;
+
+    // Registrar error de conexión en auditoría
+    const [regInfo] = await sql`SELECT empresa_id, numero_factura FROM registroverifactu_180 WHERE id = ${registroId}`;
+    if (regInfo) {
+      registrarEventoVerifactu({
+        empresaId: regInfo.empresa_id,
+        tipoEvento: 'ERROR',
+        descripcion: `❌ Error de conexión AEAT para factura ${regInfo.numero_factura}: ${error.message}`,
+        metaData: { registroId, numero: regInfo.numero_factura, error: error.message }
+      }).catch(() => {});
+    }
 
     throw error;
   }
