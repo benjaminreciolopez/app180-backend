@@ -53,11 +53,13 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
     };
 
     // 2. IVA DEDUCIBLE (GASTOS) - Desglosado por tipo de IVA
+    // NOTA: Se usa COALESCE(cuota_iva, iva_importe, 0) porque los gastos nuevos
+    // guardan el IVA en iva_importe pero no en cuota_iva
     const comprasPorTipo = await sql`
         SELECT
             COALESCE(iva_porcentaje, 21) as tipo_iva,
             COALESCE(SUM(base_imponible), 0) as base_imponible,
-            COALESCE(SUM(cuota_iva), 0) as cuota_iva
+            COALESCE(SUM(COALESCE(cuota_iva, iva_importe, 0)), 0) as cuota_iva
         FROM purchases_180
         WHERE empresa_id = ${empresaId}
         AND activo = true
@@ -327,8 +329,9 @@ export async function getLibroGastos(req, res) {
         const empresaId = req.user.empresa_id;
 
         const gastos = await sql`
-            SELECT 
-                fecha_compra as fecha, proveedor, descripcion, total, base_imponible as base, cuota_iva as cuota, 
+            SELECT
+                fecha_compra as fecha, proveedor, descripcion, total, base_imponible as base,
+                COALESCE(cuota_iva, iva_importe, 0) as cuota,
                 retencion_importe as retencion,
                 iva_porcentaje as tipo
             FROM purchases_180

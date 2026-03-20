@@ -299,16 +299,16 @@ export async function crearCompra(req, res) {
         const [newPurchase] = await sql`
       INSERT INTO purchases_180 (
         empresa_id, proveedor, descripcion, cantidad, precio_unitario,
-        total, fecha_compra, categoria, base_imponible, iva_importe,
+        total, fecha_compra, categoria, base_imponible, iva_importe, cuota_iva,
         iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre,
         numero_factura, retencion_porcentaje, retencion_importe, activo
       ) VALUES (
         ${empresa_id}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
         ${total}, ${fechaFinal},
-        ${categoriaFinal}, ${base_imponible || total}, ${iva_importe || 0},
-        ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'}, 
+        ${categoriaFinal}, ${base_imponible || total}, ${iva_importe || 0}, ${iva_importe || 0},
+        ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'},
         ${finalDocumentUrl}, ${parsedOcrData ? JSON.stringify(parsedOcrData) : null},
-        ${finalAnio}, ${finalTri}, ${numero_factura || null}, 
+        ${finalAnio}, ${finalTri}, ${numero_factura || null},
         ${retencion_porcentaje || 0}, ${retencion_importe || 0},
         true
       ) RETURNING *
@@ -368,6 +368,11 @@ export async function actualizarCompra(req, res) {
         if (finalData.fecha_compra && (!finalData.anio || !finalData.trimestre)) {
             finalData.anio = new Date(finalData.fecha_compra).getFullYear();
             finalData.trimestre = getTrimestre(finalData.fecha_compra);
+        }
+
+        // Sincronizar cuota_iva con iva_importe para que el modelo 303 lea correctamente
+        if (finalData.iva_importe !== undefined) {
+            finalData.cuota_iva = finalData.iva_importe;
         }
 
         if (req.file) {
@@ -749,13 +754,13 @@ export async function bankImportConfirm(req, res) {
                 const [newPurchase] = await sql`
                     INSERT INTO purchases_180 (
                         empresa_id, proveedor, descripcion, total, fecha_compra,
-                        categoria, metodo_pago, base_imponible, iva_importe, iva_porcentaje,
+                        categoria, metodo_pago, base_imponible, iva_importe, cuota_iva, iva_porcentaje,
                         anio, trimestre, numero_factura, ocr_data, activo
                     ) VALUES (
                         ${empresa_id}, ${tx.proveedor || null}, ${tx.descripcion},
                         ${tx.total}, ${fecha},
                         ${tx.categoria || 'general'}, ${tx.metodo_pago || 'domiciliacion'},
-                        ${tx.base_imponible || tx.total}, ${tx.iva_importe || 0}, ${tx.iva_porcentaje || 0},
+                        ${tx.base_imponible || tx.total}, ${tx.iva_importe || 0}, ${tx.iva_importe || 0}, ${tx.iva_porcentaje || 0},
                         ${anio}, ${trimestre}, ${tx.numero_factura || null},
                         ${JSON.stringify({ origen: "bank_import", source_file: source_file_name || null, concepto_original: tx.concepto_original || null })},
                         true

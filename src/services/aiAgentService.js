@@ -2957,7 +2957,7 @@ async function generarDossierPrerenta(args, empresaId) {
   const [gastos] = await sql`
     SELECT
       COALESCE(SUM(base_imponible), 0) as base_total,
-      COALESCE(SUM(cuota_iva), 0) as iva_soportado,
+      COALESCE(SUM(COALESCE(cuota_iva, iva_importe, 0)), 0) as iva_soportado,
       COUNT(*) as num_gastos
     FROM purchases_180
     WHERE empresa_id = ${empresaId}
