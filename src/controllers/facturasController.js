@@ -192,6 +192,48 @@ export async function listFacturas(req, res) {
    ÚLTIMA FECHA VALIDA
 ========================= */
 
+export async function previewNextNumber(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const fecha = req.query.fecha || new Date().toISOString().split("T")[0];
+    const fechaObj = new Date(fecha);
+    const year = fechaObj.getFullYear();
+
+    const [emisor] = await sql`
+      SELECT siguiente_numero, ultimo_anio_numerado, numeracion_plantilla, serie_facturacion
+      FROM emisor_180
+      WHERE empresa_id = ${empresaId}
+      LIMIT 1
+    `;
+
+    if (!emisor) {
+      return res.json({ success: true, numero: null });
+    }
+
+    let correlativo = emisor.siguiente_numero || 1;
+    if (emisor.ultimo_anio_numerado !== year) {
+      correlativo = 1;
+    }
+
+    const plantilla = (emisor.numeracion_plantilla || '{YEAR}-{NUM:04d}').trim();
+    const month = fechaObj.getMonth() + 1;
+
+    let numero = plantilla.replace(/\{NUM:0(\d+)d\}/g, (_, width) => {
+      return String(correlativo).padStart(parseInt(width), '0');
+    });
+    numero = numero.replace('{NUM}', String(correlativo));
+    numero = numero.replace('{SERIE}', (emisor.serie_facturacion || '').trim());
+    numero = numero.replace('{YEAR}', String(year));
+    numero = numero.replace('{MONTH}', String(month).padStart(2, '0'));
+    numero = numero.replace(/\{.*?\}/g, '').trim();
+
+    res.json({ success: true, numero });
+  } catch (err) {
+    console.error("❌ previewNextNumber:", err);
+    res.status(500).json({ success: false, error: "Error previsualizando número" });
+  }
+}
+
 export async function getLastValidDate(req, res) {
   try {
     const empresaId = await getEmpresaId(req);
