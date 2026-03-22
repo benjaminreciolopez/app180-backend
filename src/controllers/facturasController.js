@@ -196,38 +196,80 @@ export async function previewNextNumber(req, res) {
   try {
     const empresaId = await getEmpresaId(req);
     const fecha = req.query.fecha || new Date().toISOString().split("T")[0];
-    const fechaObj = new Date(fecha);
-    const year = fechaObj.getFullYear();
+    const dateObj = new Date(fecha);
+    const year = dateObj.getFullYear();
+    const month = dateObj.getMonth() + 1;
+    const day = dateObj.getDate();
 
-    const [emisor] = await sql`
-      SELECT siguiente_numero, ultimo_anio_numerado, numeracion_plantilla, serie_facturacion
-      FROM emisor_180
+    // Misma lógica que generarNumeroFactura() pero sin escribir en DB
+    const [config] = await sql`
+      SELECT numeracion_tipo, numeracion_formato, correlativo_inicial, serie, verifactu_activo, verifactu_modo
+      FROM configuracionsistema_180
       WHERE empresa_id = ${empresaId}
-      LIMIT 1
     `;
 
-    if (!emisor) {
+    if (!config) {
       return res.json({ success: true, numero: null });
     }
 
-    let correlativo = emisor.siguiente_numero || 1;
-    if (emisor.ultimo_anio_numerado !== year) {
-      correlativo = 1;
+    const tipo = config.numeracion_tipo || 'STANDARD';
+    const formato = config.numeracion_formato || 'FAC-{YEAR}-';
+    const serieBase = config.serie || 'F';
+    const correlativoBase = config.correlativo_inicial || 0;
+
+    // En modo test, mostrar siguiente TEST
+    const esModoTest = config.verifactu_activo && config.verifactu_modo === 'TEST';
+    if (esModoTest) {
+      const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180
+        WHERE empresa_id = ${empresaId} AND es_test = true AND numero LIKE 'TEST-%'
+      `;
+      const testCorrelativo = (max?.ultimo || 0) + 1;
+      return res.json({ success: true, numero: `TEST-${String(testCorrelativo).padStart(4, '0')}`, esTest: true });
     }
 
-    const plantilla = (emisor.numeracion_plantilla || '{YEAR}-{NUM:04d}').trim();
-    const month = fechaObj.getMonth() + 1;
+    let correlativo = 1;
+    let numeroFinal = "";
 
-    let numero = plantilla.replace(/\{NUM:0(\d+)d\}/g, (_, width) => {
-      return String(correlativo).padStart(parseInt(width), '0');
-    });
-    numero = numero.replace('{NUM}', String(correlativo));
-    numero = numero.replace('{SERIE}', (emisor.serie_facturacion || '').trim());
-    numero = numero.replace('{YEAR}', String(year));
-    numero = numero.replace('{MONTH}', String(month).padStart(2, '0'));
-    numero = numero.replace(/\{.*?\}/g, '').trim();
+    if (tipo === 'STANDARD') {
+      const prefix = `${serieBase}-`;
+      const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180
+        WHERE empresa_id = ${empresaId} AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND (es_test IS NOT TRUE) AND numero LIKE ${prefix + '%'}
+      `;
+      correlativo = (max?.ultimo) ? Math.max(correlativoBase, max.ultimo) + 1 : correlativoBase + 1;
+      numeroFinal = `${prefix}${String(correlativo).padStart(4, '0')}`;
 
-    res.json({ success: true, numero });
+    } else if (tipo === 'BY_YEAR') {
+      const prefix = `${serieBase}-${year}-`;
+      const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180
+        WHERE empresa_id = ${empresaId} AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND (es_test IS NOT TRUE) AND numero LIKE ${prefix + '%'}
+      `;
+      correlativo = (max?.ultimo) ? Math.max(correlativoBase, max.ultimo) + 1 : correlativoBase + 1;
+      numeroFinal = `${prefix}${String(correlativo).padStart(4, '0')}`;
+
+    } else if (tipo === 'PREFIXED') {
+      const resolvedPrefix = formato
+        .replace('{YEAR}', year.toString())
+        .replace('{MONTH}', month.toString().padStart(2, '0'))
+        .replace('{DAY}', day.toString().padStart(2, '0'));
+      const [max] = await sql`
+        SELECT MAX(CAST(SUBSTRING(numero FROM '([0-9]+)$') AS INTEGER)) as ultimo
+        FROM factura_180
+        WHERE empresa_id = ${empresaId} AND estado IN ('VALIDADA', 'ENVIADA', 'ANULADA')
+        AND (es_test IS NOT TRUE) AND numero LIKE ${resolvedPrefix + '%'}
+      `;
+      correlativo = (max?.ultimo) ? Math.max(correlativoBase, max.ultimo) + 1 : correlativoBase + 1;
+      numeroFinal = `${resolvedPrefix}${String(correlativo).padStart(4, '0')}`;
+    }
+
+    res.json({ success: true, numero: numeroFinal });
   } catch (err) {
     console.error("❌ previewNextNumber:", err);
     res.status(500).json({ success: false, error: "Error previsualizando número" });
