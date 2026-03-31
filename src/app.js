@@ -316,6 +316,8 @@ app.use("/admin", aiRoutes);
 app.use("/admin", adminKnowledgeRoutes);
 app.use("/admin/contabilidad", adminContabilidadRoutes);
 app.use("/admin/asesoria", adminAsesoriaRoutes);
+app.use("/admin/gastos-recurrentes", gastosRecurrentesRoutes);
+app.use("/admin/facturacion/recurrentes", facturaRecurrenteRoutes);
 app.use("/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo legacy
 
 // =========================
