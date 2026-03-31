@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS gastos_recurrentes_180 (
+  id SERIAL PRIMARY KEY,
+  empresa_id INTEGER NOT NULL,
+  nombre VARCHAR(100) NOT NULL,
+  proveedor VARCHAR(255),
+  descripcion TEXT,
+  base_imponible NUMERIC(12,2) NOT NULL,
+  iva_porcentaje NUMERIC(5,2) DEFAULT 21,
+  iva_importe NUMERIC(12,2) DEFAULT 0,
+  retencion_porcentaje NUMERIC(5,2) DEFAULT 0,
+  retencion_importe NUMERIC(12,2) DEFAULT 0,
+  total NUMERIC(12,2) NOT NULL,
+  categoria VARCHAR(100) DEFAULT 'general',
+  metodo_pago VARCHAR(50) DEFAULT 'transferencia',
+  cuenta_contable VARCHAR(10),
+  dia_ejecucion INTEGER DEFAULT 1,
+  activo BOOLEAN DEFAULT true,
+  ultima_ejecucion DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);

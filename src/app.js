@@ -27,6 +27,7 @@ import { verificarCertificadosJob } from "./jobs/verificarCertificados.js";
 import { runFiscalAlertScan } from "./jobs/fiscalAlertScan.js";
 import { runAsesorDailyAlertScan, runAsesorMonthlyCheck } from "./jobs/asesorAlertScan.js";
 import { verifactuEnvioJob } from "./jobs/verifactuEnvioJob.js";
+import { ejecutarGastosRecurrentes, detectarGastosRecurrentes } from "./jobs/gastosRecurrentesJob.js";
 
 import empleadoAdjuntosRoutes from "./routes/empleadoAdjuntosRoutes.js";
 import adminAdjuntosRoutes from "./routes/adminAdjuntosRoutes.js";
@@ -77,6 +78,7 @@ import { stripeWebhook } from "./controllers/subscriptionController.js";
 import fabricantePublicRoutes, { fabricanteProtectedRouter } from "./routes/fabricanteRoutes.js";
 import sugerenciasRoutes, { sugerenciasFabricanteRouter } from "./routes/sugerenciasRoutes.js";
 import adminContabilidadRoutes from "./routes/adminContabilidadRoutes.js";
+import gastosRecurrentesRoutes from "./routes/gastosRecurrentesRoutes.js";
 import asesorRoutes from "./routes/asesorRoutes.js";
 import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
@@ -105,6 +107,8 @@ cron.schedule("0 8 * * 1", () => runFiscalAlertScan()); // Escaneo fiscal semana
 cron.schedule("0 9 * * *", () => runAsesorDailyAlertScan()); // Alertas asesor: plazos fiscales + docs nuevos
 cron.schedule("0 8 1 * *", () => runAsesorMonthlyCheck()); // Revision mensual: clientes inactivos + alertas
 cron.schedule("*/30 * * * *", () => verifactuEnvioJob()); // VeriFactu: reintentar pendientes cada 30 min
+cron.schedule("0 7 * * *", () => ejecutarGastosRecurrentes()); // Gastos recurrentes: ejecutar plantillas diariamente a las 7 AM
+cron.schedule("0 9 1 * *", () => detectarGastosRecurrentes()); // Gastos recurrentes: detectar patrones el día 1 de cada mes
 cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada hora
   try {
     const { sql } = await import("./db.js");
@@ -281,6 +285,7 @@ app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricant
 app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
 app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Sugerencias (fabricante)
 app.use("/api/admin/contabilidad", adminContabilidadRoutes); // Módulo contabilidad
+app.use("/api/admin/gastos-recurrentes", gastosRecurrentesRoutes); // Gastos recurrentes
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
 app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
