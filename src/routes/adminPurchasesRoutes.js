@@ -9,6 +9,7 @@ import {
     eliminarCompra,
     ocrGasto,
     getUniqueValues,
+    getProviderDefaults,
     bankImportPreview,
     bankImportConfirm
 } from "../controllers/adminPurchasesController.js";
@@ -40,6 +41,13 @@ router.use(authRequired, roleRequired("admin"));
  * @query path
  */
 router.get("/proxy", storageController.proxyFile);
+
+/**
+ * @route GET /admin/purchases/provider-defaults
+ * @desc Obtener defaults (categoría, método pago, cuenta contable) del último gasto de un proveedor
+ * @query proveedor
+ */
+router.get("/provider-defaults", getProviderDefaults);
 
 /**
  * @route GET /admin/purchases/values

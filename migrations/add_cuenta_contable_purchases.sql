@@ -1,0 +1,1 @@
+ALTER TABLE purchases_180 ADD COLUMN IF NOT EXISTS cuenta_contable VARCHAR(10);

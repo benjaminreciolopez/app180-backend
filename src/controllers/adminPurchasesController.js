@@ -17,6 +17,41 @@ function getTrimestre(fechaStr) {
 }
 
 /**
+ * Helper: buscar defaults del último gasto de un proveedor
+ */
+async function lookupProviderDefaults(empresaId, proveedor) {
+    if (!proveedor || !proveedor.trim()) return null;
+    const [last] = await sql`
+        SELECT categoria, cuenta_contable, iva_porcentaje, metodo_pago, retencion_porcentaje
+        FROM purchases_180
+        WHERE empresa_id = ${empresaId}
+          AND activo = true
+          AND LOWER(TRIM(proveedor)) = LOWER(TRIM(${proveedor}))
+        ORDER BY fecha_compra DESC, created_at DESC
+        LIMIT 1
+    `;
+    return last || null;
+}
+
+/**
+ * GET /api/admin/purchases/provider-defaults?proveedor=X
+ * Devuelve categoría, método de pago y cuenta contable del último gasto de ese proveedor
+ */
+export async function getProviderDefaults(req, res) {
+    try {
+        const { empresa_id } = req.user;
+        const { proveedor } = req.query;
+        if (!proveedor) return res.json({ data: null });
+
+        const defaults = await lookupProviderDefaults(empresa_id, proveedor);
+        res.json({ data: defaults });
+    } catch (err) {
+        console.error("[Purchases] Error getProviderDefaults:", err);
+        res.status(500).json({ error: "Error al buscar defaults del proveedor." });
+    }
+}
+
+/**
  * OCR para gastos: Extrae texto, usa Claude para estructurar y sube a carpeta dinámica
  */
 export async function ocrGasto(req, res) {
@@ -107,6 +142,22 @@ NOTA: base_imponible e iva_importe son OBLIGATORIOS. Si la cuota de IVA no es ce
                         LIMIT 1
                     `;
                     if (existing) inv.es_duplicado = true;
+                }
+            }
+        }
+
+        // Enriquecer con historial del proveedor (categoría y método de pago anteriores)
+        if (data.invoices && Array.isArray(data.invoices)) {
+            for (let inv of data.invoices) {
+                if (inv.proveedor) {
+                    const prev = await lookupProviderDefaults(empresa_id, inv.proveedor);
+                    if (prev) {
+                        inv.categoria_historial = prev.categoria;
+                        inv.metodo_pago_historial = prev.metodo_pago;
+                        inv.cuenta_contable = prev.cuenta_contable;
+                        // Priorizar historial sobre sugerencia IA para categoría
+                        if (prev.categoria) inv.categoria_sugerida = prev.categoria;
+                    }
                 }
             }
         }
@@ -314,10 +365,24 @@ export async function crearCompra(req, res) {
       ) RETURNING *
     `;
 
+        // Si viene cuenta_contable del proveedor anterior, pasarla al gasto
+        const cuentaContableBody = req.body.cuenta_contable || null;
+        if (cuentaContableBody) {
+            newPurchase.cuenta_contable = cuentaContableBody;
+        }
+
         // Generar asiento contable de devengo del gasto (6xx a 400xx + IVA)
         try {
-            await generarAsientoGasto(empresa_id, newPurchase, req.user?.id || null);
+            const asientoResult = await generarAsientoGasto(empresa_id, newPurchase, req.user?.id || null);
             console.log(`[Purchases] Asiento de gasto generado para ${newPurchase.id}`);
+
+            // Guardar la cuenta contable usada en el asiento para futuras consultas
+            if (asientoResult?.lineas?.length > 0) {
+                const lineaGasto = asientoResult.lineas.find(l => l.debe > 0 && l.cuenta_codigo !== '472' && l.cuenta_codigo !== '4751');
+                if (lineaGasto) {
+                    await sql`UPDATE purchases_180 SET cuenta_contable = ${lineaGasto.cuenta_codigo} WHERE id = ${newPurchase.id}`;
+                }
+            }
         } catch (contErr) {
             console.error("[Purchases] Error generando asiento de gasto:", contErr.message);
         }
@@ -703,6 +768,19 @@ Responde SOLO un JSON array:
             }
         }
 
+        // Enriquecer con historial de proveedor (prioridad sobre IA)
+        for (const tx of gastosParaEnriquecer) {
+            if (tx.proveedor_sugerido) {
+                const prev = await lookupProviderDefaults(empresa_id, tx.proveedor_sugerido);
+                if (prev) {
+                    tx.categoria_sugerida = prev.categoria || tx.categoria_sugerida;
+                    tx.metodo_pago_historial = prev.metodo_pago;
+                    tx.cuenta_contable = prev.cuenta_contable;
+                    tx.from_history = true;
+                }
+            }
+        }
+
         const gastos = transactions.filter(t => t.es_gasto);
         const ingresos = transactions.filter(t => !t.es_gasto);
 
@@ -755,7 +833,7 @@ export async function bankImportConfirm(req, res) {
                     INSERT INTO purchases_180 (
                         empresa_id, proveedor, descripcion, total, fecha_compra,
                         categoria, metodo_pago, base_imponible, iva_importe, cuota_iva, iva_porcentaje,
-                        anio, trimestre, numero_factura, ocr_data, activo
+                        anio, trimestre, numero_factura, ocr_data, cuenta_contable, activo
                     ) VALUES (
                         ${empresa_id}, ${tx.proveedor || null}, ${tx.descripcion},
                         ${tx.total}, ${fecha},
@@ -763,6 +841,7 @@ export async function bankImportConfirm(req, res) {
                         ${tx.base_imponible || tx.total}, ${tx.iva_importe || 0}, ${tx.iva_importe || 0}, ${tx.iva_porcentaje || 0},
                         ${anio}, ${trimestre}, ${tx.numero_factura || null},
                         ${JSON.stringify({ origen: "bank_import", source_file: source_file_name || null, concepto_original: tx.concepto_original || null })},
+                        ${tx.cuenta_contable || null},
                         true
                     ) RETURNING id
                 `;

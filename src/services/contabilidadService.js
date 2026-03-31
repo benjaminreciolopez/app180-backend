@@ -253,8 +253,19 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
   const total = parseFloat(gasto.total || base + iva - retencion);
   const proveedorNombre = gasto.proveedor || "Proveedor";
 
-  // Cuenta de gasto: IA pre-clasificada > regex > IA individual > categoría
+  // Cuenta de gasto: IA pre-clasificada > cuenta guardada del proveedor > regex > IA individual > categoría
+  let cuentaGuardada = null;
+  if (gasto.cuenta_contable) {
+    const [found] = await sql`
+      SELECT codigo, nombre FROM pgc_cuentas_180
+      WHERE empresa_id = ${empresaId} AND codigo = ${gasto.cuenta_contable} AND activa = true
+      LIMIT 1
+    `;
+    if (found) cuentaGuardada = found;
+  }
+
   const cuentaGasto = cuentaGastoIA
+    || cuentaGuardada
     || detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor)
     || await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria)
     || mapCategoriaToCuenta(gasto.categoria);
