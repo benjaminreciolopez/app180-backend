@@ -25,7 +25,8 @@ router.post("/facturas", facturasController.createFactura);
 router.put("/facturas/:id", facturasController.updateFactura);
 router.delete("/facturas/:id", facturasController.deleteFactura);
 
-// Acciones sobre facturas
+// Acciones sobre facturas (batch ANTES de :id para evitar conflicto de ruta)
+router.post("/facturas/batch/validar", facturasController.batchValidar);
 router.post("/facturas/:id/validar", facturasController.validarFactura);
 router.post("/facturas/:id/anular", facturasController.anularFactura);
 router.post("/facturas/:id/convertir-a-normal", facturasController.convertirProformaANormal);

@@ -104,7 +104,7 @@ export async function detectarGastosRecurrentes() {
                     MIN(total) AS min_total
                 FROM gastos_por_mes
                 GROUP BY empresa_id, proveedor_norm
-                HAVING COUNT(DISTINCT (anio || '-' || mes)) >= 3
+                HAVING COUNT(DISTINCT (anio || '-' || mes)) >= 2
             )
             SELECT r.*
             FROM repetidos r

@@ -1026,6 +1026,223 @@ export async function validarFactura(req, res) {
 }
 
 /* =========================
+   VALIDACIÓN EN LOTE (BATCH)
+========================= */
+
+export async function batchValidar(req, res) {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const { ids, fecha } = req.body;
+
+    if (!fecha) {
+      return res.status(400).json({ success: false, error: "Fecha requerida" });
+    }
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: "Debes seleccionar al menos una factura" });
+    }
+    if (ids.length > 200) {
+      return res.status(400).json({ success: false, error: "Máximo 200 facturas por lote" });
+    }
+
+    // Validar orden cronológico una sola vez
+    const [ultima] = await sql`
+      select fecha from factura_180
+      where empresa_id=${empresaId}
+        and estado='VALIDADA'
+      order by fecha desc
+      limit 1
+    `;
+    if (ultima && new Date(fecha) < new Date(ultima.fecha)) {
+      return res.status(400).json({
+        success: false,
+        error: "La fecha no puede ser anterior a la última factura validada",
+      });
+    }
+
+    const [config] = await sql`select serie from configuracionsistema_180 where empresa_id=${empresaId}`;
+    const serie = config?.serie || null;
+
+    const validated = [];
+    const failed = [];
+
+    // Procesar secuencialmente para mantener numeración correlativa
+    for (const facturaId of ids) {
+      try {
+        const [factura] = await sql`
+          select * from factura_180
+          where id=${facturaId} and empresa_id=${empresaId}
+          limit 1
+        `;
+
+        if (!factura) {
+          failed.push({ id: facturaId, error: "Factura no encontrada" });
+          continue;
+        }
+        if (factura.estado !== 'BORRADOR') {
+          failed.push({ id: facturaId, error: `Estado actual: ${factura.estado}` });
+          continue;
+        }
+
+        // Generar número
+        let numero;
+        if (factura.tipo_factura === 'PROFORMA') {
+          const year = new Date(fecha).getFullYear();
+          const count = await sql`
+            SELECT COUNT(*) as total FROM factura_180
+            WHERE empresa_id = ${empresaId}
+              AND tipo_factura = 'PROFORMA'
+              AND EXTRACT(YEAR FROM fecha) = ${year}
+          `;
+          const nextNum = (parseInt(count[0]?.total || 0) + 1).toString().padStart(6, '0');
+          numero = `PRO-${year}-${nextNum}`;
+        } else {
+          numero = await generarNumeroFactura(empresaId, fecha);
+        }
+
+        let verifactuResult = null;
+        await sql.begin(async (tx) => {
+          const lineas = await tx`select * from lineafactura_180 where factura_id=${facturaId}`;
+
+          let subtotal = 0;
+          let iva_total = 0;
+          for (const l of lineas) {
+            const base = l.cantidad * l.precio_unitario;
+            subtotal += base;
+            iva_total += (base * (l.iva_percent || factura.iva_global || 0) / 100);
+          }
+
+          const retencion_porcentaje = factura.retencion_porcentaje || 0;
+          const retencion_importe = (subtotal * retencion_porcentaje) / 100;
+          const total = Math.round((subtotal + iva_total - retencion_importe) * 100) / 100;
+
+          const [updatedRecord] = await tx`
+            update factura_180
+            set estado = 'VALIDADA',
+                numero = ${numero},
+                serie = ${serie},
+                fecha = ${fecha}::date,
+                fecha_validacion = current_date,
+                subtotal = ${Math.round(subtotal * 100) / 100},
+                iva_total = ${Math.round(iva_total * 100) / 100},
+                iva_global = ${Math.round(iva_total * 100) / 100},
+                retencion_importe = ${Math.round(retencion_importe * 100) / 100},
+                total = ${total}
+            where id = ${facturaId}
+            returning *
+          `;
+
+          if (factura.tipo_factura !== 'PROFORMA') {
+            verifactuResult = await verificarVerifactu(updatedRecord, tx);
+          }
+
+          if (factura.tipo_factura !== 'PROFORMA') {
+            const [verifactuConfig] = await tx`
+              select verifactu_activo, verifactu_modo
+              from configuracionsistema_180
+              where empresa_id = ${empresaId}
+              limit 1
+            `;
+            const year = new Date(fecha).getFullYear();
+            const esProduccion = !verifactuConfig?.verifactu_activo || verifactuConfig?.verifactu_modo !== 'TEST';
+            if (esProduccion) {
+              await tx`
+                update emisor_180
+                set numeracion_bloqueada = true,
+                    anio_numeracion_bloqueada = ${year},
+                    ultimo_anio_numerado = ${year}
+                where empresa_id = ${empresaId}
+              `;
+            } else {
+              await tx`
+                update emisor_180
+                set ultimo_anio_numerado = ${year}
+                where empresa_id = ${empresaId}
+              `;
+            }
+          }
+        });
+
+        // Envío AEAT (fire-and-forget)
+        if (verifactuResult?.registroId) {
+          const { registroId, config: vfConfig } = verifactuResult;
+          const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
+          enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
+            .catch(err => console.error('⚠️ VeriFactu batch: envío async falló:', err.message));
+        }
+
+        // Auditoría
+        await auditFactura({
+          empresaId,
+          userId: req.user.id,
+          accion: 'factura_validada',
+          entidadTipo: 'factura',
+          entidadId: facturaId,
+          req,
+          datosNuevos: { numero, fecha, estado: 'VALIDADA' }
+        });
+
+        // Asiento contable
+        if (factura.tipo_factura !== 'PROFORMA' && !factura.es_test) {
+          try {
+            const [facturaFinal] = await sql`
+              SELECT f.*, c.nombre AS cliente_nombre
+              FROM factura_180 f
+              LEFT JOIN clients_180 c ON c.id = f.cliente_id
+              WHERE f.id = ${facturaId}
+            `;
+            if (facturaFinal) {
+              await generarAsientoFactura(empresaId, facturaFinal, req.user?.id || null);
+            }
+          } catch (contErr) {
+            console.error(`[Batch] Error asiento factura ${facturaId}:`, contErr.message);
+          }
+        }
+
+        // PDF (fire-and-forget para no bloquear el lote)
+        if (!factura.es_test) {
+          (async () => {
+            try {
+              const pdfBuffer = await generarPdfFactura(facturaId);
+              const baseFolder = await getInvoiceStorageFolder(empresaId);
+              const savedFile = await saveToStorage({
+                empresaId,
+                nombre: `Factura_${numero.replace(/\//g, '-')}.pdf`,
+                buffer: pdfBuffer,
+                folder: getStoragePath(fecha, baseFolder),
+                mimeType: 'application/pdf',
+                useTimestamp: false
+              });
+              if (savedFile?.storage_path) {
+                await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${facturaId}`;
+              }
+            } catch (e) {
+              console.error(`⚠️ Batch PDF ${facturaId}:`, e.message);
+            }
+          })();
+        }
+
+        validated.push({ id: facturaId, numero, total: factura.total });
+        console.log(`[Batch] Factura ${facturaId} validada como ${numero}`);
+
+      } catch (err) {
+        console.error(`[Batch] Error validando factura ${facturaId}:`, err.message);
+        failed.push({ id: facturaId, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${validated.length} facturas validadas, ${failed.length} errores`,
+      validated,
+      failed
+    });
+  } catch (err) {
+    console.error("❌ batchValidar:", err);
+    res.status(500).json({ success: false, error: err.message || "Error en validación por lote" });
+  }
+}
+
+/* =========================
    GENERAR NÚMERO DE FACTURA
 ========================= */
 

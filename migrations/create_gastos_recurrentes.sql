@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS gastos_recurrentes_180 (
   id SERIAL PRIMARY KEY,
-  empresa_id INTEGER NOT NULL,
+  empresa_id UUID NOT NULL,
   nombre VARCHAR(100) NOT NULL,
   proveedor VARCHAR(255),
   descripcion TEXT,
