@@ -130,7 +130,7 @@ export async function listFacturas(req, res) {
       empresaId = await getEmpresaId(req);
     }
 
-    const { estado, cliente_id, fecha_desde, fecha_hasta, year } = req.query;
+    const { estado, cliente_id, fecha_desde, fecha_hasta, year, es_test } = req.query;
 
     let query = sql`
       select
@@ -141,11 +141,17 @@ export async function listFacturas(req, res) {
         s.storage_path as storage_real_path
       from factura_180 f
       left join clients_180 c on c.id = f.cliente_id
-      left join storage_180 s on s.nombre = 'Factura_' || replace(f.numero, '/', '-') || '.pdf' 
+      left join storage_180 s on s.nombre = 'Factura_' || replace(f.numero, '/', '-') || '.pdf'
         AND s.empresa_id = f.empresa_id
       where f.empresa_id = ${empresaId}
         AND f.deleted_at IS NULL
     `;
+
+    if (es_test === 'true') {
+      query = sql`${query} AND f.es_test = true`;
+    } else {
+      query = sql`${query} AND (f.es_test IS NOT TRUE)`;
+    }
 
     if (estado && estado !== 'TODOS') {
       query = sql`${query} AND f.estado = ${estado}`;

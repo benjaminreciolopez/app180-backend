@@ -5,6 +5,16 @@ import { construirUrlQr } from './verifactuService.js';
 import path from 'path';
 import fs from 'fs';
 
+/** Formatea un número al estilo español: 1.234,56 € */
+function fmtEur(val) {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(Number(val || 0));
+}
+
+/** Formatea un número decimal al estilo español sin símbolo: 1.234,56 */
+function fmtNum(val, decimals = 2) {
+  return new Intl.NumberFormat('es-ES', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(Number(val || 0));
+}
+
 /**
  * Estilos para PDF de factura - MULTI-PAGINA con numeracion encadenada
  * Layout de flujo (no absoluto) para paginacion automatica de Puppeteer
@@ -340,11 +350,11 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   // 5. Lineas HTML
   const lineasHtml = lineas.map(l => `
     <tr>
-      <td class="col-cant">${Number(l.cantidad).toFixed(2)}</td>
+      <td class="col-cant">${fmtNum(l.cantidad)}</td>
       <td class="col-desc">${l.descripcion || ''}</td>
-      <td class="col-price">${Number(l.precio_unitario).toFixed(2)} &euro;</td>
-      <td class="col-iva">${Number(l.iva_percent || ivaGlobal).toFixed(2)}%</td>
-      <td class="col-total">${Number(l.total).toFixed(2)} &euro;</td>
+      <td class="col-price">${fmtEur(l.precio_unitario)}</td>
+      <td class="col-iva">${fmtNum(l.iva_percent || ivaGlobal)}%</td>
+      <td class="col-total">${fmtEur(l.total)}</td>
     </tr>
   `).join('');
 
@@ -442,11 +452,11 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   <!-- TOTALES -->
   <div class="totals-section">
     <div class="totals-block">
-      <div class="total-row">Subtotal: ${subtotal.toFixed(2)} &euro;</div>
+      <div class="total-row">Subtotal: ${fmtEur(subtotal)}</div>
       ${Object.entries(desgloseIva).map(([pct, data]) => `
-        <div class="total-row">IVA (${pct}%): ${data.cuota.toFixed(2)} &euro;</div>
+        <div class="total-row">IVA (${pct}%): ${fmtEur(data.cuota)}</div>
       `).join('')}
-      <div class="total-row total-final">TOTAL FACTURA: ${total.toFixed(2)} &euro;</div>
+      <div class="total-row total-final">TOTAL FACTURA: ${fmtEur(total)}</div>
     </div>
   </div>
 

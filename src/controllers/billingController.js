@@ -146,6 +146,7 @@ export async function getDeudasPendientesConsolidado(req, res) {
         FROM factura_180
         WHERE empresa_id = ${empresaId}
           AND estado = 'VALIDADA'
+          AND (es_test IS NOT TRUE)
           AND (total > COALESCE(pagado, 0) + 0.01)
           AND fecha::date BETWEEN ${d}::date AND ${h}::date
         GROUP BY cliente_id

@@ -312,6 +312,7 @@ export async function getPendientesParaPago(req, res) {
       WHERE empresa_id = ${empresaId}
         AND cliente_id = ${clienteId}
         AND estado = 'VALIDADA'
+        AND (es_test IS NOT TRUE)
         AND (total > COALESCE(pagado, 0) + 0.01)
       ORDER BY fecha ASC
     `;
@@ -450,6 +451,7 @@ export async function getTrabajosPendientes(req, res) {
       WHERE empresa_id = ${empresaId}
         AND cliente_id = ${id}
         AND estado = 'VALIDADA'
+        AND (es_test IS NOT TRUE)
         AND (total > COALESCE(pagado, 0) + 0.01)
     `;
     deudas.push(...facturas);
