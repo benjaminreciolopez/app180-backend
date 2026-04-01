@@ -198,7 +198,15 @@ export async function getAlertConfig(empresaId) {
         WHERE empresa_id = ${empresaId}
     `;
 
-    const stored = config?.fiscal_alert_config || {};
+    let raw = config?.fiscal_alert_config;
+    let stored = {};
+    if (raw) {
+        if (typeof raw === 'string') {
+            try { stored = JSON.parse(raw); } catch { stored = {}; }
+        } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+            stored = raw;
+        }
+    }
     const sector = stored.sector || 'default';
     const sectorDefaults = SECTOR_DEFAULTS[sector] || SECTOR_DEFAULTS.default;
 

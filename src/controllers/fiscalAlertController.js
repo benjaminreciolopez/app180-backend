@@ -210,9 +210,14 @@ export async function updateAlertConfig(req, res) {
             SELECT fiscal_alert_config FROM empresa_config_180
             WHERE empresa_id = ${empresaId}
         `;
-        let current = row?.fiscal_alert_config || {};
-        if (typeof current !== 'object' || Array.isArray(current)) {
-            current = {};
+        let raw = row?.fiscal_alert_config;
+        let current = {};
+        if (raw) {
+            if (typeof raw === 'string') {
+                try { current = JSON.parse(raw); } catch { current = {}; }
+            } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+                current = raw;
+            }
         }
 
         // Mergear campos
@@ -223,9 +228,10 @@ export async function updateAlertConfig(req, res) {
             current.thresholds = { ...(current.thresholds || {}), ...thresholds };
         }
 
+        // Usar sql.json() para asegurar que se guarda como JSONB objeto, no string
         await sql`
             UPDATE empresa_config_180
-            SET fiscal_alert_config = ${JSON.stringify(current)}::jsonb
+            SET fiscal_alert_config = ${sql.json(current)}
             WHERE empresa_id = ${empresaId}
         `;
 
