@@ -13,7 +13,9 @@ import {
     getFiscalAlerts,
     simulateFiscalImpact,
     getAlertConfig,
-    updateAlertConfig
+    updateAlertConfig,
+    addEpigrafe,
+    deleteEpigrafe
 } from "../controllers/fiscalAlertController.js";
 
 const router = Router();
@@ -78,5 +80,8 @@ router.get("/alert-config", getAlertConfig);
  * @body { sector?, iae_code?, thresholds?, enabled? }
  */
 router.put("/alert-config", updateAlertConfig);
+
+router.post("/epigrafes", addEpigrafe);
+router.delete("/epigrafes/:codigo", deleteEpigrafe);
 
 export default router;

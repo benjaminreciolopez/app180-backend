@@ -31,13 +31,18 @@ export async function getNotificaciones(req, res) {
       countClause = sql`empresa_id = ${empresaId} ${userFilter}`;
     }
 
+    // Count no leídas en query separada para evitar problemas con 0 resultados
+    const [countResult] = await sql`
+      SELECT COUNT(*)::int as total FROM notificaciones_180
+      WHERE ${countClause} AND leida = FALSE
+    `;
+    const no_leidas = countResult?.total || 0;
+
     let notificaciones;
     if (solo_no_leidas === 'true' || solo_no_leidas === true) {
       notificaciones = await sql`
         SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
-               metadata, created_at, leida_at,
-               (SELECT COUNT(*)::int FROM notificaciones_180
-                WHERE ${countClause} AND leida = FALSE) AS _no_leidas
+               metadata, created_at, leida_at
         FROM notificaciones_180
         WHERE ${whereClause} AND leida = FALSE
         ORDER BY created_at DESC
@@ -46,9 +51,7 @@ export async function getNotificaciones(req, res) {
     } else {
       notificaciones = await sql`
         SELECT id, tipo, titulo, mensaje, leida, accion_url, accion_label,
-               metadata, created_at, leida_at,
-               (SELECT COUNT(*)::int FROM notificaciones_180
-                WHERE ${countClause} AND leida = FALSE) AS _no_leidas
+               metadata, created_at, leida_at
         FROM notificaciones_180
         WHERE ${whereClause}
         ORDER BY created_at DESC
@@ -56,8 +59,7 @@ export async function getNotificaciones(req, res) {
       `;
     }
 
-    const no_leidas = notificaciones[0]?._no_leidas || 0;
-    const cleaned = notificaciones.map(({ _no_leidas, ...rest }) => rest);
+    const cleaned = notificaciones.map(n => ({ ...n }));
 
     res.json({
       notificaciones: cleaned,

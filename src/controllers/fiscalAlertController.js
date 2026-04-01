@@ -9,6 +9,7 @@ import {
     simulateImpact,
     getAlertConfig as getConfig,
     SECTOR_LIST,
+    EPIGRAFES_IAE,
 } from "../services/fiscalAlertService.js";
 import { crearNotificacionSistema } from "./notificacionesController.js";
 
@@ -124,10 +125,74 @@ export async function getAlertConfig(req, res) {
     try {
         const empresaId = req.user.empresa_id;
         const config = await getConfig(empresaId);
-        res.json({ success: true, data: config, sectors: SECTOR_LIST });
+
+        // Cargar epígrafes personalizados de la empresa
+        const customEpigrafes = await sql`
+            SELECT sector, codigo, descripcion FROM epigrafes_iae_custom_180
+            WHERE empresa_id = ${empresaId}
+            ORDER BY sector, codigo
+        `.catch(() => []);
+
+        // Mergear epígrafes base + custom por sector
+        const epigrafes = {};
+        for (const sector of SECTOR_LIST) {
+            const base = EPIGRAFES_IAE[sector] || [];
+            const custom = customEpigrafes.filter(e => e.sector === sector);
+            epigrafes[sector] = [...base, ...custom.map(c => ({ codigo: c.codigo, descripcion: c.descripcion, custom: true }))];
+        }
+
+        res.json({ success: true, data: config, sectors: SECTOR_LIST, epigrafes });
     } catch (error) {
         console.error("Error getAlertConfig:", error);
         res.status(500).json({ success: false, error: "Error obteniendo configuración de alertas" });
+    }
+}
+
+/**
+ * POST /admin/fiscal/epigrafes
+ * Añadir un epígrafe personalizado a un sector
+ */
+export async function addEpigrafe(req, res) {
+    try {
+        const empresaId = req.user.empresa_id;
+        const { sector, codigo, descripcion } = req.body;
+
+        if (!sector || !codigo || !descripcion) {
+            return res.status(400).json({ error: "Sector, código y descripción son obligatorios" });
+        }
+
+        await sql`
+            INSERT INTO epigrafes_iae_custom_180 (empresa_id, sector, codigo, descripcion)
+            VALUES (${empresaId}, ${sector}, ${codigo.trim()}, ${descripcion.trim()})
+            ON CONFLICT (empresa_id, sector, codigo) DO UPDATE SET descripcion = ${descripcion.trim()}
+        `;
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Error addEpigrafe:", error);
+        res.status(500).json({ error: "Error añadiendo epígrafe" });
+    }
+}
+
+/**
+ * DELETE /admin/fiscal/epigrafes/:codigo?sector=xxx
+ * Eliminar un epígrafe personalizado
+ */
+export async function deleteEpigrafe(req, res) {
+    try {
+        const empresaId = req.user.empresa_id;
+        const { codigo } = req.params;
+        const { sector } = req.query;
+
+        await sql`
+            DELETE FROM epigrafes_iae_custom_180
+            WHERE empresa_id = ${empresaId} AND codigo = ${codigo} AND sector = ${sector}
+        `;
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Error deleteEpigrafe:", error);
+        res.status(500).json({ error: "Error eliminando epígrafe" });
     }
 }
 
@@ -140,15 +205,27 @@ export async function updateAlertConfig(req, res) {
         const empresaId = req.user.empresa_id;
         const { iae_code, sector, thresholds, enabled } = req.body;
 
-        const newConfig = {};
-        if (iae_code !== undefined) newConfig.iae_code = iae_code;
-        if (sector !== undefined) newConfig.sector = sector;
-        if (thresholds !== undefined) newConfig.thresholds = thresholds;
-        if (enabled !== undefined) newConfig.enabled = enabled;
+        // Leer config actual como objeto (protección contra datos corrompidos)
+        const [row] = await sql`
+            SELECT fiscal_alert_config FROM empresa_config_180
+            WHERE empresa_id = ${empresaId}
+        `;
+        let current = row?.fiscal_alert_config || {};
+        if (typeof current !== 'object' || Array.isArray(current)) {
+            current = {};
+        }
+
+        // Mergear campos
+        if (iae_code !== undefined) current.iae_code = iae_code;
+        if (sector !== undefined) current.sector = sector;
+        if (enabled !== undefined) current.enabled = enabled;
+        if (thresholds !== undefined) {
+            current.thresholds = { ...(current.thresholds || {}), ...thresholds };
+        }
 
         await sql`
             UPDATE empresa_config_180
-            SET fiscal_alert_config = COALESCE(fiscal_alert_config, '{}'::jsonb) || ${JSON.stringify(newConfig)}::jsonb
+            SET fiscal_alert_config = ${JSON.stringify(current)}::jsonb
             WHERE empresa_id = ${empresaId}
         `;
 

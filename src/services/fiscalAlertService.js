@@ -29,6 +29,133 @@ const SECTOR_DEFAULTS = {
 
 export const SECTOR_LIST = Object.keys(SECTOR_DEFAULTS).filter(s => s !== 'default');
 
+// ──────────────────────────────────────────────
+// Catálogo de Epígrafes IAE por sector
+// ──────────────────────────────────────────────
+
+export const EPIGRAFES_IAE = {
+    servicios_profesionales: [
+        { codigo: "731", descripcion: "Abogados" },
+        { codigo: "732", descripcion: "Procuradores" },
+        { codigo: "733", descripcion: "Graduados sociales" },
+        { codigo: "741", descripcion: "Economistas" },
+        { codigo: "742", descripcion: "Asesores fiscales y contables" },
+        { codigo: "743", descripcion: "Auditores de cuentas" },
+        { codigo: "751", descripcion: "Agentes de la propiedad inmobiliaria" },
+        { codigo: "761", descripcion: "Pintores, escultores, ceramistas y artesanos" },
+        { codigo: "762", descripcion: "Restauradores de obras de arte" },
+        { codigo: "764", descripcion: "Escritores y guionistas" },
+        { codigo: "769", descripcion: "Otros profesionales relacionados con actividades artísticas" },
+        { codigo: "771", descripcion: "Profesionales de la publicidad y relaciones públicas" },
+        { codigo: "774", descripcion: "Traductores e intérpretes" },
+        { codigo: "776", descripcion: "Profesionales de la gestión administrativa" },
+        { codigo: "841", descripcion: "Notarios" },
+        { codigo: "842", descripcion: "Registradores de la propiedad y mercantiles" },
+        { codigo: "843", descripcion: "Corredores de comercio" },
+        { codigo: "844", descripcion: "Diplomáticos y cónsules acreditados en España" },
+        { codigo: "849", descripcion: "Otros profesionales del derecho" },
+        { codigo: "899", descripcion: "Otros profesionales n.c.o.p." },
+    ],
+    comercio_minorista: [
+        { codigo: "641", descripcion: "Comercio al por menor de frutas, verduras y hortalizas" },
+        { codigo: "642", descripcion: "Comercio al por menor de carnes y despojos" },
+        { codigo: "643", descripcion: "Comercio al por menor de pescados" },
+        { codigo: "644", descripcion: "Comercio al por menor de pan, pastelería y confitería" },
+        { codigo: "645", descripcion: "Comercio al por menor de vinos y bebidas" },
+        { codigo: "646", descripcion: "Comercio al por menor de tabaco" },
+        { codigo: "647", descripcion: "Comercio al por menor de productos alimenticios y bebidas" },
+        { codigo: "651", descripcion: "Comercio al por menor de productos textiles" },
+        { codigo: "652", descripcion: "Comercio al por menor de prendas de vestir y tocado" },
+        { codigo: "653", descripcion: "Comercio al por menor de calzado, artículos de piel" },
+        { codigo: "654", descripcion: "Comercio al por menor de artículos de droguería y limpieza" },
+        { codigo: "656", descripcion: "Comercio al por menor de bienes usados" },
+        { codigo: "659", descripcion: "Otro comercio al por menor" },
+        { codigo: "661", descripcion: "Comercio mixto o integrado al por menor" },
+        { codigo: "662", descripcion: "Comercio mixto o integrado al por menor" },
+        { codigo: "663", descripcion: "Comercio al por menor fuera de establecimiento" },
+        { codigo: "664", descripcion: "Comercio en máquinas automáticas" },
+        { codigo: "665", descripcion: "Comercio al por menor por correo o catálogo" },
+    ],
+    hosteleria: [
+        { codigo: "671", descripcion: "Servicios en restaurantes" },
+        { codigo: "672", descripcion: "Servicios en cafeterías" },
+        { codigo: "673", descripcion: "Servicios en cafés y bares" },
+        { codigo: "674", descripcion: "Servicios especiales de restauración" },
+        { codigo: "675", descripcion: "Servicios en quioscos, cajones, barracas y otros" },
+        { codigo: "676", descripcion: "Servicios en chocolaterías, heladerías y horchaterías" },
+        { codigo: "677", descripcion: "Servicios prestados por establecimientos de hospedaje" },
+        { codigo: "681", descripcion: "Servicio de hospedaje en hoteles y moteles" },
+        { codigo: "682", descripcion: "Servicio de hospedaje en hostales y pensiones" },
+        { codigo: "683", descripcion: "Servicio de hospedaje en fondas y casas de huéspedes" },
+        { codigo: "684", descripcion: "Servicio de hospedaje en hoteles-apartamento" },
+        { codigo: "685", descripcion: "Alojamientos turísticos extrahoteleros" },
+    ],
+    construccion: [
+        { codigo: "501", descripcion: "Edificación y obra civil" },
+        { codigo: "502", descripcion: "Albañilería y pequeños trabajos de construcción" },
+        { codigo: "503", descripcion: "Preparación de obras" },
+        { codigo: "504", descripcion: "Instalaciones y montajes" },
+        { codigo: "505", descripcion: "Acabado de obras" },
+        { codigo: "506", descripcion: "Instalación de fontanería y climatización" },
+        { codigo: "507", descripcion: "Instalaciones eléctricas" },
+        { codigo: "508", descripcion: "Instalación de rótulos, aislamiento y otros" },
+        { codigo: "722", descripcion: "Arquitectos" },
+        { codigo: "723", descripcion: "Arquitectos técnicos y aparejadores" },
+        { codigo: "724", descripcion: "Ingenieros" },
+        { codigo: "725", descripcion: "Ingenieros técnicos" },
+    ],
+    transporte: [
+        { codigo: "721", descripcion: "Transporte urbano colectivo" },
+        { codigo: "722.1", descripcion: "Transporte por autotaxis" },
+        { codigo: "722.2", descripcion: "Transporte por auto-turismos con conductor" },
+        { codigo: "731.1", descripcion: "Transporte de mercancías por carretera" },
+        { codigo: "731.2", descripcion: "Servicios de mudanzas" },
+        { codigo: "741", descripcion: "Transporte marítimo" },
+        { codigo: "742", descripcion: "Transporte de pasajeros fluvial" },
+        { codigo: "751", descripcion: "Transporte aéreo regular" },
+        { codigo: "755", descripcion: "Actividades anexas al transporte" },
+        { codigo: "756", descripcion: "Agencias de viajes" },
+        { codigo: "757", descripcion: "Servicios de almacenamiento y depósito" },
+    ],
+    tecnologia: [
+        { codigo: "831", descripcion: "Servicios de consultoría en informática" },
+        { codigo: "832", descripcion: "Servicios de programación" },
+        { codigo: "833", descripcion: "Servicios de procesamiento de datos" },
+        { codigo: "834", descripcion: "Servicios de bases de datos" },
+        { codigo: "835", descripcion: "Servicios de mantenimiento y reparación de equipos informáticos" },
+        { codigo: "836", descripcion: "Otros servicios informáticos" },
+        { codigo: "761.1", descripcion: "Telecomunicaciones" },
+        { codigo: "769.9", descripcion: "Otros servicios de telecomunicaciones" },
+        { codigo: "844.1", descripcion: "Servicios técnicos de ingeniería (IT)" },
+        { codigo: "849.7", descripcion: "Profesionales en protección de datos" },
+    ],
+    sanitario: [
+        { codigo: "711", descripcion: "Médicos de medicina general" },
+        { codigo: "712", descripcion: "Médicos especialistas (excepto odontólogos)" },
+        { codigo: "713", descripcion: "Odontólogos y estomatólogos" },
+        { codigo: "714", descripcion: "Farmacéuticos" },
+        { codigo: "715", descripcion: "Veterinarios" },
+        { codigo: "716", descripcion: "Psicólogos" },
+        { codigo: "721", descripcion: "ATS/DUE, fisioterapeutas" },
+        { codigo: "722.3", descripcion: "Ópticos y optometristas" },
+        { codigo: "723.1", descripcion: "Protésicos dentales" },
+        { codigo: "724.1", descripcion: "Podólogos" },
+        { codigo: "725.1", descripcion: "Logopedas" },
+        { codigo: "726", descripcion: "Dietistas y nutricionistas" },
+    ],
+    formacion: [
+        { codigo: "821", descripcion: "Enseñanza de formación y perfeccionamiento profesional" },
+        { codigo: "822", descripcion: "Enseñanza de educación infantil y primaria" },
+        { codigo: "823", descripcion: "Enseñanza de educación superior" },
+        { codigo: "824", descripcion: "Enseñanza de formación y perfeccionamiento" },
+        { codigo: "825", descripcion: "Autoescuelas" },
+        { codigo: "826", descripcion: "Academias de idiomas" },
+        { codigo: "827", descripcion: "Academias de baile, danza, música y artes" },
+        { codigo: "831.1", descripcion: "Profesores particulares" },
+        { codigo: "833.1", descripcion: "Investigación científica y técnica" },
+    ],
+};
+
 const DEFAULT_THRESHOLDS = {
     gastos_ingresos_ratio_max: null,
     iva_deducible_devengado_ratio_max: null,
@@ -295,9 +422,26 @@ async function checkPatternChanges(empresaId, year, quarter) {
 
     const currentData = await calcularDatosModelos(empresaId, year, quarter);
 
-    // Extraer datos del trimestre actual (no acumulados) para comparar QoQ
+    // Calcular días transcurridos del trimestre actual
     const { startDate: curStart, endDate: curEnd } = getTrimestreDates(year, quarter);
     const { startDate: prevStart, endDate: prevEnd } = getTrimestreDates(prev.year, prev.quarter);
+
+    const hoy = new Date();
+    const inicioTrimestre = new Date(curStart);
+    const finTrimestre = new Date(curEnd);
+    const diasTotalesTrimestre = Math.ceil((finTrimestre - inicioTrimestre) / (1000 * 60 * 60 * 24)) + 1;
+    const diasTranscurridos = Math.ceil((hoy - inicioTrimestre) / (1000 * 60 * 60 * 24));
+
+    // No comparar si han pasado menos de 15 días del trimestre
+    if (diasTranscurridos < 15) {
+        return alerts;
+    }
+
+    // Para comparación justa, solo usar los mismos días del trimestre anterior
+    const prevStartDate = new Date(prevStart);
+    const prevEndEquivalente = new Date(prevStartDate);
+    prevEndEquivalente.setDate(prevEndEquivalente.getDate() + diasTranscurridos - 1);
+    const prevEndProporcional = prevEndEquivalente.toISOString().split('T')[0];
 
     const [curVentas] = await sql`
         SELECT COALESCE(SUM(subtotal), 0) as total
@@ -311,7 +455,7 @@ async function checkPatternChanges(empresaId, year, quarter) {
         FROM factura_180
         WHERE empresa_id = ${empresaId}
         AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
-        AND fecha BETWEEN ${prevStart} AND ${prevEnd}
+        AND fecha BETWEEN ${prevStart} AND ${prevEndProporcional}
     `;
     const [curGastos] = await sql`
         SELECT COALESCE(SUM(base_imponible), 0) as total
@@ -323,13 +467,15 @@ async function checkPatternChanges(empresaId, year, quarter) {
         SELECT COALESCE(SUM(base_imponible), 0) as total
         FROM purchases_180
         WHERE empresa_id = ${empresaId} AND activo = true
-        AND fecha_compra BETWEEN ${prevStart} AND ${prevEnd}
+        AND fecha_compra BETWEEN ${prevStart} AND ${prevEndProporcional}
     `;
 
     const curV = parseFloat(curVentas.total);
     const prevV = parseFloat(prevVentas.total);
     const curG = parseFloat(curGastos.total);
     const prevG = parseFloat(prevGastos.total);
+
+    const diasInfo = ` (comparando primeros ${diasTranscurridos} días de cada trimestre)`;
 
     // Spike de gastos
     if (prevG > 0) {
@@ -341,7 +487,7 @@ async function checkPatternChanges(empresaId, year, quarter) {
                 severity: gastoChange > threshold * 2 ? 'critical' : 'warning',
                 current_value: gastoChange,
                 threshold,
-                message: `Los gastos han aumentado un ${gastoChange.toFixed(0)}% respecto al trimestre anterior`,
+                message: `Los gastos han aumentado un ${gastoChange.toFixed(0)}% respecto al trimestre anterior` + diasInfo,
                 recommendation: 'Un aumento brusco de gastos sin aumento proporcional de ingresos genera alertas en los algoritmos de Hacienda.',
             });
         }
@@ -357,7 +503,7 @@ async function checkPatternChanges(empresaId, year, quarter) {
                 severity: ventaChange < -threshold * 2 ? 'critical' : 'warning',
                 current_value: ventaChange,
                 threshold: -threshold,
-                message: `Los ingresos han caído un ${Math.abs(ventaChange).toFixed(0)}% respecto al trimestre anterior`,
+                message: `Los ingresos han caído un ${Math.abs(ventaChange).toFixed(0)}% respecto al trimestre anterior` + diasInfo,
                 recommendation: 'Una caída brusca de ingresos con gastos estables puede indicar irregularidades para Hacienda.',
             });
         }
