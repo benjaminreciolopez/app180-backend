@@ -283,6 +283,113 @@ export async function responderSugerenciaRecurrente(req, res) {
 }
 
 /**
+ * POST /admin/notificaciones/:id/responder-pago-modelo
+ * Acepta o rechaza el registro de pago de modelos fiscales
+ * Body: { respuesta: 'aceptar' | 'rechazar' }
+ * Si acepta: crea registros en fiscal_models_180 + asientos contables para cada modelo
+ */
+export async function responderPagoModelo(req, res) {
+  try {
+    const { id } = req.params;
+    const { respuesta } = req.body;
+    const empresaId = req.user.empresa_id;
+    const userId = req.user.id;
+
+    if (!['aceptar', 'rechazar'].includes(respuesta)) {
+      return res.status(400).json({ error: "Respuesta inválida." });
+    }
+
+    const [notif] = await sql`
+      SELECT * FROM notificaciones_180
+      WHERE id = ${id} AND empresa_id = ${empresaId} AND tipo = 'PAGO_MODELO_FISCAL'
+    `;
+
+    if (!notif) {
+      return res.status(404).json({ error: "Notificación no encontrada." });
+    }
+
+    const metadata = notif.metadata;
+    if (!metadata || !metadata.modelos) {
+      return res.status(400).json({ error: "La notificación no tiene datos de modelos." });
+    }
+
+    if (respuesta === 'aceptar') {
+      const year = parseInt(metadata.year);
+      const trimestre = parseInt(metadata.trimestre);
+      const periodo = `${trimestre}T`;
+      const hoy = new Date().toISOString().split('T')[0];
+
+      // Cuentas contables para cada modelo
+      const CUENTAS_MODELO = {
+        '130': { debe: { codigo: '473', nombre: 'HP retenciones y pagos a cuenta' }, haber: { codigo: '572', nombre: 'Bancos' } },
+        '303': { debe: { codigo: '4750', nombre: 'HP acreedora por IVA' }, haber: { codigo: '572', nombre: 'Bancos' } },
+        '111': { debe: { codigo: '4751', nombre: 'HP acreedora por retenciones practicadas' }, haber: { codigo: '572', nombre: 'Bancos' } },
+        '115': { debe: { codigo: '4751', nombre: 'HP acreedora por retenciones practicadas' }, haber: { codigo: '572', nombre: 'Bancos' } },
+      };
+
+      const { crearAsiento } = await import("../services/contabilidadService.js");
+
+      for (const modelo of metadata.modelos) {
+        const importe = parseFloat(modelo.importe);
+        if (importe <= 0) continue;
+
+        // 1. Registrar en fiscal_models_180
+        await sql`
+          INSERT INTO fiscal_models_180 (
+            empresa_id, modelo, ejercicio, periodo, estado,
+            resultado_tipo, resultado_importe, presentado_at
+          ) VALUES (
+            ${empresaId}, ${modelo.modelo}, ${year}, ${periodo}, 'PRESENTADO',
+            'a_ingresar', ${importe}, ${hoy}
+          )
+          ON CONFLICT DO NOTHING
+        `;
+
+        // 2. Crear asiento contable
+        const cuentas = CUENTAS_MODELO[modelo.modelo];
+        if (cuentas) {
+          try {
+            await crearAsiento({
+              empresaId,
+              fecha: hoy,
+              concepto: `Pago Modelo ${modelo.modelo} - Q${trimestre}/${year} - ${modelo.concepto}`,
+              tipo: 'auto_pago',
+              referencia_tipo: `modelo_${modelo.modelo}`,
+              referencia_id: `${year}-${periodo}`,
+              creado_por: userId,
+              lineas: [
+                { cuenta_codigo: cuentas.debe.codigo, cuenta_nombre: cuentas.debe.nombre, debe: importe, haber: 0 },
+                { cuenta_codigo: cuentas.haber.codigo, cuenta_nombre: cuentas.haber.nombre, debe: 0, haber: importe },
+              ]
+            });
+          } catch (asientoErr) {
+            console.error(`[PagoModelo] Error asiento Mod.${modelo.modelo}:`, asientoErr.message);
+          }
+        }
+      }
+    }
+
+    // Marcar notificación como leída con respuesta
+    await sql`
+      UPDATE notificaciones_180
+      SET leida = TRUE, leida_at = NOW(),
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ respondido: respuesta })}::jsonb
+      WHERE id = ${id}
+    `;
+
+    res.json({
+      success: true,
+      message: respuesta === 'aceptar'
+        ? `Pagos registrados y asientos contables generados para Q${metadata.trimestre}/${metadata.year}.`
+        : 'Notificación descartada.'
+    });
+  } catch (err) {
+    console.error("Error responderPagoModelo:", err);
+    res.status(500).json({ error: "Error procesando el pago." });
+  }
+}
+
+/**
  * Helper: Crear notificación del sistema (sin req/res)
  * Usado internamente por otros controladores
  */

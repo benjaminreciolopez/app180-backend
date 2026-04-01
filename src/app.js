@@ -25,6 +25,7 @@ import { ejecutarAutocierre } from "./jobs/autocierre.js";
 import { renewCalendarWebhooks } from "./jobs/renewCalendarWebhooks.js";
 import { verificarCertificadosJob } from "./jobs/verificarCertificados.js";
 import { runFiscalAlertScan } from "./jobs/fiscalAlertScan.js";
+import { generarAlertasPagoModelos } from "./jobs/fiscalPaymentAlertJob.js";
 import { runAsesorDailyAlertScan, runAsesorMonthlyCheck } from "./jobs/asesorAlertScan.js";
 import { verifactuEnvioJob } from "./jobs/verifactuEnvioJob.js";
 import { ejecutarGastosRecurrentes, detectarGastosRecurrentes } from "./jobs/gastosRecurrentesJob.js";
@@ -112,6 +113,7 @@ cron.schedule("*/30 * * * *", () => verifactuEnvioJob()); // VeriFactu: reintent
 cron.schedule("0 7 * * *", () => ejecutarGastosRecurrentes()); // Gastos recurrentes: ejecutar plantillas diariamente a las 7 AM
 cron.schedule("0 9 1 * *", () => detectarGastosRecurrentes()); // Gastos recurrentes: detectar patrones el día 1 de cada mes
 cron.schedule("0 6 * * *", () => ejecutarFacturasRecurrentes()); // Facturas recurrentes: generar borradores diario a las 6 AM
+cron.schedule("0 8 15 1,4,7,10 *", () => generarAlertasPagoModelos()); // Modelos fiscales: alertar pago el 15 de ene/abr/jul/oct
 cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada hora
   try {
     const { sql } = await import("./db.js");
