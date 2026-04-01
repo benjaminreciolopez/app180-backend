@@ -264,21 +264,44 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     if (found) cuentaGuardada = found;
   }
 
-  const cuentaGasto = cuentaGastoIA
-    || cuentaGuardada
-    || detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor)
-    || await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria)
-    || mapCategoriaToCuenta(gasto.categoria);
+  // Clasificación por prioridad: IA pre-clasificada > cuenta guardada > regex > IA individual > categoría
+  let cuentaGasto = null;
+  let origenCuenta = 'fallback'; // track de dónde viene la cuenta
 
-  // Detectar si la cuenta asignada es ambigua y requiere revisión
+  if (cuentaGastoIA) {
+    cuentaGasto = cuentaGastoIA;
+    origenCuenta = 'ia_preclasificada';
+  } else if (cuentaGuardada) {
+    cuentaGasto = cuentaGuardada;
+    origenCuenta = 'proveedor_guardada';
+  } else {
+    const porDescripcion = detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor);
+    if (porDescripcion) {
+      cuentaGasto = porDescripcion;
+      origenCuenta = 'patron_descripcion';
+    } else {
+      const porIA = await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria);
+      if (porIA) {
+        cuentaGasto = porIA;
+        origenCuenta = 'ia_clasificacion';
+      } else {
+        cuentaGasto = mapCategoriaToCuenta(gasto.categoria);
+        origenCuenta = 'fallback_categoria';
+      }
+    }
+  }
+
+  // Solo marcar para revisión cuando se usó el fallback genérico de categoría
+  // Si la cuenta viene de IA, proveedor guardado o patrón → ya es fiable
   const cuentasAmbiguas = ["623", "629", "607", "649"];
-  const esAmbigua = cuentasAmbiguas.includes(cuentaGasto.codigo) && !cuentaGastoIA;
+  const esAmbigua = origenCuenta === 'fallback_categoria' && cuentasAmbiguas.includes(cuentaGasto.codigo);
+  const revisadoPorIA = origenCuenta === 'ia_preclasificada' || origenCuenta === 'ia_clasificacion';
   let revisionMotivo = null;
   if (esAmbigua) {
     if (["623", "629"].includes(cuentaGasto.codigo)) {
-      revisionMotivo = `Cuenta ${cuentaGasto.codigo} asignada automáticamente. Verificar si el proveedor "${proveedorNombre}" es autónomo (623) o sociedad S.L./S.A. (629).`;
+      revisionMotivo = `Cuenta ${cuentaGasto.codigo} asignada por categoría genérica. Verificar si el proveedor "${proveedorNombre}" es autónomo (623) o sociedad S.L./S.A. (629).`;
     } else {
-      revisionMotivo = `Cuenta ${cuentaGasto.codigo} asignada automáticamente. Verificar que la clasificación es correcta.`;
+      revisionMotivo = `Cuenta ${cuentaGasto.codigo} asignada por categoría genérica. Verificar que la clasificación es correcta.`;
     }
   }
 
@@ -333,7 +356,7 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     referencia_tipo: "gasto",
     referencia_id: String(gasto.id),
     creado_por: creadoPor,
-    revisado_ia: !!cuentaGastoIA,
+    revisado_ia: revisadoPorIA,
     pendiente_revision: esAmbigua,
     revision_motivo: revisionMotivo,
     lineas,
