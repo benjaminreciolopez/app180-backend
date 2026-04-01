@@ -206,6 +206,81 @@ export async function crearNotificacion(req, res) {
 }
 
 /**
+ * POST /admin/notificaciones/:id/responder-sugerencia
+ * Acepta o rechaza una sugerencia de gasto recurrente
+ * Body: { respuesta: 'aceptar' | 'rechazar' }
+ */
+export async function responderSugerenciaRecurrente(req, res) {
+  try {
+    const { id } = req.params;
+    const { respuesta } = req.body;
+    const empresaId = req.user.empresa_id;
+
+    if (!['aceptar', 'rechazar'].includes(respuesta)) {
+      return res.status(400).json({ error: "Respuesta inválida. Usar 'aceptar' o 'rechazar'." });
+    }
+
+    const [notif] = await sql`
+      SELECT * FROM notificaciones_180
+      WHERE id = ${id} AND empresa_id = ${empresaId} AND tipo = 'GASTO_RECURRENTE_SUGERIDO'
+    `;
+
+    if (!notif) {
+      return res.status(404).json({ error: "Notificación no encontrada." });
+    }
+
+    const metadata = notif.metadata;
+    if (!metadata || !metadata.proveedor) {
+      return res.status(400).json({ error: "La notificación no tiene datos de sugerencia." });
+    }
+
+    if (respuesta === 'aceptar') {
+      const dia = new Date().getDate();
+      const diaEjecucion = dia <= 28 ? dia : 1;
+
+      await sql`
+        INSERT INTO gastos_recurrentes_180 (
+          empresa_id, nombre, proveedor, base_imponible,
+          iva_porcentaje, iva_importe, retencion_porcentaje, retencion_importe,
+          total, categoria, metodo_pago, cuenta_contable, dia_ejecucion
+        ) VALUES (
+          ${empresaId}, ${metadata.proveedor}, ${metadata.proveedor},
+          ${metadata.base_imponible}, ${metadata.iva_porcentaje != null ? metadata.iva_porcentaje : 21},
+          ${metadata.iva_importe || 0}, ${metadata.retencion_porcentaje || 0},
+          ${metadata.retencion_importe || 0}, ${metadata.total},
+          ${metadata.categoria || 'general'}, ${metadata.metodo_pago || 'transferencia'},
+          ${metadata.cuenta_contable || null}, ${diaEjecucion}
+        )
+      `;
+    } else {
+      const proveedorNorm = (metadata.proveedor_norm || metadata.proveedor).toLowerCase().trim();
+      await sql`
+        INSERT INTO gastos_recurrentes_silenciados_180 (empresa_id, proveedor_norm)
+        VALUES (${empresaId}, ${proveedorNorm})
+        ON CONFLICT (empresa_id, proveedor_norm) DO NOTHING
+      `;
+    }
+
+    await sql`
+      UPDATE notificaciones_180
+      SET leida = TRUE, leida_at = NOW(),
+          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ respondido: respuesta })}::jsonb
+      WHERE id = ${id}
+    `;
+
+    res.json({
+      success: true,
+      message: respuesta === 'aceptar'
+        ? 'Gasto recurrente creado correctamente.'
+        : 'Proveedor silenciado. No se volverá a sugerir.'
+    });
+  } catch (err) {
+    console.error("Error responderSugerenciaRecurrente:", err);
+    res.status(500).json({ error: "Error procesando la respuesta." });
+  }
+}
+
+/**
  * Helper: Crear notificación del sistema (sin req/res)
  * Usado internamente por otros controladores
  */

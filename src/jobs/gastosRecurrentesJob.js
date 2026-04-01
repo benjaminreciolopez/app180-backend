@@ -113,40 +113,42 @@ export async function detectarGastosRecurrentes() {
                 WHERE gr.empresa_id = r.empresa_id
                   AND LOWER(TRIM(gr.proveedor)) = r.proveedor_norm
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM gastos_recurrentes_silenciados_180 gs
+                WHERE gs.empresa_id = r.empresa_id
+                  AND gs.proveedor_norm = r.proveedor_norm
+            )
             AND (r.max_total - r.min_total) / NULLIF(r.total_promedio, 0) < 0.1
         `;
 
         console.log(`[GastosRecurrentes] ${patrones.length} patrones detectados`);
 
         for (const patron of patrones) {
-            // Crear notificación con enlace para crear gasto recurrente
-            const params = new URLSearchParams({
-                nombre: patron.proveedor,
+            const metadata = {
                 proveedor: patron.proveedor,
-                total: String(patron.total_promedio),
-                base_imponible: String(patron.base_promedio),
-                iva_porcentaje: String(patron.iva_porcentaje || 21),
-                iva_importe: String(patron.iva_promedio || 0),
+                proveedor_norm: patron.proveedor_norm,
+                total: patron.total_promedio,
+                base_imponible: patron.base_promedio,
+                iva_porcentaje: patron.iva_porcentaje || 21,
+                iva_importe: patron.iva_promedio || 0,
                 categoria: patron.categoria || 'general',
                 metodo_pago: patron.metodo_pago || 'transferencia',
-                retencion_porcentaje: String(patron.retencion_porcentaje || 0),
-                retencion_importe: String(patron.retencion_promedio || 0),
+                retencion_porcentaje: patron.retencion_porcentaje || 0,
+                retencion_importe: patron.retencion_promedio || 0,
                 cuenta_contable: patron.cuenta_contable || '',
-            });
-
-            const accionUrl = `/admin/gastos/recurrentes?crear=true&${params.toString()}`;
+                meses_distintos: patron.meses_distintos,
+            };
 
             await sql`
                 INSERT INTO notificaciones_180 (
-                    empresa_id, tipo, titulo, mensaje, leida, accion_url, accion_label
+                    empresa_id, tipo, titulo, mensaje, leida, metadata
                 ) VALUES (
                     ${patron.empresa_id},
                     'GASTO_RECURRENTE_SUGERIDO',
                     ${'Gasto recurrente detectado: ' + patron.proveedor},
                     ${'Se han detectado ' + patron.meses_distintos + ' gastos similares de "' + patron.proveedor + '" (~' + patron.total_promedio + '€/mes). ¿Quieres crear un gasto recurrente automático?'},
                     false,
-                    ${accionUrl},
-                    'Crear gasto recurrente'
+                    ${JSON.stringify(metadata)}
                 )
             `;
 
