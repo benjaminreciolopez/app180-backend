@@ -11,8 +11,6 @@ router.use(authRequired, roleRequired("admin"));
 
 router.get("/resumen-anual", resumenAnual);
 router.get("/", getNominas);
-router.post("/ocr", upload.single("file"), ocrNomina);
-router.post("/", upload.single("file"), createNomina);
-router.delete("/:id", deleteNomina);
+// Creación, OCR y eliminación deshabilitados para admin — solo gestoría (asesor) puede crear nóminas
 
 export default router;

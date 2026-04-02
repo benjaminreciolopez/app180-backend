@@ -129,6 +129,7 @@ export const authRequired = async (req, res, next) => {
           facturacion: false,
           pagos: false,
           fiscal: false,
+          contable: false,
         };
         req._authProcessed = true;
         return next();
@@ -217,6 +218,7 @@ export const authRequired = async (req, res, next) => {
         facturacion: false,
         pagos: false,
         fiscal: false,
+        contable: false,
       };
     }
     req._authProcessed = true;

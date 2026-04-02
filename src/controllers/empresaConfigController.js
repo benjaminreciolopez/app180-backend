@@ -18,6 +18,7 @@ const DEFAULT_MODULOS = {
   facturacion: false,
   pagos: false,
   fiscal: false,
+  contable: false,
 };
 
 /**
@@ -126,6 +127,7 @@ export async function updateEmpresaConfig(req, res) {
       facturacion: !!input.facturacion,
       pagos: !!input.pagos,
       fiscal: !!input.fiscal,
+      contable: !!input.contable,
     };
 
     // Validar safeMobile solo si viene definido
@@ -141,6 +143,7 @@ export async function updateEmpresaConfig(req, res) {
         facturacion: !!inputMobile.facturacion,
         pagos: !!inputMobile.pagos,
         fiscal: !!inputMobile.fiscal,
+        contable: !!inputMobile.contable,
       };
     }
 

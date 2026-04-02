@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { requireModule } from "../middlewares/requireModule.js";
 import {
   getCuentas,
   crearCuenta,
@@ -43,7 +44,7 @@ import {
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.use(authRequired, roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"), requireModule("contable"));
 
 // PGC - Plan de Cuentas
 router.get("/cuentas", getCuentas);

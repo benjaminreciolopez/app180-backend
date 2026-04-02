@@ -507,7 +507,7 @@ export async function registrarAsesoria(req, res) {
       modulos: modulosInput,
     } = req.body;
 
-    // Default modules for asesoria
+    // Default modules for asesoria — todo activado por defecto
     const defaultModulos = {
       empleados: true,
       fichajes: true,
@@ -515,8 +515,10 @@ export async function registrarAsesoria(req, res) {
       calendario_import: true,
       clientes: true,
       worklogs: true,
-      facturacion: false,
-      pagos: false,
+      facturacion: true,
+      pagos: true,
+      fiscal: true,
+      contable: true,
     };
     const finalModulos = modulosInput ? { ...defaultModulos, ...modulosInput } : defaultModulos;
 
@@ -631,7 +633,7 @@ export async function registrarAsesoria(req, res) {
           calendario_import: finalModulos.calendario_import !== false,
           pagos: finalModulos.pagos === true,
           fiscal: finalModulos.fiscal === true,
-          contabilidad: true,
+          contable: finalModulos.contable === true,
         })})
       `;
 

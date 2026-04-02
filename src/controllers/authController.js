@@ -146,6 +146,8 @@ export const register = async (req, res) => {
       empleados: true,
       facturacion: false,
       pagos: false,
+      fiscal: false,
+      contable: false,
     };
     const finalModulos = modulosInput
       ? { ...defaultModulos, ...modulosInput }
@@ -1013,6 +1015,8 @@ export const getMeModules = async (req, res) => {
       empleados: true,
       facturacion: false,
       pagos: false,
+      fiscal: false,
+      contable: false,
     };
 
     if (!config) {
