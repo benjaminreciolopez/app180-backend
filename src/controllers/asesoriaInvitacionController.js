@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { sql } from "../db.js";
 import { config } from "../config.js";
+import { crearNotificacionSistema } from "./notificacionesController.js";
+import { crearNotificacionAsesor } from "./asesorNotificacionesController.js";
 
 // ============================================================
 // DEFAULT PERMISSIONS: all read=true, all write=false
@@ -203,6 +205,18 @@ export async function invitarClienteDesdeAsesor(req, res) {
       RETURNING id, estado, created_at
     `;
 
+    // Notificar al admin de la empresa
+    const asesoriaNombre = req.user.asesoria_nombre || "Una asesoría";
+    await crearNotificacionSistema({
+      empresaId: empresa.empresa_id,
+      tipo: "invitacion_asesoria",
+      titulo: "Nueva solicitud de asesoría",
+      mensaje: `${asesoriaNombre} quiere vincularse con tu empresa`,
+      accionUrl: "/admin/mi-asesoria",
+      accionLabel: "Ver solicitud",
+      metadata: { vinculo_id: vinculo.id, asesoria_id: asesoriaId },
+    });
+
     return res.status(201).json({
       success: true,
       data: {
@@ -256,6 +270,18 @@ export async function aceptarVinculoDesdeAsesor(req, res) {
         AND metadata->>'vinculo_id' = ${vinculoId}
     `;
 
+    // Notificar a la empresa que la asesoría aceptó
+    const asesoriaNombre = req.user.asesoria_nombre || "Tu asesoría";
+    await crearNotificacionSistema({
+      empresaId: updated.empresa_id,
+      tipo: "vinculo_aceptado",
+      titulo: "Solicitud aceptada",
+      mensaje: `${asesoriaNombre} ha aceptado tu solicitud de vinculación`,
+      accionUrl: "/admin/mi-asesoria",
+      accionLabel: "Ver vínculo",
+      metadata: { vinculo_id: updated.id, asesoria_id: asesoriaId },
+    });
+
     return res.json({
       success: true,
       data: {
@@ -303,6 +329,23 @@ export async function rechazarVinculoDesdeAsesor(req, res) {
         AND metadata->>'vinculo_id' = ${vinculoId}
     `;
 
+    // Notificar a la empresa que la asesoría rechazó — necesitamos empresa_id
+    const [vinculoData] = await sql`
+      SELECT empresa_id FROM asesoria_clientes_180 WHERE id = ${vinculoId}
+    `;
+    if (vinculoData) {
+      const asesoriaNombre = req.user.asesoria_nombre || "La asesoría";
+      await crearNotificacionSistema({
+        empresaId: vinculoData.empresa_id,
+        tipo: "vinculo_rechazado",
+        titulo: "Solicitud rechazada",
+        mensaje: `${asesoriaNombre} ha rechazado tu solicitud de vinculación`,
+        accionUrl: "/admin/mi-asesoria",
+        accionLabel: "Ver detalle",
+        metadata: { vinculo_id: parseInt(vinculoId), asesoria_id: asesoriaId },
+      });
+    }
+
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error("Error rechazarVinculoDesdeAsesor:", err);
@@ -337,6 +380,26 @@ export async function aceptarVinculo(req, res) {
     const [asesoria] = await sql`
       SELECT nombre FROM asesorias_180 WHERE id = ${updated.asesoria_id}
     `;
+
+    // Notificar a todos los usuarios de la asesoría
+    const empresaNombre = req.user.nombre || "Una empresa";
+    const asesorUsers = await sql`
+      SELECT user_id FROM asesoria_usuarios_180
+      WHERE asesoria_id = ${updated.asesoria_id} AND activo = true
+    `;
+    for (const au of asesorUsers) {
+      await crearNotificacionAsesor({
+        asesoriaId: updated.asesoria_id,
+        userId: au.user_id,
+        empresaId: empresaId,
+        tipo: "vinculo_aceptado",
+        titulo: "Invitación aceptada",
+        mensaje: `${empresaNombre} ha aceptado tu invitación de vinculación`,
+        accionUrl: "/asesor/clientes",
+        accionLabel: "Ver cliente",
+        metadata: { vinculo_id: updated.id, empresa_id: empresaId },
+      });
+    }
 
     return res.json({
       success: true,
@@ -375,6 +438,31 @@ export async function rechazarVinculo(req, res) {
       return res.status(404).json({ error: "Vínculo pendiente no encontrado" });
     }
 
+    // Notificar a la asesoría que la empresa rechazó
+    const [vinculoInfo] = await sql`
+      SELECT asesoria_id FROM asesoria_clientes_180 WHERE id = ${vinculoId}
+    `;
+    if (vinculoInfo) {
+      const empresaNombre = req.user.nombre || "Una empresa";
+      const asesorUsers = await sql`
+        SELECT user_id FROM asesoria_usuarios_180
+        WHERE asesoria_id = ${vinculoInfo.asesoria_id} AND activo = true
+      `;
+      for (const au of asesorUsers) {
+        await crearNotificacionAsesor({
+          asesoriaId: vinculoInfo.asesoria_id,
+          userId: au.user_id,
+          empresaId: empresaId,
+          tipo: "vinculo_rechazado",
+          titulo: "Invitación rechazada",
+          mensaje: `${empresaNombre} ha rechazado tu invitación de vinculación`,
+          accionUrl: "/asesor/clientes",
+          accionLabel: "Ver clientes",
+          metadata: { vinculo_id: parseInt(vinculoId), empresa_id: empresaId },
+        });
+      }
+    }
+
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error("Error rechazarVinculo:", err);
@@ -400,6 +488,26 @@ export async function revocarAcceso(req, res) {
 
     if (!updated) {
       return res.status(404).json({ error: "No hay vínculo activo para revocar" });
+    }
+
+    // Notificar a la asesoría que la empresa revocó el acceso
+    const empresaNombre = req.user.nombre || "Una empresa";
+    const asesorUsers = await sql`
+      SELECT user_id FROM asesoria_usuarios_180
+      WHERE asesoria_id = ${updated.asesoria_id} AND activo = true
+    `;
+    for (const au of asesorUsers) {
+      await crearNotificacionAsesor({
+        asesoriaId: updated.asesoria_id,
+        userId: au.user_id,
+        empresaId: empresaId,
+        tipo: "vinculo_revocado",
+        titulo: "Acceso revocado",
+        mensaje: `${empresaNombre} ha revocado el acceso de tu asesoría`,
+        accionUrl: "/asesor/clientes",
+        accionLabel: "Ver clientes",
+        metadata: { vinculo_id: updated.id, empresa_id: empresaId },
+      });
     }
 
     return res.json({ success: true, data: updated });
