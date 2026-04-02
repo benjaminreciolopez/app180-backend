@@ -45,13 +45,21 @@ export async function sendRegistrationOTP(email) {
     VALUES (${normalizedEmail}, ${code}, ${"email"}, ${expiresAt})
   `;
 
-  // 5. Enviar email (sin empresaId → usa legacy SMTP con fromName = 'CONTENDO GESTIONES')
+  // 5. Buscar empresa con email configurado para enviar el OTP
+  const [emailConfig] = await sql`
+    SELECT empresa_id FROM empresa_email_config_180
+    WHERE modo != 'disabled'
+    ORDER BY created_at ASC
+    LIMIT 1
+  `;
+  const senderEmpresaId = emailConfig?.empresa_id || null;
+
   await sendEmail({
     to: normalizedEmail,
     subject: "Tu codigo de verificacion - CONTENDO GESTIONES",
     html: buildRegistrationOTPEmail(code),
     text: `Tu codigo de verificacion es: ${code}. Valido durante 10 minutos.`,
-  });
+  }, senderEmpresaId);
 
   // 6. Respuesta con email parcialmente oculto
   return { sent: true, destino_parcial: maskEmail(normalizedEmail) };
