@@ -85,6 +85,8 @@ import facturaRecurrenteRoutes from "./routes/facturaRecurrenteRoutes.js";
 import asesorRoutes from "./routes/asesorRoutes.js";
 import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
+import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
+import { asesorWriteGuard } from "./middlewares/asesorWriteGuard.js";
 import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
 import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
 import kioskRoutes from "./routes/kioskRoutes.js";
@@ -266,7 +268,7 @@ app.use("/admin/export", exportRoutes);
 app.use("/api/admin/reportes", adminReportesRoutes);
 app.use("/api/admin/export", exportRoutes);
 app.use("/system", systemRoutes);
-app.use("/api/admin/facturacion", facturacionRoutes);
+app.use("/api/admin/facturacion", asesorWriteGuard("facturas"), facturacionRoutes);
 app.use("/api/admin/verifactu", adminVerifactuAeatRoutes);
 app.use("/api/admin/verifactu", adminEventosVerifactuRoutes);
 app.use("/api/admin/verifactu", adminExportVerifactuRoutes);
@@ -279,17 +281,17 @@ app.use("/api/admin", calendarConfigRoutes); // Google Calendar configuration
 app.use("/api/admin", calendarSyncRoutes); // Google Calendar sync
 app.use("/api", calendarWebhookRoutes); // Google Calendar webhooks (public)
 app.use("/api/admin", authRequired, adminPartesDiaRoutes);
-app.use("/api/admin/purchases", adminPurchasesRoutes);
-app.use("/api/admin/fiscal", adminFiscalRoutes);
-app.use("/api/admin/fiscal/renta", adminRentaRoutes);
-app.use("/api/admin/fiscal/reglas", adminFiscalRulesRoutes);
+app.use("/api/admin/purchases", asesorWriteGuard("gastos"), adminPurchasesRoutes);
+app.use("/api/admin/fiscal", asesorWriteGuard("fiscal"), adminFiscalRoutes);
+app.use("/api/admin/fiscal/renta", asesorWriteGuard("fiscal"), adminRentaRoutes);
+app.use("/api/admin/fiscal/reglas", asesorWriteGuard("fiscal"), adminFiscalRulesRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 app.use("/api/admin/nominas", nominaEntregasRoutes); // Entregas y firma de nóminas
 app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
 app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricante (protegido)
 app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
 app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Sugerencias (fabricante)
-app.use("/api/admin/contabilidad", adminContabilidadRoutes); // Módulo contabilidad
+app.use("/api/admin/contabilidad", asesorWriteGuard("contabilidad"), adminContabilidadRoutes); // Módulo contabilidad
 app.use("/api/admin/gastos-recurrentes", gastosRecurrentesRoutes); // Gastos recurrentes
 app.use("/api/admin/facturacion/recurrentes", facturaRecurrenteRoutes); // Facturas recurrentes
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
@@ -298,25 +300,26 @@ app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
 app.use("/admin", adminParteConfigRoutes); // Partes configurables
 app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
 app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
+app.use("/asesor/mis-clientes", asesorClientesRoutes); // Clientes propios asesor
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 
 // Mantener rutas originales sin /api para compatibilidad con otras partes si es necesario
-app.use("/admin/facturacion", facturacionRoutes);
+app.use("/admin/facturacion", asesorWriteGuard("facturas"), facturacionRoutes);
 app.use("/admin/verifactu", adminVerifactuAeatRoutes);
 app.use("/admin/verifactu", adminEventosVerifactuRoutes);
 app.use("/admin/verifactu", adminExportVerifactuRoutes);
 app.use("/admin/verifactu", adminFirmaDigitalRoutes);
-app.use("/admin/fiscal", adminFiscalRoutes);
-app.use("/admin/fiscal/renta", adminRentaRoutes);
-app.use("/admin/fiscal/reglas", adminFiscalRulesRoutes);
-app.use("/admin/purchases", adminPurchasesRoutes);
+app.use("/admin/fiscal", asesorWriteGuard("fiscal"), adminFiscalRoutes);
+app.use("/admin/fiscal/renta", asesorWriteGuard("fiscal"), adminRentaRoutes);
+app.use("/admin/fiscal/reglas", asesorWriteGuard("fiscal"), adminFiscalRulesRoutes);
+app.use("/admin/purchases", asesorWriteGuard("gastos"), adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
 app.use("/admin/notificaciones", notificacionesRoutes);
 app.use("/empleado/notificaciones", authRequired, notificacionesRoutes); // Empleados ven sus notificaciones
 app.use("/admin", aiRoutes);
 app.use("/admin", adminKnowledgeRoutes);
-app.use("/admin/contabilidad", adminContabilidadRoutes);
+app.use("/admin/contabilidad", asesorWriteGuard("contabilidad"), adminContabilidadRoutes);
 app.use("/admin/asesoria", adminAsesoriaRoutes);
 app.use("/admin/gastos-recurrentes", gastosRecurrentesRoutes);
 app.use("/admin/facturacion/recurrentes", facturaRecurrenteRoutes);

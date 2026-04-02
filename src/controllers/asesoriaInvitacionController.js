@@ -6,6 +6,7 @@ import { sql } from "../db.js";
 import { config } from "../config.js";
 import { crearNotificacionSistema } from "./notificacionesController.js";
 import { crearNotificacionAsesor } from "./asesorNotificacionesController.js";
+import { createClientFromVinculo } from "./asesorClientesController.js";
 
 // ============================================================
 // DEFAULT PERMISSIONS: all read=true, all write=false
@@ -282,6 +283,12 @@ export async function aceptarVinculoDesdeAsesor(req, res) {
       metadata: { vinculo_id: updated.id, asesoria_id: asesoriaId },
     });
 
+    // Auto-crear cliente en la asesoría
+    const [asesoria] = await sql`SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}`;
+    if (asesoria?.empresa_id) {
+      await createClientFromVinculo(asesoria.empresa_id, updated.empresa_id);
+    }
+
     return res.json({
       success: true,
       data: {
@@ -399,6 +406,12 @@ export async function aceptarVinculo(req, res) {
         accionLabel: "Ver cliente",
         metadata: { vinculo_id: updated.id, empresa_id: empresaId },
       });
+    }
+
+    // Auto-crear cliente en la asesoría
+    const [asesoriaData] = await sql`SELECT empresa_id FROM asesorias_180 WHERE id = ${updated.asesoria_id}`;
+    if (asesoriaData?.empresa_id) {
+      await createClientFromVinculo(asesoriaData.empresa_id, empresaId);
     }
 
     return res.json({
