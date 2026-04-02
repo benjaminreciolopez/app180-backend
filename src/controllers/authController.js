@@ -388,6 +388,16 @@ export const login = async (req, res) => {
       const modulos = asesorRows[0].modulos || {};
       const asesorEmpresaId = asesorRows[0].empresa_id || null;
 
+      // 🔒 Registro Veri*Factu: Inicio Sesión Asesor
+      if (asesorEmpresaId) {
+        registrarEventoVerifactu({
+          empresaId: asesorEmpresaId,
+          userId: user.id,
+          tipoEvento: 'INICIO_SESION',
+          descripcion: `Inicio de sesión asesor: ${user.email} (${asesoriaNombre})`
+        });
+      }
+
       const token = jwt.sign(
         {
           id: user.id,
@@ -944,6 +954,16 @@ export const getMe = async (req, res) => {
         WHERE au.user_id = ${r.id} AND au.activo = true
         LIMIT 1
       `;
+
+      // 🔒 Registro Veri*Factu: Acceso al sistema (sesión persistente asesor)
+      if (asesorRows[0]?.empresa_id) {
+        registrarEventoVerifactu({
+          empresaId: asesorRows[0].empresa_id,
+          userId: r.id,
+          tipoEvento: 'ACCESO_SISTEMA',
+          descripcion: `Acceso al sistema (sesion persistente asesor): ${r.email}`
+        });
+      }
 
       return res.json({
         id: r.id,
