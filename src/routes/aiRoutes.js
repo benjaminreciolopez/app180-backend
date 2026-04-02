@@ -5,7 +5,9 @@ import { roleRequired } from "../middlewares/roleRequired.js";
 import {
   chat, chatWithFile, status, usage,
   mcpConsumption, mcpConsumptionGlobal, mcpQuotas, mcpUpdateQuota,
-  mcpPricing, mcpProviderCredits, mcpUpdateProviderCredits, mcpTrend
+  mcpPricing, mcpProviderCredits, mcpUpdateProviderCredits, mcpTrend,
+  mcpUsers, mcpUserConsumption, mcpUserQuotas, mcpUpdateUserQuota,
+  mcpToggleUserAI, mcpUpdateUserApp
 } from "../controllers/aiController.js";
 
 const router = Router();
@@ -35,5 +37,13 @@ router.get("/ai/mcp/pricing", mcpPricing);
 router.get("/ai/mcp/provider-credits", mcpProviderCredits);
 router.put("/ai/mcp/provider-credits", mcpUpdateProviderCredits);
 router.get("/ai/mcp/trend", mcpTrend);
+
+// ── MCP: Superadmin - Gestión de usuarios cross-app ──
+router.get("/ai/mcp/users", mcpUsers);
+router.get("/ai/mcp/users/:userId/consumption", mcpUserConsumption);
+router.get("/ai/mcp/users/:userId/quotas", mcpUserQuotas);
+router.put("/ai/mcp/users/:userId/quotas", mcpUpdateUserQuota);
+router.put("/ai/mcp/users/:userId/toggle-ai", mcpToggleUserAI);
+router.put("/ai/mcp/users/:userId/app", mcpUpdateUserApp);
 
 export default router;

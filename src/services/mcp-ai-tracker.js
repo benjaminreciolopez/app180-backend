@@ -336,6 +336,162 @@ export function createMCPTracker({ sql, appId }) {
     }
   }
 
+  // ══════════════════════════════════════
+  // Gestión de usuarios cross-app
+  // ══════════════════════════════════════
+
+  /**
+   * Get all users across both apps (via mcp_users_view)
+   */
+  async function getAllUsers({ appFilter = null, search = null } = {}) {
+    try {
+      let appFilterSql = sql``
+      if (appFilter) appFilterSql = sql`AND source_app = ${appFilter}`
+      let searchSql = sql``
+      if (search) searchSql = sql`AND (LOWER(email) LIKE ${'%' + search.toLowerCase() + '%'} OR LOWER(full_name) LIKE ${'%' + search.toLowerCase() + '%'})`
+
+      const users = await sql`
+        SELECT * FROM mcp_users_view
+        WHERE 1=1 ${appFilterSql} ${searchSql}
+        ORDER BY created_at DESC
+      `
+
+      // Enrich with consumption data
+      const userIds = users.map(u => u.user_id).filter(Boolean)
+      if (userIds.length === 0) return users
+
+      const consumption = await sql`
+        SELECT user_id, app_id,
+          COUNT(*) as calls,
+          COALESCE(SUM(input_tokens), 0) as input_tokens,
+          COALESCE(SUM(output_tokens), 0) as output_tokens,
+          COALESCE(SUM(estimated_cost), 0) as cost
+        FROM mcp_ai_consumption
+        WHERE user_id = ANY(${userIds})
+        GROUP BY user_id, app_id
+      `
+
+      const consumptionMap = {}
+      for (const c of consumption) {
+        consumptionMap[`${c.user_id}:${c.app_id}`] = c
+      }
+
+      // Get user quotas
+      const userQuotas = await sql`
+        SELECT * FROM mcp_ai_user_quotas WHERE user_id = ANY(${userIds})
+      `
+      const quotaMap = {}
+      for (const q of userQuotas) {
+        if (!quotaMap[q.user_id]) quotaMap[q.user_id] = []
+        quotaMap[q.user_id].push(q)
+      }
+
+      return users.map(u => {
+        const c = consumptionMap[`${u.user_id}:${u.source_app}`] || {}
+        return {
+          ...u,
+          ai_calls: parseInt(c.calls || 0),
+          ai_input_tokens: parseInt(c.input_tokens || 0),
+          ai_output_tokens: parseInt(c.output_tokens || 0),
+          ai_cost: parseFloat(c.cost || 0),
+          user_quotas: quotaMap[u.user_id] || []
+        }
+      })
+    } catch (err) {
+      console.error(`[mcp-tracker] getAllUsers error: ${err.message}`)
+      return []
+    }
+  }
+
+  /**
+   * Get/set user-level quota
+   */
+  async function getUserQuotas({ userId }) {
+    try {
+      return await sql`SELECT * FROM mcp_ai_user_quotas WHERE user_id = ${userId}`
+    } catch (err) {
+      console.error(`[mcp-tracker] getUserQuotas error: ${err.message}`)
+      return []
+    }
+  }
+
+  async function upsertUserQuota({ targetAppId, userId, quotaType, maxCalls, maxTokens, maxCostUsd, enabled }) {
+    try {
+      await sql`
+        INSERT INTO mcp_ai_user_quotas (app_id, user_id, quota_type, max_calls, max_tokens, max_cost_usd, enabled)
+        VALUES (${targetAppId}, ${userId}, ${quotaType}, ${maxCalls ?? null}, ${maxTokens ?? null}, ${maxCostUsd ?? null}, ${enabled ?? true})
+        ON CONFLICT (app_id, user_id, quota_type)
+        DO UPDATE SET
+          max_calls = EXCLUDED.max_calls,
+          max_tokens = EXCLUDED.max_tokens,
+          max_cost_usd = EXCLUDED.max_cost_usd,
+          enabled = EXCLUDED.enabled,
+          updated_at = NOW()
+      `
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * Toggle AI enabled for a user (updates source table directly)
+   */
+  async function toggleUserAI({ userId, sourceApp, enabled }) {
+    try {
+      if (sourceApp === 'app180') {
+        await sql`UPDATE users_180 SET ai_enabled = ${enabled} WHERE id = ${userId}`
+      } else if (sourceApp === 'construgest') {
+        await sql`UPDATE cons_users SET ai_enabled = ${enabled} WHERE id = ${userId}`
+      }
+      return { success: true, ai_enabled: enabled }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * Update user's app field
+   */
+  async function updateUserApp({ userId, sourceApp, app }) {
+    try {
+      if (sourceApp === 'app180') {
+        await sql`UPDATE users_180 SET app = ${app} WHERE id = ${userId}`
+      } else if (sourceApp === 'construgest') {
+        await sql`UPDATE cons_users SET app = ${app} WHERE id = ${userId}`
+      }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * Get consumption for a specific user
+   */
+  async function getUserConsumption({ userId, period = 'month' }) {
+    try {
+      let dateFilter = sql``
+      if (period === 'day') dateFilter = sql`AND created_at >= CURRENT_DATE`
+      else if (period === 'month') dateFilter = sql`AND created_at >= DATE_TRUNC('month', CURRENT_DATE)`
+
+      return await sql`
+        SELECT app_id, provider, model, operation,
+          COUNT(*) as calls,
+          COALESCE(SUM(input_tokens), 0) as input_tokens,
+          COALESCE(SUM(output_tokens), 0) as output_tokens,
+          COALESCE(SUM(estimated_cost), 0) as cost
+        FROM mcp_ai_consumption
+        WHERE user_id = ${userId} ${dateFilter}
+        GROUP BY app_id, provider, model, operation
+        ORDER BY cost DESC
+      `
+    } catch (err) {
+      console.error(`[mcp-tracker] getUserConsumption error: ${err.message}`)
+      return []
+    }
+  }
+
   return {
     checkQuota,
     recordUsage,
@@ -349,5 +505,12 @@ export function createMCPTracker({ sql, appId }) {
     upsertProviderCredits,
     getDailyTrend,
     estimateCost: estimateCostFromPricing,
+    // User management
+    getAllUsers,
+    getUserQuotas,
+    upsertUserQuota,
+    toggleUserAI,
+    updateUserApp,
+    getUserConsumption,
   }
 }

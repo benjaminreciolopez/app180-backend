@@ -5,6 +5,7 @@ import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
 import { createMCPTracker } from "../services/mcp-ai-tracker.js";
 
 const mcpTracker = createMCPTracker({ sql, appId: 'app180' });
+const FABRICANTE_EMAIL = process.env.FABRICANTE_EMAIL || "susanaybenjamin@gmail.com";
 
 /**
  * Obtiene el ID de la empresa del usuario autenticado
@@ -412,6 +413,149 @@ export async function status(req, res) {
     });
   } catch (error) {
     console.error("[AI Controller] Error en status:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ==========================================
+// MCP: Superadmin - Gestión de usuarios cross-app
+// ==========================================
+
+/**
+ * Verifica que el usuario es el fabricante (superadmin)
+ */
+async function requireFabricante(req) {
+  const [user] = await sql`SELECT email FROM users_180 WHERE id = ${req.user.id} LIMIT 1`;
+  if (!user || user.email !== FABRICANTE_EMAIL) {
+    const err = new Error('No tienes permisos de superadministrador');
+    err.status = 403;
+    throw err;
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/users
+ * Lista todos los usuarios de ambas apps con consumo IA
+ */
+export async function mcpUsers(req, res) {
+  try {
+    await requireFabricante(req);
+    const { app, search } = req.query;
+    const users = await mcpTracker.getAllUsers({
+      appFilter: app || null,
+      search: search || null
+    });
+    res.json(users);
+  } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
+    console.error("[MCP] Error en users:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/users/:userId/consumption
+ * Consumo detallado de un usuario específico
+ */
+export async function mcpUserConsumption(req, res) {
+  try {
+    await requireFabricante(req);
+    const { userId } = req.params;
+    const { period = 'month' } = req.query;
+    const consumption = await mcpTracker.getUserConsumption({ userId, period });
+    res.json(consumption);
+  } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
+    console.error("[MCP] Error en user consumption:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/users/:userId/quotas
+ * Cuotas individuales de un usuario
+ */
+export async function mcpUserQuotas(req, res) {
+  try {
+    await requireFabricante(req);
+    const { userId } = req.params;
+    const quotas = await mcpTracker.getUserQuotas({ userId });
+    res.json(quotas);
+  } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
+    console.error("[MCP] Error en user quotas:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * PUT /admin/ai/mcp/users/:userId/quotas
+ * Establecer cuota individual de un usuario
+ */
+export async function mcpUpdateUserQuota(req, res) {
+  try {
+    await requireFabricante(req);
+    const { userId } = req.params;
+    const { targetAppId, quotaType, maxCalls, maxTokens, maxCostUsd, enabled } = req.body;
+
+    if (!targetAppId || !quotaType) {
+      return res.status(400).json({ error: 'targetAppId y quotaType son requeridos' });
+    }
+
+    const result = await mcpTracker.upsertUserQuota({
+      targetAppId, userId, quotaType,
+      maxCalls, maxTokens, maxCostUsd, enabled
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
+    console.error("[MCP] Error en updateUserQuota:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * PUT /admin/ai/mcp/users/:userId/toggle-ai
+ * Habilitar/deshabilitar IA para un usuario
+ */
+export async function mcpToggleUserAI(req, res) {
+  try {
+    await requireFabricante(req);
+    const { userId } = req.params;
+    const { sourceApp, enabled } = req.body;
+
+    if (!sourceApp || enabled === undefined) {
+      return res.status(400).json({ error: 'sourceApp y enabled son requeridos' });
+    }
+
+    const result = await mcpTracker.toggleUserAI({ userId, sourceApp, enabled });
+    res.json(result);
+  } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
+    console.error("[MCP] Error en toggleUserAI:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * PUT /admin/ai/mcp/users/:userId/app
+ * Actualizar qué app tiene asignada un usuario
+ */
+export async function mcpUpdateUserApp(req, res) {
+  try {
+    await requireFabricante(req);
+    const { userId } = req.params;
+    const { sourceApp, app } = req.body;
+
+    if (!sourceApp || !app) {
+      return res.status(400).json({ error: 'sourceApp y app son requeridos' });
+    }
+
+    const result = await mcpTracker.updateUserApp({ userId, sourceApp, app });
+    res.json(result);
+  } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
+    console.error("[MCP] Error en updateUserApp:", error);
     res.status(500).json({ error: error.message });
   }
 }
