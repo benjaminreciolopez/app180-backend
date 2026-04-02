@@ -12,6 +12,8 @@ import {
   googleAuth,
   googleCompleteSetup,
   getMeModules,
+  sendVerificationCode,
+  verifyCode,
 } from "../controllers/authController.js";
 
 import { authRequired } from "../middlewares/authMiddleware.js";
@@ -20,6 +22,8 @@ import { securityAlert } from "../middlewares/securityAlert.js";
 const router = express.Router();
 
 router.post("/register", register);
+router.post("/send-verification-code", sendVerificationCode);
+router.post("/verify-code", verifyCode);
 router.post("/login", securityAlert("login"), login);
 router.post("/activate-install", activateInstall);
 router.post("/register-first-admin", registerFirstAdmin);

@@ -10,6 +10,7 @@ import { OAuth2Client } from "google-auth-library";
 import { encrypt } from "../utils/encryption.js";
 import { backupService } from "../services/backupService.js";
 import { seedKnowledge } from "../services/knowledgeSeedService.js";
+import { sendRegistrationOTP, verifyRegistrationOTP } from "../services/registrationOtpService.js";
 import { registrarEventoVerifactu } from "./verifactuEventosController.js";
 
 
@@ -1034,6 +1035,55 @@ export const getMeModules = async (req, res) => {
   } catch (err) {
     console.error("❌ getMeModules:", err);
     return res.status(500).json({ error: "Error obteniendo módulos" });
+  }
+};
+
+// ─── Verificación de email por OTP ──────────────────────────
+
+export const sendVerificationCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: "Email es obligatorio" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Verificar que no existe usuario con este email
+    const [existing] = await sql`
+      SELECT id FROM users_180 WHERE email = ${normalizedEmail} LIMIT 1
+    `;
+    if (existing) {
+      return res.status(409).json({ error: "Ya existe una cuenta con este email" });
+    }
+
+    const result = await sendRegistrationOTP(normalizedEmail);
+    return res.json(result);
+  } catch (err) {
+    console.error("❌ sendVerificationCode:", err);
+    return res.status(429).json({ error: err.message || "Error enviando codigo" });
+  }
+};
+
+export const verifyCode = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({ error: "Email y codigo son obligatorios" });
+    }
+
+    const verified = await verifyRegistrationOTP(email, code);
+
+    if (!verified) {
+      return res.status(400).json({ error: "Codigo incorrecto o expirado" });
+    }
+
+    return res.json({ verified: true });
+  } catch (err) {
+    console.error("❌ verifyCode:", err);
+    return res.status(429).json({ error: err.message || "Error verificando codigo" });
   }
 };
 
