@@ -6,6 +6,9 @@ import { createGoogleEvent, app180ToGoogleEvent } from "./googleCalendarService.
 import { analyzeCurrentQuarter, simulateImpact } from "./fiscalAlertService.js";
 import { TOOLS } from "./ai/toolDefinitions.js";
 import { buildSystemPrompt } from "./ai/systemPrompt.js";
+import { createMCPTracker } from "./mcp-ai-tracker.js";
+
+const mcpTracker = createMCPTracker({ sql, appId: 'app180' });
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -3863,64 +3866,22 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const memoriaReciente = await cargarMemoria(empresaId, userId, 3);
 
     // ==========================================
-    // CONTROL DE CONSULTAS IA (SISTEMA DE CRÉDITOS)
+    // CONTROL DE CONSULTAS IA (MCP CENTRALIZADO)
     // ==========================================
-    const [empresaCfg] = await sql`
-      SELECT c.ai_consultas_hoy, c.ai_consultas_mes, c.ai_consultas_fecha,
-             c.ai_consultas_mes_reset, c.ai_limite_diario, c.ai_limite_mensual,
-             c.ai_creditos_extra, c.ai_tokens,
-             e.user_id as creator_id, e.es_vip
-      FROM empresa_config_180 c
-      JOIN empresa_180 e ON c.empresa_id = e.id
-      WHERE c.empresa_id = ${empresaId}
-    `;
-
-    const esCreador = empresaCfg?.creator_id === userId;
-    const esVip = empresaCfg?.es_vip === true;
-    const hoyStr = new Date().toISOString().split('T')[0];
-    const mesActualStr = hoyStr.substring(0, 7) + '-01';
-
-    // Reset diario si cambió el día
-    let consultasHoy = empresaCfg?.ai_consultas_hoy || 0;
-    let consultasMes = empresaCfg?.ai_consultas_mes || 0;
-    if (empresaCfg?.ai_consultas_fecha?.toISOString?.()?.split('T')[0] !== hoyStr &&
-        String(empresaCfg?.ai_consultas_fecha) !== hoyStr) {
-      consultasHoy = 0;
-    }
-    // Reset mensual si cambió el mes
-    const mesResetStr = empresaCfg?.ai_consultas_mes_reset?.toISOString?.()?.split('T')[0] ||
-                        String(empresaCfg?.ai_consultas_mes_reset || '');
-    if (!mesResetStr.startsWith(hoyStr.substring(0, 7))) {
-      consultasMes = 0;
-    }
-
-    const limiteDiario = empresaCfg?.ai_limite_diario ?? 10;
-    const limiteMensual = empresaCfg?.ai_limite_mensual ?? 300;
-    const creditosExtra = empresaCfg?.ai_creditos_extra || 0;
-
-    // Verificar límites (solo el creador no tiene límites; VIP usa créditos)
-    if (!esCreador) {
-      const superaDiario = consultasHoy >= limiteDiario;
-      const superaMensual = consultasMes >= limiteMensual;
-
-      if (superaDiario && creditosExtra <= 0) {
-        return {
-          mensaje: `Has alcanzado tu límite de ${limiteDiario} consultas diarias. Puedes recargar créditos desde tu perfil para seguir usando CONTENDO.`,
-          limite_alcanzado: true,
-          tipo_limite: 'diario',
-          consultas_hoy: consultasHoy,
-          limite_diario: limiteDiario
-        };
+    const quotaCheck = await mcpTracker.checkQuota({ orgId: empresaId, userId });
+    if (!quotaCheck.allowed) {
+      if (quotaCheck.reason === 'ai_disabled') {
+        return { mensaje: "El servicio de IA está desactivado para tu empresa." };
       }
-      if (superaMensual && creditosExtra <= 0) {
-        return {
-          mensaje: `Has alcanzado tu límite de ${limiteMensual} consultas mensuales. Puedes recargar créditos desde tu perfil para seguir usando CONTENDO.`,
-          limite_alcanzado: true,
-          tipo_limite: 'mensual',
-          consultas_mes: consultasMes,
-          limite_mensual: limiteMensual
-        };
-      }
+      const limite = quotaCheck.limit || 0;
+      const tipo = quotaCheck.reason === 'daily_limit' ? 'diario' : 'mensual';
+      return {
+        mensaje: `Has alcanzado tu límite de ${limite} consultas ${tipo === 'diario' ? 'diarias' : 'mensuales'}. Puedes recargar créditos desde tu perfil para seguir usando CONTENDO.`,
+        limite_alcanzado: true,
+        tipo_limite: tipo,
+        consultas_actual: quotaCheck.current || 0,
+        limite: limite
+      };
     }
 
     // Obtener nombre del usuario para contexto
@@ -3944,6 +3905,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
 
     // Primera llamada con tools
     let response;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
     try {
       response = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
@@ -3954,6 +3917,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
         tool_choice: { type: "auto" },
         temperature: 0.4,
       });
+      totalInputTokens += response.usage?.input_tokens || 0;
+      totalOutputTokens += response.usage?.output_tokens || 0;
     } catch (apiErr) {
       console.error("[AI] Error API Anthropic:", apiErr.message);
 
@@ -4035,6 +4000,8 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
           tool_choice: { type: "auto" },
           temperature: 0.2,
         });
+        totalInputTokens += response.usage?.input_tokens || 0;
+        totalOutputTokens += response.usage?.output_tokens || 0;
       } catch (apiErr) {
         console.error("[AI] Error API Anthropic (tool loop):", apiErr.message);
         return { mensaje: "Error al procesar los datos. Inténtalo de nuevo." };
@@ -4046,18 +4013,19 @@ export async function chatConAgente({ empresaId, userId, userRole, mensaje, hist
     const respuestaFinal = textBlocks.map(b => b.text).join("\n") || "No pude generar una respuesta.";
     await guardarConversacion(empresaId, userId, userRole, mensaje, respuestaFinal);
 
-    // Incrementar contadores de consultas (incluso para creador, para estadísticas)
-    const usaCredito = !esCreador && consultasHoy >= limiteDiario;
-    await sql`
-      UPDATE empresa_config_180
-      SET ai_consultas_hoy = ${consultasHoy + 1},
-          ai_consultas_mes = ${consultasMes + 1},
-          ai_consultas_fecha = ${hoyStr}::date,
-          ai_consultas_mes_reset = ${mesActualStr}::date
-          ${usaCredito ? sql`, ai_creditos_extra = GREATEST(0, ai_creditos_extra - 1)` : sql``}
-      WHERE empresa_id = ${empresaId}
-    `;
-    console.log(`[AI] Consulta #${consultasHoy + 1}/${limiteDiario} (mes: ${consultasMes + 1}/${limiteMensual})${usaCredito ? ' [crédito extra]' : ''}. Empresa: ${empresaId}`);
+    // Registrar consumo en MCP centralizado (fire-and-forget)
+    mcpTracker.recordUsage({
+      orgId: empresaId,
+      userId,
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      keySource: 'env',
+      operation: 'agent_chat',
+      toolCalls: iterations
+    }).catch(err => console.warn('[AI] Error registrando consumo MCP:', err.message));
+    console.log(`[AI] Consumo: ${totalInputTokens} in + ${totalOutputTokens} out tokens, ${iterations} tool iterations. Empresa: ${empresaId}`);
 
     return { mensaje: respuestaFinal, accion_realizada: accionRealizada };
 

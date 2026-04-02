@@ -2,7 +2,11 @@ import { Router } from "express";
 import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
-import { chat, chatWithFile, status, usage } from "../controllers/aiController.js";
+import {
+  chat, chatWithFile, status, usage,
+  mcpConsumption, mcpConsumptionGlobal, mcpQuotas, mcpUpdateQuota,
+  mcpPricing, mcpProviderCredits, mcpUpdateProviderCredits, mcpTrend
+} from "../controllers/aiController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -21,5 +25,15 @@ router.get("/ai/usage", usage);
 
 // GET /admin/ai/status - Estado del servicio de IA
 router.get("/ai/status", status);
+
+// ── MCP: Control centralizado cross-app ──
+router.get("/ai/mcp/consumption", mcpConsumption);
+router.get("/ai/mcp/consumption/global", mcpConsumptionGlobal);
+router.get("/ai/mcp/quotas", mcpQuotas);
+router.put("/ai/mcp/quotas", mcpUpdateQuota);
+router.get("/ai/mcp/pricing", mcpPricing);
+router.get("/ai/mcp/provider-credits", mcpProviderCredits);
+router.put("/ai/mcp/provider-credits", mcpUpdateProviderCredits);
+router.get("/ai/mcp/trend", mcpTrend);
 
 export default router;

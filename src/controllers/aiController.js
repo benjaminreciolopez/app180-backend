@@ -2,6 +2,9 @@ import { chatConAgente } from "../services/aiAgentService.js";
 import { sql } from "../db.js";
 import { processInvoiceFile } from "../services/ocr/qrExtractor.js";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
+import { createMCPTracker } from "../services/mcp-ai-tracker.js";
+
+const mcpTracker = createMCPTracker({ sql, appId: 'app180' });
 
 /**
  * Obtiene el ID de la empresa del usuario autenticado
@@ -182,39 +185,37 @@ export async function chatWithFile(req, res) {
 
 /**
  * GET /admin/ai/usage
- * Devuelve el estado de consumo de IA del usuario
+ * Devuelve el estado de consumo de IA del usuario (desde MCP centralizado)
  */
 export async function usage(req, res) {
   try {
     const userId = req.user.id;
     const empresaId = await getEmpresaId(userId);
-    const hoyStr = new Date().toISOString().split('T')[0];
 
-    const [cfg] = await sql`
-      SELECT c.ai_consultas_hoy, c.ai_consultas_mes, c.ai_consultas_fecha,
-             c.ai_consultas_mes_reset, c.ai_limite_diario, c.ai_limite_mensual,
-             c.ai_creditos_extra, e.user_id as creator_id, e.es_vip
-      FROM empresa_config_180 c
-      JOIN empresa_180 e ON c.empresa_id = e.id
-      WHERE c.empresa_id = ${empresaId}
+    // Obtener datos de cuota del MCP
+    const quotas = await mcpTracker.getQuotas({ orgId: empresaId, appFilter: 'app180' });
+    const dailyQuota = quotas.find(q => q.quota_type === 'daily');
+    const monthlyQuota = quotas.find(q => q.quota_type === 'monthly');
+
+    // Obtener consumo actual desde mcp_ai_consumption
+    const today = new Date().toISOString().split('T')[0];
+    const monthStart = today.substring(0, 7) + '-01';
+
+    const [dailyUsage] = await sql`
+      SELECT COUNT(*) as calls FROM mcp_ai_consumption
+      WHERE app_id = 'app180' AND org_id = ${empresaId}::text AND created_at >= ${today}::date
+    `;
+    const [monthlyUsage] = await sql`
+      SELECT COUNT(*) as calls FROM mcp_ai_consumption
+      WHERE app_id = 'app180' AND org_id = ${empresaId}::text AND created_at >= ${monthStart}::date
     `;
 
-    const esCreador = cfg?.creator_id === userId;
-    const esVip = cfg?.es_vip === true;
-
-    // Ajustar si el día/mes cambió
-    let consultasHoy = cfg?.ai_consultas_hoy || 0;
-    let consultasMes = cfg?.ai_consultas_mes || 0;
-    const fechaStr = cfg?.ai_consultas_fecha?.toISOString?.()?.split('T')[0] ||
-                     String(cfg?.ai_consultas_fecha || '');
-    if (fechaStr !== hoyStr) consultasHoy = 0;
-    const mesResetStr = cfg?.ai_consultas_mes_reset?.toISOString?.()?.split('T')[0] ||
-                        String(cfg?.ai_consultas_mes_reset || '');
-    if (!mesResetStr.startsWith(hoyStr.substring(0, 7))) consultasMes = 0;
-
-    const limiteDiario = cfg?.ai_limite_diario ?? 10;
-    const limiteMensual = cfg?.ai_limite_mensual ?? 300;
-    const creditosExtra = cfg?.ai_creditos_extra || 0;
+    const consultasHoy = parseInt(dailyUsage?.calls || 0);
+    const consultasMes = parseInt(monthlyUsage?.calls || 0);
+    const limiteDiario = dailyQuota?.max_calls ?? 10;
+    const limiteMensual = monthlyQuota?.max_calls ?? 300;
+    const creditosExtra = dailyQuota?.credits_extra || 0;
+    const esCreador = dailyQuota?.bypass_user_ids?.includes(userId) || monthlyQuota?.bypass_user_ids?.includes(userId) || false;
 
     res.json({
       consultas_hoy: consultasHoy,
@@ -222,7 +223,6 @@ export async function usage(req, res) {
       consultas_mes: consultasMes,
       limite_mensual: limiteMensual,
       creditos_extra: creditosExtra,
-      es_vip: esVip,
       es_creador: esCreador,
       sin_limites: esCreador,
       pct_diario: limiteDiario > 0 ? Math.min(100, Math.round((consultasHoy / limiteDiario) * 100)) : 100,
@@ -230,6 +230,169 @@ export async function usage(req, res) {
     });
   } catch (error) {
     console.error("[AI Controller] Error en usage:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// ==========================================
+// MCP: Endpoints de control centralizado
+// ==========================================
+
+/**
+ * GET /admin/ai/mcp/consumption
+ * Consumo cross-app (ambas apps)
+ */
+export async function mcpConsumption(req, res) {
+  try {
+    const { period = 'month', app_id } = req.query;
+    const userId = req.user.id;
+    const empresaId = await getEmpresaId(userId);
+
+    const summary = await mcpTracker.getUsageSummary({
+      orgId: empresaId,
+      appFilter: app_id || null,
+      period
+    });
+
+    res.json(summary);
+  } catch (error) {
+    console.error("[MCP] Error en consumption:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/consumption/global
+ * Consumo global (todas las orgs, solo para fabricante/super-admin)
+ */
+export async function mcpConsumptionGlobal(req, res) {
+  try {
+    const { period = 'month', app_id } = req.query;
+
+    const summary = await mcpTracker.getUsageSummary({
+      appFilter: app_id || null,
+      period
+    });
+
+    res.json(summary);
+  } catch (error) {
+    console.error("[MCP] Error en consumption global:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/quotas
+ * Cuotas configuradas
+ */
+export async function mcpQuotas(req, res) {
+  try {
+    const { app_id } = req.query;
+    const userId = req.user.id;
+    const empresaId = await getEmpresaId(userId);
+
+    const quotas = await mcpTracker.getQuotas({
+      orgId: empresaId,
+      appFilter: app_id || null
+    });
+
+    res.json(quotas);
+  } catch (error) {
+    console.error("[MCP] Error en quotas:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * PUT /admin/ai/mcp/quotas
+ * Actualizar cuota
+ */
+export async function mcpUpdateQuota(req, res) {
+  try {
+    const { targetAppId, orgId, quotaType, maxCalls, maxCostUsd, maxTokens, creditsExtra, bypassUserIds, enabled } = req.body;
+
+    if (!targetAppId || !orgId || !quotaType) {
+      return res.status(400).json({ error: 'targetAppId, orgId y quotaType son requeridos' });
+    }
+
+    const result = await mcpTracker.upsertQuota({
+      targetAppId, orgId, quotaType,
+      maxCalls, maxCostUsd, maxTokens,
+      creditsExtra, bypassUserIds, enabled
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("[MCP] Error en updateQuota:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/pricing
+ * Tabla de precios
+ */
+export async function mcpPricing(req, res) {
+  try {
+    const pricing = await mcpTracker.getPricing();
+    res.json(pricing);
+  } catch (error) {
+    console.error("[MCP] Error en pricing:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/provider-credits
+ * Créditos por proveedor con consumido
+ */
+export async function mcpProviderCredits(req, res) {
+  try {
+    const credits = await mcpTracker.getProviderCredits();
+    res.json(credits);
+  } catch (error) {
+    console.error("[MCP] Error en provider-credits:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * PUT /admin/ai/mcp/provider-credits
+ * Actualizar créditos de proveedor
+ */
+export async function mcpUpdateProviderCredits(req, res) {
+  try {
+    const { provider, initialAmount, creditType, notes } = req.body;
+    if (!provider || initialAmount === undefined) {
+      return res.status(400).json({ error: 'provider e initialAmount son requeridos' });
+    }
+    const result = await mcpTracker.upsertProviderCredits({ provider, initialAmount, creditType, notes });
+    res.json(result);
+  } catch (error) {
+    console.error("[MCP] Error en updateProviderCredits:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * GET /admin/ai/mcp/trend
+ * Tendencia diaria de consumo
+ */
+export async function mcpTrend(req, res) {
+  try {
+    const { days = 30, app_id } = req.query;
+    const userId = req.user.id;
+    const empresaId = await getEmpresaId(userId);
+
+    const trend = await mcpTracker.getDailyTrend({
+      orgId: empresaId,
+      appFilter: app_id || null,
+      days: parseInt(days)
+    });
+
+    res.json(trend);
+  } catch (error) {
+    console.error("[MCP] Error en trend:", error);
     res.status(500).json({ error: error.message });
   }
 }
