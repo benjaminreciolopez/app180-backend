@@ -367,43 +367,70 @@ export async function createClientFromVinculo(asesoriaEmpresaId, vinculadaEmpres
     }
 
     // 2. Obtener datos de la empresa vinculada
-    // empresa_180 solo tiene: nombre, user_id (sin cif/email/telefono/direccion)
+    // empresa_180 tiene: nombre, user_id
+    // perfil_180 tiene los datos fiscales completos: cif, direccion, poblacion, provincia, cp, telefono, email
     const [empresa] = await sql`
-      SELECT e.nombre, u.email AS admin_email
+      SELECT e.nombre, u.email AS admin_email,
+             p.nombre_fiscal, p.cif, p.direccion, p.poblacion, p.provincia,
+             p.cp, p.pais, p.telefono, p.email AS perfil_email, p.web
       FROM empresa_180 e
       LEFT JOIN users_180 u ON u.id = e.user_id
+      LEFT JOIN perfil_180 p ON p.empresa_id = e.id
       WHERE e.id = ${vinculadaEmpresaId}
       LIMIT 1
     `;
     if (!empresa) return null;
 
+    const clienteNombre = empresa.nombre_fiscal || empresa.nombre || "Cliente vinculado";
+    const clienteEmail = empresa.perfil_email || empresa.admin_email || null;
+
     // 3. Generar código
     const codigo = await obtenerSiguienteCodigo(asesoriaEmpresaId);
 
-    // 4. Crear cliente
+    // 4. Crear cliente con datos completos del perfil
     const [cli] = await sql.begin(async (tx) => {
       const [newCli] = await tx`
         INSERT INTO clients_180 (
           empresa_id, vinculado_empresa_id, nombre, codigo, tipo,
-          email, contacto_email, activo
+          nif, nif_cif, email, telefono, direccion,
+          poblacion, municipio, provincia, cp, codigo_postal, pais,
+          contacto_email, razon_social, activo
         ) VALUES (
           ${asesoriaEmpresaId}, ${vinculadaEmpresaId},
-          ${empresa.nombre || "Cliente vinculado"},
+          ${clienteNombre},
           ${codigo}, 'cliente',
-          ${empresa.admin_email || null},
-          ${empresa.admin_email || null},
+          ${empresa.cif || null}, ${empresa.cif || null},
+          ${clienteEmail},
+          ${empresa.telefono || null},
+          ${empresa.direccion || null},
+          ${empresa.poblacion || null}, ${empresa.poblacion || null},
+          ${empresa.provincia || null},
+          ${empresa.cp || null}, ${empresa.cp || null},
+          ${empresa.pais || 'ES'},
+          ${empresa.admin_email || clienteEmail},
+          ${empresa.nombre_fiscal || empresa.nombre || null},
           true
         )
         RETURNING *
       `;
 
-      // Datos fiscales
+      // Datos fiscales completos
       await tx`
         INSERT INTO client_fiscal_data_180 (
-          empresa_id, cliente_id, razon_social
+          empresa_id, cliente_id, razon_social, nif_cif,
+          pais, provincia, municipio, codigo_postal, direccion_fiscal,
+          email_factura, telefono_factura
         ) VALUES (
           ${asesoriaEmpresaId}, ${newCli.id},
-          ${empresa.nombre || null}
+          ${empresa.nombre_fiscal || empresa.nombre || null},
+          ${empresa.cif || null},
+          ${empresa.pais || 'ES'},
+          ${empresa.provincia || null},
+          ${empresa.poblacion || null},
+          ${empresa.cp || null},
+          ${empresa.direccion || null},
+          ${clienteEmail},
+          ${empresa.telefono || null}
         )
       `;
 
