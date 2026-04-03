@@ -42,9 +42,10 @@ export async function listarRegistros(req, res) {
         f.numero as numero_factura,
         f.fecha as fecha_factura,
         f.total as total_factura,
-        f.cliente_nombre
+        c.nombre as cliente_nombre
       FROM registroverifactu_180 r
       LEFT JOIN factura_180 f ON f.id = r.factura_id
+      LEFT JOIN clientes_180 c ON c.id = f.cliente_id
       WHERE r.empresa_id = ${empresaId}
     `;
 
@@ -312,12 +313,13 @@ export async function obtenerDetalleRegistro(req, res) {
         f.numero as numero_factura,
         f.fecha as fecha_factura,
         f.total as total_factura,
-        f.cliente_nombre,
-        f.cliente_nif,
+        c.nombre as cliente_nombre,
+        c.nif as cliente_nif,
         e.nif as emisor_nif,
         e.nombre as emisor_nombre
       FROM registroverifactu_180 r
       LEFT JOIN factura_180 f ON f.id = r.factura_id
+      LEFT JOIN clientes_180 c ON c.id = f.cliente_id
       LEFT JOIN emisor_180 e ON e.empresa_id = r.empresa_id
       WHERE r.id = ${registroId}
         AND r.empresa_id = ${empresaId}

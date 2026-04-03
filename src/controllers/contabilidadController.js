@@ -24,6 +24,25 @@ export async function getCuentas(req, res) {
           ${activa !== undefined ? sql`AND activa = ${activa === "true"}` : sql``}
         ORDER BY codigo
       `;
+      // Si no hay resultados en PGC, buscar en asientos reales
+      if (cuentas.length === 0) {
+        cuentas = await sql`
+          SELECT DISTINCT ON (l.cuenta_codigo)
+            l.cuenta_codigo as codigo,
+            COALESCE(l.cuenta_nombre, l.cuenta_codigo) as nombre,
+            CASE
+              WHEN LEFT(l.cuenta_codigo, 1) IN ('1','2','5') THEN 'balance'
+              WHEN LEFT(l.cuenta_codigo, 1) IN ('6','7') THEN 'resultado'
+              ELSE 'otro'
+            END as tipo,
+            CAST(LEFT(l.cuenta_codigo, 1) AS integer) as grupo
+          FROM asiento_lineas_180 l
+          JOIN asientos_180 a ON a.id = l.asiento_id AND a.estado != 'anulado'
+          WHERE l.empresa_id = ${empresaId}
+            AND (l.cuenta_codigo ILIKE ${"%" + search + "%"} OR l.cuenta_nombre ILIKE ${"%" + search + "%"})
+          ORDER BY l.cuenta_codigo, l.created_at DESC
+        `;
+      }
     } else {
       cuentas = await sql`
         SELECT * FROM pgc_cuentas_180
@@ -33,6 +52,24 @@ export async function getCuentas(req, res) {
           ${activa !== undefined ? sql`AND activa = ${activa === "true"}` : sql``}
         ORDER BY codigo
       `;
+      // Si PGC está vacío, extraer cuentas con movimientos reales
+      if (cuentas.length === 0) {
+        cuentas = await sql`
+          SELECT DISTINCT ON (l.cuenta_codigo)
+            l.cuenta_codigo as codigo,
+            COALESCE(l.cuenta_nombre, l.cuenta_codigo) as nombre,
+            CASE
+              WHEN LEFT(l.cuenta_codigo, 1) IN ('1','2','5') THEN 'balance'
+              WHEN LEFT(l.cuenta_codigo, 1) IN ('6','7') THEN 'resultado'
+              ELSE 'otro'
+            END as tipo,
+            CAST(LEFT(l.cuenta_codigo, 1) AS integer) as grupo
+          FROM asiento_lineas_180 l
+          JOIN asientos_180 a ON a.id = l.asiento_id AND a.estado != 'anulado'
+          WHERE l.empresa_id = ${empresaId}
+          ORDER BY l.cuenta_codigo, l.created_at DESC
+        `;
+      }
     }
 
     res.json(cuentas);
