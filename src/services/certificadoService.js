@@ -258,6 +258,7 @@ export async function getCertificates(empresaId) {
   //    This enables bidirectional sync: if client uploads in empresa mode,
   //    asesor sees it here and vice versa.
   try {
+    logger.info(`[getCertificates] Buscando cert en emisor_180 para empresa ${empresaId}...`);
     const [emisorCert] = await sql`
       SELECT
         em.id, em.empresa_id, em.certificado_path, em.certificado_info,
@@ -268,6 +269,8 @@ export async function getCertificates(empresaId) {
         AND em.certificado_data != ''
       LIMIT 1
     `;
+
+    logger.info(`[getCertificates] emisorCert encontrado: ${!!emisorCert}`, emisorCert ? { id: emisorCert.id, path: emisorCert.certificado_path } : {});
 
     if (emisorCert) {
       // Check if this cert is already in certificados_digitales_180 (avoid duplicates)
@@ -305,9 +308,10 @@ export async function getCertificates(empresaId) {
       }
     }
   } catch (err) {
-    logger.warn('Error checking emisor_180 certificates', { error: err.message });
+    logger.error('[getCertificates] Error buscando emisor_180 cert:', { error: err.message, stack: err.stack });
   }
 
+  logger.info(`[getCertificates] Total certs devueltos: ${certs.length}`);
   return certs;
 }
 

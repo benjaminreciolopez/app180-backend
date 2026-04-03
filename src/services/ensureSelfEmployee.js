@@ -16,10 +16,10 @@ export async function ensureSelfEmployee({ userId, empresaId, nombre }) {
   if (existing.length > 0) return existing[0].id;
 
   const created = await sql`
-    INSERT INTO employees_180 (user_id, empresa_id, nombre, activo, tipo_trabajo, created_at)
+    INSERT INTO employees_180 (user_id, empresa_id, nombre, activo, tipo_trabajo, tipo_contrato, created_at)
     VALUES (${userId}, ${empresaId}, ${
     nombre || "Autónomo"
-  }, true, 'autonomo', now())
+  }, true, 'autonomo', 'autonomo', now())
     RETURNING id
   `;
   return created[0].id;

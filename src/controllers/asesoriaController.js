@@ -183,8 +183,8 @@ export async function getClienteResumen(req, res) {
       const [empData] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresaId}`;
       if (empData?.user_id) {
         await sql`
-          INSERT INTO employees_180 (user_id, empresa_id, nombre, activo, tipo_trabajo, created_at)
-          VALUES (${empData.user_id}, ${empresaId}, ${empresa.nombre || 'Autónomo'}, true, 'autonomo', now())
+          INSERT INTO employees_180 (user_id, empresa_id, nombre, activo, tipo_trabajo, tipo_contrato, created_at)
+          VALUES (${empData.user_id}, ${empresaId}, ${empresa.nombre || 'Autónomo'}, true, 'autonomo', 'autonomo', now())
           ON CONFLICT DO NOTHING
         `;
       }
