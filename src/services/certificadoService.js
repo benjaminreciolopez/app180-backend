@@ -178,6 +178,56 @@ export async function uploadCertificate(empresaId, file, password, metadata, use
   // Log the upload
   await logUsage(cert.id, empresaId, 'subida', null, null, 'ok', 'Certificado subido correctamente', userId);
 
+  // Bidirectional sync: also update emisor_180 so empresa mode sees the cert
+  try {
+    const certBase64 = file.buffer.toString('base64');
+    const certInfo = JSON.stringify({
+      subject: parsed.titular_nombre ? `CN=${parsed.titular_nombre}` : '',
+      issuer: parsed.emisor || '',
+      validFrom: parsed.fecha_emision,
+      validTo: parsed.fecha_caducidad,
+      serial: parsed.numero_serie,
+    });
+
+    const [emisorExists] = await sql`SELECT id FROM emisor_180 WHERE empresa_id = ${empresaId}`;
+
+    if (emisorExists) {
+      await sql`
+        UPDATE emisor_180
+        SET certificado_path = ${file.originalname || 'certificado.p12'},
+            certificado_upload_date = now(),
+            certificado_info = ${certInfo},
+            certificado_password = ${password},
+            certificado_data = ${certBase64}
+        WHERE empresa_id = ${empresaId}
+      `;
+    } else {
+      await sql`
+        INSERT INTO emisor_180 (empresa_id, certificado_path, certificado_upload_date, certificado_info, certificado_password, certificado_data, nombre, nif)
+        VALUES (${empresaId}, ${file.originalname || 'certificado.p12'}, now(), ${certInfo}, ${password}, ${certBase64}, ${parsed.titular_nombre || ''}, ${parsed.titular_nif || ''})
+      `;
+    }
+
+    // Also sync to configuracionsistema_180 for VeriFactu
+    const [cfgExists] = await sql`SELECT 1 FROM configuracionsistema_180 WHERE empresa_id = ${empresaId}`;
+    if (cfgExists) {
+      await sql`
+        UPDATE configuracionsistema_180
+        SET verifactu_certificado_data = ${certBase64},
+            verifactu_certificado_path = ${file.originalname || 'certificado.p12'},
+            verifactu_certificado_password = ${password},
+            verifactu_cert_fabricante_data = ${certBase64},
+            verifactu_cert_fabricante_path = ${file.originalname || 'certificado.p12'},
+            verifactu_cert_fabricante_password = ${password}
+        WHERE empresa_id = ${empresaId}
+      `;
+    }
+
+    logger.info(`Certificado sincronizado bidireccionalmente para empresa ${empresaId}`);
+  } catch (syncErr) {
+    logger.warn('Error en sincronizacion bidireccional del certificado', { error: syncErr.message });
+  }
+
   logger.info(`Certificado digital subido para empresa ${empresaId}`, { certId: cert.id, alias: cert.nombre_alias });
 
   return cert;
@@ -185,21 +235,92 @@ export async function uploadCertificate(empresaId, file, password, metadata, use
 
 /**
  * List all certificates for an empresa (WITHOUT sensitive data)
+ * Includes certificates from both certificados_digitales_180 AND emisor_180
+ * for bidirectional sync between empresa mode and asesor mode.
  */
 export async function getCertificates(empresaId) {
+  // 1. Certificates uploaded via the real certificate system
   const certs = await sql`
     SELECT
       id, empresa_id, nombre_alias, tipo,
       titular_nombre, titular_nif, emisor,
       numero_serie, fecha_emision, fecha_caducidad,
       activo, verificado, ultimo_uso, ultimo_error,
-      subido_por, notas, created_at, updated_at
+      subido_por, notas, created_at, updated_at,
+      'certificados_digitales' as origen
     FROM certificados_digitales_180
     WHERE empresa_id = ${empresaId}
       AND activo = true
     ORDER BY created_at DESC
   `;
+
+  // 2. Certificate uploaded via empresa mode (stored in emisor_180)
+  //    This enables bidirectional sync: if client uploads in empresa mode,
+  //    asesor sees it here and vice versa.
+  try {
+    const [emisorCert] = await sql`
+      SELECT
+        em.id, em.empresa_id, em.certificado_path, em.certificado_info,
+        em.certificado_upload_date, em.nombre as emisor_nombre, em.nif as emisor_nif
+      FROM emisor_180 em
+      WHERE em.empresa_id = ${empresaId}
+        AND em.certificado_data IS NOT NULL
+        AND em.certificado_data != ''
+      LIMIT 1
+    `;
+
+    if (emisorCert) {
+      // Check if this cert is already in certificados_digitales_180 (avoid duplicates)
+      const certInfo = typeof emisorCert.certificado_info === 'string'
+        ? JSON.parse(emisorCert.certificado_info)
+        : emisorCert.certificado_info || {};
+
+      const alreadySynced = certs.some(c =>
+        c.numero_serie && certInfo.serial && c.numero_serie === certInfo.serial
+      );
+
+      if (!alreadySynced) {
+        certs.push({
+          id: `emisor-${emisorCert.id}`,
+          empresa_id: emisorCert.empresa_id,
+          nombre_alias: emisorCert.certificado_path || 'Certificado empresa',
+          tipo: 'persona_fisica',
+          titular_nombre: certInfo.subject ? extractCN(certInfo.subject) : emisorCert.emisor_nombre,
+          titular_nif: emisorCert.emisor_nif || null,
+          emisor: certInfo.issuer ? extractOrg(certInfo.issuer) : null,
+          numero_serie: certInfo.serial || null,
+          fecha_emision: certInfo.validFrom || null,
+          fecha_caducidad: certInfo.validTo || null,
+          activo: true,
+          verificado: true,
+          ultimo_uso: null,
+          ultimo_error: null,
+          subido_por: null,
+          notas: 'Subido desde modo empresa (facturación)',
+          created_at: emisorCert.certificado_upload_date || new Date().toISOString(),
+          updated_at: emisorCert.certificado_upload_date || new Date().toISOString(),
+          origen: 'emisor',
+          archivo_nombre: emisorCert.certificado_path,
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('Error checking emisor_180 certificates', { error: err.message });
+  }
+
   return certs;
+}
+
+/** Helper: extract CN from subject string like "CN=RECIO LOPEZ BENJAMIN - 74668351R, ..." */
+function extractCN(subject) {
+  const match = subject?.match(/CN=([^,]+)/);
+  return match ? match[1].trim() : subject;
+}
+
+/** Helper: extract O (Organization) from issuer string */
+function extractOrg(issuer) {
+  const match = issuer?.match(/O=([^,]+)/);
+  return match ? match[1].trim() : issuer;
 }
 
 /**

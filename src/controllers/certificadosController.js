@@ -202,7 +202,7 @@ export async function getCertificadosProximosCaducar(req, res) {
     const certificados = await sql`
       SELECT c.*,
         e.nombre as empresa_nombre,
-        e.nif_cif as empresa_nif,
+        em.nif as empresa_nif,
         EXTRACT(DAY FROM c.fecha_caducidad - NOW())::int as dias_hasta_caducidad,
         CASE
           WHEN c.estado = 'revocado' THEN 'revocado'
@@ -212,9 +212,11 @@ export async function getCertificadosProximosCaducar(req, res) {
         END as estado_calculado
       FROM certificados_digitales_180 c
       JOIN empresa_180 e ON e.id = c.empresa_id
+      LEFT JOIN emisor_180 em ON em.empresa_id = c.empresa_id
       JOIN asesoria_clientes_180 v ON v.empresa_id = c.empresa_id
         AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
       WHERE c.estado != 'revocado'
+        AND c.fecha_caducidad IS NOT NULL
         AND c.fecha_caducidad <= NOW() + make_interval(days => ${dias})
       ORDER BY c.fecha_caducidad ASC
     `;
@@ -223,7 +225,7 @@ export async function getCertificadosProximosCaducar(req, res) {
     const todos = await sql`
       SELECT c.*,
         e.nombre as empresa_nombre,
-        e.nif_cif as empresa_nif,
+        em.nif as empresa_nif,
         EXTRACT(DAY FROM c.fecha_caducidad - NOW())::int as dias_hasta_caducidad,
         CASE
           WHEN c.estado = 'revocado' THEN 'revocado'
@@ -233,6 +235,7 @@ export async function getCertificadosProximosCaducar(req, res) {
         END as estado_calculado
       FROM certificados_digitales_180 c
       JOIN empresa_180 e ON e.id = c.empresa_id
+      LEFT JOIN emisor_180 em ON em.empresa_id = c.empresa_id
       JOIN asesoria_clientes_180 v ON v.empresa_id = c.empresa_id
         AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
       WHERE c.estado != 'revocado'
