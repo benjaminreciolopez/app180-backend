@@ -151,11 +151,14 @@ export async function getClienteResumen(req, res) {
       LIMIT 1
     `;
 
-    // Total facturas emitidas this year
+    // Total facturas emitidas this year (solo validas, sin test ni proformas)
     const [facturasEmitidas] = await sql`
       SELECT COUNT(*)::int AS total, COALESCE(SUM(total), 0)::numeric AS importe
       FROM factura_180
       WHERE empresa_id = ${empresaId}
+        AND (es_test IS NOT TRUE)
+        AND (tipo_factura IS NULL OR tipo_factura = 'NORMAL')
+        AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
         AND EXTRACT(YEAR FROM fecha) = ${currentYear}
     `;
 

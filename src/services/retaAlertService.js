@@ -11,7 +11,7 @@
 
 import { sql } from "../db.js";
 import { RetaEngine } from "./retaEstimationEngine.js";
-import logger from "../logger.js";
+import logger from "../utils/logger.js";
 
 // Umbral configurable para riesgo de regularizacion (EUR)
 const UMBRAL_REGULARIZACION = 500;
