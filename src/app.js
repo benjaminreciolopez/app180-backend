@@ -87,10 +87,13 @@ import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
 import asesorRetaRoutes from "./routes/asesorRetaRoutes.js";
+import asesorCierreRoutes from "./routes/asesorCierreRoutes.js";
 import adminRetaAutonomoRoutes from "./routes/adminRetaRoutes.js";
 import { runRetaAlertScan, runRetaEstimationScan } from "./services/retaAlertService.js";
 import { asesorWriteGuard } from "./middlewares/asesorWriteGuard.js";
 import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
+import adminTitularesRoutes from "./routes/adminTitularesRoutes.js";
+import asesorTitularesRoutes from "./routes/asesorTitularesRoutes.js";
 import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
 import kioskRoutes from "./routes/kioskRoutes.js";
 import fichajeCorreccionRoutes from "./routes/fichajeCorreccionRoutes.js";
@@ -302,12 +305,15 @@ app.use("/api/admin/facturacion/recurrentes", facturaRecurrenteRoutes); // Factu
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
 app.use("/api/admin/reta", adminRetaAutonomoRoutes); // RETA: estimacion propia autonomo
+app.use("/admin", adminTitularesRoutes); // Titulares/socios empresa (admin)
 app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
 app.use("/admin", adminParteConfigRoutes); // Partes configurables
 app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
 app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
 app.use("/asesor/mis-clientes", asesorClientesRoutes); // Clientes propios asesor
 app.use("/asesor/reta", asesorRetaRoutes); // RETA: base cotizacion autonomos
+app.use("/asesor/clientes/:empresa_id/fiscal/cierre", asesorCierreRoutes); // Cierre ejercicio (asesor)
+app.use("/asesor", asesorTitularesRoutes); // Titulares de clientes (asesor)
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 

@@ -13,6 +13,7 @@ import { RetaPreOnboarding } from "../services/retaPreOnboardingService.js";
 export async function getRetaDashboard(req, res) {
     try {
         const asesoriaId = req.user.asesoria_id;
+        const ejercicio = new Date().getFullYear();
 
         // Obtener todas las empresas vinculadas (todas, no solo autonomos — la gestoria decide)
         const empresas = await sql`
@@ -23,54 +24,131 @@ export async function getRetaDashboard(req, res) {
                    est.riesgo_regularizacion_anual, est.confianza_pct,
                    est.rendimiento_neto_mensual, est.fecha_calculo,
                    (SELECT COUNT(*) FROM reta_alertas_180 a
-                    WHERE a.empresa_id = e.id AND a.ejercicio = ${new Date().getFullYear()}
+                    WHERE a.empresa_id = e.id AND a.ejercicio = ${ejercicio}
                     AND a.leida = false AND a.descartada = false) as alertas_pendientes
             FROM empresa_180 e
             JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
-            LEFT JOIN reta_autonomo_perfil_180 p ON p.empresa_id = e.id AND p.ejercicio = ${new Date().getFullYear()}
+            LEFT JOIN reta_autonomo_perfil_180 p ON p.empresa_id = e.id AND p.ejercicio = ${ejercicio}
             LEFT JOIN LATERAL (
                 SELECT * FROM reta_estimaciones_180
-                WHERE empresa_id = e.id AND ejercicio = ${new Date().getFullYear()}
+                WHERE empresa_id = e.id AND ejercicio = ${ejercicio}
                 ORDER BY fecha_calculo DESC LIMIT 1
             ) est ON true
             WHERE e.activo = true
             ORDER BY COALESCE(ABS(est.riesgo_regularizacion_anual), 0) DESC
         `;
 
-        // Separate autonomos from all clients
-        const autonomos = empresas.filter(e => e.tipo_contribuyente === 'autonomo');
-        const sinConfigurar = empresas.filter(e => !e.tipo_contribuyente);
+        // Obtener titulares autónomos de TODAS las empresas vinculadas
+        const titularesAutonomos = await sql`
+            SELECT t.id as titular_id, t.nombre as titular_nombre, t.nif as titular_nif,
+                   t.empresa_id, e.nombre as empresa_nombre, e.nif_cif as empresa_nif,
+                   e.tipo_contribuyente,
+                   tp.base_cotizacion_actual, tp.cuota_mensual_actual, tp.tramo_actual,
+                   tp.tarifa_plana_activa, tp.perfil_estacionalidad, tp.sector_actividad,
+                   te.tramo_recomendado, te.base_recomendada, te.cuota_recomendada,
+                   te.riesgo_regularizacion_anual, te.confianza_pct,
+                   te.rendimiento_neto_mensual, te.fecha_calculo,
+                   (SELECT COUNT(*) FROM reta_alertas_180 a
+                    WHERE a.titular_id = t.id AND a.ejercicio = ${ejercicio}
+                    AND a.leida = false AND a.descartada = false) as alertas_pendientes
+            FROM titulares_empresa_180 t
+            JOIN empresa_180 e ON e.id = t.empresa_id
+            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
+            LEFT JOIN reta_autonomo_perfil_180 tp ON tp.titular_id = t.id AND tp.ejercicio = ${ejercicio}
+            LEFT JOIN LATERAL (
+                SELECT * FROM reta_estimaciones_180
+                WHERE titular_id = t.id AND ejercicio = ${ejercicio}
+                ORDER BY fecha_calculo DESC LIMIT 1
+            ) te ON true
+            WHERE t.activo = true AND t.regimen_ss = 'autonomo' AND e.activo = true
+            ORDER BY COALESCE(ABS(te.riesgo_regularizacion_anual), 0) DESC
+        `;
 
-        // Resumen global (based on autonomos only)
-        const totalClientes = autonomos.length;
-        const conRiesgoAlto = autonomos.filter(e =>
-            Math.abs(parseFloat(e.riesgo_regularizacion_anual || 0)) > 500
+        // Empresas directamente autónomas (tipo_contribuyente = 'autonomo')
+        const autonomosDirectos = empresas.filter(e => e.tipo_contribuyente === 'autonomo');
+
+        // Empresas que tienen titulares autónomos (pero la empresa misma puede no ser 'autonomo')
+        const empresasConTitularesAutonomos = new Set(titularesAutonomos.map(t => t.empresa_id));
+
+        // Combinar: una empresa es RETA si es autónoma O tiene titulares autónomos
+        const allAutonomoIds = new Set([
+            ...autonomosDirectos.map(e => e.id),
+            ...empresasConTitularesAutonomos,
+        ]);
+
+        const sinConfigurar = empresas.filter(e => !e.tipo_contribuyente && !empresasConTitularesAutonomos.has(e.id));
+
+        // Build unified client list: empresas autónomas directas + titulares autónomos individuales
+        const clientesList = [];
+
+        // Add empresas that are directly autonomo (and have NO titulares — if they have titulares, show per-titular)
+        for (const e of autonomosDirectos) {
+            const titularesDeEstaEmpresa = titularesAutonomos.filter(t => t.empresa_id === e.id);
+            if (titularesDeEstaEmpresa.length === 0) {
+                // No titulares registrados: show empresa-level RETA data (legacy)
+                clientesList.push({
+                    empresaId: e.id,
+                    titularId: null,
+                    nombre: e.nombre,
+                    nifCif: e.nif_cif,
+                    tipoContribuyente: e.tipo_contribuyente,
+                    esTitular: false,
+                    baseActual: e.base_cotizacion_actual ? parseFloat(e.base_cotizacion_actual) : null,
+                    cuotaActual: e.cuota_mensual_actual ? parseFloat(e.cuota_mensual_actual) : null,
+                    tramoActual: e.tramo_actual,
+                    tarifaPlana: e.tarifa_plana_activa,
+                    tramoRecomendado: e.tramo_recomendado,
+                    baseRecomendada: e.base_recomendada ? parseFloat(e.base_recomendada) : null,
+                    cuotaRecomendada: e.cuota_recomendada ? parseFloat(e.cuota_recomendada) : null,
+                    riesgoRegularizacion: e.riesgo_regularizacion_anual ? parseFloat(e.riesgo_regularizacion_anual) : null,
+                    confianza: e.confianza_pct,
+                    rendimientoMensual: e.rendimiento_neto_mensual ? parseFloat(e.rendimiento_neto_mensual) : null,
+                    ultimaEstimacion: e.fecha_calculo,
+                    alertasPendientes: parseInt(e.alertas_pendientes),
+                    sector: e.sector_actividad,
+                    estacionalidad: e.perfil_estacionalidad,
+                });
+            }
+            // If has titulares, they'll be added below from titularesAutonomos
+        }
+
+        // Add each autónomo titular as a separate entry
+        for (const t of titularesAutonomos) {
+            clientesList.push({
+                empresaId: t.empresa_id,
+                titularId: t.titular_id,
+                nombre: `${t.titular_nombre} (${t.empresa_nombre})`,
+                nifCif: t.titular_nif || t.empresa_nif,
+                tipoContribuyente: 'autonomo',
+                esTitular: true,
+                baseActual: t.base_cotizacion_actual ? parseFloat(t.base_cotizacion_actual) : null,
+                cuotaActual: t.cuota_mensual_actual ? parseFloat(t.cuota_mensual_actual) : null,
+                tramoActual: t.tramo_actual,
+                tarifaPlana: t.tarifa_plana_activa,
+                tramoRecomendado: t.tramo_recomendado,
+                baseRecomendada: t.base_recomendada ? parseFloat(t.base_recomendada) : null,
+                cuotaRecomendada: t.cuota_recomendada ? parseFloat(t.cuota_recomendada) : null,
+                riesgoRegularizacion: t.riesgo_regularizacion_anual ? parseFloat(t.riesgo_regularizacion_anual) : null,
+                confianza: t.confianza_pct,
+                rendimientoMensual: t.rendimiento_neto_mensual ? parseFloat(t.rendimiento_neto_mensual) : null,
+                ultimaEstimacion: t.fecha_calculo,
+                alertasPendientes: parseInt(t.alertas_pendientes || 0),
+                sector: t.sector_actividad,
+                estacionalidad: t.perfil_estacionalidad,
+            });
+        }
+
+        // Resumen global
+        const totalClientes = clientesList.length;
+        const conRiesgoAlto = clientesList.filter(e =>
+            Math.abs(parseFloat(e.riesgoRegularizacion || 0)) > 500
         ).length;
-        const conAlertasPendientes = autonomos.filter(e => parseInt(e.alertas_pendientes) > 0).length;
-        const sinEstimacion = autonomos.filter(e => !e.fecha_calculo).length;
+        const conAlertasPendientes = clientesList.filter(e => e.alertasPendientes > 0).length;
+        const sinEstimacion = clientesList.filter(e => !e.ultimaEstimacion).length;
 
         res.json({
             resumen: { totalClientes, conRiesgoAlto, conAlertasPendientes, sinEstimacion, sinConfigurar: sinConfigurar.length, totalEmpresas: empresas.length },
-            clientes: autonomos.map(e => ({
-                empresaId: e.id,
-                nombre: e.nombre,
-                nifCif: e.nif_cif,
-                tipoContribuyente: e.tipo_contribuyente,
-                baseActual: e.base_cotizacion_actual ? parseFloat(e.base_cotizacion_actual) : null,
-                cuotaActual: e.cuota_mensual_actual ? parseFloat(e.cuota_mensual_actual) : null,
-                tramoActual: e.tramo_actual,
-                tarifaPlana: e.tarifa_plana_activa,
-                tramoRecomendado: e.tramo_recomendado,
-                baseRecomendada: e.base_recomendada ? parseFloat(e.base_recomendada) : null,
-                cuotaRecomendada: e.cuota_recomendada ? parseFloat(e.cuota_recomendada) : null,
-                riesgoRegularizacion: e.riesgo_regularizacion_anual ? parseFloat(e.riesgo_regularizacion_anual) : null,
-                confianza: e.confianza_pct,
-                rendimientoMensual: e.rendimiento_neto_mensual ? parseFloat(e.rendimiento_neto_mensual) : null,
-                ultimaEstimacion: e.fecha_calculo,
-                alertasPendientes: parseInt(e.alertas_pendientes),
-                sector: e.sector_actividad,
-                estacionalidad: e.perfil_estacionalidad,
-            })),
+            clientes: clientesList,
             sinConfigurar: sinConfigurar.map(e => ({
                 empresaId: e.id,
                 nombre: e.nombre,

@@ -7,7 +7,8 @@ import {
     getLibroVentas,
     getLibroGastos,
     getLibroNominas,
-    downloadBOE
+    downloadBOE,
+    getCalendarioFiscal
 } from "../controllers/adminFiscalController.js";
 import {
     getFiscalAlerts,
@@ -17,6 +18,17 @@ import {
     addEpigrafe,
     deleteEpigrafe
 } from "../controllers/fiscalAlertController.js";
+import {
+    getCierreEjercicio,
+    updateCierreChecklist,
+    calcularResumen,
+    generarAsientoRegularizacion,
+    generarAsientoCierre,
+    generarAsientoApertura,
+    cerrarEjercicio,
+    reabrirEjercicio,
+    getCierreLog
+} from "../controllers/cierreEjercicioController.js";
 
 const router = Router();
 
@@ -83,5 +95,24 @@ router.put("/alert-config", updateAlertConfig);
 
 router.post("/epigrafes", addEpigrafe);
 router.delete("/epigrafes/:codigo", deleteEpigrafe);
+
+/**
+ * @route GET /admin/fiscal/calendario/:year
+ * @desc Obtener estado del calendario fiscal para un ejercicio
+ */
+router.get("/calendario/:year", getCalendarioFiscal);
+
+/**
+ * Cierre de Ejercicio routes
+ */
+router.get("/cierre/:ejercicio", getCierreEjercicio);
+router.put("/cierre/:ejercicio/checklist", updateCierreChecklist);
+router.post("/cierre/:ejercicio/calcular", calcularResumen);
+router.post("/cierre/:ejercicio/asiento-regularizacion", generarAsientoRegularizacion);
+router.post("/cierre/:ejercicio/asiento-cierre", generarAsientoCierre);
+router.post("/cierre/:ejercicio/asiento-apertura", generarAsientoApertura);
+router.post("/cierre/:ejercicio/cerrar", cerrarEjercicio);
+router.post("/cierre/:ejercicio/reabrir", reabrirEjercicio);
+router.get("/cierre/:ejercicio/log", getCierreLog);
 
 export default router;

@@ -379,6 +379,37 @@ export async function getLibroNominas(req, res) {
 }
 
 /**
+ * Obtener estado del calendario fiscal para un ejercicio
+ * Devuelve el estado de cada modelo/periodo para comparar con los plazos
+ */
+export async function getCalendarioFiscal(req, res) {
+    try {
+        const { year } = req.params;
+        const empresaId = req.user.empresa_id;
+
+        if (!year) return res.status(400).json({ error: "Año requerido" });
+
+        const models = await sql`
+            SELECT modelo, periodo, ejercicio, estado, fecha_presentacion
+            FROM fiscal_models_180
+            WHERE empresa_id = ${empresaId}
+            AND ejercicio = ${parseInt(year)}
+            ORDER BY modelo, periodo
+        `;
+
+        res.json({ success: true, data: models });
+
+    } catch (error) {
+        console.error("Error getCalendarioFiscal:", error);
+        // If table doesn't exist yet, return empty array gracefully
+        if (error.code === '42P01') {
+            return res.json({ success: true, data: [] });
+        }
+        res.status(500).json({ success: false, error: "Error obteniendo calendario fiscal" });
+    }
+}
+
+/**
  * Descargar fichero BOE para un modelo
  */
 export async function downloadBOE(req, res) {

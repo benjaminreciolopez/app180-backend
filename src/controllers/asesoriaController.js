@@ -145,9 +145,9 @@ export async function getClienteResumen(req, res) {
 
     const currentYear = new Date().getFullYear();
 
-    // Get empresa name
+    // Get empresa name and tipo_contribuyente
     const [empresa] = await sql`
-      SELECT nombre FROM empresa_180
+      SELECT nombre, tipo_contribuyente FROM empresa_180
       WHERE id = ${empresaId}
       LIMIT 1
     `;
@@ -193,6 +193,7 @@ export async function getClienteResumen(req, res) {
       success: true,
       data: {
         nombre: empresa?.nombre || null,
+        tipo_contribuyente: empresa?.tipo_contribuyente || null,
         facturas_emitidas: {
           total: facturasEmitidas.total,
           importe: parseFloat(facturasEmitidas.importe),

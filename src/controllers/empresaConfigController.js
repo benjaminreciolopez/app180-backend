@@ -39,7 +39,8 @@ export async function getEmpresaConfig(req, res) {
     let rows = await sql`
       SELECT c.modulos, c.modulos_mobile, c.ai_tokens, e.user_id as creator_id,
              c.pin_lock_enabled, c.pin_code, c.pin_timeout_minutes,
-             c.screensaver_enabled, c.screensaver_style, c.tipos_bloque
+             c.screensaver_enabled, c.screensaver_style, c.tipos_bloque,
+             e.tipo_contribuyente
       FROM empresa_config_180 c
       JOIN empresa_180 e ON c.empresa_id = e.id
       WHERE c.empresa_id = ${empresaId}
@@ -86,6 +87,7 @@ export async function getEmpresaConfig(req, res) {
       screensaver_enabled: rows[0]?.screensaver_enabled || false,
       screensaver_style: rows[0]?.screensaver_style || 'clock',
       tipos_bloque: rows[0]?.tipos_bloque || DEFAULT_TIPOS_BLOQUE,
+      tipo_contribuyente: rows[0]?.tipo_contribuyente || null,
     });
   } catch (err) {
     console.error("❌ getEmpresaConfig:", err);
