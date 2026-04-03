@@ -87,7 +87,11 @@ import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
 import asesorRetaRoutes from "./routes/asesorRetaRoutes.js";
+import asesorCertificadosRoutes from "./routes/asesorCertificadosRoutes.js";
 import asesorCierreRoutes from "./routes/asesorCierreRoutes.js";
+import asesorRentaRoutes from "./routes/asesorRentaRoutes.js";
+import asesorLaboralRoutes from "./routes/asesorLaboralRoutes.js";
+import asesorSiiRoutes from "./routes/asesorSiiRoutes.js";
 import adminRetaAutonomoRoutes from "./routes/adminRetaRoutes.js";
 import { runRetaAlertScan, runRetaEstimationScan } from "./services/retaAlertService.js";
 import { asesorWriteGuard } from "./middlewares/asesorWriteGuard.js";
@@ -101,6 +105,8 @@ import fichajeIntegridadRoutes from "./routes/fichajeIntegridadRoutes.js";
 import adminCentrosTrabajoRoutes from "./routes/adminCentrosTrabajoRoutes.js";
 import adminParteConfigRoutes from "./routes/adminParteConfigRoutes.js";
 import nominaEntregasRoutes from "./routes/nominaEntregasRoutes.js";
+import asesorModelosAnualesRoutes from "./routes/asesorModelosAnualesRoutes.js";
+import adminModelosAnualesRoutes from "./routes/adminModelosAnualesRoutes.js";
 import { miParteConfig } from "./controllers/parteConfiguracionesController.js";
 
 const app = express();
@@ -293,6 +299,7 @@ app.use("/api/admin/purchases", asesorWriteGuard("gastos"), adminPurchasesRoutes
 app.use("/api/admin/fiscal", asesorWriteGuard("fiscal"), adminFiscalRoutes);
 app.use("/api/admin/fiscal/renta", asesorWriteGuard("fiscal"), adminRentaRoutes);
 app.use("/api/admin/fiscal/reglas", asesorWriteGuard("fiscal"), adminFiscalRulesRoutes);
+app.use("/api/admin/fiscal/modelos-anuales", asesorWriteGuard("fiscal"), adminModelosAnualesRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 app.use("/api/admin/nominas", nominaEntregasRoutes); // Entregas y firma de nóminas
 app.use("/api/admin", subscriptionRoutes); // Suscripciones y planes
@@ -312,7 +319,12 @@ app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
 app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
 app.use("/asesor/mis-clientes", asesorClientesRoutes); // Clientes propios asesor
 app.use("/asesor/reta", asesorRetaRoutes); // RETA: base cotizacion autonomos
+app.use("/asesor/certificados", asesorCertificadosRoutes); // Certificados digitales (asesor)
 app.use("/asesor/clientes/:empresa_id/fiscal/cierre", asesorCierreRoutes); // Cierre ejercicio (asesor)
+app.use("/asesor/clientes/:empresa_id/sii", asesorSiiRoutes); // SII: Suministro Inmediato de Informacion (asesor)
+app.use("/asesor/clientes/:empresa_id/modelos-anuales", asesorModelosAnualesRoutes); // Modelos anuales AEAT (asesor)
+app.use("/asesor", asesorLaboralRoutes); // Laboral profesional (contratos, bajas, cotizaciones SS)
+app.use("/asesor", asesorRentaRoutes); // Renta IRPF + Impuesto Sociedades (asesor)
 app.use("/asesor", asesorTitularesRoutes); // Titulares de clientes (asesor)
 app.use("/asesor", asesorRoutes); // Portal asesor
 
@@ -326,6 +338,7 @@ app.use("/admin/verifactu", adminFirmaDigitalRoutes);
 app.use("/admin/fiscal", asesorWriteGuard("fiscal"), adminFiscalRoutes);
 app.use("/admin/fiscal/renta", asesorWriteGuard("fiscal"), adminRentaRoutes);
 app.use("/admin/fiscal/reglas", asesorWriteGuard("fiscal"), adminFiscalRulesRoutes);
+app.use("/admin/fiscal/modelos-anuales", asesorWriteGuard("fiscal"), adminModelosAnualesRoutes);
 app.use("/admin/purchases", asesorWriteGuard("gastos"), adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);
 app.use("/admin/notificaciones", notificacionesRoutes);

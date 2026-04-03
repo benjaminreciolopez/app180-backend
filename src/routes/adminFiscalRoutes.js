@@ -8,7 +8,12 @@ import {
     getLibroGastos,
     getLibroNominas,
     downloadBOE,
-    getCalendarioFiscal
+    getCalendarioFiscal,
+    getModelo390,
+    getModelo190,
+    getModelo180,
+    getModelo347,
+    downloadBOEAnual
 } from "../controllers/adminFiscalController.js";
 import {
     getFiscalAlerts,
@@ -95,6 +100,41 @@ router.put("/alert-config", updateAlertConfig);
 
 router.post("/epigrafes", addEpigrafe);
 router.delete("/epigrafes/:codigo", deleteEpigrafe);
+
+/**
+ * @route GET /admin/fiscal/modelo390
+ * @desc Modelo 390 - Resumen anual IVA
+ * @query year
+ */
+router.get("/modelo390", getModelo390);
+
+/**
+ * @route GET /admin/fiscal/modelo190
+ * @desc Modelo 190 - Resumen anual retenciones
+ * @query year
+ */
+router.get("/modelo190", getModelo190);
+
+/**
+ * @route GET /admin/fiscal/modelo180
+ * @desc Modelo 180 - Resumen anual arrendamientos
+ * @query year
+ */
+router.get("/modelo180", getModelo180);
+
+/**
+ * @route GET /admin/fiscal/modelo347
+ * @desc Modelo 347 - Operaciones con terceros >3.005,06 EUR
+ * @query year
+ */
+router.get("/modelo347", getModelo347);
+
+/**
+ * @route GET /admin/fiscal/download-boe-anual
+ * @desc Descargar fichero BOE para modelos anuales
+ * @query year, modelo
+ */
+router.get("/download-boe-anual", downloadBOEAnual);
 
 /**
  * @route GET /admin/fiscal/calendario/:year
