@@ -494,10 +494,11 @@ export const siiService = {
   async getPendientes(empresaId) {
     // Facturas emitidas no enviadas al SII
     const emitidas = await sql`
-      SELECT f.id, f.numero, f.fecha, f.cliente_nombre, f.cliente_nif,
+      SELECT f.id, f.numero, f.fecha, c.nombre as cliente_nombre, c.nif as cliente_nif,
              f.subtotal, f.iva_total, f.total, f.concepto, f.descripcion,
              'emitida' as tipo
       FROM factura_180 f
+      LEFT JOIN clientes_180 c ON c.id = f.cliente_id
       WHERE f.empresa_id = ${empresaId}
         AND f.estado != 'anulada'
         AND NOT EXISTS (

@@ -49,8 +49,18 @@ async function getOrCreateCierre(empresaId, ejercicio) {
     const created = await sql`
         INSERT INTO cierre_ejercicio_180 (empresa_id, ejercicio)
         VALUES (${empresaId}, ${ejercicio})
+        ON CONFLICT (empresa_id, ejercicio) DO NOTHING
         RETURNING *
     `;
+
+    // If ON CONFLICT hit, re-fetch the existing row
+    if (created.length === 0) {
+        const [row] = await sql`
+            SELECT * FROM cierre_ejercicio_180
+            WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio}
+        `;
+        return row;
+    }
 
     return created[0];
 }
