@@ -31,13 +31,12 @@ export async function runRetaAlertScan() {
         const empresas = await sql`
             SELECT e.id, e.nombre
             FROM empresa_180 e
-            JOIN asesoria_vinculos_180 v ON v.empresa_id = e.id AND v.estado = 'activo'
-            WHERE e.tipo_contribuyente = 'autonomo'
-            AND e.activo = true
+            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.estado = 'activo'
+            WHERE e.activo = true
         `;
 
         if (empresas.length === 0) {
-            logger.info("[RETA Alert] No hay empresas autonomas vinculadas.");
+            logger.info("[RETA Alert] No hay empresas vinculadas.");
             return;
         }
 
@@ -69,9 +68,8 @@ export async function runRetaEstimationScan() {
         const empresas = await sql`
             SELECT e.id, e.nombre
             FROM empresa_180 e
-            JOIN asesoria_vinculos_180 v ON v.empresa_id = e.id AND v.estado = 'activo'
-            WHERE e.tipo_contribuyente = 'autonomo'
-            AND e.activo = true
+            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.estado = 'activo'
+            WHERE e.activo = true
         `;
 
         const ejercicio = new Date().getFullYear();

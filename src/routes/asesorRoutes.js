@@ -5,7 +5,7 @@ import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { asesorClienteRequired } from "../middlewares/asesorRequired.js";
-import { getDashboard, getClientes, getClienteResumen, getConfiguracion, updateConfiguracion, getDashboardWidgets, updateDashboardWidgets } from "../controllers/asesoriaController.js";
+import { getDashboard, getClientes, getClienteResumen, getConfiguracion, updateConfiguracion, getDashboardWidgets, updateDashboardWidgets, updateClienteTipoContribuyente } from "../controllers/asesoriaController.js";
 import { getMensajes, enviarMensaje, marcarLeido, getNoLeidos, enviarMensajeConAdjunto } from "../controllers/asesoriaMensajesController.js";
 import { invitarClienteDesdeAsesor, registrarAsesoria, aceptarVinculoDesdeAsesor, rechazarVinculoDesdeAsesor } from "../controllers/asesoriaInvitacionController.js";
 import { exportTrimestral, exportMensual, exportMultiCliente, exportResumenFiscal } from "../controllers/asesoriaExportController.js";
@@ -46,6 +46,7 @@ router.delete("/notificaciones/limpiar", limpiarNotificacionesAsesor);
 router.get("/export/multi-cliente", exportMultiCliente);
 
 // Rutas con empresa_id específica (requieren vínculo activo)
+router.put("/clientes/:empresa_id/tipo-contribuyente", asesorClienteRequired(), updateClienteTipoContribuyente);
 router.get("/clientes/:empresa_id/resumen", asesorClienteRequired(), getClienteResumen);
 router.get("/clientes/:empresa_id/mensajes", asesorClienteRequired(), getMensajes);
 router.post("/clientes/:empresa_id/mensajes", asesorClienteRequired(), enviarMensaje);

@@ -99,6 +99,7 @@ export async function getClientes(req, res) {
         ac.id AS vinculo_id,
         ac.empresa_id,
         e.nombre,
+        e.tipo_contribuyente,
         ac.estado,
         ac.invitado_por,
         ac.permisos,
@@ -375,5 +376,42 @@ export async function updateConfiguracion(req, res) {
   } catch (err) {
     console.error("Error updateConfiguracion (asesoria):", err);
     return res.status(500).json({ error: "Error actualizando configuración" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/:empresa_id/tipo-contribuyente
+ * Allows asesor to set the tipo_contribuyente of a linked client
+ */
+export async function updateClienteTipoContribuyente(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const empresaId = req.params.empresa_id;
+    const { tipo_contribuyente } = req.body;
+
+    if (!["autonomo", "sociedad"].includes(tipo_contribuyente)) {
+      return res.status(400).json({ error: "Tipo invalido. Usa 'autonomo' o 'sociedad'." });
+    }
+
+    // Validate asesor has active link
+    const vinculo = await sql`
+      SELECT id FROM asesoria_clientes_180
+      WHERE asesoria_id = ${asesoriaId}
+        AND empresa_id = ${empresaId}
+        AND estado = 'activo'
+      LIMIT 1
+    `;
+    if (vinculo.length === 0) return res.status(403).json({ error: "Sin acceso" });
+
+    await sql`
+      UPDATE empresa_180
+      SET tipo_contribuyente = ${tipo_contribuyente}
+      WHERE id = ${empresaId}
+    `;
+
+    return res.json({ success: true, tipo_contribuyente });
+  } catch (err) {
+    console.error("Error updateClienteTipoContribuyente:", err);
+    return res.status(500).json({ error: "Error actualizando tipo de contribuyente" });
   }
 }

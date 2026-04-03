@@ -12,11 +12,11 @@ import { RetaPreOnboarding } from "../services/retaPreOnboardingService.js";
 
 export async function getRetaDashboard(req, res) {
     try {
-        const asesoriaId = req.user.empresa_id;
+        const asesoriaId = req.user.asesoria_id;
 
-        // Obtener todas las empresas autonomas vinculadas
+        // Obtener todas las empresas vinculadas (todas, no solo autonomos — la gestoria decide)
         const empresas = await sql`
-            SELECT e.id, e.nombre, e.nif_cif,
+            SELECT e.id, e.nombre, e.nif_cif, e.tipo_contribuyente,
                    p.base_cotizacion_actual, p.cuota_mensual_actual, p.tramo_actual,
                    p.tarifa_plana_activa, p.perfil_estacionalidad, p.sector_actividad,
                    est.tramo_recomendado, est.base_recomendada, est.cuota_recomendada,
@@ -26,32 +26,36 @@ export async function getRetaDashboard(req, res) {
                     WHERE a.empresa_id = e.id AND a.ejercicio = ${new Date().getFullYear()}
                     AND a.leida = false AND a.descartada = false) as alertas_pendientes
             FROM empresa_180 e
-            JOIN asesoria_vinculos_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
+            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
             LEFT JOIN reta_autonomo_perfil_180 p ON p.empresa_id = e.id AND p.ejercicio = ${new Date().getFullYear()}
             LEFT JOIN LATERAL (
                 SELECT * FROM reta_estimaciones_180
                 WHERE empresa_id = e.id AND ejercicio = ${new Date().getFullYear()}
                 ORDER BY fecha_calculo DESC LIMIT 1
             ) est ON true
-            WHERE e.tipo_contribuyente = 'autonomo'
-            AND e.activo = true
+            WHERE e.activo = true
             ORDER BY COALESCE(ABS(est.riesgo_regularizacion_anual), 0) DESC
         `;
 
-        // Resumen global
-        const totalClientes = empresas.length;
-        const conRiesgoAlto = empresas.filter(e =>
+        // Separate autonomos from all clients
+        const autonomos = empresas.filter(e => e.tipo_contribuyente === 'autonomo');
+        const sinConfigurar = empresas.filter(e => !e.tipo_contribuyente);
+
+        // Resumen global (based on autonomos only)
+        const totalClientes = autonomos.length;
+        const conRiesgoAlto = autonomos.filter(e =>
             Math.abs(parseFloat(e.riesgo_regularizacion_anual || 0)) > 500
         ).length;
-        const conAlertasPendientes = empresas.filter(e => parseInt(e.alertas_pendientes) > 0).length;
-        const sinEstimacion = empresas.filter(e => !e.fecha_calculo).length;
+        const conAlertasPendientes = autonomos.filter(e => parseInt(e.alertas_pendientes) > 0).length;
+        const sinEstimacion = autonomos.filter(e => !e.fecha_calculo).length;
 
         res.json({
-            resumen: { totalClientes, conRiesgoAlto, conAlertasPendientes, sinEstimacion },
-            clientes: empresas.map(e => ({
+            resumen: { totalClientes, conRiesgoAlto, conAlertasPendientes, sinEstimacion, sinConfigurar: sinConfigurar.length, totalEmpresas: empresas.length },
+            clientes: autonomos.map(e => ({
                 empresaId: e.id,
                 nombre: e.nombre,
                 nifCif: e.nif_cif,
+                tipoContribuyente: e.tipo_contribuyente,
                 baseActual: e.base_cotizacion_actual ? parseFloat(e.base_cotizacion_actual) : null,
                 cuotaActual: e.cuota_mensual_actual ? parseFloat(e.cuota_mensual_actual) : null,
                 tramoActual: e.tramo_actual,
@@ -66,6 +70,11 @@ export async function getRetaDashboard(req, res) {
                 alertasPendientes: parseInt(e.alertas_pendientes),
                 sector: e.sector_actividad,
                 estacionalidad: e.perfil_estacionalidad,
+            })),
+            sinConfigurar: sinConfigurar.map(e => ({
+                empresaId: e.id,
+                nombre: e.nombre,
+                nifCif: e.nif_cif,
             })),
         });
     } catch (err) {
@@ -378,7 +387,7 @@ export async function getSimulacion(req, res) {
 
 export async function createPreOnboarding(req, res) {
     try {
-        const asesoriaId = req.user.empresa_id;
+        const asesoriaId = req.user.asesoria_id;
         const resultado = await RetaPreOnboarding.create(asesoriaId, req.body);
         res.json(resultado);
     } catch (err) {
@@ -430,7 +439,7 @@ export async function vincularPreOnboarding(req, res) {
 
 export async function listPreOnboarding(req, res) {
     try {
-        const asesoriaId = req.user.empresa_id;
+        const asesoriaId = req.user.asesoria_id;
 
         const lista = await sql`
             SELECT po.*, e.nombre as empresa_nombre
@@ -453,14 +462,14 @@ export async function listPreOnboarding(req, res) {
 
 export async function getAlertas(req, res) {
     try {
-        const asesoriaId = req.user.empresa_id;
+        const asesoriaId = req.user.asesoria_id;
         const ejercicio = parseInt(req.query.ejercicio) || new Date().getFullYear();
 
         const alertas = await sql`
             SELECT a.*, e.nombre as empresa_nombre
             FROM reta_alertas_180 a
             JOIN empresa_180 e ON e.id = a.empresa_id
-            JOIN asesoria_vinculos_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
+            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
             WHERE a.ejercicio = ${ejercicio}
             AND a.descartada = false
             ORDER BY
