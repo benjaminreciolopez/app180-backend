@@ -597,6 +597,297 @@ export const siiService = {
       limit,
       offset
     };
+  },
+
+  // ============================================================
+  // FRAMEWORK EXTENSIONS (batch envios, validation, mapping)
+  // ============================================================
+
+  mapFacturaToSiiRegistro(factura, tipo = 'emitida') {
+    const base = Number(factura.subtotal || factura.base_imponible || 0);
+    const cuota = Number(factura.iva_total || factura.cuota_iva || 0);
+    const tipoImpositivo = base > 0 ? Math.round((cuota / base) * 10000) / 100 : 21;
+
+    return {
+      factura_id: factura.id,
+      tipo_factura: tipo,
+      nif_contraparte: tipo === 'emitida'
+        ? (factura.cliente_nif || null)
+        : (factura.nif_proveedor || null),
+      nombre_contraparte: tipo === 'emitida'
+        ? (factura.cliente_nombre || null)
+        : (factura.proveedor || factura.nombre_proveedor || null),
+      numero_factura: factura.numero || factura.referencia || null,
+      fecha_expedicion: factura.fecha || factura.fecha_factura || null,
+      tipo_factura_sii: this.getTipoFacturaSii(factura),
+      clave_regimen: this.getClaveRegimen(factura),
+      base_imponible: base,
+      tipo_impositivo: tipoImpositivo,
+      cuota_repercutida: cuota,
+    };
+  },
+
+  getClaveRegimen(factura) {
+    if (factura.es_intracomunitaria) return '09';
+    if (factura.es_exportacion) return '02';
+    if (factura.regimen_especial) {
+      const map = {
+        'general': '01', 'exportacion': '02', 'bienes_usados': '03',
+        'oro_inversion': '04', 'agencias_viaje': '05', 'grupos_entidades': '06',
+        'recc': '07', 'ipsi_igic': '08', 'intracomunitaria': '09',
+        'cobros_cuenta_terceros': '10', 'arrendamiento': '12', 'factura_simplificada': '14',
+      };
+      return map[factura.regimen_especial] || '01';
+    }
+    if (factura.es_simplificada || factura.tipo === 'simplificada') return '14';
+    return '01';
+  },
+
+  getTipoFacturaSii(factura) {
+    if (factura.es_rectificativa || factura.tipo_factura === 'rectificativa') {
+      if (factura.es_simplificada || factura.tipo === 'simplificada') return 'R5';
+      const motivo = factura.motivo_rectificacion || '';
+      if (motivo.includes('80.1') || motivo.includes('80.2')) return 'R1';
+      if (motivo.includes('80.3')) return 'R2';
+      if (motivo.includes('80.4')) return 'R3';
+      return 'R4';
+    }
+    if (factura.es_simplificada || factura.tipo === 'simplificada' || factura.tipo_factura === 'simplificada') return 'F2';
+    return 'F1';
+  },
+
+  validateSiiRegistro(registro) {
+    const errors = [];
+    if (!registro.numero_factura) errors.push('Numero de factura obligatorio');
+    if (!registro.fecha_expedicion) errors.push('Fecha de expedicion obligatoria');
+    if (!registro.base_imponible && registro.base_imponible !== 0) errors.push('Base imponible obligatoria');
+    if (registro.tipo_factura === 'emitida' && !registro.nif_contraparte && registro.tipo_factura_sii !== 'F2') {
+      errors.push('NIF del destinatario obligatorio para facturas completas (F1)');
+    }
+    if (registro.tipo_factura === 'recibida' && !registro.nif_contraparte) {
+      errors.push('NIF del emisor obligatorio para facturas recibidas');
+    }
+    if (registro.nif_contraparte && !/^[A-Z0-9]{8,9}$/i.test(registro.nif_contraparte.replace(/[-\s]/g, ''))) {
+      errors.push(`NIF/CIF contraparte parece invalido: ${registro.nif_contraparte}`);
+    }
+    if (!registro.tipo_factura_sii) errors.push('Tipo de factura SII obligatorio');
+    if (!registro.clave_regimen) errors.push('Clave regimen obligatoria');
+    return { valid: errors.length === 0, errors };
+  },
+
+  parseSiiResponse(xmlResponse) {
+    return procesarRespuesta(xmlResponse);
+  },
+
+  buildSiiXml(tipo_libro, registros, config, emisor) {
+    const tipoComunicacion = 'A0';
+    const ejercicio = registros[0]?.ejercicio || new Date().getFullYear();
+    const periodo = registros[0]?.periodo || getPeriodo(new Date());
+    if (tipo_libro === 'facturas_emitidas') {
+      return this._buildXmlEmitidas(registros, emisor, tipoComunicacion, ejercicio, periodo);
+    } else if (tipo_libro === 'facturas_recibidas') {
+      return this._buildXmlRecibidas(registros, emisor, tipoComunicacion, ejercicio, periodo);
+    }
+    throw new Error(`Tipo libro no soportado: ${tipo_libro}`);
+  },
+
+  _buildXmlEmitidas(registros, emisor, tipoComunicacion, ejercicio, periodo) {
+    const registrosXml = registros.map(r => {
+      const fecha = formatFechaSii(r.fecha_expedicion);
+      let contraparteXml = '';
+      if (r.nombre_contraparte || r.nif_contraparte) {
+        contraparteXml = `
+              <sii:Contraparte>
+                <sii:NombreRazon>${escaparXml(r.nombre_contraparte || '')}</sii:NombreRazon>
+                ${r.nif_contraparte ? `<sii:NIF>${escaparXml(r.nif_contraparte)}</sii:NIF>` : ''}
+              </sii:Contraparte>`;
+      }
+      return `
+      <siiLR:RegistroLRFacturasEmitidas>
+        <siiLR:PeriodoLiquidacion>
+          <sii:Ejercicio>${ejercicio}</sii:Ejercicio>
+          <sii:Periodo>${String(periodo).padStart(2, '0')}</sii:Periodo>
+        </siiLR:PeriodoLiquidacion>
+        <siiLR:IDFactura>
+          <sii:IDEmisorFactura><sii:NIF>${emisor.nif}</sii:NIF></sii:IDEmisorFactura>
+          <sii:NumSerieFacturaEmisor>${escaparXml(r.numero_factura)}</sii:NumSerieFacturaEmisor>
+          <sii:FechaExpedicionFacturaEmisor>${fecha}</sii:FechaExpedicionFacturaEmisor>
+        </siiLR:IDFactura>
+        <siiLR:FacturaExpedida>
+          <sii:TipoFactura>${r.tipo_factura_sii || 'F1'}</sii:TipoFactura>
+          <sii:ClaveRegimenEspecialOTrascendencia>${r.clave_regimen || '01'}</sii:ClaveRegimenEspecialOTrascendencia>
+          <sii:DescripcionOperacion>${escaparXml(r.descripcion || 'Prestacion de servicios')}</sii:DescripcionOperacion>${contraparteXml}
+          <sii:TipoDesglose>
+            <sii:DesgloseFactura>
+              <sii:Sujeta>
+                <sii:NoExenta>
+                  <sii:TipoNoExenta>S1</sii:TipoNoExenta>
+                  <sii:DesgloseIVA>
+                    <sii:DetalleIVA>
+                      <sii:TipoImpositivo>${(r.tipo_impositivo || 21).toFixed(2)}</sii:TipoImpositivo>
+                      <sii:BaseImponible>${(r.base_imponible || 0).toFixed(2)}</sii:BaseImponible>
+                      <sii:CuotaRepercutida>${(r.cuota_repercutida || 0).toFixed(2)}</sii:CuotaRepercutida>
+                    </sii:DetalleIVA>
+                  </sii:DesgloseIVA>
+                </sii:NoExenta>
+              </sii:Sujeta>
+            </sii:DesgloseFactura>
+          </sii:TipoDesglose>
+        </siiLR:FacturaExpedida>
+      </siiLR:RegistroLRFacturasEmitidas>`;
+    }).join('\n');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="${NS_SOAP}"
+                  xmlns:siiLR="${NS_SIILR}"
+                  xmlns:sii="${NS_SII}">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <siiLR:SuministroLRFacturasEmitidas>
+      <siiLR:Cabecera>
+        <sii:IDVersionSii>${SII_VERSION}</sii:IDVersionSii>
+        <sii:Titular>
+          <sii:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sii:NombreRazon>
+          <sii:NIF>${emisor.nif}</sii:NIF>
+        </sii:Titular>
+        <sii:TipoComunicacion>${tipoComunicacion}</sii:TipoComunicacion>
+      </siiLR:Cabecera>${registrosXml}
+    </siiLR:SuministroLRFacturasEmitidas>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+  },
+
+  _buildXmlRecibidas(registros, emisor, tipoComunicacion, ejercicio, periodo) {
+    const fechaRegistro = formatFechaSii(new Date());
+    const registrosXml = registros.map(r => {
+      const fecha = formatFechaSii(r.fecha_expedicion);
+      return `
+      <siiLR:RegistroLRFacturasRecibidas>
+        <siiLR:PeriodoLiquidacion>
+          <sii:Ejercicio>${ejercicio}</sii:Ejercicio>
+          <sii:Periodo>${String(periodo).padStart(2, '0')}</sii:Periodo>
+        </siiLR:PeriodoLiquidacion>
+        <siiLR:IDFactura>
+          <sii:IDEmisorFactura>
+            ${r.nif_contraparte ? `<sii:NIF>${escaparXml(r.nif_contraparte)}</sii:NIF>` : '<sii:NIF>000000000</sii:NIF>'}
+          </sii:IDEmisorFactura>
+          <sii:NumSerieFacturaEmisor>${escaparXml(r.numero_factura || 'SIN-NUM')}</sii:NumSerieFacturaEmisor>
+          <sii:FechaExpedicionFacturaEmisor>${fecha}</sii:FechaExpedicionFacturaEmisor>
+        </siiLR:IDFactura>
+        <siiLR:FacturaRecibida>
+          <sii:TipoFactura>${r.tipo_factura_sii || 'F1'}</sii:TipoFactura>
+          <sii:ClaveRegimenEspecialOTrascendencia>${r.clave_regimen || '01'}</sii:ClaveRegimenEspecialOTrascendencia>
+          <sii:DescripcionOperacion>${escaparXml(r.descripcion || 'Gasto/Compra')}</sii:DescripcionOperacion>
+          <sii:Contraparte>
+            <sii:NombreRazon>${escaparXml(r.nombre_contraparte || '')}</sii:NombreRazon>
+            ${r.nif_contraparte ? `<sii:NIF>${escaparXml(r.nif_contraparte)}</sii:NIF>` : ''}
+          </sii:Contraparte>
+          <sii:FechaRegContable>${fechaRegistro}</sii:FechaRegContable>
+          <sii:DesgloseFactura>
+            <sii:InversionSujetoPasivo>
+              <sii:DetalleIVA>
+                <sii:TipoImpositivo>${(r.tipo_impositivo || 21).toFixed(2)}</sii:TipoImpositivo>
+                <sii:BaseImponible>${(r.base_imponible || 0).toFixed(2)}</sii:BaseImponible>
+                <sii:CuotaSoportada>${(r.cuota_repercutida || 0).toFixed(2)}</sii:CuotaSoportada>
+              </sii:DetalleIVA>
+            </sii:InversionSujetoPasivo>
+          </sii:DesgloseFactura>
+          <sii:CuotaDeducible>${(r.cuota_repercutida || 0).toFixed(2)}</sii:CuotaDeducible>
+        </siiLR:FacturaRecibida>
+      </siiLR:RegistroLRFacturasRecibidas>`;
+    }).join('\n');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="${NS_SOAP}"
+                  xmlns:siiLR="${NS_SIILR}"
+                  xmlns:sii="${NS_SII}">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <siiLR:SuministroLRFacturasRecibidas>
+      <siiLR:Cabecera>
+        <sii:IDVersionSii>${SII_VERSION}</sii:IDVersionSii>
+        <sii:Titular>
+          <sii:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sii:NombreRazon>
+          <sii:NIF>${emisor.nif}</sii:NIF>
+        </sii:Titular>
+        <sii:TipoComunicacion>${tipoComunicacion}</sii:TipoComunicacion>
+      </siiLR:Cabecera>${registrosXml}
+    </siiLR:SuministroLRFacturasRecibidas>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+  },
+
+  async prepararEnvio(empresaId, tipoLibro, ejercicio, mes) {
+    const pendientes = await this.getPendientes(empresaId);
+    const facturas = tipoLibro === 'facturas_emitidas' ? pendientes.emitidas : pendientes.recibidas;
+    if (!facturas || facturas.length === 0) {
+      return { envio: null, registros: [], message: 'No hay facturas pendientes de envio' };
+    }
+    let filtered = facturas;
+    if (ejercicio && mes) {
+      filtered = facturas.filter(f => {
+        const d = new Date(f.fecha || f.fecha_factura);
+        return d.getFullYear() === ejercicio && (d.getMonth() + 1) === parseInt(mes);
+      });
+    }
+    if (filtered.length === 0) {
+      return { envio: null, registros: [], message: 'No hay facturas para el periodo seleccionado' };
+    }
+    const tipo = tipoLibro === 'facturas_emitidas' ? 'emitida' : 'recibida';
+    const registros = filtered.map(f => this.mapFacturaToSiiRegistro(f, tipo));
+    const validationResults = registros.map(r => ({ ...r, validation: this.validateSiiRegistro(r) }));
+    const validos = validationResults.filter(r => r.validation.valid);
+    const invalidos = validationResults.filter(r => !r.validation.valid);
+    const periodoMes = mes || getPeriodo(filtered[0].fecha || filtered[0].fecha_factura);
+    const periodoEjercicio = ejercicio || getEjercicio(filtered[0].fecha || filtered[0].fecha_factura);
+    const [envio] = await sql`
+      INSERT INTO sii_envios_180 (empresa_id, tipo_libro, tipo_comunicacion, ejercicio, periodo, periodo_ejercicio, periodo_mes, nif_titular, num_registros, estado)
+      VALUES (${empresaId}, ${tipoLibro}, 'A0', ${periodoEjercicio}, ${periodoMes}, ${periodoEjercicio}, ${periodoMes}, '', ${validos.length}, 'pendiente')
+      RETURNING *`;
+    for (const reg of validos) {
+      await sql`
+        INSERT INTO sii_registros_180 (envio_id, factura_id, tipo_factura, nif_contraparte, nombre_contraparte, numero_factura, fecha_expedicion, tipo_factura_sii, clave_regimen, base_imponible, tipo_impositivo, cuota_repercutida, estado_registro)
+        VALUES (${envio.id}, ${reg.factura_id}, ${reg.tipo_factura}, ${reg.nif_contraparte}, ${reg.nombre_contraparte}, ${reg.numero_factura}, ${reg.fecha_expedicion}, ${reg.tipo_factura_sii}, ${reg.clave_regimen}, ${reg.base_imponible}, ${reg.tipo_impositivo}, ${reg.cuota_repercutida}, 'pendiente')`;
+    }
+    return { envio, registros: validos, invalidos: invalidos.map(r => ({ numero_factura: r.numero_factura, errors: r.validation.errors })), total_validos: validos.length, total_invalidos: invalidos.length };
+  },
+
+  async simularEnvio(empresaId, envioId) {
+    const [envio] = await sql`SELECT * FROM sii_envios_180 WHERE id = ${envioId} AND empresa_id = ${empresaId}`;
+    if (!envio) throw new Error('Envio no encontrado');
+    const registros = await sql`SELECT * FROM sii_registros_180 WHERE envio_id = ${envioId} ORDER BY created_at`;
+    if (registros.length === 0) throw new Error('No hay registros en este envio');
+    const [emisor] = await sql`SELECT nif, nombre, nombre_comercial FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+    if (!emisor) throw new Error('Emisor no configurado para esta empresa');
+    const config = await this.getSiiConfig(empresaId);
+    const tipoLibro = envio.tipo_libro || 'facturas_emitidas';
+    const registrosMapped = registros.map(r => ({ ...r, ejercicio: envio.ejercicio || envio.periodo_ejercicio, periodo: envio.periodo || envio.periodo_mes }));
+    const xml = this.buildSiiXml(tipoLibro, registrosMapped, config, emisor);
+    await sql`UPDATE sii_envios_180 SET xml_request = ${xml} WHERE id = ${envioId}`;
+    return { envio_id: envioId, xml_preview: xml, num_registros: registros.length, entorno: config?.entorno || 'test', validacion: { registros_validos: registros.length, listo_para_enviar: true } };
+  },
+
+  async getEstadisticasSii(empresaId) {
+    const dashboard = await this.getDashboardStats(empresaId);
+    const year = new Date().getFullYear();
+    const mensual = await sql`
+      SELECT periodo, tipo_libro, COUNT(*) as total,
+        SUM(CASE WHEN estado = 'aceptado' THEN 1 ELSE 0 END) as aceptados,
+        SUM(CASE WHEN estado = 'rechazado' THEN 1 ELSE 0 END) as rechazados,
+        SUM(base_imponible) as total_base
+      FROM sii_envios_180 WHERE empresa_id = ${empresaId} AND ejercicio = ${year}
+      GROUP BY periodo, tipo_libro ORDER BY periodo`;
+    const ultimos = await sql`
+      SELECT id, tipo_libro, tipo_comunicacion, ejercicio, periodo, estado, num_registros, registros_correctos, registros_con_errores, enviado_at, created_at
+      FROM sii_envios_180 WHERE empresa_id = ${empresaId} ORDER BY created_at DESC LIMIT 5`;
+    return { ...dashboard, mensual, ultimos_envios: ultimos };
+  },
+
+  async getEnvioDetalle(empresaId, envioId) {
+    const [envio] = await sql`SELECT * FROM sii_envios_180 WHERE id = ${envioId} AND empresa_id = ${empresaId}`;
+    if (!envio) return null;
+    const registros = await sql`SELECT * FROM sii_registros_180 WHERE envio_id = ${envioId} ORDER BY created_at`;
+    return { ...envio, registros };
   }
 };
 
@@ -712,474 +1003,3 @@ function procesarRespuesta(xmlResponse) {
     errorDesc: errorDescMatch ? errorDescMatch[1] : null
   };
 }
-
-  // ============================================================
-  // FRAMEWORK EXTENSIONS (batch envios, validation, mapping)
-  // ============================================================
-
-  /**
-   * Map factura_180 or purchases_180 to SII registro format
-   */
-  mapFacturaToSiiRegistro(factura, tipo = 'emitida') {
-    const base = Number(factura.subtotal || factura.base_imponible || 0);
-    const cuota = Number(factura.iva_total || factura.cuota_iva || 0);
-    const tipoImpositivo = base > 0 ? Math.round((cuota / base) * 10000) / 100 : 21;
-
-    return {
-      factura_id: factura.id,
-      tipo_factura: tipo,
-      nif_contraparte: tipo === 'emitida'
-        ? (factura.cliente_nif || null)
-        : (factura.nif_proveedor || null),
-      nombre_contraparte: tipo === 'emitida'
-        ? (factura.cliente_nombre || null)
-        : (factura.proveedor || factura.nombre_proveedor || null),
-      numero_factura: factura.numero || factura.referencia || null,
-      fecha_expedicion: factura.fecha || factura.fecha_factura || null,
-      tipo_factura_sii: this.getTipoFacturaSii(factura),
-      clave_regimen: this.getClaveRegimen(factura),
-      base_imponible: base,
-      tipo_impositivo: tipoImpositivo,
-      cuota_repercutida: cuota,
-    };
-  },
-
-  /**
-   * Determine clave regimen especial
-   * 01 = General, 02 = Exportacion, 03 = Bienes usados,
-   * 05 = Agencias de viaje, 06 = Grupos de entidades (IVA),
-   * 07 = RECC, 08 = IPSI/IGIC, 09 = Adquisiciones intracomunitarias servicios,
-   * 12 = Arrendamiento de local de negocio
-   */
-  getClaveRegimen(factura) {
-    if (factura.es_intracomunitaria) return '09';
-    if (factura.es_exportacion) return '02';
-    if (factura.regimen_especial) {
-      const map = {
-        'general': '01',
-        'exportacion': '02',
-        'bienes_usados': '03',
-        'oro_inversion': '04',
-        'agencias_viaje': '05',
-        'grupos_entidades': '06',
-        'recc': '07',
-        'ipsi_igic': '08',
-        'intracomunitaria': '09',
-        'cobros_cuenta_terceros': '10',
-        'arrendamiento': '12',
-        'factura_simplificada': '14',
-      };
-      return map[factura.regimen_especial] || '01';
-    }
-    // Check for simplified invoice (ticket)
-    if (factura.es_simplificada || factura.tipo === 'simplificada') return '14';
-    return '01'; // General
-  },
-
-  /**
-   * Map to SII tipo factura
-   * F1 = Factura normal, F2 = Factura simplificada (ticket),
-   * R1 = Rectificativa (art. 80.1, 80.2 y art. 73 LIVA),
-   * R2 = Rectificativa (art. 80.3),
-   * R3 = Rectificativa (art. 80.4),
-   * R4 = Rectificativa (resto),
-   * R5 = Rectificativa en facturas simplificadas
-   */
-  getTipoFacturaSii(factura) {
-    // Rectificativas
-    if (factura.es_rectificativa || factura.tipo_factura === 'rectificativa') {
-      if (factura.es_simplificada || factura.tipo === 'simplificada') return 'R5';
-      const motivo = factura.motivo_rectificacion || '';
-      if (motivo.includes('80.1') || motivo.includes('80.2')) return 'R1';
-      if (motivo.includes('80.3')) return 'R2';
-      if (motivo.includes('80.4')) return 'R3';
-      return 'R4'; // Default rectificativa
-    }
-    // Simplificada
-    if (factura.es_simplificada || factura.tipo === 'simplificada' || factura.tipo_factura === 'simplificada') {
-      return 'F2';
-    }
-    return 'F1'; // Normal
-  },
-
-  /**
-   * Validate a SII registro before sending
-   * Returns { valid: boolean, errors: string[] }
-   */
-  validateSiiRegistro(registro) {
-    const errors = [];
-
-    if (!registro.numero_factura) {
-      errors.push('Numero de factura obligatorio');
-    }
-    if (!registro.fecha_expedicion) {
-      errors.push('Fecha de expedicion obligatoria');
-    }
-    if (!registro.base_imponible && registro.base_imponible !== 0) {
-      errors.push('Base imponible obligatoria');
-    }
-    if (registro.tipo_factura === 'emitida' && !registro.nif_contraparte && registro.tipo_factura_sii !== 'F2') {
-      errors.push('NIF del destinatario obligatorio para facturas completas (F1)');
-    }
-    if (registro.tipo_factura === 'recibida' && !registro.nif_contraparte) {
-      errors.push('NIF del emisor obligatorio para facturas recibidas');
-    }
-    if (registro.nif_contraparte && !/^[A-Z0-9]{8,9}$/i.test(registro.nif_contraparte.replace(/[-\s]/g, ''))) {
-      errors.push(`NIF/CIF contraparte parece invalido: ${registro.nif_contraparte}`);
-    }
-    if (!registro.tipo_factura_sii) {
-      errors.push('Tipo de factura SII obligatorio');
-    }
-    if (!registro.clave_regimen) {
-      errors.push('Clave regimen obligatoria');
-    }
-
-    return { valid: errors.length === 0, errors };
-  },
-
-  /**
-   * Parse AEAT SII XML response
-   */
-  parseSiiResponse(xmlResponse) {
-    return procesarRespuesta(xmlResponse);
-  },
-
-  /**
-   * Build a batch SII XML for multiple registros (facturas emitidas)
-   */
-  buildSiiXml(tipo_libro, registros, config, emisor) {
-    const tipoComunicacion = 'A0'; // Alta
-    const ejercicio = registros[0]?.ejercicio || new Date().getFullYear();
-    const periodo = registros[0]?.periodo || getPeriodo(new Date());
-
-    if (tipo_libro === 'facturas_emitidas') {
-      return this._buildXmlEmitidas(registros, emisor, tipoComunicacion, ejercicio, periodo);
-    } else if (tipo_libro === 'facturas_recibidas') {
-      return this._buildXmlRecibidas(registros, emisor, tipoComunicacion, ejercicio, periodo);
-    }
-    throw new Error(`Tipo libro no soportado: ${tipo_libro}`);
-  },
-
-  _buildXmlEmitidas(registros, emisor, tipoComunicacion, ejercicio, periodo) {
-    const registrosXml = registros.map(r => {
-      const fecha = formatFechaSii(r.fecha_expedicion);
-      let contraparteXml = '';
-      if (r.nombre_contraparte || r.nif_contraparte) {
-        contraparteXml = `
-              <sii:Contraparte>
-                <sii:NombreRazon>${escaparXml(r.nombre_contraparte || '')}</sii:NombreRazon>
-                ${r.nif_contraparte ? `<sii:NIF>${escaparXml(r.nif_contraparte)}</sii:NIF>` : ''}
-              </sii:Contraparte>`;
-      }
-
-      return `
-      <siiLR:RegistroLRFacturasEmitidas>
-        <siiLR:PeriodoLiquidacion>
-          <sii:Ejercicio>${ejercicio}</sii:Ejercicio>
-          <sii:Periodo>${String(periodo).padStart(2, '0')}</sii:Periodo>
-        </siiLR:PeriodoLiquidacion>
-        <siiLR:IDFactura>
-          <sii:IDEmisorFactura><sii:NIF>${emisor.nif}</sii:NIF></sii:IDEmisorFactura>
-          <sii:NumSerieFacturaEmisor>${escaparXml(r.numero_factura)}</sii:NumSerieFacturaEmisor>
-          <sii:FechaExpedicionFacturaEmisor>${fecha}</sii:FechaExpedicionFacturaEmisor>
-        </siiLR:IDFactura>
-        <siiLR:FacturaExpedida>
-          <sii:TipoFactura>${r.tipo_factura_sii || 'F1'}</sii:TipoFactura>
-          <sii:ClaveRegimenEspecialOTrascendencia>${r.clave_regimen || '01'}</sii:ClaveRegimenEspecialOTrascendencia>
-          <sii:DescripcionOperacion>${escaparXml(r.descripcion || 'Prestacion de servicios')}</sii:DescripcionOperacion>${contraparteXml}
-          <sii:TipoDesglose>
-            <sii:DesgloseFactura>
-              <sii:Sujeta>
-                <sii:NoExenta>
-                  <sii:TipoNoExenta>S1</sii:TipoNoExenta>
-                  <sii:DesgloseIVA>
-                    <sii:DetalleIVA>
-                      <sii:TipoImpositivo>${(r.tipo_impositivo || 21).toFixed(2)}</sii:TipoImpositivo>
-                      <sii:BaseImponible>${(r.base_imponible || 0).toFixed(2)}</sii:BaseImponible>
-                      <sii:CuotaRepercutida>${(r.cuota_repercutida || 0).toFixed(2)}</sii:CuotaRepercutida>
-                    </sii:DetalleIVA>
-                  </sii:DesgloseIVA>
-                </sii:NoExenta>
-              </sii:Sujeta>
-            </sii:DesgloseFactura>
-          </sii:TipoDesglose>
-        </siiLR:FacturaExpedida>
-      </siiLR:RegistroLRFacturasEmitidas>`;
-    }).join('\n');
-
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="${NS_SOAP}"
-                  xmlns:siiLR="${NS_SIILR}"
-                  xmlns:sii="${NS_SII}">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <siiLR:SuministroLRFacturasEmitidas>
-      <siiLR:Cabecera>
-        <sii:IDVersionSii>${SII_VERSION}</sii:IDVersionSii>
-        <sii:Titular>
-          <sii:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sii:NombreRazon>
-          <sii:NIF>${emisor.nif}</sii:NIF>
-        </sii:Titular>
-        <sii:TipoComunicacion>${tipoComunicacion}</sii:TipoComunicacion>
-      </siiLR:Cabecera>${registrosXml}
-    </siiLR:SuministroLRFacturasEmitidas>
-  </soapenv:Body>
-</soapenv:Envelope>`;
-  },
-
-  _buildXmlRecibidas(registros, emisor, tipoComunicacion, ejercicio, periodo) {
-    const fechaRegistro = formatFechaSii(new Date());
-    const registrosXml = registros.map(r => {
-      const fecha = formatFechaSii(r.fecha_expedicion);
-
-      return `
-      <siiLR:RegistroLRFacturasRecibidas>
-        <siiLR:PeriodoLiquidacion>
-          <sii:Ejercicio>${ejercicio}</sii:Ejercicio>
-          <sii:Periodo>${String(periodo).padStart(2, '0')}</sii:Periodo>
-        </siiLR:PeriodoLiquidacion>
-        <siiLR:IDFactura>
-          <sii:IDEmisorFactura>
-            ${r.nif_contraparte ? `<sii:NIF>${escaparXml(r.nif_contraparte)}</sii:NIF>` : '<sii:NIF>000000000</sii:NIF>'}
-          </sii:IDEmisorFactura>
-          <sii:NumSerieFacturaEmisor>${escaparXml(r.numero_factura || 'SIN-NUM')}</sii:NumSerieFacturaEmisor>
-          <sii:FechaExpedicionFacturaEmisor>${fecha}</sii:FechaExpedicionFacturaEmisor>
-        </siiLR:IDFactura>
-        <siiLR:FacturaRecibida>
-          <sii:TipoFactura>${r.tipo_factura_sii || 'F1'}</sii:TipoFactura>
-          <sii:ClaveRegimenEspecialOTrascendencia>${r.clave_regimen || '01'}</sii:ClaveRegimenEspecialOTrascendencia>
-          <sii:DescripcionOperacion>${escaparXml(r.descripcion || 'Gasto/Compra')}</sii:DescripcionOperacion>
-          <sii:Contraparte>
-            <sii:NombreRazon>${escaparXml(r.nombre_contraparte || '')}</sii:NombreRazon>
-            ${r.nif_contraparte ? `<sii:NIF>${escaparXml(r.nif_contraparte)}</sii:NIF>` : ''}
-          </sii:Contraparte>
-          <sii:FechaRegContable>${fechaRegistro}</sii:FechaRegContable>
-          <sii:DesgloseFactura>
-            <sii:InversionSujetoPasivo>
-              <sii:DetalleIVA>
-                <sii:TipoImpositivo>${(r.tipo_impositivo || 21).toFixed(2)}</sii:TipoImpositivo>
-                <sii:BaseImponible>${(r.base_imponible || 0).toFixed(2)}</sii:BaseImponible>
-                <sii:CuotaSoportada>${(r.cuota_repercutida || 0).toFixed(2)}</sii:CuotaSoportada>
-              </sii:DetalleIVA>
-            </sii:InversionSujetoPasivo>
-          </sii:DesgloseFactura>
-          <sii:CuotaDeducible>${(r.cuota_repercutida || 0).toFixed(2)}</sii:CuotaDeducible>
-        </siiLR:FacturaRecibida>
-      </siiLR:RegistroLRFacturasRecibidas>`;
-    }).join('\n');
-
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="${NS_SOAP}"
-                  xmlns:siiLR="${NS_SIILR}"
-                  xmlns:sii="${NS_SII}">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <siiLR:SuministroLRFacturasRecibidas>
-      <siiLR:Cabecera>
-        <sii:IDVersionSii>${SII_VERSION}</sii:IDVersionSii>
-        <sii:Titular>
-          <sii:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sii:NombreRazon>
-          <sii:NIF>${emisor.nif}</sii:NIF>
-        </sii:Titular>
-        <sii:TipoComunicacion>${tipoComunicacion}</sii:TipoComunicacion>
-      </siiLR:Cabecera>${registrosXml}
-    </siiLR:SuministroLRFacturasRecibidas>
-  </soapenv:Body>
-</soapenv:Envelope>`;
-  },
-
-  /**
-   * Prepare a batch envio: gather pending facturas, map to registros, save as draft
-   */
-  async prepararEnvio(empresaId, tipoLibro, ejercicio, mes) {
-    const pendientes = await this.getPendientes(empresaId);
-    const facturas = tipoLibro === 'facturas_emitidas' ? pendientes.emitidas : pendientes.recibidas;
-
-    if (!facturas || facturas.length === 0) {
-      return { envio: null, registros: [], message: 'No hay facturas pendientes de envio' };
-    }
-
-    // Filter by period if specified
-    let filtered = facturas;
-    if (ejercicio && mes) {
-      filtered = facturas.filter(f => {
-        const d = new Date(f.fecha || f.fecha_factura);
-        return d.getFullYear() === ejercicio && (d.getMonth() + 1) === parseInt(mes);
-      });
-    }
-
-    if (filtered.length === 0) {
-      return { envio: null, registros: [], message: 'No hay facturas para el periodo seleccionado' };
-    }
-
-    const tipo = tipoLibro === 'facturas_emitidas' ? 'emitida' : 'recibida';
-    const registros = filtered.map(f => this.mapFacturaToSiiRegistro(f, tipo));
-
-    // Validate all
-    const validationResults = registros.map(r => ({
-      ...r,
-      validation: this.validateSiiRegistro(r),
-    }));
-
-    const validos = validationResults.filter(r => r.validation.valid);
-    const invalidos = validationResults.filter(r => !r.validation.valid);
-
-    // Create draft envio
-    const periodoMes = mes || getPeriodo(filtered[0].fecha || filtered[0].fecha_factura);
-    const periodoEjercicio = ejercicio || getEjercicio(filtered[0].fecha || filtered[0].fecha_factura);
-
-    const [envio] = await sql`
-      INSERT INTO sii_envios_180 (
-        empresa_id, tipo_libro, tipo_comunicacion,
-        ejercicio, periodo, periodo_ejercicio, periodo_mes,
-        nif_titular, num_registros, estado
-      ) VALUES (
-        ${empresaId}, ${tipoLibro}, 'A0',
-        ${periodoEjercicio}, ${periodoMes}, ${periodoEjercicio}, ${periodoMes},
-        '', ${validos.length}, 'pendiente'
-      )
-      RETURNING *
-    `;
-
-    // Save individual registros
-    for (const reg of validos) {
-      await sql`
-        INSERT INTO sii_registros_180 (
-          envio_id, factura_id, tipo_factura, nif_contraparte, nombre_contraparte,
-          numero_factura, fecha_expedicion, tipo_factura_sii, clave_regimen,
-          base_imponible, tipo_impositivo, cuota_repercutida, estado_registro
-        ) VALUES (
-          ${envio.id}, ${reg.factura_id}, ${reg.tipo_factura},
-          ${reg.nif_contraparte}, ${reg.nombre_contraparte},
-          ${reg.numero_factura}, ${reg.fecha_expedicion},
-          ${reg.tipo_factura_sii}, ${reg.clave_regimen},
-          ${reg.base_imponible}, ${reg.tipo_impositivo},
-          ${reg.cuota_repercutida}, 'pendiente'
-        )
-      `;
-    }
-
-    return {
-      envio,
-      registros: validos,
-      invalidos: invalidos.map(r => ({
-        numero_factura: r.numero_factura,
-        errors: r.validation.errors,
-      })),
-      total_validos: validos.length,
-      total_invalidos: invalidos.length,
-    };
-  },
-
-  /**
-   * Simulate envio: build XML, validate, return preview without sending
-   */
-  async simularEnvio(empresaId, envioId) {
-    const [envio] = await sql`
-      SELECT * FROM sii_envios_180 WHERE id = ${envioId} AND empresa_id = ${empresaId}
-    `;
-    if (!envio) throw new Error('Envio no encontrado');
-
-    const registros = await sql`
-      SELECT * FROM sii_registros_180 WHERE envio_id = ${envioId} ORDER BY created_at
-    `;
-    if (registros.length === 0) throw new Error('No hay registros en este envio');
-
-    // Get emisor
-    const [emisor] = await sql`
-      SELECT nif, nombre, nombre_comercial FROM emisor_180
-      WHERE empresa_id = ${empresaId} LIMIT 1
-    `;
-    if (!emisor) throw new Error('Emisor no configurado para esta empresa');
-
-    const config = await this.getSiiConfig(empresaId);
-
-    // Build XML
-    const tipoLibro = envio.tipo_libro || 'facturas_emitidas';
-    const registrosMapped = registros.map(r => ({
-      ...r,
-      ejercicio: envio.ejercicio || envio.periodo_ejercicio,
-      periodo: envio.periodo || envio.periodo_mes,
-    }));
-
-    const xml = this.buildSiiXml(tipoLibro, registrosMapped, config, emisor);
-
-    // Save XML to envio (as preview)
-    await sql`
-      UPDATE sii_envios_180 SET xml_request = ${xml} WHERE id = ${envioId}
-    `;
-
-    console.log(`[SII] Simulacion envio ${envioId}: XML generado (${xml.length} bytes), ${registros.length} registros`);
-
-    return {
-      envio_id: envioId,
-      xml_preview: xml,
-      num_registros: registros.length,
-      entorno: config?.entorno || 'test',
-      validacion: {
-        registros_validos: registros.length,
-        listo_para_enviar: true,
-      },
-    };
-  },
-
-  /**
-   * Get estadisticas SII for an empresa
-   */
-  async getEstadisticasSii(empresaId) {
-    const dashboard = await this.getDashboardStats(empresaId);
-
-    // Get monthly breakdown for current year
-    const year = new Date().getFullYear();
-    const mensual = await sql`
-      SELECT periodo, tipo_libro,
-        COUNT(*) as total,
-        SUM(CASE WHEN estado = 'aceptado' THEN 1 ELSE 0 END) as aceptados,
-        SUM(CASE WHEN estado = 'rechazado' THEN 1 ELSE 0 END) as rechazados,
-        SUM(base_imponible) as total_base
-      FROM sii_envios_180
-      WHERE empresa_id = ${empresaId}
-        AND ejercicio = ${year}
-      GROUP BY periodo, tipo_libro
-      ORDER BY periodo
-    `;
-
-    // Get last 5 envios
-    const ultimos = await sql`
-      SELECT id, tipo_libro, tipo_comunicacion, ejercicio, periodo,
-        estado, num_registros, registros_correctos, registros_con_errores,
-        enviado_at, created_at
-      FROM sii_envios_180
-      WHERE empresa_id = ${empresaId}
-      ORDER BY created_at DESC
-      LIMIT 5
-    `;
-
-    return {
-      ...dashboard,
-      mensual,
-      ultimos_envios: ultimos,
-    };
-  },
-
-  /**
-   * Get envio detail with registros
-   */
-  async getEnvioDetalle(empresaId, envioId) {
-    const [envio] = await sql`
-      SELECT * FROM sii_envios_180
-      WHERE id = ${envioId} AND empresa_id = ${empresaId}
-    `;
-    if (!envio) return null;
-
-    const registros = await sql`
-      SELECT * FROM sii_registros_180
-      WHERE envio_id = ${envioId}
-      ORDER BY created_at
-    `;
-
-    return { ...envio, registros };
-  },
-};
-
-export default siiService;
