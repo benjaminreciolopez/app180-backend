@@ -225,6 +225,8 @@ export async function getCertificadosProximosCaducar(req, res) {
     `;
 
     // 2. Certs from emisor_180 (uploaded in empresa mode)
+    // NOTE: certificado_info is jsonb but stored as a JSON string (double-stringified),
+    // so we use #>> '{}' to unwrap the string first, then cast to jsonb to access keys.
     const certsEmisor = await sql`
       SELECT
         'emisor-' || em.id::text as id,
@@ -233,10 +235,10 @@ export async function getCertificadosProximosCaducar(req, res) {
         'persona_fisica' as tipo,
         em.nombre as titular_nombre,
         em.nif as titular_nif,
-        (em.certificado_info::jsonb->>'issuer') as emisor,
-        (em.certificado_info::jsonb->>'serial') as numero_serie,
-        (em.certificado_info::jsonb->>'validFrom')::date as fecha_emision,
-        (em.certificado_info::jsonb->>'validTo')::date as fecha_caducidad,
+        ((em.certificado_info #>> '{}')::jsonb->>'issuer') as emisor,
+        ((em.certificado_info #>> '{}')::jsonb->>'serial') as numero_serie,
+        ((em.certificado_info #>> '{}')::jsonb->>'validFrom')::date as fecha_emision,
+        ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date as fecha_caducidad,
         'activo' as estado,
         'Subido desde modo empresa' as notas,
         em.certificado_upload_date as created_at,
@@ -244,10 +246,10 @@ export async function getCertificadosProximosCaducar(req, res) {
         true as verificado,
         e.nombre as empresa_nombre,
         em.nif as empresa_nif,
-        EXTRACT(DAY FROM (em.certificado_info::jsonb->>'validTo')::date - NOW())::int as dias_hasta_caducidad,
+        EXTRACT(DAY FROM ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date - NOW())::int as dias_hasta_caducidad,
         CASE
-          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() THEN 'caducado'
-          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
+          WHEN ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date < NOW() THEN 'caducado'
+          WHEN ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
           ELSE 'activo'
         END as estado_calculado,
         'emisor' as origen
@@ -269,10 +271,10 @@ export async function getCertificadosProximosCaducar(req, res) {
         'persona_fisica' as tipo,
         em.nombre as titular_nombre,
         em.nif as titular_nif,
-        (em.certificado_info::jsonb->>'issuer') as emisor,
-        (em.certificado_info::jsonb->>'serial') as numero_serie,
-        (em.certificado_info::jsonb->>'validFrom')::date as fecha_emision,
-        (em.certificado_info::jsonb->>'validTo')::date as fecha_caducidad,
+        ((em.certificado_info #>> '{}')::jsonb->>'issuer') as emisor,
+        ((em.certificado_info #>> '{}')::jsonb->>'serial') as numero_serie,
+        ((em.certificado_info #>> '{}')::jsonb->>'validFrom')::date as fecha_emision,
+        ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date as fecha_caducidad,
         'activo' as estado,
         'Certificado propio asesoria' as notas,
         em.certificado_upload_date as created_at,
@@ -280,10 +282,10 @@ export async function getCertificadosProximosCaducar(req, res) {
         true as verificado,
         e.nombre as empresa_nombre,
         em.nif as empresa_nif,
-        EXTRACT(DAY FROM (em.certificado_info::jsonb->>'validTo')::date - NOW())::int as dias_hasta_caducidad,
+        EXTRACT(DAY FROM ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date - NOW())::int as dias_hasta_caducidad,
         CASE
-          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() THEN 'caducado'
-          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
+          WHEN ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date < NOW() THEN 'caducado'
+          WHEN ((em.certificado_info #>> '{}')::jsonb->>'validTo')::date < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
           ELSE 'activo'
         END as estado_calculado,
         'emisor' as origen
