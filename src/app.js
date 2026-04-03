@@ -88,6 +88,8 @@ import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
 import asesorRetaRoutes from "./routes/asesorRetaRoutes.js";
 import asesorCertificadosRoutes from "./routes/asesorCertificadosRoutes.js";
+import asesorCertificadoRoutes from "./routes/asesorCertificadoRoutes.js";
+import adminCertificadoRoutes from "./routes/adminCertificadoRoutes.js";
 import asesorCierreRoutes from "./routes/asesorCierreRoutes.js";
 import asesorRentaRoutes from "./routes/asesorRentaRoutes.js";
 import asesorLaboralRoutes from "./routes/asesorLaboralRoutes.js";
@@ -319,7 +321,9 @@ app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
 app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
 app.use("/asesor/mis-clientes", asesorClientesRoutes); // Clientes propios asesor
 app.use("/asesor/reta", asesorRetaRoutes); // RETA: base cotizacion autonomos
-app.use("/asesor/certificados", asesorCertificadosRoutes); // Certificados digitales (asesor)
+app.use("/asesor/certificados", asesorCertificadosRoutes); // Certificados digitales metadata (asesor)
+app.use("/asesor/clientes/:empresa_id/certificados", asesorCertificadoRoutes); // Certificados digitales upload real (asesor)
+app.use("/api/admin", adminCertificadoRoutes); // Certificados digitales upload real (admin)
 app.use("/asesor/clientes/:empresa_id/fiscal/cierre", asesorCierreRoutes); // Cierre ejercicio (asesor)
 app.use("/asesor/clientes/:empresa_id/sii", asesorSiiRoutes); // SII: Suministro Inmediato de Informacion (asesor)
 app.use("/asesor/clientes/:empresa_id/modelos-anuales", asesorModelosAnualesRoutes); // Modelos anuales AEAT (asesor)
@@ -358,6 +362,9 @@ app.use((err, req, res, _next) => {
   // Multer errors
   if (err?.message?.includes("Tipo de archivo no permitido")) {
     return res.status(400).json({ error: "Solo PDF, JPG o PNG" });
+  }
+  if (err?.message?.includes("Solo se aceptan archivos .p12")) {
+    return res.status(400).json({ error: err.message });
   }
   if (err?.code === "LIMIT_FILE_SIZE") {
     return res.status(400).json({ error: "Archivo demasiado grande (máx 10MB)" });
