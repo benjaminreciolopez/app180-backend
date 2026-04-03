@@ -43,11 +43,21 @@ export function asesorClienteRequired(permissionKey = null, accessType = "read")
         LIMIT 1
       `;
 
-      if (rows.length === 0) {
-        return res.status(403).json({ error: "Sin acceso a esta empresa" });
-      }
+      let permisos = {};
 
-      const permisos = rows[0].permisos || {};
+      if (rows.length === 0) {
+        // Check if this is the asesoria's own empresa (asesor accessing their own data)
+        const [asesoria] = await sql`
+          SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}
+        `;
+        if (!asesoria || asesoria.empresa_id !== empresaId) {
+          return res.status(403).json({ error: "Sin acceso a esta empresa" });
+        }
+        // Own empresa: full permissions
+        permisos = { fiscal: { read: true, write: true }, facturas: { read: true, write: true }, gastos: { read: true, write: true }, nominas: { read: true, write: true }, empleados: { read: true, write: true }, contabilidad: { read: true, write: true }, configuracion: { read: true, write: true }, clientes: { read: true, write: true } };
+      } else {
+        permisos = rows[0].permisos || {};
+      }
 
       // Comprobar permiso especifico si se requiere
       if (permissionKey) {
