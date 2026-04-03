@@ -17,7 +17,7 @@ export async function getRetaDashboard(req, res) {
 
         // Obtener todas las empresas vinculadas (todas, no solo autonomos — la gestoria decide)
         const empresas = await sql`
-            SELECT e.id, e.nombre, e.nif_cif, e.tipo_contribuyente,
+            SELECT e.id, e.nombre, e.tipo_contribuyente,
                    p.base_cotizacion_actual, p.cuota_mensual_actual, p.tramo_actual,
                    p.tarifa_plana_activa, p.perfil_estacionalidad, p.sector_actividad,
                    est.tramo_recomendado, est.base_recomendada, est.cuota_recomendada,
@@ -41,7 +41,7 @@ export async function getRetaDashboard(req, res) {
         // Obtener titulares autónomos de TODAS las empresas vinculadas
         const titularesAutonomos = await sql`
             SELECT t.id as titular_id, t.nombre as titular_nombre, t.nif as titular_nif,
-                   t.empresa_id, e.nombre as empresa_nombre, e.nif_cif as empresa_nif,
+                   t.empresa_id, e.nombre as empresa_nombre,
                    e.tipo_contribuyente,
                    tp.base_cotizacion_actual, tp.cuota_mensual_actual, tp.tramo_actual,
                    tp.tarifa_plana_activa, tp.perfil_estacionalidad, tp.sector_actividad,
@@ -90,7 +90,7 @@ export async function getRetaDashboard(req, res) {
                     empresaId: e.id,
                     titularId: null,
                     nombre: e.nombre,
-                    nifCif: e.nif_cif,
+                    nifCif: null,
                     tipoContribuyente: e.tipo_contribuyente,
                     esTitular: false,
                     baseActual: e.base_cotizacion_actual ? parseFloat(e.base_cotizacion_actual) : null,
@@ -118,7 +118,7 @@ export async function getRetaDashboard(req, res) {
                 empresaId: t.empresa_id,
                 titularId: t.titular_id,
                 nombre: `${t.titular_nombre} (${t.empresa_nombre})`,
-                nifCif: t.titular_nif || t.empresa_nif,
+                nifCif: t.titular_nif || null,
                 tipoContribuyente: 'autonomo',
                 esTitular: true,
                 baseActual: t.base_cotizacion_actual ? parseFloat(t.base_cotizacion_actual) : null,
@@ -152,7 +152,7 @@ export async function getRetaDashboard(req, res) {
             sinConfigurar: sinConfigurar.map(e => ({
                 empresaId: e.id,
                 nombre: e.nombre,
-                nifCif: e.nif_cif,
+                nifCif: null,
             })),
         });
     } catch (err) {
