@@ -5,16 +5,25 @@ import { sql } from "../db.js";
 import bcrypt from "bcryptjs";
 
 /**
- * Helper: obtiene todos los empresa_ids a los que el asesor tiene acceso
+ * Helper: obtiene TODOS los empresa_ids accesibles por la asesoría
+ * (incluye la empresa propia de la asesoría + empresas de clientes activos)
  */
-async function getAsesorEmpresaIds(asesoriaId, asesoriaEmpresaId) {
+async function getAllEmpresaIds(asesoriaId) {
+  // Get the asesoria's own empresa_id
+  const [asesoria] = await sql`
+    SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}
+  `;
+  const ownEmpresaId = asesoria?.empresa_id;
+
+  // Get client empresa_ids
   const clientes = await sql`
     SELECT empresa_id FROM asesoria_clientes_180
     WHERE asesoria_id = ${asesoriaId} AND estado = 'activo'
   `;
+
   const ids = clientes.map((c) => c.empresa_id);
-  if (asesoriaEmpresaId && !ids.includes(asesoriaEmpresaId)) {
-    ids.push(asesoriaEmpresaId);
+  if (ownEmpresaId && !ids.includes(ownEmpresaId)) {
+    ids.unshift(ownEmpresaId);
   }
   return ids;
 }
@@ -39,35 +48,30 @@ async function validateAccess(asesoriaId, empresaId, asesoriaEmpresaId) {
 export async function getClientesConEmpleados(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
-    const asesoriaEmpresaId = req.user.empresa_id;
-    const ids = await getAsesorEmpresaIds(asesoriaId, asesoriaEmpresaId);
+    const allIds = await getAllEmpresaIds(asesoriaId);
 
-    if (ids.length === 0) return res.json({ data: { propia: null, clientes: [] } });
+    if (allIds.length === 0) return res.json({ data: { clientes: [] } });
 
-    // Empresa propia
-    let propia = null;
-    if (asesoriaEmpresaId) {
-      const [p] = await sql`
-        SELECT e.id AS empresa_id, e.nombre,
-          (SELECT COUNT(*) FROM employees_180 emp WHERE emp.empresa_id = e.id) AS num_empleados
-        FROM empresa_180 e WHERE e.id = ${asesoriaEmpresaId}
-      `;
-      if (p) propia = { ...p, es_propia: true };
-    }
+    // Get asesoria's own empresa_id to flag it
+    const [asesoria] = await sql`
+      SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}
+    `;
+    const ownEmpresaId = asesoria?.empresa_id;
 
-    // Clientes
-    const clienteIds = ids.filter((id) => id !== asesoriaEmpresaId);
-    let clientes = [];
-    if (clienteIds.length > 0) {
-      clientes = await sql`
-        SELECT e.id AS empresa_id, e.nombre,
-          (SELECT COUNT(*) FROM employees_180 emp WHERE emp.empresa_id = e.id) AS num_empleados
-        FROM empresa_180 e WHERE e.id = ANY(${clienteIds})
-        ORDER BY e.nombre
-      `;
-    }
+    const clientes = await sql`
+      SELECT e.id AS empresa_id, e.nombre,
+        (SELECT COUNT(*) FROM employees_180 emp WHERE emp.empresa_id = e.id) AS num_empleados
+      FROM empresa_180 e WHERE e.id = ANY(${allIds})
+      ORDER BY e.nombre
+    `;
 
-    res.json({ data: { propia, clientes } });
+    // Flag the asesoria's own empresa
+    const result = clientes.map((c) => ({
+      ...c,
+      es_propia: c.empresa_id === ownEmpresaId,
+    }));
+
+    res.json({ data: { clientes: result } });
   } catch (err) {
     console.error("❌ getClientesConEmpleados:", err);
     res.status(500).json({ error: "Error al cargar clientes" });
@@ -90,7 +94,8 @@ export async function getEmpleados(req, res) {
       if (!hasAccess) return res.status(403).json({ error: "Sin acceso a esta empresa" });
       targetIds = [empresa_id];
     } else {
-      targetIds = await getAsesorEmpresaIds(asesoriaId, asesoriaEmpresaId);
+      // Solo empleados de clientes, no de la empresa propia de la asesoría
+      targetIds = await getAllEmpresaIds(asesoriaId);
     }
 
     if (targetIds.length === 0) return res.json({ data: [] });
@@ -130,7 +135,7 @@ export async function getEmpleadoDetalle(req, res) {
     const { id } = req.params;
     const asesoriaId = req.user.asesoria_id;
     const asesoriaEmpresaId = req.user.empresa_id;
-    const ids = await getAsesorEmpresaIds(asesoriaId, asesoriaEmpresaId);
+    const ids = await getAllEmpresaIds(asesoriaId);
 
     const [emp] = await sql`
       SELECT
@@ -161,7 +166,7 @@ export async function updateEmpleado(req, res) {
     const { id } = req.params;
     const asesoriaId = req.user.asesoria_id;
     const asesoriaEmpresaId = req.user.empresa_id;
-    const ids = await getAsesorEmpresaIds(asesoriaId, asesoriaEmpresaId);
+    const ids = await getAllEmpresaIds(asesoriaId);
 
     // Verificar que el empleado pertenece a una empresa accesible
     const [existing] = await sql`
@@ -308,7 +313,7 @@ export async function toggleEmpleadoStatus(req, res) {
     const { id } = req.params;
     const asesoriaId = req.user.asesoria_id;
     const asesoriaEmpresaId = req.user.empresa_id;
-    const ids = await getAsesorEmpresaIds(asesoriaId, asesoriaEmpresaId);
+    const ids = await getAllEmpresaIds(asesoriaId);
 
     const [emp] = await sql`
       SELECT id, activo FROM employees_180 WHERE id = ${id} AND empresa_id = ANY(${ids})

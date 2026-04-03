@@ -94,6 +94,47 @@ export async function getClientes(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
 
+    // Get the asesoria's own empresa_id
+    const [asesoria] = await sql`
+      SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}
+    `;
+    const ownEmpresaId = asesoria?.empresa_id;
+
+    // Get the asesoria's own empresa details (prepended with es_propia: true)
+    let empresaPropia = null;
+    if (ownEmpresaId) {
+      const [ep] = await sql`
+        SELECT
+          e.id AS empresa_id,
+          e.nombre,
+          e.tipo_contribuyente,
+          (
+            SELECT u.email
+            FROM users_180 u
+            WHERE u.id = e.user_id
+            LIMIT 1
+          ) AS email
+        FROM empresa_180 e
+        WHERE e.id = ${ownEmpresaId}
+      `;
+      if (ep) {
+        empresaPropia = {
+          vinculo_id: null,
+          empresa_id: ep.empresa_id,
+          nombre: ep.nombre,
+          tipo_contribuyente: ep.tipo_contribuyente,
+          estado: 'activo',
+          invitado_por: null,
+          permisos: null,
+          connected_at: null,
+          created_at: null,
+          email: ep.email,
+          es_propia: true,
+        };
+      }
+    }
+
+    // Get client empresas
     const clientes = await sql`
       SELECT
         ac.id AS vinculo_id,
@@ -117,7 +158,10 @@ export async function getClientes(req, res) {
       ORDER BY ac.estado ASC, e.nombre ASC
     `;
 
-    return res.json({ success: true, data: clientes });
+    const clientesConFlag = clientes.map((c) => ({ ...c, es_propia: false }));
+    const data = empresaPropia ? [empresaPropia, ...clientesConFlag] : clientesConFlag;
+
+    return res.json({ success: true, data });
   } catch (err) {
     console.error("Error getClientes (asesoria):", err);
     return res.status(500).json({ error: "Error obteniendo clientes" });
