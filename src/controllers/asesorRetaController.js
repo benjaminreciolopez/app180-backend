@@ -15,7 +15,13 @@ export async function getRetaDashboard(req, res) {
         const asesoriaId = req.user.asesoria_id;
         const ejercicio = new Date().getFullYear();
 
-        // Obtener todas las empresas vinculadas (todas, no solo autonomos — la gestoria decide)
+        // Obtener empresa propia de la asesoria (si es autonomo, aparece en RETA)
+        const [asesoria] = await sql`
+            SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}
+        `;
+        const asesoriaEmpresaId = asesoria?.empresa_id || null;
+
+        // Obtener todas las empresas: clientes vinculados + empresa propia de la asesoria
         const empresas = await sql`
             SELECT e.id, e.nombre, e.tipo_contribuyente,
                    p.base_cotizacion_actual, p.cuota_mensual_actual, p.tramo_actual,
@@ -25,9 +31,10 @@ export async function getRetaDashboard(req, res) {
                    est.rendimiento_neto_mensual, est.fecha_calculo,
                    (SELECT COUNT(*) FROM reta_alertas_180 a
                     WHERE a.empresa_id = e.id AND a.ejercicio = ${ejercicio}
-                    AND a.leida = false AND a.descartada = false) as alertas_pendientes
+                    AND a.leida = false AND a.descartada = false) as alertas_pendientes,
+                   CASE WHEN e.id = ${asesoriaEmpresaId} THEN true ELSE false END as es_propia
             FROM empresa_180 e
-            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
+            LEFT JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
             LEFT JOIN reta_autonomo_perfil_180 p ON p.empresa_id = e.id AND p.ejercicio = ${ejercicio}
             LEFT JOIN LATERAL (
                 SELECT * FROM reta_estimaciones_180
@@ -35,10 +42,11 @@ export async function getRetaDashboard(req, res) {
                 ORDER BY fecha_calculo DESC LIMIT 1
             ) est ON true
             WHERE e.activo = true
+              AND (v.id IS NOT NULL OR e.id = ${asesoriaEmpresaId})
             ORDER BY COALESCE(ABS(est.riesgo_regularizacion_anual), 0) DESC
         `;
 
-        // Obtener titulares autónomos de TODAS las empresas vinculadas
+        // Obtener titulares autónomos de TODAS las empresas (vinculadas + propia)
         const titularesAutonomos = await sql`
             SELECT t.id as titular_id, t.nombre as titular_nombre, t.nif as titular_nif,
                    t.empresa_id, e.nombre as empresa_nombre,
@@ -53,7 +61,7 @@ export async function getRetaDashboard(req, res) {
                     AND a.leida = false AND a.descartada = false) as alertas_pendientes
             FROM titulares_empresa_180 t
             JOIN empresa_180 e ON e.id = t.empresa_id
-            JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
+            LEFT JOIN asesoria_clientes_180 v ON v.empresa_id = e.id AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
             LEFT JOIN reta_autonomo_perfil_180 tp ON tp.titular_id = t.id AND tp.ejercicio = ${ejercicio}
             LEFT JOIN LATERAL (
                 SELECT * FROM reta_estimaciones_180
@@ -61,6 +69,7 @@ export async function getRetaDashboard(req, res) {
                 ORDER BY fecha_calculo DESC LIMIT 1
             ) te ON true
             WHERE t.activo = true AND t.regimen_ss = 'autonomo' AND e.activo = true
+              AND (v.id IS NOT NULL OR e.id = ${asesoriaEmpresaId})
             ORDER BY COALESCE(ABS(te.riesgo_regularizacion_anual), 0) DESC
         `;
 
@@ -76,7 +85,7 @@ export async function getRetaDashboard(req, res) {
             ...empresasConTitularesAutonomos,
         ]);
 
-        const sinConfigurar = empresas.filter(e => !e.tipo_contribuyente && !empresasConTitularesAutonomos.has(e.id));
+        const sinConfigurar = empresas.filter(e => !e.tipo_contribuyente && !empresasConTitularesAutonomos.has(e.id) && e.id !== asesoriaEmpresaId);
 
         // Build unified client list: empresas autónomas directas + titulares autónomos individuales
         const clientesList = [];

@@ -172,6 +172,24 @@ export async function getClienteResumen(req, res) {
         AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
     `;
 
+    // Si es autónomo y no tiene empleados, auto-crear el empleado-dueño
+    const [empleadosCheck] = await sql`
+      SELECT COUNT(*)::int AS total
+      FROM employees_180
+      WHERE empresa_id = ${empresaId} AND activo = true
+    `;
+    if (empresa?.tipo_contribuyente === 'autonomo' && empleadosCheck.total === 0) {
+      // Buscar el user_id dueño de la empresa
+      const [empData] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresaId}`;
+      if (empData?.user_id) {
+        await sql`
+          INSERT INTO employees_180 (user_id, empresa_id, nombre, activo, tipo_trabajo, created_at)
+          VALUES (${empData.user_id}, ${empresaId}, ${empresa.nombre || 'Autónomo'}, true, 'autonomo', now())
+          ON CONFLICT DO NOTHING
+        `;
+      }
+    }
+
     // Total empleados activos
     const [empleados] = await sql`
       SELECT COUNT(*)::int AS total
