@@ -199,8 +199,11 @@ export async function getCertificadosProximosCaducar(req, res) {
 
     const dias = parseInt(req.query.dias) || 60;
 
-    const certificados = await sql`
-      SELECT c.*,
+    // 1. Certs from certificados_digitales_180
+    const certsDigitales = await sql`
+      SELECT c.id, c.empresa_id, c.nombre_alias, c.tipo, c.titular_nombre, c.titular_nif,
+        c.emisor, c.numero_serie, c.fecha_emision, c.fecha_caducidad, c.estado, c.notas,
+        c.created_at, c.activo, c.verificado,
         e.nombre as empresa_nombre,
         em.nif as empresa_nif,
         EXTRACT(DAY FROM c.fecha_caducidad - NOW())::int as dias_hasta_caducidad,
@@ -209,47 +212,119 @@ export async function getCertificadosProximosCaducar(req, res) {
           WHEN c.fecha_caducidad < NOW() THEN 'caducado'
           WHEN c.fecha_caducidad < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
           ELSE 'activo'
-        END as estado_calculado
+        END as estado_calculado,
+        'certificados_digitales' as origen
       FROM certificados_digitales_180 c
       JOIN empresa_180 e ON e.id = c.empresa_id
       LEFT JOIN emisor_180 em ON em.empresa_id = c.empresa_id
       JOIN asesoria_clientes_180 v ON v.empresa_id = c.empresa_id
         AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
-      WHERE c.estado != 'revocado'
-        AND c.fecha_caducidad IS NOT NULL
-        AND c.fecha_caducidad <= NOW() + make_interval(days => ${dias})
+      WHERE (c.estado IS NULL OR c.estado != 'revocado')
+        AND (c.activo IS NULL OR c.activo = true)
       ORDER BY c.fecha_caducidad ASC
     `;
 
-    // Tambien traer todos los certificados activos para la vista general
-    const todos = await sql`
-      SELECT c.*,
+    // 2. Certs from emisor_180 (uploaded in empresa mode)
+    const certsEmisor = await sql`
+      SELECT
+        'emisor-' || em.id::text as id,
+        em.empresa_id,
+        em.certificado_path as nombre_alias,
+        'persona_fisica' as tipo,
+        em.nombre as titular_nombre,
+        em.nif as titular_nif,
+        (em.certificado_info::jsonb->>'issuer') as emisor,
+        (em.certificado_info::jsonb->>'serial') as numero_serie,
+        (em.certificado_info::jsonb->>'validFrom')::date as fecha_emision,
+        (em.certificado_info::jsonb->>'validTo')::date as fecha_caducidad,
+        'activo' as estado,
+        'Subido desde modo empresa' as notas,
+        em.certificado_upload_date as created_at,
+        true as activo,
+        true as verificado,
         e.nombre as empresa_nombre,
         em.nif as empresa_nif,
-        EXTRACT(DAY FROM c.fecha_caducidad - NOW())::int as dias_hasta_caducidad,
+        EXTRACT(DAY FROM (em.certificado_info::jsonb->>'validTo')::date - NOW())::int as dias_hasta_caducidad,
         CASE
-          WHEN c.estado = 'revocado' THEN 'revocado'
-          WHEN c.fecha_caducidad < NOW() THEN 'caducado'
-          WHEN c.fecha_caducidad < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
+          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() THEN 'caducado'
+          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
           ELSE 'activo'
-        END as estado_calculado
-      FROM certificados_digitales_180 c
-      JOIN empresa_180 e ON e.id = c.empresa_id
-      LEFT JOIN emisor_180 em ON em.empresa_id = c.empresa_id
-      JOIN asesoria_clientes_180 v ON v.empresa_id = c.empresa_id
+        END as estado_calculado,
+        'emisor' as origen
+      FROM emisor_180 em
+      JOIN empresa_180 e ON e.id = em.empresa_id
+      JOIN asesoria_clientes_180 v ON v.empresa_id = em.empresa_id
         AND v.asesoria_id = ${asesoriaId} AND v.estado = 'activo'
-      WHERE c.estado != 'revocado'
-      ORDER BY c.fecha_caducidad ASC
+      WHERE em.certificado_data IS NOT NULL
+        AND em.certificado_data != ''
+        AND em.certificado_info IS NOT NULL
     `;
+
+    // Also include asesoría's own empresa (not in asesoria_clientes_180)
+    const certsEmisorPropio = await sql`
+      SELECT
+        'emisor-' || em.id::text as id,
+        em.empresa_id,
+        em.certificado_path as nombre_alias,
+        'persona_fisica' as tipo,
+        em.nombre as titular_nombre,
+        em.nif as titular_nif,
+        (em.certificado_info::jsonb->>'issuer') as emisor,
+        (em.certificado_info::jsonb->>'serial') as numero_serie,
+        (em.certificado_info::jsonb->>'validFrom')::date as fecha_emision,
+        (em.certificado_info::jsonb->>'validTo')::date as fecha_caducidad,
+        'activo' as estado,
+        'Certificado propio asesoria' as notas,
+        em.certificado_upload_date as created_at,
+        true as activo,
+        true as verificado,
+        e.nombre as empresa_nombre,
+        em.nif as empresa_nif,
+        EXTRACT(DAY FROM (em.certificado_info::jsonb->>'validTo')::date - NOW())::int as dias_hasta_caducidad,
+        CASE
+          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() THEN 'caducado'
+          WHEN (em.certificado_info::jsonb->>'validTo')::date < NOW() + INTERVAL '60 days' THEN 'proximo_caducar'
+          ELSE 'activo'
+        END as estado_calculado,
+        'emisor' as origen
+      FROM emisor_180 em
+      JOIN asesorias_180 a ON a.empresa_id = em.empresa_id AND a.id = ${asesoriaId}
+      JOIN empresa_180 e ON e.id = em.empresa_id
+      WHERE em.certificado_data IS NOT NULL
+        AND em.certificado_data != ''
+        AND em.certificado_info IS NOT NULL
+    `;
+
+    // Merge and deduplicate (by serial number)
+    const allCerts = [...certsDigitales];
+    const serials = new Set(certsDigitales.filter(c => c.numero_serie).map(c => c.numero_serie));
+
+    for (const ec of [...certsEmisor, ...certsEmisorPropio]) {
+      if (!ec.numero_serie || !serials.has(ec.numero_serie)) {
+        allCerts.push(ec);
+        if (ec.numero_serie) serials.add(ec.numero_serie);
+      }
+    }
+
+    // Sort by fecha_caducidad
+    allCerts.sort((a, b) => {
+      if (!a.fecha_caducidad) return 1;
+      if (!b.fecha_caducidad) return -1;
+      return new Date(a.fecha_caducidad) - new Date(b.fecha_caducidad);
+    });
+
+    const proximosCaducar = allCerts.filter(c =>
+      c.fecha_caducidad && c.dias_hasta_caducidad != null && c.dias_hasta_caducidad <= dias
+    );
 
     const resumen = {
-      total: todos.length,
-      activos: todos.filter(c => c.estado_calculado === "activo").length,
-      proximosCaducar: todos.filter(c => c.estado_calculado === "proximo_caducar").length,
-      caducados: todos.filter(c => c.estado_calculado === "caducado").length,
+      total: allCerts.length,
+      activos: allCerts.filter(c => c.estado_calculado === "activo").length,
+      proximosCaducar: allCerts.filter(c => c.estado_calculado === "proximo_caducar").length,
+      caducados: allCerts.filter(c => c.estado_calculado === "caducado").length,
     };
 
-    res.json({ proximosCaducar: certificados, todos, resumen });
+    res.json({ proximosCaducar: proximosCaducar, todos: allCerts, resumen });
   } catch (err) {
     logger.error("Error obteniendo certificados proximos a caducar", { error: err.message });
     res.status(500).json({ error: "Error obteniendo certificados" });

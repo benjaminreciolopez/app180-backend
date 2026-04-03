@@ -102,6 +102,11 @@ export async function verifyCertificado(req, res) {
     const empresaId = await resolveEmpresaId(req);
     const { id } = req.params;
 
+    // Emisor-origin certs are already verified by empresa mode
+    if (id.startsWith('emisor-')) {
+      return res.json({ success: true, data: { verificado: true, mensaje: 'Certificado verificado por modo empresa' } });
+    }
+
     const result = await verifyCertificate(empresaId, id);
 
     res.json({ success: true, data: result });
@@ -119,6 +124,11 @@ export async function deleteCertificado(req, res) {
     const empresaId = await resolveEmpresaId(req);
     const { id } = req.params;
 
+    // Cannot delete emisor-origin certs from asesor mode
+    if (id.startsWith('emisor-')) {
+      return res.status(400).json({ error: 'Este certificado fue subido en modo empresa. Para eliminarlo, hazlo desde el panel de la empresa.' });
+    }
+
     const cert = await deleteCertificate(empresaId, id);
 
     res.json({ success: true, data: cert, mensaje: 'Certificado eliminado correctamente' });
@@ -135,6 +145,12 @@ export async function getCertificadoLog(req, res) {
   try {
     const empresaId = await resolveEmpresaId(req);
     const { id } = req.params;
+
+    // Virtual IDs from emisor_180 (e.g. "emisor-3") have no usage log
+    if (id.startsWith('emisor-')) {
+      return res.json({ success: true, data: [] });
+    }
+
     const limit = parseInt(req.query.limit) || 50;
 
     const logs = await getUsageLog(empresaId, id, limit);
