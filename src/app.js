@@ -86,6 +86,9 @@ import asesorRoutes from "./routes/asesorRoutes.js";
 import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
+import asesorRetaRoutes from "./routes/asesorRetaRoutes.js";
+import adminRetaAutonomoRoutes from "./routes/adminRetaRoutes.js";
+import { runRetaAlertScan, runRetaEstimationScan } from "./services/retaAlertService.js";
 import { asesorWriteGuard } from "./middlewares/asesorWriteGuard.js";
 import adminAsesoriaRoutes from "./routes/adminAsesoriaRoutes.js";
 import verificacionPublicaRoutes from "./routes/verificacionPublicaRoutes.js";
@@ -116,6 +119,8 @@ cron.schedule("0 7 * * *", () => ejecutarGastosRecurrentes()); // Gastos recurre
 cron.schedule("0 9 1 * *", () => detectarGastosRecurrentes()); // Gastos recurrentes: detectar patrones el día 1 de cada mes
 cron.schedule("0 6 * * *", () => ejecutarFacturasRecurrentes()); // Facturas recurrentes: generar borradores diario a las 6 AM
 cron.schedule("0 8 15 1,4,7,10 *", () => generarAlertasPagoModelos()); // Modelos fiscales: alertar pago el 15 de ene/abr/jul/oct
+cron.schedule("0 7 1,15 * *", () => runRetaEstimationScan()); // RETA: recalcular estimaciones 1 y 15 de cada mes
+cron.schedule("0 8 * * *", () => runRetaAlertScan()); // RETA: alertas diarias a las 8 AM
 cron.schedule("0 * * * *", async () => { // Limpiar sesiones QR expiradas cada hora
   try {
     const { sql } = await import("./db.js");
@@ -296,11 +301,13 @@ app.use("/api/admin/gastos-recurrentes", gastosRecurrentesRoutes); // Gastos rec
 app.use("/api/admin/facturacion/recurrentes", facturaRecurrenteRoutes); // Facturas recurrentes
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
+app.use("/api/admin/reta", adminRetaAutonomoRoutes); // RETA: estimacion propia autonomo
 app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
 app.use("/admin", adminParteConfigRoutes); // Partes configurables
 app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
 app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
 app.use("/asesor/mis-clientes", asesorClientesRoutes); // Clientes propios asesor
+app.use("/asesor/reta", asesorRetaRoutes); // RETA: base cotizacion autonomos
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 
