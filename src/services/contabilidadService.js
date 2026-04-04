@@ -264,7 +264,8 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     if (found) cuentaGuardada = found;
   }
 
-  // Clasificación por prioridad: IA pre-clasificada > cuenta guardada > regex > IA individual > categoría
+  // Clasificación por prioridad:
+  // IA pre-clasificada > cuenta guardada > histórico proveedor > regex > IA individual > categoría
   let cuentaGasto = null;
   let origenCuenta = 'fallback'; // track de dónde viene la cuenta
 
@@ -275,18 +276,25 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     cuentaGasto = cuentaGuardada;
     origenCuenta = 'proveedor_guardada';
   } else {
-    const porDescripcion = detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor);
-    if (porDescripcion) {
-      cuentaGasto = porDescripcion;
-      origenCuenta = 'patron_descripcion';
+    // Buscar en asientos previos del mismo proveedor (histórico fiable)
+    const historicoProveedor = await buscarCuentaHistoricoProveedor(empresaId, proveedorNombre);
+    if (historicoProveedor) {
+      cuentaGasto = historicoProveedor;
+      origenCuenta = 'historico_proveedor';
     } else {
-      const porIA = await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria);
-      if (porIA) {
-        cuentaGasto = porIA;
-        origenCuenta = 'ia_clasificacion';
+      const porDescripcion = detectarCuentaPorDescripcion(gasto.descripcion, gasto.proveedor);
+      if (porDescripcion) {
+        cuentaGasto = porDescripcion;
+        origenCuenta = 'patron_descripcion';
       } else {
-        cuentaGasto = mapCategoriaToCuenta(gasto.categoria);
-        origenCuenta = 'fallback_categoria';
+        const porIA = await clasificarCuentaConIA(gasto.descripcion, gasto.proveedor, gasto.categoria);
+        if (porIA) {
+          cuentaGasto = porIA;
+          origenCuenta = 'ia_clasificacion';
+        } else {
+          cuentaGasto = mapCategoriaToCuenta(gasto.categoria);
+          origenCuenta = 'fallback_categoria';
+        }
       }
     }
   }
@@ -1219,6 +1227,50 @@ export async function generarAsientosPeriodo(empresaId, fechaDesde, fechaHasta, 
 }
 
 // =============================================
+// =============================================
+// Histórico de proveedor (busca cuentas en asientos previos)
+// =============================================
+
+/**
+ * Busca en asientos anteriores del mismo proveedor para reutilizar la cuenta contable.
+ * Si hay 2+ asientos validados del mismo proveedor con la misma cuenta 6xx,
+ * devuelve esa cuenta directamente (patrón fiable).
+ * Si solo hay 1 asiento, también lo usa (mejor que IA para proveedores conocidos).
+ */
+async function buscarCuentaHistoricoProveedor(empresaId, proveedorNombre) {
+  if (!proveedorNombre || proveedorNombre === "Proveedor") return null;
+
+  try {
+    // Buscar la cuenta 6xx más usada en asientos previos del mismo proveedor
+    const rows = await sql`
+      SELECT l.cuenta_codigo, l.cuenta_nombre, COUNT(*) as veces
+      FROM asientos_180 a
+      JOIN asiento_lineas_180 l ON l.asiento_id = a.id
+      JOIN purchases_180 p ON p.id::text = a.referencia_id::text
+      WHERE a.empresa_id = ${empresaId}
+        AND a.tipo = 'auto_gasto'
+        AND a.estado = 'validado'
+        AND l.cuenta_codigo ~ '^6'
+        AND l.debe > 0
+        AND LOWER(TRIM(p.proveedor)) = LOWER(TRIM(${proveedorNombre}))
+      GROUP BY l.cuenta_codigo, l.cuenta_nombre
+      ORDER BY veces DESC
+      LIMIT 1
+    `;
+
+    if (rows.length > 0) {
+      console.log(`📋 [historicoProveedor] "${proveedorNombre}" → ${rows[0].cuenta_codigo} (${rows[0].veces} asientos previos)`);
+      return { codigo: rows[0].cuenta_codigo, nombre: rows[0].cuenta_nombre };
+    }
+
+    return null;
+  } catch (err) {
+    console.error("Error buscarCuentaHistoricoProveedor:", err.message);
+    return null;
+  }
+}
+
+// =============================================
 // Terceros (subcuentas 430x clientes / 400x proveedores)
 // =============================================
 
@@ -2058,10 +2110,11 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
 
       let cuentaCorrecta = cuentaIA;
 
-      // Si la IA no clasificó, usar fallbacks
+      // Si la IA no clasificó, usar fallbacks (incluyendo histórico proveedor)
       if (!cuentaCorrecta && info) {
         if (info.tipo === "gasto") {
-          cuentaCorrecta = detectarCuentaPorDescripcion(info.data.descripcion, info.data.proveedor)
+          cuentaCorrecta = await buscarCuentaHistoricoProveedor(empresaId, info.data.proveedor)
+            || detectarCuentaPorDescripcion(info.data.descripcion, info.data.proveedor)
             || await clasificarCuentaConIA(info.data.descripcion, info.data.proveedor, info.data.categoria)
             || mapCategoriaToCuenta(info.data.categoria);
         } else {
