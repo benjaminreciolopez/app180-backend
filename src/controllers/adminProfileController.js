@@ -18,7 +18,7 @@ export const getProfile = async (req, res) => {
 
     return res.json(rows[0] || {});
   } catch (err) {
-    console.error("❌ getProfile:", err);
+    console.error("Error getProfile:", err);
     return res.status(500).json({ error: "Error cargando perfil" });
   }
 };
@@ -91,7 +91,7 @@ export const updateProfile = async (req, res) => {
 
     return res.json(rows[0]);
   } catch (err) {
-    console.error("❌ updateProfile:", err);
+    console.error("Error updateProfile:", err);
     return res.status(500).json({ error: "Error guardando perfil" });
   }
 };

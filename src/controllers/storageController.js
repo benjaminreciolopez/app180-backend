@@ -198,7 +198,6 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
     try {
         const finalName = useTimestamp ? `${Date.now()}_${nombre}` : nombre;
         const fileName = `${empresaId}/${folder}/${finalName}`;
-        console.log(`💾 [saveToStorage] Intentando subir a Supabase: ${fileName}, Bytes: ${buffer.length}`);
 
         if (supabase) {
             const { data, error } = await supabase.storage
@@ -209,10 +208,9 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                 });
 
             if (error) {
-                console.error(`❌ [saveToStorage] Error subida Supabase:`, error);
+                console.error("Error saveToStorage Supabase upload:", error);
                 throw error;
             }
-            console.log(`✅ [saveToStorage] Subida OK. Path: ${data?.path}`);
 
             // Evitar duplicados en DB si no usamos timestamp
             if (!useTimestamp) {
@@ -222,7 +220,6 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
                     LIMIT 1
                 `;
                 if (existing) {
-                    console.log(`🔄 [saveToStorage] Actualizando registro existente ID: ${existing.id}`);
                     const [updated] = await sql`
                         UPDATE storage_180 
                         SET size_bytes = ${buffer.length}, created_at = NOW()
@@ -241,7 +238,7 @@ export async function saveToStorage({ empresaId, nombre, buffer, folder, mimeTyp
             `;
             return record;
         } else {
-            console.warn('⚠️ Supabase Storage no configurado. Solo guardando metadatos localmente (simulado).');
+            console.warn('Supabase Storage no configurado. Solo guardando metadatos localmente (simulado).');
             const folderToSave = dbFolder || folder;
             const [record] = await sql`
         INSERT INTO storage_180 (empresa_id, nombre, storage_path, folder, mime_type, size_bytes)

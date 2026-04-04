@@ -348,7 +348,6 @@ export async function getDashboardWidgets(req, res) {
       try { widgets_mobile = JSON.parse(widgets_mobile); } catch { widgets_mobile = []; }
     }
 
-    console.log(`📊 [getAsesorDashboardWidgets] Asesoria: ${asesoriaId}, Desktop: ${widgets.length}, Mobile: ${widgets_mobile.length}`);
     return res.json({ success: true, widgets, widgets_mobile });
   } catch (err) {
     console.error("Error getDashboardWidgets (asesoria):", err);

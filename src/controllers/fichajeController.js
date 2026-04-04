@@ -333,7 +333,7 @@ export const createFichaje = async (req, res) => {
         fecha: fechaHora,
       });
     } catch (e) {
-      console.error("❌ DAILY REPORT ERROR:", e);
+      console.error("Error DAILY REPORT ERROR:", e);
     }
 
     return res.json({
@@ -342,7 +342,7 @@ export const createFichaje = async (req, res) => {
       incidencias: evalResult.incidencias,
     });
   } catch (err) {
-    console.error("❌ Error en createFichaje:", err);
+    console.error("Error createFichaje:", err);
 
     return res.status(500).json({
       error: "Error al registrar fichaje",
@@ -394,7 +394,7 @@ export const getFichajesSospechosos = async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error("❌ Error getFichajesSospechosos:", err);
+    console.error("Error getFichajesSospechosos:", err);
     res.status(500).json({ error: "Error obteniendo fichajes sospechosos" });
   }
 };
@@ -465,7 +465,7 @@ export const validarFichaje = async (req, res) => {
       fichaje: update[0],
     });
   } catch (err) {
-    console.error("❌ Error en validarFichaje:", err);
+    console.error("Error validarFichaje:", err);
     return res.status(500).json({ error: "Error al actualizar fichaje" });
   }
 };
@@ -551,7 +551,7 @@ export const validarFichajesMasivo = async (req, res) => {
       fichajes: updated,
     });
   } catch (err) {
-    console.error("❌ Error en validarFichajesMasivo:", err);
+    console.error("Error validarFichajesMasivo:", err);
     return res.status(500).json({ error: "Error al actualizar fichajes" });
   }
 };
@@ -593,7 +593,7 @@ export const getTodayFichajes = async (req, res) => {
 
     return res.json(resultados);
   } catch (err) {
-    console.error("❌ Error en getTodayFichajes:", err);
+    console.error("Error getTodayFichajes:", err);
     return res.status(500).json({
       error: "Error al obtener fichajes del día",
     });
@@ -739,12 +739,12 @@ export const registrarFichajeManual = async (req, res) => {
         fecha: fechaHora,
       });
     } catch (e) {
-      console.error("❌ DAILY REPORT ERROR:", e);
+      console.error("Error DAILY REPORT ERROR:", e);
     }
 
     return res.json(nuevo[0]);
   } catch (err) {
-    console.error("❌ Error fichaje manual:", err);
+    console.error("Error fichaje manual:", err);
     return res.status(500).json({
       error: "Error registrando fichaje manual",
     });
@@ -775,7 +775,7 @@ export const getFichajeDetalle = async (req, res) => {
 
     res.json(fichaje[0]);
   } catch (err) {
-    console.error("❌ Error getFichajeDetalle:", err);
+    console.error("Error getFichajeDetalle:", err);
     res.status(500).json({ error: "Error cargando detalle" });
   }
 };
@@ -809,7 +809,7 @@ export const getFichajes = async (req, res) => {
 
     res.json(fichajes);
   } catch (err) {
-    console.error("❌ Error en getFichajes:", err);
+    console.error("Error getFichajes:", err);
     res.status(500).json({ error: "Error obteniendo fichajes" });
   }
 };

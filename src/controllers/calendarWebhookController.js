@@ -21,16 +21,9 @@ export async function handleWebhook(req, res) {
     const resourceState = req.headers['x-goog-resource-state'];
     const resourceUri = req.headers['x-goog-resource-uri'];
 
-    console.log('📬 Webhook recibido:', {
-      channelId,
-      resourceId,
-      resourceState,
-      resourceUri
-    });
 
     // Validar headers
     if (!channelId || !resourceId) {
-      console.log('⚠️ Webhook sin headers válidos');
       return res.status(400).send('Missing headers');
     }
 
@@ -41,7 +34,6 @@ export async function handleWebhook(req, res) {
     `;
 
     if (webhook.length === 0) {
-      console.log('❌ Webhook no encontrado o inactivo:', channelId);
       return res.status(404).send('Webhook not found');
     }
 
@@ -52,7 +44,6 @@ export async function handleWebhook(req, res) {
 
     // Procesar webhook de forma asíncrona
     if (resourceState === 'exists') {
-      console.log('🔄 Disparando sincronización automática desde webhook');
 
       // Sync desde Google (próximos 12 meses)
       const dateFrom = new Date().toISOString().split('T')[0];
@@ -64,14 +55,13 @@ export async function handleWebhook(req, res) {
 
       syncFromGoogle(empresaId, { dateFrom, dateTo, userId: null })
         .then(stats => {
-          console.log('✅ Sync desde webhook completada:', stats);
         })
         .catch(err => {
-          console.error('❌ Error en sync desde webhook:', err);
+          console.error('Error sync desde webhook:', err);
         });
     }
   } catch (err) {
-    console.error("❌ Error handling webhook:", err);
+    console.error("Error handling webhook:", err);
     // No enviar error a Google, ya respondimos 200 OK
   }
 }
@@ -97,7 +87,7 @@ export async function setup(req, res) {
       }
     });
   } catch (err) {
-    console.error("❌ Error setting up webhook:", err);
+    console.error("Error setting up webhook:", err);
     res.status(500).json({ error: err.message });
   }
 }
@@ -118,7 +108,7 @@ export async function stop(req, res) {
       message: 'Webhook detenido'
     });
   } catch (err) {
-    console.error("❌ Error stopping webhook:", err);
+    console.error("Error stopping webhook:", err);
     res.status(500).json({ error: err.message });
   }
 }

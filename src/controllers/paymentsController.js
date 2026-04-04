@@ -159,10 +159,8 @@ export async function crearPago(req, res) {
 
 
           // 3. Sincronizar Trabajos vinculados (USANDO EL DATO ACTUALIZADO)
-          console.log(`[DEBUG] Factura ${facturaId}: Pagado=${facturaActualizada?.pagado}, Total=${facturaActualizada?.total}, WorkLogID=${facturaActualizada?.work_log_id}`);
 
           if (facturaActualizada && Number(facturaActualizada.pagado) >= Number(facturaActualizada.total) - 0.01) {
-            console.log(`[DEBUG] Factura ${facturaId} completada. Actualizando trabajos...`);
 
             // A. Por link reverso (work_logs.factura_id) - Modo Lista
             const r1 = await sql`
@@ -170,7 +168,6 @@ export async function crearPago(req, res) {
                SET pagado = valor, estado_pago = 'pagado'
                WHERE factura_id = ${facturaId} AND empresa_id = ${empresaId}
              `;
-            console.log(`[DEBUG] Trabajos actualizados por factura_id: ${r1.count}`);
 
             // B. Por link directo (factura.work_log_id) - Modo Único
             if (facturaActualizada.work_log_id) {
@@ -179,15 +176,12 @@ export async function crearPago(req, res) {
                  SET pagado = valor, estado_pago = 'pagado'
                  WHERE id = ${facturaActualizada.work_log_id} AND empresa_id = ${empresaId}
                `;
-              console.log(`[DEBUG] Trabajo actualizado por work_log_id: ${r2.count}`);
             }
           } else {
-            console.log(`[DEBUG] Factura no pagada completamente (Diff: ${Number(facturaActualizada?.total || 0) - Number(facturaActualizada?.pagado || 0)})`);
           }
         }
       }
 
-      console.log("[DEBUG] Transacción de pago finalizada");
       return payment;
     });
 

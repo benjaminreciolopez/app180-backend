@@ -261,7 +261,7 @@ export const getCalendarioUsuarioEventos = async (req, res) => {
 
     return res.json(eventos);
   } catch (err) {
-    console.error("❌ getCalendarioUsuarioEventos:", err);
+    console.error("Error getCalendarioUsuarioEventos:", err);
     return res
       .status(500)
       .json({ error: "Error al obtener eventos calendario" });
@@ -378,7 +378,7 @@ export const getDiaUsuarioDetalle = async (req, res) => {
       eventos: [],
     });
   } catch (err) {
-    console.error("❌ getDiaUsuarioDetalle:", err);
+    console.error("Error getDiaUsuarioDetalle:", err);
     return res.status(500).json({ error: "Error al obtener detalle del día" });
   }
 };
@@ -432,7 +432,7 @@ export const getEstadoHoyUsuario = async (req, res) => {
 
     return res.json({ laborable: true });
   } catch (err) {
-    console.error("❌ getEstadoHoyUsuario:", err);
+    console.error("Error getEstadoHoyUsuario:", err);
     res.status(500).json({ error: "Error comprobando día laboral" });
   }
 };

@@ -59,7 +59,7 @@ export async function validarCertificadoDigital(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al validar certificado:', error);
+    console.error('Error al validar certificado:', error);
     res.status(500).json({ error: error.message });
   }
 }
@@ -113,7 +113,7 @@ export async function obtenerInfoCertificado(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al obtener info de certificado:', error);
+    console.error('Error al obtener info de certificado:', error);
     res.status(500).json({ error: error.message });
   }
 }
@@ -191,7 +191,7 @@ export async function configurarCertificadoFabricante(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al configurar certificado fabricante:', error);
+    console.error('Error al configurar certificado fabricante:', error);
     res.status(500).json({ error: error.message });
   }
 }
@@ -239,7 +239,6 @@ export async function configurarCertificadoAuto(req, res) {
       });
     }
 
-    console.log(`✅ Usuario ${usuarioId} verificado como propietario/fabricante de empresa ${empresaId}`);
 
     // Validar certificado antes de guardarlo
     const validacion = await validarCertificado(certificado_path, certificado_password);
@@ -289,7 +288,7 @@ export async function configurarCertificadoAuto(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al configurar certificado automático:', error);
+    console.error('Error al configurar certificado automático:', error);
     res.status(500).json({ error: error.message });
   }
 }
@@ -377,7 +376,7 @@ export async function obtenerEstadoCertificados(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al obtener estado de certificados:', error);
+    console.error('Error al obtener estado de certificados:', error);
     res.status(500).json({ error: error.message });
   }
 }

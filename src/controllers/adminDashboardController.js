@@ -388,7 +388,7 @@ export const getAdminDashboard = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("❌ getAdminDashboard:", err);
+    console.error("Error getAdminDashboard:", err);
 
     return res.status(500).json({
       error: "Error en dashboard admin",
@@ -530,7 +530,7 @@ export const getBeneficioReal = async (req, res) => {
     });
 
   } catch (e) {
-    console.error("❌ getBeneficioReal:", e);
+    console.error("Error getBeneficioReal:", e);
     res.status(500).json({ error: "Error calculando beneficio" });
   }
 };

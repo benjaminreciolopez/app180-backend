@@ -13,7 +13,7 @@ export async function getTurnos(req, res) {
     const turnos = await obtenerTurnosEmpresa(empresaId);
     res.json(turnos);
   } catch (e) {
-    console.error("❌ Error GET turnos:", e);
+    console.error("Error GET turnos:", e);
     res.status(500).json({ error: "Error al obtener turnos" });
   }
 }

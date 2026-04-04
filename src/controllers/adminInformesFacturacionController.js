@@ -103,7 +103,7 @@ export async function getIvaTrimestral(req, res) {
         });
 
     } catch (err) {
-        console.error("❌ getIvaTrimestral:", err);
+        console.error("Error getIvaTrimestral:", err);
         res.status(500).json({ success: false, error: "Error generando informe de IVA" });
     }
 }
@@ -150,7 +150,7 @@ export async function getFacturacionAnual(req, res) {
         });
 
     } catch (err) {
-        console.error("❌ getFacturacionAnual:", err);
+        console.error("Error getFacturacionAnual:", err);
         res.status(500).json({ success: false, error: "Error generando informe anual" });
     }
 }
@@ -197,7 +197,7 @@ export async function getRankingClientes(req, res) {
         });
 
     } catch (err) {
-        console.error("❌ getRankingClientes:", err);
+        console.error("Error getRankingClientes:", err);
         res.status(500).json({ success: false, error: "Error generando ranking" });
     }
 }

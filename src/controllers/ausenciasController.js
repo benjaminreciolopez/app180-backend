@@ -69,11 +69,11 @@ export const aprobarVacaciones = async (req, res) => {
           accionLabel: "Ver ausencias",
         });
       }
-    } catch (notifErr) { console.warn("⚠️ Notificación no enviada:", notifErr.message); }
+    } catch (notifErr) { console.warn("Notificación no enviada:", notifErr.message); }
 
     res.json({ success: true, ausencia: update[0] });
   } catch (err) {
-    console.error("❌ Error en aprobarVacaciones:", err);
+    console.error("Error aprobarVacaciones:", err);
     res.status(500).json({ error: "Error al aprobar vacaciones" });
   }
 };
@@ -107,11 +107,11 @@ export const rechazarVacaciones = async (req, res) => {
           accionLabel: "Ver ausencias",
         });
       }
-    } catch (notifErr) { console.warn("⚠️ Notificación no enviada:", notifErr.message); }
+    } catch (notifErr) { console.warn("Notificación no enviada:", notifErr.message); }
 
     res.json({ success: true, ausencia: update[0] });
   } catch (err) {
-    console.error("❌ Error en rechazarVacaciones:", err);
+    console.error("Error rechazarVacaciones:", err);
     res.status(500).json({ error: "Error al rechazar vacaciones" });
   }
 };
@@ -183,7 +183,7 @@ export const crearBajaMedica = async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json({ success: true, ausencia: aus[0] });
   } catch (err) {
-    console.error("❌ Error en crearBajaMedica:", err);
+    console.error("Error crearBajaMedica:", err);
     return res.status(500).json({ error: "Error al registrar baja médica" });
   }
 };
@@ -210,7 +210,7 @@ export const listarAusenciasEmpresa = async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json(rows);
   } catch (err) {
-    console.error("❌ Error en listarAusenciasEmpresa:", err);
+    console.error("Error listarAusenciasEmpresa:", err);
     res.status(500).json({ error: "Error al obtener ausencias" });
   }
 };
@@ -279,7 +279,7 @@ export const solicitarAusencia = async (req, res) => {
           accionLabel: "Revisar solicitud",
         });
       }
-    } catch (notifErr) { console.warn("⚠️ Notificación no enviada:", notifErr.message); }
+    } catch (notifErr) { console.warn("Notificación no enviada:", notifErr.message); }
 
     res.json({
       ...rows[0],
@@ -288,13 +288,12 @@ export const solicitarAusencia = async (req, res) => {
       warning_festivos: !!festivos,
     });
   } catch (err) {
-    console.error("❌ solicitar ausencia:", err);
+    console.error("Error solicitar ausencia:", err);
     res.status(500).json({ error: "Error solicitando ausencia" });
   }
 };
 
 export const misAusencias = async (req, res) => {
-  console.log("📡 misAusencias llamada por", req.user?.email);
   try {
     const { empleado_id } = req.user;
     if (!empleado_id) return res.status(403).json({ error: "No autorizado" });
@@ -306,11 +305,10 @@ export const misAusencias = async (req, res) => {
       ORDER BY creado_en DESC
       LIMIT 200
     `;
-    console.log("📊 Rows:", rows.length);
     res.set("Cache-Control", "no-store");
     res.json(rows);
   } catch (e) {
-    console.error("❌ misAusencias", e);
+    console.error("Error misAusencias", e);
     res.status(500).json({ error: "Error obteniendo ausencias" });
   }
 };
@@ -382,7 +380,7 @@ export const actualizarEstadoAusencia = async (req, res) => {
 
     res.json({ success: true, ausencia: rows[0] });
   } catch (err) {
-    console.error("❌ actualizarEstadoAusencia:", err);
+    console.error("Error actualizarEstadoAusencia:", err);
     res.status(500).json({ error: "Error actualizando estado" });
   }
 };
@@ -478,7 +476,7 @@ export const crearAusenciaAdmin = async (req, res) => {
       warning_festivos: !!festivos,
     });
   } catch (err) {
-    console.error("❌ crearAusenciaAdmin:", err);
+    console.error("Error crearAusenciaAdmin:", err);
     return res.status(500).json({ error: "Error creando ausencia" });
   }
 };
@@ -516,7 +514,7 @@ export const listarEventosCalendarioAdmin = async (req, res) => {
     res.set("Cache-Control", "no-store");
     res.json(rows);
   } catch (err) {
-    console.error("❌ Error listarEventosCalendarioAdmin:", err);
+    console.error("Error listarEventosCalendarioAdmin:", err);
     res.status(500).json({ error: "Error cargando calendario" });
   }
 };

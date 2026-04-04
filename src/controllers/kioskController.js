@@ -43,7 +43,7 @@ export const registerKioskDevice = async (req, res) => {
       device: device,
     });
   } catch (err) {
-    console.error("❌ Error en registerKioskDevice:", err);
+    console.error("Error registerKioskDevice:", err);
     return res.status(500).json({ error: "Error al registrar dispositivo" });
   }
 };
@@ -67,7 +67,7 @@ export const listKioskDevices = async (req, res) => {
 
     return res.json(devices);
   } catch (err) {
-    console.error("❌ Error en listKioskDevices:", err);
+    console.error("Error listKioskDevices:", err);
     return res.status(500).json({ error: "Error al listar dispositivos" });
   }
 };
@@ -103,7 +103,7 @@ export const updateKioskDevice = async (req, res) => {
 
     return res.json({ success: true, device });
   } catch (err) {
-    console.error("❌ Error en updateKioskDevice:", err);
+    console.error("Error updateKioskDevice:", err);
     return res.status(500).json({ error: "Error al actualizar dispositivo" });
   }
 };
@@ -137,7 +137,7 @@ export const getKioskConfig = async (req, res) => {
       has_offline_pin: !!req.kiosk.offline_pin,
     });
   } catch (err) {
-    console.error("❌ Error en getKioskConfig:", err);
+    console.error("Error getKioskConfig:", err);
     return res.status(500).json({ error: "Error al obtener configuración" });
   }
 };
@@ -221,7 +221,7 @@ export const identifyEmployee = async (req, res) => {
 
     return res.json(employees);
   } catch (err) {
-    console.error("❌ Error en identifyEmployee:", err);
+    console.error("Error identifyEmployee:", err);
     return res.status(500).json({ error: "Error al buscar empleado" });
   }
 };
@@ -291,7 +291,7 @@ export const getKioskEstado = async (req, res) => {
       ultimo_fichaje: last || null,
     });
   } catch (err) {
-    console.error("❌ Error en getKioskEstado:", err);
+    console.error("Error getKioskEstado:", err);
     return res.status(500).json({ error: "Error al obtener estado" });
   }
 };
@@ -379,7 +379,7 @@ export const createKioskFichaje = async (req, res) => {
       incidencias: result.incidencias,
     });
   } catch (err) {
-    console.error("❌ Error en createKioskFichaje:", err);
+    console.error("Error createKioskFichaje:", err);
 
     // Errores conocidos del servicio
     if (err.message.includes("no encontrado") || err.message.includes("desactivado")) {
@@ -414,7 +414,7 @@ export const requestOTP = async (req, res) => {
 
     return res.json(result);
   } catch (err) {
-    console.error("❌ Error en requestOTP:", err);
+    console.error("Error requestOTP:", err);
 
     if (err.message.includes("Demasiados")) {
       return res.status(429).json({ error: err.message });
@@ -460,7 +460,7 @@ export const voidKioskFichaje = async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error("❌ Error en voidKioskFichaje:", err);
+    console.error("Error voidKioskFichaje:", err);
     return res.status(500).json({ error: "Error al anular fichaje" });
   }
 };
@@ -483,7 +483,7 @@ export const deleteKioskDevice = async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error("❌ Error en deleteKioskDevice:", err);
+    console.error("Error deleteKioskDevice:", err);
     return res.status(500).json({ error: "Error al eliminar dispositivo" });
   }
 };
@@ -530,7 +530,7 @@ export const generateActivationToken = async (req, res) => {
       device_name: device.nombre,
     });
   } catch (err) {
-    console.error("❌ Error en generateActivationToken:", err);
+    console.error("Error generateActivationToken:", err);
     return res.status(500).json({ error: "Error al generar token de activación" });
   }
 };
@@ -588,7 +588,7 @@ export const activateKioskDevice = async (req, res) => {
       empresa_nombre: device.empresa_nombre,
     });
   } catch (err) {
-    console.error("❌ Error en activateKioskDevice:", err);
+    console.error("Error activateKioskDevice:", err);
     return res.status(500).json({ error: "Error al activar dispositivo" });
   }
 };
@@ -611,7 +611,7 @@ export const verifyOfflinePin = async (req, res) => {
 
     return res.json({ valid });
   } catch (err) {
-    console.error("❌ Error en verifyOfflinePin:", err);
+    console.error("Error verifyOfflinePin:", err);
     return res.status(500).json({ error: "Error al verificar PIN" });
   }
 };

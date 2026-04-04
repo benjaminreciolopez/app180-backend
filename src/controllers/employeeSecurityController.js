@@ -64,7 +64,7 @@ export const generateEmployeeInvite = async (req, res) => {
       creado: generated.creado,
     });
   } catch (err) {
-    console.error("❌ Error en generateEmployeeInvite:", err);
+    console.error("Error generateEmployeeInvite:", err);
     return res.status(500).json({ error: "Error al generar invitación" });
   }
 };
@@ -106,7 +106,7 @@ export const updateEmployeeDeviceStatus = async (req, res) => {
       dispositivos_actualizados: updated,
     });
   } catch (err) {
-    console.error("❌ Error en updateEmployeeDeviceStatus:", err);
+    console.error("Error updateEmployeeDeviceStatus:", err);
     return res
       .status(500)
       .json({ error: "Error al actualizar estado del dispositivo" });

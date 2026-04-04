@@ -42,7 +42,6 @@ export async function ejecutarGastoRecurrenteInterno(plantilla, fecha, empresaId
     // Generar asiento contable de devengo
     try {
         const asientoResult = await generarAsientoGasto(empresaId, newPurchase, userId);
-        console.log(`[GastosRecurrentes] Asiento de gasto generado para ${newPurchase.id}`);
 
         if (asientoResult?.lineas?.length > 0) {
             const lineaGasto = asientoResult.lineas.find(l => l.debe > 0 && l.cuenta_codigo !== '472' && l.cuenta_codigo !== '4751');
@@ -58,7 +57,6 @@ export async function ejecutarGastoRecurrenteInterno(plantilla, fecha, empresaId
     if (newPurchase.metodo_pago) {
         try {
             await generarAsientoPagoGasto(empresaId, newPurchase, userId);
-            console.log(`[GastosRecurrentes] Asiento de pago generado para ${newPurchase.id}`);
         } catch (err) {
             console.error("[GastosRecurrentes] Error generando asiento de pago:", err.message);
         }

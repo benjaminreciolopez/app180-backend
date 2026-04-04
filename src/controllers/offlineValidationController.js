@@ -51,7 +51,7 @@ export const listOfflinePendientes = async (req, res) => {
       limit: Number(limit),
     });
   } catch (err) {
-    console.error("❌ Error en listOfflinePendientes:", err);
+    console.error("Error listOfflinePendientes:", err);
     return res.status(500).json({ error: "Error al listar fichajes pendientes" });
   }
 };
@@ -138,7 +138,7 @@ export const validarOfflineFichajes = async (req, res) => {
       errores: errores.length > 0 ? errores : undefined,
     });
   } catch (err) {
-    console.error("❌ Error en validarOfflineFichajes:", err);
+    console.error("Error validarOfflineFichajes:", err);
     return res.status(500).json({ error: "Error al validar fichajes offline" });
   }
 };
@@ -160,7 +160,7 @@ export const countOfflinePendientes = async (req, res) => {
 
     return res.json({ count: result.count });
   } catch (err) {
-    console.error("❌ Error en countOfflinePendientes:", err);
+    console.error("Error countOfflinePendientes:", err);
     return res.status(500).json({ error: "Error al contar fichajes pendientes" });
   }
 };

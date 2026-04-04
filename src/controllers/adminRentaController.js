@@ -73,9 +73,7 @@ export async function uploadRentaPdf(req, res) {
         if (ejercicioMatch) {
             const ejercicioDetectado = parseInt(ejercicioMatch[1]);
             if (ejercicioDetectado !== year) {
-                console.log(`⚠️ Ejercicio del formulario: ${year}, detectado en PDF: ${ejercicioDetectado}. Usando el del PDF.`);
             } else {
-                console.log(`✅ Ejercicio confirmado: ${year} (coincide con PDF)`);
             }
             // Siempre usar el ejercicio detectado del PDF si es válido
             if (ejercicioDetectado >= 2000 && ejercicioDetectado <= 2099) {
@@ -86,11 +84,9 @@ export async function uploadRentaPdf(req, res) {
         const yearFinal = ejercicioMatch
             ? parseInt(ejercicioMatch[1])
             : year;
-        console.log(`📋 Ejercicio final para guardar: ${yearFinal} (formulario: ${year}, PDF: ${ejercicioMatch ? ejercicioMatch[1] : 'no detectado'})`);
 
         // 2. PASO 1: Intentar extracción con REGEX (gratis, instantáneo)
         const regexResult = await extractCasillasConRegex(pdfText);
-        console.log(`📋 Regex extrajo ${regexResult.totalResueltas} casillas (confianza: ${(regexResult.confianza * 100).toFixed(0)}%)`);
 
         let extracted;
         let metodoExtraccion = 'regex';
@@ -124,12 +120,11 @@ Responde con JSON: {"estado_civil":"soltero|casado|viudo|separado|divorciado","f
                 }
                 metodoExtraccion = 'regex+haiku_dp';
             } catch (dpErr) {
-                console.warn("⚠️ Error extrayendo datos personales con IA:", dpErr.message);
+                console.warn("Error extrayendo datos personales con IA:", dpErr.message);
             }
         } else {
             // Regex no fue suficiente — usar IA completa (Sonnet) como fallback
             metodoExtraccion = 'sonnet_completo';
-            console.log(`🤖 Regex insuficiente, usando Sonnet para casillas pendientes: ${regexResult.sinResolver.join(', ')}`);
 
             // Cargar lista de casillas desde reglas configurables
             const rules = await FiscalRules.forYear(year);
@@ -530,7 +525,6 @@ export async function saveDatosEjercicio(req, res) {
             `;
         }
 
-        console.log(`📝 Datos manuales guardados para ejercicio ${year}: ingresos=${ingresos_actividades}, gastos=${gastos_actividades}, rend=${rendimientoNeto}`);
 
         res.json({ success: true, data: record });
     } catch (error) {
@@ -1044,17 +1038,14 @@ export async function generarDossier(req, res) {
             WHERE empresa_id = ${empresaId} AND ejercicio = ${year - 1}
         `;
         if (!rentaAnterior) {
-            console.log(`📋 No se encontró renta para ejercicio ${year - 1}, buscando la más reciente...`);
             [rentaAnterior] = await sql`
                 SELECT * FROM renta_historica_180
                 WHERE empresa_id = ${empresaId}
                 ORDER BY ejercicio DESC LIMIT 1
             `;
             if (rentaAnterior) {
-                console.log(`📋 Encontrada renta del ejercicio ${rentaAnterior.ejercicio} como referencia`);
             }
         } else {
-            console.log(`📋 Renta anterior encontrada para ejercicio ${year - 1}`);
         }
 
         // 3. Datos del emisor
@@ -1163,9 +1154,6 @@ export async function generarDossier(req, res) {
             rendimientoNeto = 0;
         }
 
-        console.log(`📊 Dossier ${year}: Fuente=${fuenteDatos}, Ingresos=${ingresos}, Gastos=${gastosDeducibles}, Rend.Neto=${rendimientoNeto}`);
-        console.log(`📊 Renta anterior: ${rentaAnterior ? `ejercicio=${rentaAnterior.ejercicio}, rend_act=${rentaAnterior.rendimientos_actividades}, resultado=${rentaAnterior.resultado_declaracion}` : 'NO ENCONTRADA'}`);
-        if (datosManual) console.log(`📝 Datos manuales: ingresos=${datosManual.ingresos_actividades}, gastos=${datosManual.gastos_actividades}`);
 
         const dossier = {
             ejercicio: year,
@@ -1346,7 +1334,6 @@ export async function generarDossier(req, res) {
                     const famNumNeta = cobraAnticiposFN ? 0 : famNum.deduccion_bruta;
                     const resultado = Math.round((cuotaLiquida - totalAnt - famNumNeta) * 100) / 100;
 
-                    console.log(`📊 Simulación IRPF dossier [${ccaa}]: RendNeto=${rendimientoNeto.toFixed(2)}, BL=${baseLiquidable.toFixed(2)}, MPF_est=${minimoEstatalVal.toFixed(2)}, MPF_aut=${minimoAutonomicoVal.toFixed(2)}, CI=${cuotaIntegra.toFixed(2)}, Ded_aut=${deduccionesAut.total}, FamNum=${famNum.deduccion_neta}, CL=${cuotaLiquida.toFixed(2)}, Ant=${totalAnt.toFixed(2)}, Resultado=${resultado.toFixed(2)}`);
 
                     return {
                         valor: resultado,

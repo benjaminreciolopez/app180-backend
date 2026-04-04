@@ -374,7 +374,6 @@ export async function crearCompra(req, res) {
         // Generar asiento contable de devengo del gasto (6xx a 400xx + IVA)
         try {
             const asientoResult = await generarAsientoGasto(empresa_id, newPurchase, req.user?.id || null);
-            console.log(`[Purchases] Asiento de gasto generado para ${newPurchase.id}`);
 
             // Guardar la cuenta contable usada en el asiento para futuras consultas
             if (asientoResult?.lineas?.length > 0) {
@@ -391,7 +390,6 @@ export async function crearCompra(req, res) {
         if (newPurchase.metodo_pago) {
             try {
                 await generarAsientoPagoGasto(empresa_id, newPurchase, req.user?.id || null);
-                console.log(`[Purchases] Asiento de pago generado para gasto ${newPurchase.id}`);
             } catch (contErr) {
                 console.error("[Purchases] Error generando asiento de pago:", contErr.message);
             }

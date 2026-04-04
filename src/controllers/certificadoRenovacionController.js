@@ -23,7 +23,7 @@ export async function obtenerEstadoRenovacion(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al obtener estado de renovación:', error);
+    console.error('Error al obtener estado de renovación:', error);
     res.status(500).json({ error: error.message });
   }
 }
@@ -67,7 +67,7 @@ export async function obtenerInstruccionesRenovacion(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al obtener instrucciones:', error);
+    console.error('Error al obtener instrucciones:', error);
     res.status(500).json({ error: error.message });
   }
 }

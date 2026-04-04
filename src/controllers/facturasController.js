@@ -57,10 +57,9 @@ async function getInvoiceStorageFolder(empresaId) {
   try {
     const [config] = await sql`select storage_facturas_folder from configuracionsistema_180 where empresa_id=${empresaId}`;
     const folder = config?.storage_facturas_folder || 'Facturas emitidas';
-    console.log(`📂 [getInvoiceStorageFolder] Empresa: ${empresaId}, Config: ${config?.storage_facturas_folder} -> Final: ${folder}`);
     return folder;
   } catch (e) {
-    console.error(`⚠️ [getInvoiceStorageFolder] Error: ${e.message}, usando default`);
+    console.error(`[getInvoiceStorageFolder] Error: ${e.message}, usando default`);
     return 'Facturas emitidas';
   }
 }
@@ -188,7 +187,7 @@ export async function listFacturas(req, res) {
 
     res.json({ success: true, data: facturasOrdenadas });
   } catch (err) {
-    console.error("❌ listFacturas:", err);
+    console.error("Error listFacturas:", err);
     res.status(500).json({ success: false, error: "Error listando facturas" });
   }
 }
@@ -277,7 +276,7 @@ export async function previewNextNumber(req, res) {
 
     res.json({ success: true, numero: numeroFinal });
   } catch (err) {
-    console.error("❌ previewNextNumber:", err);
+    console.error("Error previewNextNumber:", err);
     res.status(500).json({ success: false, error: "Error previsualizando número" });
   }
 }
@@ -300,7 +299,7 @@ export async function getLastValidDate(req, res) {
       lastDate: lastInvoice ? lastInvoice.fecha : null
     });
   } catch (err) {
-    console.error("❌ getLastValidDate:", err);
+    console.error("Error getLastValidDate:", err);
     res.status(500).json({ success: false, error: "Error obteniendo última fecha" });
   }
 }
@@ -364,7 +363,7 @@ export async function getFactura(req, res) {
       },
     });
   } catch (err) {
-    console.error("❌ getFactura:", err);
+    console.error("Error getFactura:", err);
     res.status(500).json({ success: false, error: "Error obteniendo factura" });
   }
 }
@@ -600,7 +599,7 @@ export async function createFactura(req, res) {
       if (verifactuResult?.registroId) {
         const { registroId, config: vfConfig } = verifactuResult;
         enviarRegistroAeat(registroId, 'PRUEBAS', vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
-          .catch(err => console.error('⚠️ VeriFactu TEST: envío async falló:', err.message));
+          .catch(err => console.error('VeriFactu TEST: envío async falló:', err.message));
       }
 
       // Auditoría
@@ -622,7 +621,6 @@ export async function createFactura(req, res) {
         metaData: { factura_id: facturaId, numero, total: createdFactura.total, hash: verifactuResult?.hash, es_test: true }
       });
 
-      console.log(`🧪 Factura TEST ${numero} auto-validada y enviada a AEAT (PRUEBAS)`);
 
       return res.status(201).json({
         success: true,
@@ -634,7 +632,7 @@ export async function createFactura(req, res) {
 
     res.status(201).json({ success: true, message: "Factura creada en borrador" });
   } catch (err) {
-    console.error("❌ createFactura:", err);
+    console.error("Error createFactura:", err);
     res.status(500).json({ success: false, error: "Error creando factura" });
   }
 }
@@ -790,7 +788,7 @@ export async function updateFactura(req, res) {
 
     res.json({ success: true, message: "Factura actualizada" });
   } catch (err) {
-    console.error("❌ updateFactura:", err);
+    console.error("Error updateFactura:", err);
     res.status(500).json({ success: false, error: "Error actualizando factura" });
   }
 }
@@ -927,7 +925,6 @@ export async function validarFactura(req, res) {
             ultimo_anio_numerado = ${year}
           where empresa_id = ${empresaId}
         `;
-        console.log(`🔒 Numeración bloqueada para año ${year} (PRODUCCION)`);
       } else {
         // TEST: Solo actualizar el año, NO bloquear
         await tx`
@@ -935,7 +932,6 @@ export async function validarFactura(req, res) {
           set ultimo_anio_numerado = ${year}
           where empresa_id = ${empresaId}
         `;
-        console.log(`⚠️ Modo TEST: Numeración NO bloqueada (año ${year})`);
         }
       } // Cierre del if para factura no-proforma
     });
@@ -945,7 +941,7 @@ export async function validarFactura(req, res) {
       const { registroId, config: vfConfig } = verifactuResult;
       const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
       enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
-        .catch(err => console.error('⚠️ VeriFactu: envío async falló:', err.message));
+        .catch(err => console.error('VeriFactu: envío async falló:', err.message));
     }
 
     // Auditoría
@@ -979,19 +975,16 @@ export async function validarFactura(req, res) {
         `;
         if (facturaFinal) {
           await generarAsientoFactura(empresaId, facturaFinal, req.user?.id || null);
-          console.log(`[Facturas] Asiento de venta generado para factura ${numero}`);
         }
       } catch (contErr) {
         console.error("[Facturas] Error generando asiento de venta:", contErr.message);
       }
     } else if (factura.es_test) {
-      console.log(`[Facturas] Factura TEST ${numero}: NO se genera asiento contable`);
     }
 
     // --- AUTO-GENERAR Y GUARDAR EN STORAGE (solo facturas reales) ---
     if (!factura.es_test) {
       try {
-        console.log(`📑 Generando PDF para auto-almacenamiento: ${numero}`);
         const pdfBuffer = await generarPdfFactura(id);
         const baseFolder = await getInvoiceStorageFolder(empresaId);
 
@@ -1008,9 +1001,8 @@ export async function validarFactura(req, res) {
           await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${id}`;
         }
 
-        console.log(`✅ PDF guardado en Storage para: ${numero}`);
       } catch (storageErr) {
-        console.error("⚠️ No se pudo auto-almacenar el PDF:", storageErr);
+        console.error("No se pudo auto-almacenar el PDF:", storageErr);
       }
     }
 
@@ -1020,7 +1012,7 @@ export async function validarFactura(req, res) {
       numero,
     });
   } catch (err) {
-    console.error("❌ validarFactura:", err);
+    console.error("Error validarFactura:", err);
     res.status(500).json({ success: false, error: err.message || "Error validando factura" });
   }
 }
@@ -1167,7 +1159,7 @@ export async function batchValidar(req, res) {
           const { registroId, config: vfConfig } = verifactuResult;
           const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
           enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
-            .catch(err => console.error('⚠️ VeriFactu batch: envío async falló:', err.message));
+            .catch(err => console.error('VeriFactu batch: envío async falló:', err.message));
         }
 
         // Auditoría
@@ -1216,13 +1208,12 @@ export async function batchValidar(req, res) {
                 await sql`update factura_180 set ruta_pdf = ${savedFile.storage_path} where id = ${facturaId}`;
               }
             } catch (e) {
-              console.error(`⚠️ Batch PDF ${facturaId}:`, e.message);
+              console.error(`Batch PDF ${facturaId}:`, e.message);
             }
           })();
         }
 
         validated.push({ id: facturaId, numero, total: factura.total });
-        console.log(`[Batch] Factura ${facturaId} validada como ${numero}`);
 
       } catch (err) {
         console.error(`[Batch] Error validando factura ${facturaId}:`, err.message);
@@ -1237,7 +1228,7 @@ export async function batchValidar(req, res) {
       failed
     });
   } catch (err) {
-    console.error("❌ batchValidar:", err);
+    console.error("Error batchValidar:", err);
     res.status(500).json({ success: false, error: err.message || "Error en validación por lote" });
   }
 }
@@ -1286,7 +1277,6 @@ async function generarNumeroFactura(empresaId, fecha) {
         AND numero LIKE ${testPrefix + '%'}
     `;
     const testCorrelativo = (max?.ultimo || 0) + 1;
-    console.log(`⚠️ Modo TEST VeriFactu: Numeración independiente TEST-${String(testCorrelativo).padStart(4, '0')}`);
     return `${testPrefix}${String(testCorrelativo).padStart(4, '0')}`;
   }
 
@@ -1454,7 +1444,7 @@ export async function anularFactura(req, res) {
       const { registroId, config: vfConfig } = verifactuResultRect;
       const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
       enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
-        .catch(err => console.error('⚠️ VeriFactu: envío async rectificativa falló:', err.message));
+        .catch(err => console.error('VeriFactu: envío async rectificativa falló:', err.message));
     }
 
     // --- AUTO-GENERAR PDF RECTIFICATIVA ---
@@ -1462,7 +1452,6 @@ export async function anularFactura(req, res) {
       // Necesitamos el ID de la rectificativa que acabamos de crear
       const [rectData] = await sql`select id, numero, fecha from factura_180 where numero=${numeroRect} and empresa_id=${empresaId} limit 1`;
       if (rectData) {
-        console.log(`📑 Generando PDF para rectificativa: ${numeroRect}`);
         const pdfBuffer = await generarPdfFactura(rectData.id);
         const baseFolder = await getInvoiceStorageFolder(empresaId);
 
@@ -1480,7 +1469,7 @@ export async function anularFactura(req, res) {
         }
       }
     } catch (err) {
-      console.error("⚠️ Error auto-generando PDF rectificativa:", err);
+      console.error("Error auto-generando PDF rectificativa:", err);
     }
 
     // Auditoría: Factura original anulada
@@ -1509,7 +1498,7 @@ export async function anularFactura(req, res) {
       numero_rectificativa: numeroRect,
     });
   } catch (err) {
-    console.error("❌ anularFactura:", err);
+    console.error("Error anularFactura:", err);
     res.status(500).json({ success: false, error: "Error anulando factura" });
   }
 }
@@ -1535,7 +1524,6 @@ export async function generarPdf(req, res) {
     // --- AUTO-ARCHIVAR Y ACTUALIZAR DB ---
     let savedPath = null;
     try {
-      console.log(`📄 [generarPdf] Auto-archivando PDF. ID: ${id}, Num: ${numToUse}`);
       const baseFolder = await getInvoiceStorageFolder(empresaId);
       const savedFile = await saveToStorage({
         empresaId,
@@ -1545,22 +1533,19 @@ export async function generarPdf(req, res) {
         mimeType: 'application/pdf',
         useTimestamp: false
       });
-      console.log(`💾 [generarPdf] Resultado saveToStorage:`, savedFile);
 
       if (savedFile && savedFile.storage_path) {
         savedPath = savedFile.storage_path;
         await sql`update factura_180 set ruta_pdf = ${savedPath} where id = ${id}`;
-        console.log(`✅ [generarPdf] DB actualizada con ruta_pdf: ${savedPath}`);
       } else {
-        console.warn(`⚠️ [generarPdf] saveToStorage no retornó file object o path`);
+        console.warn(`[generarPdf] saveToStorage no retornó file object o path`);
       }
     } catch (archiveErr) {
-      console.error("⚠️ [generarPdf] No se pudo auto-archivar el PDF en generarPdf:", archiveErr);
+      console.error("[generarPdf] No se pudo auto-archivar el PDF en generarPdf:", archiveErr);
     }
 
     // SI LA ACCION ES SOLO GUARDAR (desde botón "Crear PDF")
     if (req.query.action === 'save') {
-      console.log(`🔄 [generarPdf] Action=save. Retornando JSON.`);
       return res.json({
         success: true,
         message: "PDF Generado y guardado correctamente",
@@ -1573,7 +1558,7 @@ export async function generarPdf(req, res) {
     res.send(pdfBuffer);
 
   } catch (err) {
-    console.error("❌ generarPdf:", err);
+    console.error("Error generarPdf:", err);
     res.status(500).json({ success: false, error: "Error generando PDF" });
   }
 }
@@ -1622,7 +1607,7 @@ export async function enviarEmail(req, res) {
           useTimestamp: false
         });
       } catch (archiveErr) {
-        console.error("⚠️ No se pudo auto-archivar el PDF en enviarEmail:", archiveErr);
+        console.error("No se pudo auto-archivar el PDF en enviarEmail:", archiveErr);
       }
     }
 
@@ -1655,7 +1640,7 @@ export async function enviarEmail(req, res) {
       message: "Email enviado correctamente",
     });
   } catch (err) {
-    console.error("❌ enviarEmail:", err);
+    console.error("Error enviarEmail:", err);
     res.status(500).json({ success: false, error: "Error enviando email: " + err.message });
   }
 }
@@ -1704,7 +1689,7 @@ export async function deleteFactura(req, res) {
 
     res.json({ success: true, message: "Factura eliminada" });
   } catch (err) {
-    console.error("❌ deleteFactura:", err);
+    console.error("Error deleteFactura:", err);
     res.status(500).json({ success: false, error: "Error eliminando factura" });
   }
 }
@@ -1767,7 +1752,7 @@ export async function convertirProformaANormal(req, res) {
       message: "Proforma convertida a factura normal. Ahora debes validarla para asignarle número oficial."
     });
   } catch (err) {
-    console.error("❌ convertirProformaANormal:", err);
+    console.error("Error convertirProformaANormal:", err);
     res.status(500).json({ success: false, error: "Error convirtiendo proforma" });
   }
 }

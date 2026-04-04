@@ -33,7 +33,6 @@ export const googleAuth = async (req, res) => {
     const nombre = payload.name || email.split("@")[0];
     const avatarUrl = payload.picture || null;
 
-    console.log(`🔵 Google Auth: ${email} (${googleId})`);
 
     // Check if user exists by google_id
     let userRows = await sql`
@@ -82,7 +81,6 @@ export const googleAuth = async (req, res) => {
         empresaId = empRows[0]?.empresa_id;
       }
 
-      console.log(`✅ Google Login: ${email} (existing user)`);
     } else {
       // ---- NEW USER → Solo via QR VIP ----
       const { vip_session_token, empresa_nombre_vip } = req.body;
@@ -164,7 +162,6 @@ export const googleAuth = async (req, res) => {
         WHERE id = ${vipSession.id}
       `;
 
-      console.log(`✅ Google VIP Signup: ${email} → empresa "${empresaNombre}" created`);
     }
 
     // Load modules
@@ -200,7 +197,6 @@ export const googleAuth = async (req, res) => {
     const user_agent = req.body.user_agent;
     const ipActual = req.ip;
 
-    console.log("DEBUG GOOGLE DEVICE:", { role: user.role, empleadoId, device_hash });
 
     if (empleadoId && device_hash) {
       const deviceRows = await sql`
@@ -238,7 +234,7 @@ export const googleAuth = async (req, res) => {
     if (user.role === "admin" && empresaId) {
       // No esperamos a que termine
       backupService.generateBackup(empresaId).catch(err => {
-        console.error("⚠️ Error en backup silencioso (Google Auth):", err.message);
+        console.error("Error en backup silencioso (Google Auth):", err.message);
       });
 
       // 🔒 Registro Veri*Factu: Inicio Sesión Google
@@ -284,7 +280,7 @@ export const googleAuth = async (req, res) => {
       is_new_user: isNewUser,
     });
   } catch (err) {
-    console.error("❌ googleAuth:", err);
+    console.error("Error googleAuth:", err);
     return res.status(500).json({ error: "Error con autenticación de Google" });
   }
 };
@@ -336,7 +332,7 @@ export const googleCompleteSetup = async (req, res) => {
 
     return res.json({ authUrl });
   } catch (err) {
-    console.error("❌ googleCompleteSetup:", err);
+    console.error("Error googleCompleteSetup:", err);
     return res.status(500).json({ error: "Error iniciando setup" });
   }
 };
@@ -412,7 +408,6 @@ export const handleUnifiedCallback = async (req, res) => {
           updated_at = now()
       `;
 
-      console.log(`✅ Complete setup: Calendar + Gmail configured for empresa ${empresaId}`);
     } else if (type === "calendar") {
       // Only Calendar
       await sql`
@@ -443,7 +438,7 @@ export const handleUnifiedCallback = async (req, res) => {
 
     return res.send(callbackHTML("success", "Servicios configurados correctamente"));
   } catch (err) {
-    console.error("❌ handleUnifiedCallback:", err);
+    console.error("Error handleUnifiedCallback:", err);
     return res.status(500).send(callbackHTML("error", err.message));
   }
 };

@@ -222,7 +222,7 @@ export async function getDashboardData(req, res) {
         });
 
     } catch (err) {
-        console.error("❌ getDashboardData:", err);
+        console.error("Error getDashboardData:", err);
         res.status(500).json({ success: false, error: "Error obteniendo datos del dashboard" });
     }
 }

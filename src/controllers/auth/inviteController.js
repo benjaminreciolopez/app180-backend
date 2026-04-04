@@ -13,7 +13,6 @@ export const inviteEmpleado = async (req, res) => {
     const { id: empleado_id } = req.params;
     const tipo = req.query.tipo || "nuevo"; // "nuevo" | "cambio"
 
-    console.log(`📧 Generando invitación para empleado ${empleado_id}, tipo: ${tipo}`);
 
     const rows = await sql`
       SELECT 
@@ -45,7 +44,6 @@ export const inviteEmpleado = async (req, res) => {
     `;
 
     if (invalidated.length > 0) {
-      console.log(`♻️ Invalidadas ${invalidated.length} invitaciones anteriores`);
     }
 
     // 2️⃣ Si es cambio → limpiar dispositivos
@@ -55,7 +53,6 @@ export const inviteEmpleado = async (req, res) => {
         WHERE empleado_id = ${empleado_id}
         RETURNING id
       `;
-      console.log(`🗑️ Eliminados ${deleted.length} dispositivos anteriores`);
     }
 
     // 3️⃣ Token y Código
@@ -87,9 +84,6 @@ export const inviteEmpleado = async (req, res) => {
 
     const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
 
-    console.log(`✅ Invitación generada para ${nombre} (${email})`);
-    console.log(`🔗 Enlace: ${link}`);
-    console.log(`⏰ Expira: ${invite[0].expires_at}`);
 
     // ✅ NO enviar email automáticamente
     // El admin decidirá cómo compartir el enlace (copiar, WhatsApp, email)
@@ -105,7 +99,7 @@ export const inviteEmpleado = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ inviteEmpleado", err);
+    console.error("Error inviteEmpleado:", err);
     return res.status(500).json({ error: "No se pudo generar la invitación" });
   }
 };
@@ -122,7 +116,6 @@ export const sendInviteEmail = async (req, res) => {
       return res.status(400).json({ error: "Falta token de invitación" });
     }
 
-    console.log(`📧 Enviando email de invitación para empleado ${empleado_id}`);
 
     // Verificar que el token existe y no ha sido usado
     // Y necesitamos la empresa para configurar el transporte de email correcto
@@ -167,7 +160,6 @@ export const sendInviteEmail = async (req, res) => {
       tipo,
     });
 
-    console.log(`📧 Preparando email para ${invite.email} con empresa_id: ${invite.empresa_id}`);
 
     // Enviar email usando la configuración de la empresa
     try {
@@ -178,9 +170,8 @@ export const sendInviteEmail = async (req, res) => {
         text: emailContent.text,
       }, invite.empresa_id);
 
-      console.log(`✅ Email enviado exitosamente a ${invite.email}`);
     } catch (emailErr) {
-      console.error(`❌ Error al enviar email a ${invite.email}:`, emailErr);
+      console.error(`Error sending email to ${invite.email}:`, emailErr);
       throw emailErr;
     }
 
@@ -190,7 +181,7 @@ export const sendInviteEmail = async (req, res) => {
       sentTo: invite.email,
     });
   } catch (err) {
-    console.error("❌ sendInviteEmail", err);
+    console.error("Error sendInviteEmail:", err);
     return res.status(500).json({ error: "Error al enviar email" });
   }
 };

@@ -12,16 +12,13 @@ async function getEmpresaId(userIdOrReq) {
 
 export async function listIVA(req, res) {
     try {
-        console.log("🔄 listIVA: Obteniendo user...", req.user.id);
         const empresaId = await getEmpresaId(req);
-        console.log("🏢 listIVA: EmpresaID:", empresaId);
 
         const ivas = await sql`
       select * from iva_180 
       where empresa_id=${empresaId} and activo=true
       order by porcentaje
     `;
-        console.log("✅ listIVA: Ivas encontrados:", ivas.length);
         res.json(ivas);
     } catch (err) {
         console.error(err);

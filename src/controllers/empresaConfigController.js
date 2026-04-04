@@ -90,7 +90,7 @@ export async function getEmpresaConfig(req, res) {
       tipo_contribuyente: rows[0]?.tipo_contribuyente || null,
     });
   } catch (err) {
-    console.error("❌ getEmpresaConfig:", err);
+    console.error("Error getEmpresaConfig:", err);
     res.status(500).json({ error: "Error obteniendo configuración" });
   }
 }
@@ -193,7 +193,7 @@ export async function updateEmpresaConfig(req, res) {
       modulos_mobile: safeMobile
     });
   } catch (err) {
-    console.error("❌ updateEmpresaConfig:", err);
+    console.error("Error updateEmpresaConfig:", err);
     res.status(500).json({ error: "Error guardando configuración" });
   }
 }
@@ -232,11 +232,10 @@ export async function getDashboardWidgets(req, res) {
     widgets = parseWidgets(widgets);
     widgets_mobile = parseWidgets(widgets_mobile);
 
-    console.log(`📊 [getDashboardWidgets] Empresa: ${empresaId}, Desktop: ${widgets.length}, Mobile: ${widgets_mobile.length}`);
 
     return res.json({ widgets, widgets_mobile });
   } catch (err) {
-    console.error("❌ getDashboardWidgets:", err);
+    console.error("Error getDashboardWidgets:", err);
     res.status(500).json({ error: "Error obteniendo widgets" });
   }
 }
@@ -282,10 +281,9 @@ export async function updateDashboardWidgets(req, res) {
       `;
     }
 
-    console.log(`✅ Widgets guardados para empresa: ${empresaId}`);
     return res.json({ success: true });
   } catch (err) {
-    console.error("❌ updateDashboardWidgets:", err);
+    console.error("Error updateDashboardWidgets:", err);
     res.status(500).json({ error: "Error guardando widgets" });
   }
 }
@@ -304,7 +302,7 @@ export async function getTiposBloque(req, res) {
 
     return res.json(row?.tipos_bloque || DEFAULT_TIPOS_BLOQUE);
   } catch (err) {
-    console.error("❌ getTiposBloque:", err);
+    console.error("Error getTiposBloque:", err);
     res.status(500).json({ error: "Error obteniendo tipos de bloque" });
   }
 }
@@ -363,7 +361,7 @@ export async function updateTiposBloque(req, res) {
 
     return res.json({ success: true, tipos_bloque: safe });
   } catch (err) {
-    console.error("❌ updateTiposBloque:", err);
+    console.error("Error updateTiposBloque:", err);
     res.status(500).json({ error: "Error guardando tipos de bloque" });
   }
 }

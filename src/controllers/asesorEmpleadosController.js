@@ -73,7 +73,7 @@ export async function getClientesConEmpleados(req, res) {
 
     res.json({ data: { clientes: result } });
   } catch (err) {
-    console.error("❌ getClientesConEmpleados:", err);
+    console.error("Error getClientesConEmpleados:", err);
     res.status(500).json({ error: "Error al cargar clientes" });
   }
 }
@@ -121,7 +121,7 @@ export async function getEmpleados(req, res) {
 
     res.json({ data: empleados });
   } catch (err) {
-    console.error("❌ getEmpleados:", err);
+    console.error("Error getEmpleados:", err);
     res.status(500).json({ error: "Error al cargar empleados" });
   }
 }
@@ -152,7 +152,7 @@ export async function getEmpleadoDetalle(req, res) {
 
     res.json({ data: emp });
   } catch (err) {
-    console.error("❌ getEmpleadoDetalle:", err);
+    console.error("Error getEmpleadoDetalle:", err);
     res.status(500).json({ error: "Error al cargar empleado" });
   }
 }
@@ -218,7 +218,7 @@ export async function updateEmpleado(req, res) {
 
     res.json({ success: true, data: updated });
   } catch (err) {
-    console.error("❌ updateEmpleado:", err);
+    console.error("Error updateEmpleado:", err);
     res.status(500).json({ error: "Error al actualizar empleado" });
   }
 }
@@ -299,7 +299,7 @@ export async function createEmpleado(req, res) {
       password_inicial: PASSWORD_INICIAL,
     });
   } catch (err) {
-    console.error("❌ createEmpleado:", err);
+    console.error("Error createEmpleado:", err);
     res.status(500).json({ error: "Error al crear empleado" });
   }
 }
@@ -327,7 +327,7 @@ export async function toggleEmpleadoStatus(req, res) {
 
     res.json({ success: true, data: updated });
   } catch (err) {
-    console.error("❌ toggleEmpleadoStatus:", err);
+    console.error("Error toggleEmpleadoStatus:", err);
     res.status(500).json({ error: "Error al cambiar estado" });
   }
 }

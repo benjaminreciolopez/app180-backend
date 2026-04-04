@@ -138,7 +138,7 @@ export const getEstadoFichaje = async (req, res) => {
           },
     });
   } catch (err) {
-    console.error("❌ Error en getEstadoFichaje:", err);
+    console.error("Error getEstadoFichaje:", err);
     return res
       .status(500)
       .json({ error: "Error al obtener estado del fichaje" });

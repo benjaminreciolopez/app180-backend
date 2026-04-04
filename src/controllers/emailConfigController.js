@@ -40,7 +40,7 @@ export async function getConfig(req, res) {
       smtp_user: config.smtp_user
     });
   } catch (err) {
-    console.error("❌ Error getting email config:", err);
+    console.error("Error getting email config:", err.message);
     res.status(500).json({ error: "Error al obtener configuración" });
   }
 }
@@ -78,12 +78,9 @@ export async function startOAuth2(req, res) {
       prompt: 'consent' // Force to get refresh_token
     });
 
-    console.log('🔗 Generated auth URL redirect_uri:', process.env.GOOGLE_REDIRECT_URI);
-    console.log('🔗 Full auth URL:', authUrl);
-
     res.json({ authUrl });
   } catch (err) {
-    console.error("❌ Error starting OAuth2:", err);
+    console.error("Error starting OAuth2:", err.message);
     res.status(500).json({ error: "Error al iniciar autenticación" });
   }
 }
@@ -93,55 +90,28 @@ export async function startOAuth2(req, res) {
  * OAuth2 callback from Google
  */
 export async function handleGoogleCallback(req, res) {
-  // Log IMMEDIATELY to see if function is even called
-  console.log('🔵🔵🔵 CALLBACK FUNCTION CALLED 🔵🔵🔵');
-  console.log('📍 Request URL:', req.url);
-  console.log('📍 Request method:', req.method);
-  console.log('📍 Request headers:', JSON.stringify(req.headers, null, 2));
-  
   try {
-    console.log('🔵 OAuth callback received');
     const { code, state, error } = req.query;
 
-    console.log('📋 Query params:', { hasCode: !!code, hasState: !!state, error });
-
     if (error) {
-      console.log('❌ OAuth error from Google:', error);
       return res.redirect(`/admin/perfil?oauth_error=${encodeURIComponent(error)}`);
     }
 
     if (!code || !state) {
-      console.log('❌ Missing code or state');
       return res.status(400).send('Missing code or state');
     }
 
-    // Decode state to get user ID
-    console.log('🔓 Decoding state...');
     const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
-    console.log('✅ User ID from state:', userId);
 
-    // Get empresa ID from user ID
-    console.log('🔍 Looking up empresa for user:', userId);
     const empresa = await sql`
       SELECT id FROM empresa_180 WHERE user_id = ${userId}
     `;
 
     if (empresa.length === 0) {
-      console.log('❌ No empresa found for user:', userId);
       return res.status(403).send('Unauthorized');
     }
 
     const empresaId = empresa[0].id;
-    console.log('✅ Empresa ID:', empresaId);
-
-    // Exchange code for tokens
-    console.log('🔄 Exchanging code for tokens...');
-    console.log('📌 Environment check:', {
-      hasClientId: !!process.env.GOOGLE_CLIENT_ID,
-      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-      hasRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
-      redirectUri: process.env.GOOGLE_REDIRECT_URI
-    });
 
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
@@ -150,38 +120,22 @@ export async function handleGoogleCallback(req, res) {
     );
 
     const { tokens } = await oauth2Client.getToken(code);
-    console.log('✅ Tokens received:', { 
-      hasAccessToken: !!tokens.access_token,
-      hasRefreshToken: !!tokens.refresh_token 
-    });
-    
+
     if (!tokens.refresh_token) {
-      console.log('❌ No refresh token received');
       return res.redirect('/admin/perfil?oauth_error=no_refresh_token');
     }
 
-    // Get user email from Google
-    console.log('📧 Getting user email from OAuth2 API...');
     oauth2Client.setCredentials(tokens);
-    
+
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const userInfo = await oauth2.userinfo.get();
     const email = userInfo.data.email;
-    console.log('✅ Email obtained:', email);
 
-    // Save configuration
-    console.log('💾 Saving OAuth2 config...');
-    console.log('🔑 Refresh token from Google:', {
-      length: tokens.refresh_token?.length,
-      preview: tokens.refresh_token?.substring(0, 20) + '...'
-    });
-    
     await saveOAuth2Config(empresaId, {
       provider: 'gmail',
       email: email,
       refreshToken: tokens.refresh_token
     });
-    console.log('✅ Config saved successfully');
 
     // Redirect to success page
     res.send(`
@@ -253,13 +207,7 @@ export async function handleGoogleCallback(req, res) {
       </html>
     `);
   } catch (err) {
-    console.error("❌ Error in Google callback:", err);
-    console.error("❌ Error stack:", err.stack);
-    console.error("❌ Error details:", {
-      message: err.message,
-      name: err.name,
-      code: err.code
-    });
+    console.error("Error in Google OAuth callback:", err.message);
     
     res.status(500).send(`
       <!DOCTYPE html>
@@ -326,7 +274,7 @@ export async function disconnectOAuth2Handler(req, res) {
 
     res.json({ success: true, message: "Gmail desconectado correctamente" });
   } catch (err) {
-    console.error("❌ Error disconnecting OAuth2:", err);
+    console.error("Error disconnecting OAuth2:", err.message);
     res.status(500).json({ error: "Error al desconectar Gmail" });
   }
 }
@@ -336,7 +284,6 @@ export async function disconnectOAuth2Handler(req, res) {
  * Send test email
  */
 export async function sendTestEmail(req, res) {
-  console.log('🏁 sendTestEmail CONTROLLER START');
   try {
     const empresaId = await resolveEmpresaId(req);
     if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
@@ -356,9 +303,6 @@ export async function sendTestEmail(req, res) {
       const config = await getEmailConfig(empresaId);
       
       if (config && config.modo === 'oauth2' && config.oauth2_refresh_token) {
-        console.log('🔍 Verifying OAuth2 token manually...');
-        
-        // DECRYPT TOKEN
         const decryptedToken = decrypt(config.oauth2_refresh_token);
 
         const oauth2Client = new google.auth.OAuth2(
@@ -366,43 +310,26 @@ export async function sendTestEmail(req, res) {
           process.env.GOOGLE_CLIENT_SECRET,
           process.env.GOOGLE_REDIRECT_URI
         );
-        
+
         oauth2Client.setCredentials({
           refresh_token: decryptedToken
         });
 
-        // Attempt to get access token explicitly
         const { token } = await oauth2Client.getAccessToken();
-        console.log('✅ Manual token refresh SUCCESS. Access token generated.');
-        console.log('🔑 Access Token Preview:', token?.substring(0, 10) + '...');
-        
-        // CHECK SCOPES
+
         const tokenInfo = await oauth2Client.getTokenInfo(token);
-        console.log('🛡️ Token Scopes:', tokenInfo.scopes);
-        
-        if (!tokenInfo.scopes.includes('https://www.googleapis.com/auth/gmail.send') && 
+
+        if (!tokenInfo.scopes.includes('https://www.googleapis.com/auth/gmail.send') &&
             !tokenInfo.scopes.includes('https://mail.google.com/')) {
-           console.error('❌ CRITICAL: Missing gmail.send OR mail.google.com scope! User likely unchecked the permission box.');
            throw new Error('Permisos insuficientes. Por favor desconecta y vuelve a conectar, asegurándote de MARCAR todas las casillas de permisos.');
         }
 
-        if (tokenInfo.email) {
-            console.log('📧 Token corresponds to email:', tokenInfo.email);
-            // Verify if it matches stored email (optional, but good for debug)
-            if (tokenInfo.email !== config.oauth2_email) {
-                console.warn(`⚠️ WARNING: Token email (${tokenInfo.email}) differs from stored config email (${config.oauth2_email})`);
-            }
-        }
-
-        manualAccessToken = token; // Store for use in sendEmail
+        manualAccessToken = token;
       } else if (config && config.modo === 'oauth2' && !config.oauth2_refresh_token) {
-        console.error('❌ Config is OAuth2 but NO refresh token found in DB!');
+        console.error('OAuth2 configured but no refresh token in DB');
       }
     } catch (tokenErr) {
-      console.error('❌ Manual token refresh/verification FAILED:', tokenErr.message);
-      if (tokenErr.response) {
-        console.error('❌ API Error Response:', JSON.stringify(tokenErr.response.data, null, 2));
-      }
+      console.error('Token refresh failed:', tokenErr.message);
       return res.status(500).json({ 
         error: `Error de verificación: ${tokenErr.message}` 
       });
@@ -431,7 +358,7 @@ export async function sendTestEmail(req, res) {
       message: `Email de prueba enviado a ${userEmail}` 
     });
   } catch (err) {
-    console.error("❌ Error sending test email:", err);
+    console.error("Error sending test email:", err.message);
     res.status(500).json({ 
       error: err.message || "Error al enviar email de prueba" 
     });

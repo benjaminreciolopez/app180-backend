@@ -79,7 +79,7 @@ export const createEmployee = async (req, res) => {
       password_inicial: PASSWORD_INICIAL,
     });
   } catch (err) {
-    console.error("❌ createEmployee:", err);
+    console.error("Error createEmployee:", err);
     return res.status(500).json({ error: "Error al crear empleado" });
   }
 };
@@ -147,7 +147,7 @@ export const getEmployeesAdmin = async (req, res) => {
 
     res.json(empleados);
   } catch (err) {
-    console.error("❌ Error listando empleados:", err);
+    console.error("Error listando empleados:", err);
     res.status(500).json({ error: "Error obteniendo empleados" });
   }
 };
@@ -174,7 +174,7 @@ export const updateEmployeeStatus = async (req, res) => {
 
     res.json(empleado[0]);
   } catch (err) {
-    console.error("❌ Error en updateEmployeeStatus:", err);
+    console.error("Error updateEmployeeStatus:", err);
     res.status(500).json({ error: "Error al actualizar estado del empleado" });
   }
 };
@@ -320,7 +320,7 @@ export const empleadoDashboard = async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error("❌ empleadoDashboard:", err);
+    console.error("Error empleadoDashboard:", err);
     return res.status(500).json({ error: "Error cargando dashboard empleado" });
   }
 };
@@ -377,7 +377,7 @@ export const updateEmployee = async (req, res) => {
 
     res.json({ success: true, empleado: updated[0] });
   } catch (err) {
-    console.error("❌ Error en updateEmployee:", err);
+    console.error("Error updateEmployee:", err);
     res.status(500).json({ error: "Error al actualizar empleado" });
   }
 };
@@ -413,7 +413,7 @@ export const uploadEmployeePhoto = async (req, res) => {
 
     return res.json({ success: true, foto_url: publicUrl });
   } catch (err) {
-    console.error("❌ Error en uploadEmployeePhoto:", err);
+    console.error("Error uploadEmployeePhoto:", err);
     return res.status(500).json({ error: "Error al subir foto" });
   }
 };

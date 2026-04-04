@@ -30,7 +30,7 @@ export const verificarIntegridad = async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("❌ Error verificando integridad:", err);
+    console.error("Error verificando integridad:", err);
     res.status(500).json({ error: "Error al verificar integridad" });
   }
 };
@@ -47,7 +47,7 @@ export const estadisticasIntegridad = async (req, res) => {
     const stats = await obtenerEstadisticasCadena(empresaId);
     res.json(stats);
   } catch (err) {
-    console.error("❌ Error estadísticas integridad:", err);
+    console.error("Error estadísticas integridad:", err);
     res.status(500).json({ error: "Error al obtener estadísticas" });
   }
 };
@@ -73,7 +73,7 @@ export const regenerarHashes = async (req, res) => {
       empleados: resultado.empleados,
     });
   } catch (err) {
-    console.error("❌ Error regenerando hashes:", err);
+    console.error("Error regenerando hashes:", err);
     res.status(500).json({ error: "Error al regenerar hashes" });
   }
 };

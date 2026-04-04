@@ -78,7 +78,7 @@ export const enviarNomina = async (req, res) => {
         `,
       }, empresaId);
     } catch (emailErr) {
-      console.warn("⚠️ Email de nómina no enviado:", emailErr.message);
+      console.warn("Email de nómina no enviado:", emailErr.message);
     }
 
     // Notificación al empleado
@@ -94,7 +94,7 @@ export const enviarNomina = async (req, res) => {
 
     return res.json({ success: true, entrega });
   } catch (err) {
-    console.error("❌ Error enviarNomina:", err);
+    console.error("Error enviarNomina:", err);
     return res.status(500).json({ error: "Error al enviar nómina" });
   }
 };
@@ -156,7 +156,7 @@ export const enviarNominasLote = async (req, res) => {
 
     return res.json({ success: true, enviadas, errores, detalle });
   } catch (err) {
-    console.error("❌ Error enviarNominasLote:", err);
+    console.error("Error enviarNominasLote:", err);
     return res.status(500).json({ error: "Error al enviar nóminas en lote" });
   }
 };
@@ -187,7 +187,7 @@ export const listarEntregas = async (req, res) => {
 
     return res.json({ success: true, data: entregas, total: entregas.length });
   } catch (err) {
-    console.error("❌ Error listarEntregas:", err);
+    console.error("Error listarEntregas:", err);
     return res.status(500).json({ error: "Error al listar entregas" });
   }
 };
@@ -243,7 +243,7 @@ export const confirmarRecepcion = async (req, res) => {
 
     return res.json({ success: true, entrega: updated[0] });
   } catch (err) {
-    console.error("❌ Error confirmarRecepcion:", err);
+    console.error("Error confirmarRecepcion:", err);
     return res.status(500).json({ error: "Error al confirmar recepción" });
   }
 };
@@ -313,7 +313,7 @@ export const firmarNomina = async (req, res) => {
 
     return res.json({ success: true, entrega: updated[0], hash_firma: hashFirma });
   } catch (err) {
-    console.error("❌ Error firmarNomina:", err);
+    console.error("Error firmarNomina:", err);
     return res.status(500).json({ error: "Error al firmar nómina" });
   }
 };
@@ -355,11 +355,11 @@ export const descargarNominaPDF = async (req, res) => {
       res.setHeader("Content-Disposition", `attachment; filename="nomina-${nomina.anio}-${String(nomina.mes).padStart(2, "0")}.pdf"`);
       return res.send(buffer);
     } catch (storageErr) {
-      console.error("⚠️ Error descargando PDF de storage:", storageErr);
+      console.error("Error descargando PDF de storage:", storageErr);
       return res.status(500).json({ error: "Error al descargar PDF" });
     }
   } catch (err) {
-    console.error("❌ Error descargarNominaPDF:", err);
+    console.error("Error descargarNominaPDF:", err);
     return res.status(500).json({ error: "Error al descargar nómina" });
   }
 };

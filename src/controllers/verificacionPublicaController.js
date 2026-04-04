@@ -45,7 +45,7 @@ export const verificarCSV = async (req, res) => {
       ...resultado,
     });
   } catch (err) {
-    console.error("❌ Error en verificarCSV:", err);
+    console.error("Error verificarCSV:", err);
     res.status(500).json({ error: "Error al verificar código CSV" });
   }
 };

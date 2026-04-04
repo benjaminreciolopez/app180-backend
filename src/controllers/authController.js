@@ -83,7 +83,7 @@ export const registerFirstAdmin = async (req, res) => {
 
     return res.json({ success: true });
   } catch (e) {
-    console.error("❌ registerFirstAdmin", e);
+    console.error("Error registerFirstAdmin:", e);
 
     return res.status(500).json({
       error: "Error inicializando sistema",
@@ -219,7 +219,7 @@ export const register = async (req, res) => {
       is_new_user: true,
     });
   } catch (err) {
-    console.error("❌ Error en register:", err);
+    console.error("Error register:", err);
     return res.status(500).json({ error: "Error al crear la cuenta" });
   }
 };
@@ -249,7 +249,7 @@ export const getDeviceHash = async (req, res) => {
 
     return res.json({ device_hash: rows[0].device_hash });
   } catch (e) {
-    console.error("❌ getDeviceHash", e);
+    console.error("Error getDeviceHash:", e);
     return res.status(500).json({ error: "Error obteniendo device hash" });
   }
 };
@@ -265,16 +265,12 @@ export const login = async (req, res) => {
       SELECT COUNT(*)::int AS total
       FROM empresa_180
     `;
-    console.log("BOOTSTRAP COUNT:", init[0].total);
-
     if (init[0].total === 0) {
       return res.status(409).json({
         error: "Sistema no inicializado",
         code: "BOOTSTRAP_REQUIRED",
       });
     }
-
-    console.log("LOGIN desde frontend", req.body);
 
     const { email, password, device_hash, user_agent } = req.body || {};
 
@@ -325,7 +321,7 @@ export const login = async (req, res) => {
       // 🔄 TRIGGER BACKUP SILENCIOSO (Admin)
       // No usamos await para no bloquear el login
       backupService.generateBackup(empresaId).catch(err => {
-        console.error("⚠️ Error en backup silencioso post-login:", err.message);
+        console.error("Error backup post-login:", err.message);
       });
 
       // 🔒 Registro Veri*Factu: Inicio Sesión Admin
@@ -589,7 +585,7 @@ export const login = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error en login:", err);
+    console.error("Error login:", err);
     return res.status(500).json({ error: "Error al iniciar sesión" });
   }
 };
@@ -637,7 +633,7 @@ export const activateInstall = async (req, res) => {
       }
 
       // Si el dispositivo no está activo o no existe, permitir reinstalar
-      console.log("⚠️ Token usado pero dispositivo inactivo, permitiendo reinstalación");
+      // Token usado pero dispositivo inactivo - permitir reinstalación
     }
 
     // ⏳ caducada
@@ -722,7 +718,7 @@ export const activateInstall = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error en activateInstall:", err);
+    console.error("Error activateInstall:", err);
     return res.status(500).json({ error: "Error al activar instalación" });
   }
 };
@@ -804,7 +800,7 @@ export const changePassword = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error en changePassword:", err);
+    console.error("Error changePassword:", err);
     return res.status(500).json({ error: "Error al cambiar la contraseña" });
   }
 };
@@ -814,7 +810,7 @@ export const autorizarCambioDispositivo = async (req, res) => {
     const adminUserId = req.user.id;
     const { empleado_id } = req.params;
 
-    console.log(`🔄 Autorizando cambio de dispositivo para empleado ${empleado_id}`);
+    // Autorizar cambio de dispositivo
 
     const rows = await sql`
       SELECT 
@@ -845,9 +841,7 @@ export const autorizarCambioDispositivo = async (req, res) => {
       RETURNING id
     `;
 
-    if (invalidated.length > 0) {
-      console.log(`♻️ Invalidadas ${invalidated.length} invitaciones anteriores`);
-    }
+    // Invitaciones anteriores invalidadas si las hay
 
     // 2️⃣ generar token
     const token = crypto.randomBytes(24).toString("hex");
@@ -875,11 +869,7 @@ export const autorizarCambioDispositivo = async (req, res) => {
 
     const link = `${process.env.FRONTEND_URL}/empleado/instalar?token=${token}`;
 
-    console.log(`✅ Cambio de dispositivo autorizado para ${nombre} (${email})`);
-    console.log(`🔗 Enlace: ${link}`);
-    console.log(`⏰ Expira: ${invite[0].expires_at}`);
-
-    // ✅ NO enviar email automáticamente
+    // NO enviar email automáticamente
     // El admin decidirá cómo compartir el enlace
 
     return res.json({
@@ -893,7 +883,7 @@ export const autorizarCambioDispositivo = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ autorizarCambioDispositivo", err);
+    console.error("Error autorizarCambioDispositivo:", err);
     return res
       .status(500)
       .json({ error: "Error autorizando cambio de dispositivo" });
@@ -1007,7 +997,7 @@ export const getMe = async (req, res) => {
       es_fabricante: esFabricante,
     });
   } catch (err) {
-    console.error("❌ getMe:", err);
+    console.error("Error getMe:", err);
     res.status(500).json({ error: "Error obteniendo sesión" });
   }
 };
@@ -1053,7 +1043,7 @@ export const getMeModules = async (req, res) => {
     return res.json(globalModules);
 
   } catch (err) {
-    console.error("❌ getMeModules:", err);
+    console.error("Error getMeModules:", err);
     return res.status(500).json({ error: "Error obteniendo módulos" });
   }
 };
@@ -1081,7 +1071,7 @@ export const sendVerificationCode = async (req, res) => {
     const result = await sendRegistrationOTP(normalizedEmail);
     return res.json(result);
   } catch (err) {
-    console.error("❌ sendVerificationCode:", err);
+    console.error("Error sendVerificationCode:", err);
     return res.status(429).json({ error: err.message || "Error enviando codigo" });
   }
 };
@@ -1102,7 +1092,7 @@ export const verifyCode = async (req, res) => {
 
     return res.json({ verified: true });
   } catch (err) {
-    console.error("❌ verifyCode:", err);
+    console.error("Error verifyCode:", err);
     return res.status(429).json({ error: err.message || "Error verificando codigo" });
   }
 };

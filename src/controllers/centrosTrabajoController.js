@@ -38,7 +38,7 @@ export async function listarCentros(req, res) {
 
     res.json(rows);
   } catch (err) {
-    console.error("❌ Error listarCentros:", err);
+    console.error("Error listarCentros:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -55,7 +55,7 @@ export async function getCentroDetalle(req, res) {
     if (!centro) return res.status(404).json({ error: "Centro no encontrado" });
     res.json(centro);
   } catch (err) {
-    console.error("❌ Error getCentroDetalle:", err);
+    console.error("Error getCentroDetalle:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -98,7 +98,7 @@ export async function crearCentro(req, res) {
 
     res.status(201).json(centro);
   } catch (err) {
-    console.error("❌ Error crearCentro:", err);
+    console.error("Error crearCentro:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -150,7 +150,7 @@ export async function actualizarCentro(req, res) {
     if (!updated) return res.status(404).json({ error: "Centro no encontrado" });
     res.json(updated);
   } catch (err) {
-    console.error("❌ Error actualizarCentro:", err);
+    console.error("Error actualizarCentro:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -169,7 +169,7 @@ export async function desactivarCentro(req, res) {
     if (!updated) return res.status(404).json({ error: "Centro no encontrado" });
     res.json(updated);
   } catch (err) {
-    console.error("❌ Error desactivarCentro:", err);
+    console.error("Error desactivarCentro:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -223,7 +223,7 @@ export async function asignarCentroEmpleado(req, res) {
 
     res.json({ ok: true, message: "Centro de trabajo asignado" });
   } catch (err) {
-    console.error("❌ Error asignarCentroEmpleado:", err);
+    console.error("Error asignarCentroEmpleado:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -246,7 +246,7 @@ export async function desasignarCentroEmpleado(req, res) {
 
     res.json({ ok: true, message: "Centro de trabajo desasignado" });
   } catch (err) {
-    console.error("❌ Error desasignarCentroEmpleado:", err);
+    console.error("Error desasignarCentroEmpleado:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -272,7 +272,7 @@ export async function listarEmpleadosCentro(req, res) {
 
     res.json(empleados);
   } catch (err) {
-    console.error("❌ Error listarEmpleadosCentro:", err);
+    console.error("Error listarEmpleadosCentro:", err);
     res.status(err.status || 500).json({ error: err.message });
   }
 }

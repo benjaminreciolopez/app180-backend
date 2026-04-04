@@ -621,7 +621,6 @@ export const asignarPlantillaEmpleado = async (req, res) => {
     const inicioStr = normDateOrNull(fecha_inicio);
     const fin = normDateOrNull(fecha_fin);
 
-    console.log("[DEBUG] Asignar:", { empleado_id, plantilla_id, inicioStr, fin });
 
     if (!plantilla_id) {
       return res.status(400).json({ error: "Falta plantilla_id" });

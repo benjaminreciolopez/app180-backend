@@ -86,7 +86,7 @@ export const getCalendarioHoyEmpleado = async (req, res) => {
       detalle: null,
     });
   } catch (err) {
-    console.error("❌ empleado calendario hoy:", err);
+    console.error("Error empleado calendario hoy:", err);
     res.status(500).json({ error: "Error calendario empleado" });
   }
 };
@@ -236,7 +236,7 @@ export const getCalendarioEmpleadoRango = async (req, res) => {
 
     res.json(eventos);
   } catch (err) {
-    console.error("❌ calendario empleado integrado:", err);
+    console.error("Error calendario empleado integrado:", err);
     res.status(500).json({ error: "Error calendario empleado" });
   }
 };

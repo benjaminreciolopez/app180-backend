@@ -99,7 +99,7 @@ export const syncOfflineFichajes = async (req, res) => {
               UPDATE fichajes_180 SET foto_verificacion_url = ${photoUrl} WHERE id = ${fichajeResult.id}
             `;
           } catch (photoErr) {
-            console.error("⚠️ Error guardando foto offline (no bloqueante):", photoErr.message);
+            console.error("Error guardando foto offline (no bloqueante):", photoErr.message);
           }
         }
 
@@ -154,7 +154,7 @@ export const syncOfflineFichajes = async (req, res) => {
       errores: errores.length > 0 ? errores : undefined,
     });
   } catch (err) {
-    console.error("❌ Error en syncOfflineFichajes:", err);
+    console.error("Error syncOfflineFichajes:", err);
     return res.status(500).json({ error: "Error al sincronizar fichajes offline" });
   }
 };

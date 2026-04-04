@@ -45,10 +45,8 @@ export async function crearWorkLog(req, res) {
       parte_config_id,
     } = req.body;
 
-    console.log("📝 crearWorkLog Payload:", JSON.stringify(req.body));
 
     if (!descripcion || descripcion.trim().length < 2) {
-      console.log("❌ Error description length");
       return res.status(400).json({ error: "La descripción es obligatoria" });
     }
 
@@ -136,12 +134,10 @@ export async function crearWorkLog(req, res) {
 
     // Si es valorado sin precio fijo, minutos puede ser 0
     if (tipo_facturacion !== 'valorado' && minutosN <= 0) {
-      console.log("❌ Error duracion invalida:", minutosN, tipo_facturacion);
       return res.status(400).json({ error: "Duración inválida" });
     }
 
     if (fecha && isNaN(new Date(fecha).getTime())) {
-      console.log("❌ Error fecha invalida");
       return res.status(400).json({ error: "Fecha no válida" });
     }
 
@@ -243,12 +239,12 @@ export async function crearWorkLog(req, res) {
         fecha: fechaFinal
       });
     } catch (e) {
-      console.error("❌ Error syncDailyReport en crearWorkLog:", e);
+      console.error("Error syncDailyReport en crearWorkLog:", e);
     }
 
     return res.json(rows[0]);
   } catch (err) {
-    console.error("❌ crearWorkLog:", err);
+    console.error("Error crearWorkLog:", err);
     return res.status(500).json({ error: "Error creando work log: " + err.message });
   }
 }
@@ -328,7 +324,7 @@ export async function misWorkLogs(req, res) {
 
     return res.json(rows);
   } catch (err) {
-    console.error("❌ misWorkLogs:", err);
+    console.error("Error misWorkLogs:", err);
     return res.status(500).json({ error: "Error obteniendo trabajos" });
   }
 }
@@ -389,7 +385,7 @@ export async function adminWorkLogs(req, res) {
 
     return res.json({ desde, hasta, items: rows });
   } catch (err) {
-    console.error("❌ adminWorkLogs:", err);
+    console.error("Error adminWorkLogs:", err);
     return res.status(500).json({ error: "Error obteniendo trabajos (admin)" });
   }
 }
@@ -444,7 +440,7 @@ export async function adminWorkLogsResumen(req, res) {
 
     return res.json({ desde, hasta, porCliente, porEmpleado });
   } catch (err) {
-    console.error("❌ adminWorkLogsResumen:", err);
+    console.error("Error adminWorkLogsResumen:", err);
     return res.status(500).json({ error: "Error obteniendo resumen" });
   }
 }
@@ -576,12 +572,12 @@ export async function actualizarWorkLog(req, res) {
         fecha: updated.fecha
       });
     } catch (e) {
-      console.error("❌ Error syncDailyReport en actualizarWorkLog:", e);
+      console.error("Error syncDailyReport en actualizarWorkLog:", e);
     }
 
     res.json(updated);
   } catch (err) {
-    console.error("❌ actualizarWorkLog:", err);
+    console.error("Error actualizarWorkLog:", err);
     res.status(500).json({ error: "Error actualizando trabajo: " + err.message });
   }
 }
@@ -612,7 +608,7 @@ export async function eliminarWorkLog(req, res) {
     await sql`DELETE FROM work_logs_180 WHERE id = ${id}`;
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ eliminarWorkLog:", err);
+    console.error("Error eliminarWorkLog:", err);
     res.status(500).json({ error: "Error eliminando trabajo" });
   }
 }
@@ -665,12 +661,12 @@ export async function clonarWorkLog(req, res) {
         });
       }
     } catch (e) {
-      console.error("❌ Error syncDailyReport en clonarWorkLog:", e);
+      console.error("Error syncDailyReport en clonarWorkLog:", e);
     }
 
     res.json({ cloned: results.length, items: results });
   } catch (err) {
-    console.error("❌ clonarWorkLog:", err);
+    console.error("Error clonarWorkLog:", err);
     res.status(500).json({ error: "Error clonando trabajo" });
   }
 }
@@ -691,7 +687,7 @@ export async function getTemplates(req, res) {
     `;
     res.json(items);
   } catch (err) {
-    console.error("❌ getTemplates:", err);
+    console.error("Error getTemplates:", err);
     res.status(500).json({ error: "Error obteniendo plantillas" });
   }
 }
@@ -763,7 +759,7 @@ export async function getSuggestions(req, res) {
       recent: suggestions.filter(s => s.origen === 'log')
     });
   } catch (err) {
-    console.error("❌ getSuggestions:", err);
+    console.error("Error getSuggestions:", err);
     res.status(500).json({ error: "Error obteniendo sugerencias" });
   }
 }

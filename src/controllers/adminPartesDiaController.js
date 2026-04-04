@@ -57,7 +57,7 @@ export async function getPartesDia(req, res) {
 
     res.json({ items });
   } catch (error) {
-    console.error("❌ Error en getPartesDia:", error);
+    console.error("Error getPartesDia:", error);
     res.status(500).json({ error: "Error obteniendo partes del día" });
   }
 }
@@ -112,7 +112,7 @@ export async function validarPartesMasivo(req, res) {
 
     res.json({ success: true, count: seleccionados.length });
   } catch (error) {
-    console.error("❌ Error en validarPartesMasivo:", error);
+    console.error("Error validarPartesMasivo:", error);
     res.status(500).json({ error: "Error en la validación masiva" });
   }
 }

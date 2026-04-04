@@ -205,12 +205,12 @@ export const subirAdjuntoEmpleado = async (req, res) => {
           accionLabel: "Ver documentos",
         });
       }
-    } catch (notifErr) { console.warn("⚠️ Notificación adjunto no enviada:", notifErr.message); }
+    } catch (notifErr) { console.warn("Notificación adjunto no enviada:", notifErr.message); }
 
     res.set("Cache-Control", "no-store");
     return res.json({ success: true, adjunto: rows[0] });
   } catch (err) {
-    console.error("❌ subirAdjuntoEmpleado:", err);
+    console.error("Error subirAdjuntoEmpleado:", err);
     return res.status(500).json({ error: "Error subiendo adjunto" });
   }
 };
@@ -239,7 +239,7 @@ export const listarAdjuntosEmpleado = async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json(data);
   } catch (err) {
-    console.error("❌ listarAdjuntosEmpleado:", err);
+    console.error("Error listarAdjuntosEmpleado:", err);
     return res.status(500).json({ error: "Error listando adjuntos" });
   }
 };
@@ -262,7 +262,7 @@ export const descargarAdjunto = async (req, res) => {
     // fuerza descarga (modal tendrá botón descargar)
     return res.download(filePath, row.filename || "adjunto");
   } catch (err) {
-    console.error("❌ descargarAdjunto:", err);
+    console.error("Error descargarAdjunto:", err);
     return res.status(500).json({ error: "Error descargando adjunto" });
   }
 };
@@ -294,7 +294,7 @@ export const borrarAdjunto = async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json({ success: true });
   } catch (err) {
-    console.error("❌ borrarAdjunto:", err);
+    console.error("Error borrarAdjunto:", err);
     return res.status(500).json({ error: "Error borrando adjunto" });
   }
 };
@@ -322,7 +322,7 @@ export const listarAdjuntosAdmin = async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json(data);
   } catch (err) {
-    console.error("❌ listarAdjuntosAdmin:", err);
+    console.error("Error listarAdjuntosAdmin:", err);
     return res.status(500).json({ error: "Error listando adjuntos" });
   }
 };

@@ -40,14 +40,14 @@ export async function descargarRegistros(req, res) {
     archive.pipe(res);
 
     archive.on('error', (err) => {
-      console.error('❌ Error al generar ZIP:', err);
+      console.error('Error al generar ZIP:', err);
       if (!res.headersSent) {
         res.status(500).json({ error: 'Error al generar archivo de exportación' });
       }
     });
 
   } catch (error) {
-    console.error('❌ Error al exportar registros:', error);
+    console.error('Error al exportar registros:', error);
     res.status(500).json({ error: error.message });
   }
 }
@@ -68,7 +68,7 @@ export async function obtenerInformeCumplimiento(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Error al generar informe:', error);
+    console.error('Error al generar informe:', error);
     res.status(500).json({ error: error.message });
   }
 }

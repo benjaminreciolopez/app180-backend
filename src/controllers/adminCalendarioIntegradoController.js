@@ -450,7 +450,7 @@ export const getCalendarioIntegradoAdmin = async (req, res) => {
     res.set("Cache-Control", "no-store");
     return res.json(eventos);
   } catch (err) {
-    console.error("❌ getCalendarioIntegradoAdmin:", err);
+    console.error("Error getCalendarioIntegradoAdmin:", err);
     return res.status(500).json({
       error: "Error calendario integrado admin",
       detail: err.message,

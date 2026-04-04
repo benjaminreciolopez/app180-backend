@@ -45,10 +45,9 @@ export async function registrarEventoVerifactu({ empresaId, userId, tipoEvento, 
             )
         `;
 
-        console.log(`🔒 [Veri*Factu Evento] Registrado: ${evType} para empresa ${empresaId}`);
 
     } catch (error) {
-        console.error("❌ Error en registrarEventoVerifactu:", error.message);
+        console.error("Error registrarEventoVerifactu:", error.message);
         // No bloqueamos el flujo principal de la app pero logueamos el fallo integral
     }
 }
@@ -168,7 +167,7 @@ export const verifactuEventosController = {
 
             return res.json({ success: true });
         } catch (error) {
-            console.error("❌ Error en registrarEventoManual:", error.message);
+            console.error("Error registrarEventoManual:", error.message);
             return res.status(500).json({ error: "Error registrando evento" });
         }
     }

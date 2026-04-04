@@ -183,7 +183,7 @@ export async function getDeudasPendientesConsolidado(req, res) {
 
     res.json(rows);
   } catch (e) {
-    console.error("❌ getDeudasPendientesConsolidado:", e);
+    console.error("Error getDeudasPendientesConsolidado:", e);
     res.status(500).json({ error: e.message });
   }
 }

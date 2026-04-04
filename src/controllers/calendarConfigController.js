@@ -46,7 +46,7 @@ export async function getConfig(req, res) {
       sync_range_months: config.sync_range_months
     });
   } catch (err) {
-    console.error("❌ Error getting calendar config:", err);
+    console.error("Error getting calendar config:", err);
     res.status(500).json({ error: "Error al obtener configuración" });
   }
 }
@@ -87,11 +87,10 @@ export async function startOAuth2(req, res) {
       prompt: 'consent' // Forzar para obtener refresh_token
     });
 
-    console.log('🔗 Google Calendar auth URL generada:', process.env.GOOGLE_CALENDAR_REDIRECT_URI);
 
     res.json({ authUrl });
   } catch (err) {
-    console.error("❌ Error starting OAuth2:", err);
+    console.error("Error starting OAuth2:", err);
     res.status(500).json({ error: "Error al iniciar autenticación" });
   }
 }
@@ -152,16 +151,11 @@ export async function handleGoogleCallback(req, res) {
       refreshToken: tokens.refresh_token
     });
 
-    console.log('✅ Google Calendar conectado:', {
-      empresaId,
-      email: userInfo.data.email
-    });
-
     // Redirigir al frontend
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     res.redirect(`${frontendUrl}/admin/configuracion?calendar_success=true`);
   } catch (err) {
-    console.error("❌ Error en callback OAuth2:", err);
+    console.error("Error callback OAuth2:", err);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     res.redirect(`${frontendUrl}/admin/configuracion?calendar_error=true`);
   }
@@ -183,7 +177,7 @@ export async function disconnect(req, res) {
       message: 'Google Calendar desconectado'
     });
   } catch (err) {
-    console.error("❌ Error disconnecting Google Calendar:", err);
+    console.error("Error disconnecting Google Calendar:", err);
     res.status(500).json({ error: "Error al desconectar Google Calendar" });
   }
 }
@@ -213,7 +207,7 @@ export async function testConnection(req, res) {
       events_count: events.length
     });
   } catch (err) {
-    console.error("❌ Error testing connection:", err);
+    console.error("Error testing connection:", err);
     res.status(500).json({
       success: false,
       error: err.message
@@ -248,7 +242,7 @@ export async function updateSettings(req, res) {
       message: 'Configuración actualizada'
     });
   } catch (err) {
-    console.error("❌ Error updating settings:", err);
+    console.error("Error updating settings:", err);
     res.status(500).json({ error: "Error al actualizar configuración" });
   }
 }

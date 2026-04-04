@@ -37,7 +37,7 @@ export const getPlanDiaEmpleado = async (req, res) => {
 
     return res.json(data);
   } catch (err) {
-    console.error("❌ getPlanDiaEmpleado:", err);
+    console.error("Error getPlanDiaEmpleado:", err);
     return res.status(500).json({ error: "Error obteniendo plan del día" });
   }
 };

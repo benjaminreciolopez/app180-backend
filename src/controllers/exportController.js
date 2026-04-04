@@ -28,7 +28,6 @@ export const downloadExport = async (req, res) => {
         const { module } = req.params;
         const { format = 'pdf', ...queryParams } = req.query;
 
-        console.log(`⬇️ Export Request: Module=${module}, Format=${format}, Params=`, queryParams);
 
         let data = [];
         let htmlContent = '';
@@ -213,7 +212,7 @@ export const downloadExport = async (req, res) => {
                         qr_data_url: csvVerif.qr_data_url,
                     });
                 } catch (csvErr) {
-                    console.error("⚠️ CSV verification failed, exporting without:", csvErr.message);
+                    console.error("CSV verification failed, exporting without:", csvErr.message);
                     htmlContent = fichajesToHtml(data, { desde: d2, hasta: h2 });
                 }
 

@@ -27,7 +27,7 @@ export const getReporteRentabilidad = async (req, res) => {
     res.json(reporteConColores);
 
   } catch (err) {
-    console.error("❌ ERROR EN REPORTE RENTABILIDAD:", err);
+    console.error("Error ERROR EN REPORTE RENTABILIDAD:", err);
     handleErr(res, err, "getReporteRentabilidad");
   }
 };

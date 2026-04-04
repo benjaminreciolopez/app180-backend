@@ -42,7 +42,7 @@ export async function handleSyncToGoogle(req, res) {
       stats
     });
   } catch (err) {
-    console.error("❌ Error in sync to Google:", err);
+    console.error("Error in sync to Google:", err);
     res.status(500).json({ error: err.message });
   }
 }
@@ -76,7 +76,7 @@ export async function handleSyncFromGoogle(req, res) {
       stats
     });
   } catch (err) {
-    console.error("❌ Error in sync from Google:", err);
+    console.error("Error in sync from Google:", err);
     res.status(500).json({ error: err.message });
   }
 }
@@ -110,7 +110,7 @@ export async function handleSyncBidirectional(req, res) {
       stats
     });
   } catch (err) {
-    console.error("❌ Error in bidirectional sync:", err);
+    console.error("Error in bidirectional sync:", err);
     res.status(500).json({ error: err.message });
   }
 }
@@ -148,7 +148,7 @@ export async function getStatus(req, res) {
       last_sync: lastSync[0] || null
     });
   } catch (err) {
-    console.error("❌ Error getting sync status:", err);
+    console.error("Error getting sync status:", err);
     res.status(500).json({ error: err.message });
   }
 }
@@ -167,7 +167,7 @@ export async function getHistory(req, res) {
 
     res.json(history);
   } catch (err) {
-    console.error("❌ Error getting sync history:", err);
+    console.error("Error getting sync history:", err);
     res.status(500).json({ error: err.message });
   }
 }

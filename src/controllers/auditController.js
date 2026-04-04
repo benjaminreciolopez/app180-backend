@@ -86,7 +86,7 @@ export const getAuditLogs = async (req, res) => {
       offset: parseInt(offset)
     });
   } catch (error) {
-    console.error('❌ Error obteniendo logs:', error);
+    console.error('Error obteniendo logs:', error);
     return res.status(500).json({ error: 'Error al obtener logs de auditoría' });
   }
 };
@@ -119,7 +119,7 @@ export const getFichajesRechazados = async (req, res) => {
 
     return res.json(fichajes);
   } catch (error) {
-    console.error('❌ Error obteniendo fichajes rechazados:', error);
+    console.error('Error obteniendo fichajes rechazados:', error);
     return res.status(500).json({ error: 'Error al obtener fichajes rechazados' });
   }
 };
@@ -179,7 +179,7 @@ export const getAuditStats = async (req, res) => {
       daily_activity: dailyActivity
     });
   } catch (error) {
-    console.error('❌ Error obteniendo estadísticas:', error);
+    console.error('Error obteniendo estadísticas:', error);
     return res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 };
@@ -231,7 +231,7 @@ export const eliminarFichajeRechazado = async (req, res) => {
 
     return res.json({ success: true, message: 'Fichaje eliminado permanentemente' });
   } catch (error) {
-    console.error('❌ Error eliminando fichaje:', error);
+    console.error('Error eliminando fichaje:', error);
     return res.status(500).json({ error: 'Error al eliminar fichaje' });
   }
 };

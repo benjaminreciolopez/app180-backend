@@ -31,7 +31,7 @@ export const getKioskEmployees = async (req, res) => {
 
     return res.json(empleados);
   } catch (err) {
-    console.error("❌ Error en getKioskEmployees:", err);
+    console.error("Error getKioskEmployees:", err);
     return res.status(500).json({ error: "Error al obtener empleados del kiosco" });
   }
 };
@@ -87,7 +87,7 @@ export const assignEmployeesToKiosk = async (req, res) => {
 
     return res.json({ success: true, asignados: empleado_ids.length });
   } catch (err) {
-    console.error("❌ Error en assignEmployeesToKiosk:", err);
+    console.error("Error assignEmployeesToKiosk:", err);
     return res.status(500).json({ error: "Error al asignar empleados" });
   }
 };
@@ -110,7 +110,7 @@ export const removeEmployeeFromKiosk = async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error("❌ Error en removeEmployeeFromKiosk:", err);
+    console.error("Error removeEmployeeFromKiosk:", err);
     return res.status(500).json({ error: "Error al eliminar asignación" });
   }
 };

@@ -84,7 +84,7 @@ export const solicitarCorreccion = async (req, res) => {
 
     res.json({ success: true, correccion });
   } catch (err) {
-    console.error("❌ Error en solicitarCorreccion:", err);
+    console.error("Error solicitarCorreccion:", err);
     res.status(500).json({ error: "Error al solicitar corrección" });
   }
 };
@@ -118,7 +118,7 @@ export const misCorrecciones = async (req, res) => {
 
     res.json(correcciones);
   } catch (err) {
-    console.error("❌ Error en misCorrecciones:", err);
+    console.error("Error misCorrecciones:", err);
     res.status(500).json({ error: "Error al obtener correcciones" });
   }
 };
@@ -150,7 +150,7 @@ export const listarCorrecciones = async (req, res) => {
 
     res.json(correcciones);
   } catch (err) {
-    console.error("❌ Error en listarCorrecciones:", err);
+    console.error("Error listarCorrecciones:", err);
     res.status(500).json({ error: "Error al listar correcciones" });
   }
 };
@@ -284,7 +284,7 @@ export const resolverCorreccion = async (req, res) => {
 
     res.json({ success: true, correccion: actualizada, nuevoFichaje });
   } catch (err) {
-    console.error("❌ Error en resolverCorreccion:", err);
+    console.error("Error resolverCorreccion:", err);
     res.status(500).json({ error: "Error al resolver corrección" });
   }
 };

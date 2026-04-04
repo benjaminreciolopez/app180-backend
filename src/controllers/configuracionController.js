@@ -159,7 +159,7 @@ export async function uploadLogo(req, res) {
 
         res.json({ success: true, message: "Logo actualizado" });
     } catch (err) {
-        console.error("❌ Error en uploadLogo:", err.message, err.stack);
+        console.error("Error uploadLogo:", err.message, err.stack);
         res.status(500).json({ success: false, error: "Error al subir logo: " + err.message });
     }
 }
@@ -168,7 +168,6 @@ export async function uploadCertificado(req, res) {
     try {
         const empresaId = await getEmpresaId(req);
         const { file, fileName, password } = req.body;
-        console.log("📤 Iniciando subida certificado:", fileName);
 
         if (!file) {
             return res.status(400).json({ success: false, error: "No se proporcionó certificado" });
@@ -179,20 +178,17 @@ export async function uploadCertificado(req, res) {
         }
 
         // Decodificar Base64
-        console.log("🔓 Decodificando Base64...");
         const base64Data = file.split(',')[1] || file;
         const p12Der = forge.util.decode64(base64Data);
-        console.log("🧩 Parseando DER...");
         const p12Asn1 = forge.asn1.fromDer(p12Der);
 
         // Parsear PKCS#12
         let p12;
         try {
-            console.log("🔐 Intentando descifrar PKCS#12 con password...");
             // strict: false permite ser más flexible con algunos formatos generados por Windows/browsers
             p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password, { strict: false });
         } catch (e) {
-            console.error("❌ Fallo en pkcs12FromAsn1:", e.message);
+            console.error("Error pkcs12FromAsn1:", e.message);
             // Detectar error de password incorrecta específicamente si es posible
             if (e.message.includes("password") || e.message.includes("MAC")) {
                 return res.status(400).json({ success: false, error: "Contraseña incorrecta" });
@@ -232,7 +228,6 @@ export async function uploadCertificado(req, res) {
             serial: cert.serialNumber
         };
 
-        console.log("🔐 Certificado parseado correctamente.", { subject, issuer });
 
         // 1. Verificar si existe registro de emisor
         const [emisorExists] = await sql`select id from emisor_180 where empresa_id=${empresaId}`;
@@ -251,7 +246,6 @@ export async function uploadCertificado(req, res) {
                 where empresa_id = ${empresaId}
             `;
         } else {
-            console.log("⚠️ No existe registro emisor, creando uno nuevo...");
             await sql`
                 insert into emisor_180 (
                     empresa_id,
@@ -287,15 +281,14 @@ export async function uploadCertificado(req, res) {
                         verifactu_cert_fabricante_password = ${password}
                     WHERE empresa_id = ${empresaId}
                 `;
-                console.log("✅ Certificado sincronizado con configuracionsistema_180 para Verifactu");
             }
         } catch (syncErr) {
-            console.warn("⚠️ No se pudo sincronizar certificado con configuracionsistema:", syncErr.message);
+            console.warn("No se pudo sincronizar certificado con configuracionsistema:", syncErr.message);
         }
 
         res.json({ success: true, message: "Certificado registrado", data: certInfo });
     } catch (err) {
-        console.error("❌ Error en uploadCertificado:", err.message, err.stack);
+        console.error("Error uploadCertificado:", err.message, err.stack);
         res.status(500).json({ success: false, error: "Error al registrar certificado: " + err.message });
     }
 }
@@ -315,7 +308,7 @@ export async function deleteCertificado(req, res) {
 
         res.json({ success: true, message: "Certificado eliminado correctamente" });
     } catch (err) {
-        console.error("❌ Error en deleteCertificado:", err);
+        console.error("Error deleteCertificado:", err);
         res.status(500).json({ success: false, error: "Error al eliminar certificado" });
     }
 }
@@ -385,7 +378,6 @@ export async function updateSistemaConfig(req, res) {
         const empresaId = await getEmpresaId(req);
         const data = req.body;
 
-        console.log("📝 Update Sistema Config:", { empresaId, ...data });
 
         // --- Validacion VeriFactu modo ---
         if (data.verifactu_modo !== undefined) {
@@ -560,7 +552,7 @@ export async function uploadEvidencia(req, res) {
 
         res.json({ success: true, path: file });
     } catch (err) {
-        console.error("❌ Error en uploadEvidencia:", err);
+        console.error("Error uploadEvidencia:", err);
         res.status(500).json({ success: false, error: "Error al subir evidencia: " + err.message });
     }
 }
@@ -601,7 +593,7 @@ export async function ocrMigracion(req, res) {
 
         res.json({ success: true, data: mockExtractedData });
     } catch (err) {
-        console.error("❌ Error en ocrMigracion:", err);
+        console.error("Error ocrMigracion:", err);
         res.status(500).json({ success: false, error: "Error al procesar el OCR de la factura" });
     }
 }

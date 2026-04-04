@@ -105,7 +105,7 @@ export async function listProformas(req, res) {
 
     res.json({ success: true, data: proformas });
   } catch (err) {
-    console.error("❌ listProformas:", err);
+    console.error("Error listProformas:", err);
     res.status(500).json({ success: false, error: "Error listando proformas" });
   }
 }
@@ -161,7 +161,7 @@ export async function getProforma(req, res) {
       data: { ...proforma, lineas }
     });
   } catch (err) {
-    console.error("❌ getProforma:", err);
+    console.error("Error getProforma:", err);
     res.status(500).json({ success: false, error: "Error obteniendo proforma" });
   }
 }
@@ -309,7 +309,7 @@ export async function crearProforma(req, res) {
       data: createdProforma
     });
   } catch (err) {
-    console.error("❌ crearProforma:", err);
+    console.error("Error crearProforma:", err);
     res.status(500).json({ success: false, error: "Error creando proforma" });
   }
 }
@@ -417,7 +417,7 @@ export async function editarProforma(req, res) {
 
     res.json({ success: true, message: "Proforma actualizada correctamente" });
   } catch (err) {
-    console.error("❌ editarProforma:", err);
+    console.error("Error editarProforma:", err);
     res.status(500).json({ success: false, error: "Error editando proforma" });
   }
 }
@@ -475,7 +475,7 @@ export async function anularProforma(req, res) {
       message: `Proforma ${proforma.numero} anulada correctamente`
     });
   } catch (err) {
-    console.error("❌ anularProforma:", err);
+    console.error("Error anularProforma:", err);
     res.status(500).json({ success: false, error: "Error anulando proforma" });
   }
 }
@@ -594,7 +594,7 @@ export async function reactivarProforma(req, res) {
       data: nuevaProforma
     });
   } catch (err) {
-    console.error("❌ reactivarProforma:", err);
+    console.error("Error reactivarProforma:", err);
     res.status(500).json({ success: false, error: "Error reactivando proforma" });
   }
 }
@@ -730,7 +730,7 @@ export async function convertirProformaAFactura(req, res) {
       factura_id: nuevaFactura.id
     });
   } catch (err) {
-    console.error("❌ convertirProformaAFactura:", err);
+    console.error("Error convertirProformaAFactura:", err);
     res.status(500).json({ success: false, error: "Error convirtiendo proforma a factura" });
   }
 }
@@ -775,7 +775,7 @@ export async function eliminarProforma(req, res) {
 
     res.json({ success: true, message: `Proforma ${proforma.numero} eliminada` });
   } catch (err) {
-    console.error("❌ eliminarProforma:", err);
+    console.error("Error eliminarProforma:", err);
     res.status(500).json({ success: false, error: "Error eliminando proforma" });
   }
 }
@@ -823,7 +823,7 @@ export async function generarPdfProforma(req, res) {
         await sql`UPDATE factura_180 SET ruta_pdf = ${savedFile.storage_path} WHERE id = ${id}`;
       }
     } catch (storageErr) {
-      console.error("⚠️ No se pudo almacenar PDF proforma:", storageErr);
+      console.error("No se pudo almacenar PDF proforma:", storageErr);
     }
 
     // Devolver PDF como descarga
@@ -835,7 +835,7 @@ export async function generarPdfProforma(req, res) {
     res.setHeader("Content-Disposition", `inline; filename="Proforma_${proforma.numero}.pdf"`);
     res.send(pdfBuffer);
   } catch (err) {
-    console.error("❌ generarPdfProforma:", err);
+    console.error("Error generarPdfProforma:", err);
     res.status(500).json({ success: false, error: "Error generando PDF de proforma" });
   }
 }
