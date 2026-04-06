@@ -26,7 +26,7 @@ function getTrimestreDates(year, quarter) {
 /**
  * Lógica compartida para calcular datos de modelos
  */
-export async function calcularDatosModelos(empresaId, year, trimestre) {
+export async function calcularDatosModelos(empresaId, year, trimestre, opciones = {}) {
     const { startDate, endDate } = getTrimestreDates(year, trimestre);
 
     // 1. IVA DEVENGADO (VENTAS) - Desglosado por tipo de IVA
@@ -172,6 +172,55 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         return { base: row ? parseFloat(row.base_imponible) : 0, cuota: row ? parseFloat(row.cuota_iva) : 0 };
     };
 
+    const resultadoRegimenGeneral = parseFloat(ventas.iva_repercutido) - parseFloat(compras.iva_soportado);
+
+    // Cuotas a compensar de periodos anteriores (casillas 110, 78, 87)
+    // Se buscan saldos negativos pendientes de trimestres anteriores del mismo año
+    // y del 4T del año anterior si es 1T
+    let cuotasCompensarPendientes = 0;
+    const q = parseInt(trimestre);
+
+    // Buscar saldo pendiente de compensar del trimestre anterior
+    // Para 1T: buscar 4T del año anterior
+    // Para 2T-4T: buscar el trimestre anterior del mismo año
+    const prevPeriodo = q === 1 ? '4T' : `${q - 1}T`;
+    const prevYear = q === 1 ? parseInt(year) - 1 : parseInt(year);
+
+    const [prevModel303] = await sql`
+        SELECT datos_json
+        FROM fiscal_models_180
+        WHERE empresa_id = ${empresaId}
+        AND modelo = '303'
+        AND ejercicio = ${prevYear}
+        AND periodo = ${prevPeriodo}
+        AND estado IN ('GENERADO', 'PRESENTADO')
+        ORDER BY updated_at DESC
+        LIMIT 1
+    `;
+
+    if (prevModel303?.datos_json?.cuotas_compensar_pendientes_posterior > 0) {
+        cuotasCompensarPendientes = parseFloat(prevModel303.datos_json.cuotas_compensar_pendientes_posterior);
+    }
+
+    // Override manual: permite al usuario introducir cuotas a compensar si no hay registro previo
+    if (opciones.cuotasCompensarManual !== undefined && opciones.cuotasCompensarManual > 0) {
+        cuotasCompensarPendientes = parseFloat(opciones.cuotasCompensarManual);
+    }
+
+    // Casilla 78: Solo se aplican si el resultado es positivo
+    const cuotasAplicadas = resultadoRegimenGeneral > 0
+        ? Math.min(cuotasCompensarPendientes, resultadoRegimenGeneral)
+        : 0;
+
+    // Casilla 87: Pendientes para periodos posteriores
+    const cuotasPendientesPosterior = cuotasCompensarPendientes - cuotasAplicadas;
+
+    // Si el resultado de este periodo es negativo, se acumula para compensar en el futuro
+    const resultadoAutoliquidacion = resultadoRegimenGeneral - cuotasAplicadas;
+    const nuevasCuotasCompensar = resultadoAutoliquidacion < 0
+        ? cuotasPendientesPosterior + Math.abs(resultadoAutoliquidacion)
+        : cuotasPendientesPosterior;
+
     const modelo303 = {
         devengado: {
             base: parseFloat(ventas.base_imponible),
@@ -191,10 +240,26 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
                 al_21: getDeduciblePorTipo(21),
             }
         },
-        resultado: parseFloat(ventas.iva_repercutido) - parseFloat(compras.iva_soportado)
+        resultado_regimen_general: resultadoRegimenGeneral,
+        cuotas_compensar_pendientes: cuotasCompensarPendientes,       // Casilla 110
+        cuotas_compensar_aplicadas: cuotasAplicadas,                   // Casilla 78
+        cuotas_compensar_pendientes_posterior: nuevasCuotasCompensar,  // Casilla 87
+        resultado: resultadoAutoliquidacion                            // Casilla 69/71
     };
 
-    const totalGastos = parseFloat(acumuladoCompras.gastos) + parseFloat(acumuladoNominas.total_coste);
+    const totalGastosDirectos = parseFloat(acumuladoCompras.gastos) + parseFloat(acumuladoNominas.total_coste);
+    const rendimientoPrevio = parseFloat(acumuladoVentas.ingresos) - totalGastosDirectos;
+
+    // Gastos de difícil justificación: 5% del rendimiento neto previo
+    // (Art. 30 Reglamento IRPF - Estimación Directa Simplificada)
+    // Límite máximo anual: 2.000€
+    const COEF_GASTOS_DIFICIL_JUSTIFICACION = 0.05;
+    const LIMITE_GASTOS_DIFICIL_JUSTIFICACION = 2000;
+    const gastosDificilJustificacion = rendimientoPrevio > 0
+        ? Math.min(rendimientoPrevio * COEF_GASTOS_DIFICIL_JUSTIFICACION, LIMITE_GASTOS_DIFICIL_JUSTIFICACION)
+        : 0;
+
+    const totalGastos = totalGastosDirectos + gastosDificilJustificacion;
     const rendimientoNeto = parseFloat(acumuladoVentas.ingresos) - totalGastos;
     const pagoFraccionado = rendimientoNeto > 0 ? rendimientoNeto * 0.20 : 0;
 
@@ -220,8 +285,11 @@ export async function calcularDatosModelos(empresaId, year, trimestre) {
         gastos: totalGastos,
         gastos_detalle: {
             compras: parseFloat(acumuladoCompras.gastos),
-            nominas: parseFloat(acumuladoNominas.total_coste)
+            nominas: parseFloat(acumuladoNominas.total_coste),
+            gastos_dificil_justificacion: gastosDificilJustificacion
         },
+        rendimiento_previo: rendimientoPrevio,
+        coef_gastos_dificil_justificacion: COEF_GASTOS_DIFICIL_JUSTIFICACION,
         rendimiento: rendimientoNeto,
         pago_fraccionado: pagoFraccionado,
         a_ingresar: pagoFraccionado - pagosAnteriores
@@ -687,12 +755,17 @@ export async function downloadBOEAnual(req, res) {
  */
 export async function getFiscalData(req, res) {
     try {
-        const { year, trimestre } = req.query;
+        const { year, trimestre, cuotas_compensar_303 } = req.query;
         const empresaId = req.user.empresa_id;
 
         if (!year || !trimestre) return res.status(400).json({ error: "Año y Trimestre requeridos" });
 
-        const data = await calcularDatosModelos(empresaId, year, trimestre);
+        const opciones = {};
+        if (cuotas_compensar_303) {
+            opciones.cuotasCompensarManual = parseFloat(cuotas_compensar_303);
+        }
+
+        const data = await calcularDatosModelos(empresaId, year, trimestre, opciones);
         res.json({ success: true, data });
 
     } catch (error) {
@@ -834,14 +907,19 @@ export async function getCalendarioFiscal(req, res) {
  */
 export async function downloadBOE(req, res) {
     try {
-        const { year, trimestre, modelo } = req.query;
+        const { year, trimestre, modelo, cuotas_compensar_303 } = req.query;
         const empresaId = req.user.empresa_id;
 
         if (!year || !trimestre || !modelo) {
             return res.status(400).json({ error: "Año, trimestre y modelo requeridos" });
         }
 
-        const data = await calcularDatosModelos(empresaId, year, trimestre);
+        const opciones = {};
+        if (cuotas_compensar_303) {
+            opciones.cuotasCompensarManual = parseFloat(cuotas_compensar_303);
+        }
+
+        const data = await calcularDatosModelos(empresaId, year, trimestre, opciones);
         let boe = "";
 
         switch (modelo) {

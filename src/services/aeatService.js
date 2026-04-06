@@ -156,7 +156,17 @@ export const aeatService = {
         setCasilla(730, ded4.cuota + ded10.cuota + ded21.cuota); // [29] Cuota total deducible
         setCasilla(1002, modelo303.deducible.cuota); // [45] Total a deducir
 
-        setCasilla(1019, modelo303.resultado); // [46] Resultado régimen general
+        setCasilla(1019, modelo303.resultado_regimen_general ?? modelo303.resultado); // [46] Resultado régimen general
+
+        // Página 3 - Resultado
+        setCasilla(1036, modelo303.resultado_regimen_general ?? modelo303.resultado); // [64] Suma de resultados
+        setCasilla(1053, 10000); // [65] % Atribuible Adm. Estado (100,00 → 5 dígitos: 3 enteros + 2 dec)
+        setCasilla(1058, modelo303.resultado_regimen_general ?? modelo303.resultado); // [66] Atribuible Adm. Estado
+        setCasilla(1092, modelo303.cuotas_compensar_pendientes || 0);   // [110] Cuotas a compensar pend. periodos anteriores
+        setCasilla(1109, modelo303.cuotas_compensar_aplicadas || 0);    // [78] Cuotas compensar aplicadas este periodo
+        setCasilla(1126, modelo303.cuotas_compensar_pendientes_posterior || 0); // [87] Pend. periodos posteriores
+        setCasilla(1177, modelo303.resultado); // [69] Resultado de la autoliquidación
+        setCasilla(1211, modelo303.resultado); // [71] Resultado final
 
         // Construimos el string final de la página 1 recortando/rellenando
         r2 = r2 + r2_liq.substring(130, 1569);
