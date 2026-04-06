@@ -179,8 +179,20 @@ async function siguienteNumeroAsientoTx(tx, empresaId, ejercicio) {
  */
 export async function generarAsientoFactura(empresaId, factura, creadoPor, cuentaIngresoIA = null) {
   const base = parseFloat(factura.subtotal || 0);
-  const iva = parseFloat(factura.iva_total || 0);
   const retencion = parseFloat(factura.retencion_importe || 0);
+
+  // IVA: calcular desde líneas de factura (más preciso que factura.iva_total)
+  let iva = 0;
+  if (factura.id) {
+    const [ivaLineas] = await sql`
+      SELECT COALESCE(SUM(cantidad * precio_unitario * iva_percent / 100), 0) as iva_total
+      FROM lineafactura_180 WHERE factura_id = ${factura.id}
+    `;
+    iva = parseFloat(ivaLineas.iva_total);
+  }
+  if (iva === 0) {
+    iva = parseFloat(factura.iva_total || 0);
+  }
   const total = parseFloat(factura.total || base + iva - retencion);
   const clienteNombre = factura.cliente_nombre || "Cliente";
 
@@ -329,13 +341,26 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
   ];
 
   if (iva > 0) {
-    lineas.push({
-      cuenta_codigo: "472",
-      cuenta_nombre: "Hacienda Pública, IVA soportado",
-      debe: iva,
-      haber: 0,
-      concepto: `IVA gasto: ${gasto.descripcion || ""}`.trim(),
-    });
+    // Deducción parcial del IVA (ej: 50% para vehículos/combustible)
+    const pctDeduccion = parseFloat(gasto.pct_deduccion_iva ?? 100);
+    const ivaDeducible = iva * pctDeduccion / 100;
+    const ivaNoDeducible = iva - ivaDeducible;
+
+    if (ivaDeducible > 0) {
+      lineas.push({
+        cuenta_codigo: "472",
+        cuenta_nombre: "Hacienda Pública, IVA soportado",
+        debe: Math.round(ivaDeducible * 100) / 100,
+        haber: 0,
+        concepto: `IVA gasto${pctDeduccion < 100 ? ` (${pctDeduccion}% deducible)` : ''}: ${gasto.descripcion || ""}`.trim(),
+      });
+    }
+
+    if (ivaNoDeducible > 0) {
+      // El IVA no deducible es mayor gasto (se suma a la cuenta de gasto)
+      lineas[0].debe = Math.round((base + ivaNoDeducible) * 100) / 100;
+      lineas[0].concepto = `Gasto (+ IVA no deducible ${100 - pctDeduccion}%): ${gasto.descripcion || ""}`.trim();
+    }
   }
 
   if (retencion > 0) {

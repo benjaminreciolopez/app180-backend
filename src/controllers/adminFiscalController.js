@@ -29,7 +29,13 @@ function getTrimestreDates(year, quarter) {
 export async function calcularDatosModelos(empresaId, year, trimestre, opciones = {}) {
     const { startDate, endDate } = getTrimestreDates(year, trimestre);
 
-    // 1. IVA DEVENGADO (VENTAS) - Desglosado por tipo de IVA
+    // =========================================================================
+    // MODELO 303: Lee IVA desde ASIENTOS CONTABLES (cuentas 472/477)
+    // Esto refleja los importes reales contabilizados (con deducciones parciales)
+    // =========================================================================
+
+    // 1. IVA DEVENGADO - Cuenta 477 (Haber) en asientos del trimestre
+    // Desglosamos por tipo de IVA usando las líneas de factura como referencia
     const ventasPorTipo = await sql`
         SELECT
             COALESCE(lf.iva_percent, 21) as tipo_iva,
@@ -45,16 +51,51 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         ORDER BY tipo_iva
     `;
 
-    // Totales globales de ventas (compatibilidad)
+    // Total IVA repercutido desde contabilidad (cuenta 477)
+    const [ivaRepercutidoContable] = await sql`
+        SELECT COALESCE(SUM(al.haber), 0) as total
+        FROM asiento_lineas_180 al
+        JOIN asientos_180 a ON a.id = al.asiento_id
+        WHERE a.empresa_id = ${empresaId}
+        AND a.fecha BETWEEN ${startDate} AND ${endDate}
+        AND a.deleted_at IS NULL
+        AND al.cuenta_codigo LIKE '477%'
+    `;
+
+    // Total IVA soportado desde contabilidad (cuenta 472)
+    const [ivaSoportadoContable] = await sql`
+        SELECT COALESCE(SUM(al.debe), 0) as total
+        FROM asiento_lineas_180 al
+        JOIN asientos_180 a ON a.id = al.asiento_id
+        WHERE a.empresa_id = ${empresaId}
+        AND a.fecha BETWEEN ${startDate} AND ${endDate}
+        AND a.deleted_at IS NULL
+        AND al.cuenta_codigo LIKE '472%'
+    `;
+
+    // Base deducible desde contabilidad (cuentas grupo 6)
+    const [baseDeducibleContable] = await sql`
+        SELECT COALESCE(SUM(al.debe), 0) as total
+        FROM asiento_lineas_180 al
+        JOIN asientos_180 a ON a.id = al.asiento_id
+        WHERE a.empresa_id = ${empresaId}
+        AND a.fecha BETWEEN ${startDate} AND ${endDate}
+        AND a.deleted_at IS NULL
+        AND al.cuenta_codigo LIKE '6%'
+    `;
+
+    // Usar IVA contable si hay asientos, sino fallback a facturas/compras
+    const hayAsientosIVA = parseFloat(ivaRepercutidoContable.total) > 0 || parseFloat(ivaSoportadoContable.total) > 0;
+
     const ventas = {
         base_imponible: ventasPorTipo.reduce((s, r) => s + parseFloat(r.base_imponible), 0),
-        iva_repercutido: ventasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
+        iva_repercutido: hayAsientosIVA
+            ? parseFloat(ivaRepercutidoContable.total)
+            : ventasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
         count: ventasPorTipo.length
     };
 
-    // 2. IVA DEDUCIBLE (GASTOS) - Desglosado por tipo de IVA
-    // NOTA: Se usa COALESCE(cuota_iva, iva_importe, 0) porque los gastos nuevos
-    // guardan el IVA en iva_importe pero no en cuota_iva
+    // 2. IVA DEDUCIBLE - Cuenta 472 (Debe) en asientos del trimestre
     const comprasPorTipo = await sql`
         SELECT
             COALESCE(iva_porcentaje, 21) as tipo_iva,
@@ -68,38 +109,94 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         ORDER BY tipo_iva
     `;
 
-    // Totales globales de compras (compatibilidad)
     const compras = {
-        base_imponible: comprasPorTipo.reduce((s, r) => s + parseFloat(r.base_imponible), 0),
-        iva_soportado: comprasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
+        base_imponible: hayAsientosIVA
+            ? parseFloat(baseDeducibleContable.total)
+            : comprasPorTipo.reduce((s, r) => s + parseFloat(r.base_imponible), 0),
+        iva_soportado: hayAsientosIVA
+            ? parseFloat(ivaSoportadoContable.total)
+            : comprasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
         count: comprasPorTipo.length
     };
 
-    // 3. DATOS ACUMULADOS AÑO (Modelo 130)
+    // =========================================================================
+    // MODELO 130: Lee ingresos/gastos desde ASIENTOS CONTABLES (grupo 6/7)
+    // =========================================================================
     const startYear = `${year}-01-01`;
-    const [acumuladoVentas] = await sql`
-        SELECT COALESCE(SUM(subtotal), 0) as ingresos
-        FROM factura_180
-        WHERE empresa_id = ${empresaId}
-        AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
-        AND fecha BETWEEN ${startYear} AND ${endDate}
-        AND (es_test IS NOT TRUE)
+
+    // Ingresos acumulados: Haber de cuentas grupo 7 (Ventas/Ingresos)
+    const [ingresosContables] = await sql`
+        SELECT COALESCE(SUM(al.haber), 0) as total
+        FROM asiento_lineas_180 al
+        JOIN asientos_180 a ON a.id = al.asiento_id
+        WHERE a.empresa_id = ${empresaId}
+        AND a.fecha BETWEEN ${startYear} AND ${endDate}
+        AND a.deleted_at IS NULL
+        AND al.cuenta_codigo LIKE '7%'
     `;
-    const [acumuladoCompras] = await sql`
-        SELECT COALESCE(SUM(base_imponible), 0) as gastos
-        FROM purchases_180
-        WHERE empresa_id = ${empresaId}
-        AND activo = true
-        AND fecha_compra BETWEEN ${startYear} AND ${endDate}
+
+    // Gastos acumulados: Debe de cuentas grupo 6 (Compras/Gastos)
+    const [gastosContables] = await sql`
+        SELECT COALESCE(SUM(al.debe), 0) as total
+        FROM asiento_lineas_180 al
+        JOIN asientos_180 a ON a.id = al.asiento_id
+        WHERE a.empresa_id = ${empresaId}
+        AND a.fecha BETWEEN ${startYear} AND ${endDate}
+        AND a.deleted_at IS NULL
+        AND al.cuenta_codigo LIKE '6%'
     `;
-    const [acumuladoNominas] = await sql`
-        SELECT 
-            COALESCE(SUM(bruto), 0) + COALESCE(SUM(seguridad_social_empresa), 0) as total_coste
-        FROM nominas_180
-        WHERE empresa_id = ${empresaId}
-        AND anio = ${year}
-        AND mes <= ${(parseInt(trimestre) * 3)}
+
+    // Nóminas acumuladas (se leen de asientos si existen, sino de tabla directa)
+    const [nominasContables] = await sql`
+        SELECT COALESCE(SUM(al.debe), 0) as total
+        FROM asiento_lineas_180 al
+        JOIN asientos_180 a ON a.id = al.asiento_id
+        WHERE a.empresa_id = ${empresaId}
+        AND a.fecha BETWEEN ${startYear} AND ${endDate}
+        AND a.deleted_at IS NULL
+        AND al.cuenta_codigo IN ('640', '642')
     `;
+
+    // Fallback: datos directos si no hay asientos
+    const hayAsientosIngresos = parseFloat(ingresosContables.total) > 0;
+
+    let acumuladoVentas, acumuladoCompras, acumuladoNominas;
+
+    if (hayAsientosIngresos) {
+        // FUENTE: Contabilidad (asientos)
+        acumuladoVentas = { ingresos: parseFloat(ingresosContables.total) };
+        // Los gastos del grupo 6 ya incluyen las nóminas (640, 642), así que no sumar doble
+        acumuladoCompras = { gastos: parseFloat(gastosContables.total) };
+        acumuladoNominas = { total_coste: 0 }; // Ya incluido en grupo 6
+    } else {
+        // FALLBACK: Tablas directas (sin asientos)
+        const [v] = await sql`
+            SELECT COALESCE(SUM(subtotal), 0) as ingresos
+            FROM factura_180
+            WHERE empresa_id = ${empresaId}
+            AND estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+            AND fecha BETWEEN ${startYear} AND ${endDate}
+            AND (es_test IS NOT TRUE)
+        `;
+        const [c] = await sql`
+            SELECT COALESCE(SUM(base_imponible), 0) as gastos
+            FROM purchases_180
+            WHERE empresa_id = ${empresaId}
+            AND activo = true
+            AND fecha_compra BETWEEN ${startYear} AND ${endDate}
+        `;
+        const [n] = await sql`
+            SELECT
+                COALESCE(SUM(bruto), 0) + COALESCE(SUM(seguridad_social_empresa), 0) as total_coste
+            FROM nominas_180
+            WHERE empresa_id = ${empresaId}
+            AND anio = ${year}
+            AND mes <= ${(parseInt(trimestre) * 3)}
+        `;
+        acumuladoVentas = v;
+        acumuladoCompras = c;
+        acumuladoNominas = n;
+    }
 
     // 4. DATOS MODELO 111 (Retenciones IRPF)
     const [nominas111] = await sql`
@@ -326,6 +423,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         year, trimestre, startDate, endDate,
         nif: emisor?.nif || '',
         nombre: emisor?.nombre || '',
+        fuente_datos: hayAsientosIVA ? 'contabilidad' : 'facturas_gastos',
         modelo303, modelo130, modelo111, modelo115, modelo349
     };
 }
