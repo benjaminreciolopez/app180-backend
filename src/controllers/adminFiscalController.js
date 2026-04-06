@@ -136,10 +136,18 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     `;
 
     // Gastos acumulados: Debe de cuentas grupo 6 (Compras/Gastos)
+    // Para IRPF, los gastos de vehículo (pct_deduccion_iva < 100) se deducen proporcionalmente
     const [gastosContables] = await sql`
-        SELECT COALESCE(SUM(al.debe), 0) as total
+        SELECT COALESCE(SUM(al.debe), 0) as total,
+               COALESCE(SUM(
+                   CASE WHEN a.referencia_tipo = 'gasto' AND p.pct_deduccion_iva IS NOT NULL AND p.pct_deduccion_iva < 100
+                        THEN al.debe * (1 - p.pct_deduccion_iva / 100.0)
+                        ELSE 0
+                   END
+               ), 0) as ajuste_vehiculo_irpf
         FROM asiento_lineas_180 al
         JOIN asientos_180 a ON a.id = al.asiento_id
+        LEFT JOIN purchases_180 p ON a.referencia_tipo = 'gasto' AND a.referencia_id = p.id::text
         WHERE a.empresa_id = ${empresaId}
         AND a.fecha BETWEEN ${startYear} AND ${endDate}
         AND a.deleted_at IS NULL
@@ -166,7 +174,10 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         // FUENTE: Contabilidad (asientos)
         acumuladoVentas = { ingresos: parseFloat(ingresosContables.total) };
         // Los gastos del grupo 6 ya incluyen las nóminas (640, 642), así que no sumar doble
-        acumuladoCompras = { gastos: parseFloat(gastosContables.total) };
+        // Restamos el ajuste de vehículo para IRPF (Art. 22 RIRPF: misma afectación que IVA)
+        const gastosGrupo6 = parseFloat(gastosContables.total);
+        const ajusteVehiculoIrpf = parseFloat(gastosContables.ajuste_vehiculo_irpf);
+        acumuladoCompras = { gastos: gastosGrupo6 - ajusteVehiculoIrpf, ajuste_vehiculo_irpf: ajusteVehiculoIrpf };
         acumuladoNominas = { total_coste: 0 }; // Ya incluido en grupo 6
     } else {
         // FALLBACK: Tablas directas (sin asientos)
@@ -179,7 +190,13 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
             AND (es_test IS NOT TRUE)
         `;
         const [c] = await sql`
-            SELECT COALESCE(SUM(base_imponible), 0) as gastos
+            SELECT COALESCE(SUM(base_imponible), 0) as gastos,
+                   COALESCE(SUM(
+                       CASE WHEN pct_deduccion_iva IS NOT NULL AND pct_deduccion_iva < 100
+                            THEN base_imponible * (1 - pct_deduccion_iva / 100.0)
+                            ELSE 0
+                       END
+                   ), 0) as ajuste_vehiculo_irpf
             FROM purchases_180
             WHERE empresa_id = ${empresaId}
             AND activo = true
@@ -194,7 +211,8 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
             AND mes <= ${(parseInt(trimestre) * 3)}
         `;
         acumuladoVentas = v;
-        acumuladoCompras = c;
+        const ajusteIrpf = parseFloat(c.ajuste_vehiculo_irpf);
+        acumuladoCompras = { gastos: parseFloat(c.gastos) - ajusteIrpf, ajuste_vehiculo_irpf: ajusteIrpf };
         acumuladoNominas = n;
     }
 
@@ -383,6 +401,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         gastos_detalle: {
             compras: parseFloat(acumuladoCompras.gastos),
             nominas: parseFloat(acumuladoNominas.total_coste),
+            ajuste_vehiculo_irpf: acumuladoCompras.ajuste_vehiculo_irpf || 0,
             gastos_dificil_justificacion: gastosDificilJustificacion
         },
         rendimiento_previo: rendimientoPrevio,
