@@ -576,18 +576,17 @@ export async function calcularModelo190(empresaId, year) {
     // Perceptores de nóminas (clave A - trabajo)
     const trabajadores = await sql`
         SELECT
-            COALESCE(u.nombre, 'Sin asignar') as nombre,
-            COALESCE(e.nif, u.dni, '') as nif,
+            COALESCE(e.nombre, 'Sin asignar') as nombre,
+            COALESCE(e.dni_nif, '') as nif,
             SUM(n.bruto) as retribuciones_integras,
             SUM(n.irpf_retencion) as retenciones,
             SUM(COALESCE(n.seguridad_social_empleado, 0)) as ss_empleado,
             COUNT(*) as num_nominas
         FROM nominas_180 n
         LEFT JOIN employees_180 e ON e.id = n.empleado_id
-        LEFT JOIN users_180 u ON u.id = e.user_id
         WHERE n.empresa_id = ${empresaId}
         AND n.anio = ${parseInt(year)}
-        GROUP BY e.id, u.nombre, e.nif, u.dni
+        GROUP BY e.id, e.nombre, e.dni_nif
     `;
 
     // Perceptores de profesionales (clave G - actividades profesionales)
@@ -1052,7 +1051,7 @@ export async function getCalendarioFiscal(req, res) {
         if (!year) return res.status(400).json({ error: "Año requerido" });
 
         const models = await sql`
-            SELECT modelo, periodo, ejercicio, estado, fecha_presentacion
+            SELECT modelo, periodo, ejercicio, estado, presentado_at as fecha_presentacion
             FROM fiscal_models_180
             WHERE empresa_id = ${empresaId}
             AND ejercicio = ${parseInt(year)}
