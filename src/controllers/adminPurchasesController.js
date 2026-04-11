@@ -1,5 +1,6 @@
 import { sql } from "../db.js";
 import Anthropic from "@anthropic-ai/sdk";
+import crypto from "crypto";
 import { ocrExtractTextFromUpload, extractFullPdfText } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
 import { generarAsientoGasto, generarAsientoPagoGasto } from "../services/contabilidadService.js";
@@ -60,6 +61,35 @@ export async function ocrGasto(req, res) {
 
         if (!file) return res.status(400).json({ error: "No se subió ningún archivo" });
 
+        const { empresa_id } = req.user;
+
+        // 0. Calcular hash del fichero para detectar duplicado ANTES de gastar en IA
+        const fileHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
+        const [existingByHash] = await sql`
+            SELECT id, proveedor, total, fecha_compra, numero_factura, base_imponible,
+                   iva_porcentaje, iva_importe, retencion_porcentaje, retencion_importe,
+                   descripcion, categoria
+            FROM purchases_180
+            WHERE empresa_id = ${empresa_id}
+            AND documento_hash = ${fileHash}
+            AND activo = true
+            LIMIT 1
+        `;
+        if (existingByHash) {
+            return res.json({
+                success: true,
+                duplicate_hash: true,
+                data: {
+                    invoices: [{
+                        ...existingByHash,
+                        es_duplicado: true,
+                        duplicado_id: existingByHash.id,
+                        categoria_sugerida: existingByHash.categoria
+                    }]
+                }
+            });
+        }
+
         // 1. Extraer texto bruto (Tesseract)
         const rawText = await ocrExtractTextFromUpload(file);
 
@@ -114,7 +144,6 @@ NOTA: base_imponible e iva_importe son OBLIGATORIOS. Si la cuota de IVA no es ce
         // Extraer JSON del texto (puede venir envuelto en ```json ... ```)
         const jsonMatch = textContent.match(/\{[\s\S]*\}/);
         const data = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
-        const { empresa_id } = req.user;
 
         // 3. Verificar duplicados para cada factura extraída
         if (data.invoices && Array.isArray(data.invoices)) {
@@ -162,9 +191,10 @@ NOTA: base_imponible e iva_importe son OBLIGATORIOS. Si la cuota de IVA no es ce
             }
         }
 
-        // Devolver datos estructurados con flags de duplicados
+        // Devolver datos estructurados con flags de duplicados + hash del fichero
         res.json({
             success: true,
+            documento_hash: fileHash,
             data: data
         });
 
@@ -259,7 +289,8 @@ export async function crearCompra(req, res) {
             numero_factura,
             retencion_porcentaje,
             retencion_importe,
-            ignorar_duplicado
+            ignorar_duplicado,
+            documento_hash
         } = req.body;
 
         // 1. Detección de duplicados
@@ -352,7 +383,7 @@ export async function crearCompra(req, res) {
         empresa_id, proveedor, descripcion, cantidad, precio_unitario,
         total, fecha_compra, categoria, base_imponible, iva_importe, cuota_iva,
         iva_porcentaje, metodo_pago, documento_url, ocr_data, anio, trimestre,
-        numero_factura, retencion_porcentaje, retencion_importe, activo
+        numero_factura, retencion_porcentaje, retencion_importe, documento_hash, activo
       ) VALUES (
         ${empresa_id}, ${proveedor || null}, ${descripcion}, ${cantidad}, ${precio_unitario || total},
         ${total}, ${fechaFinal},
@@ -360,7 +391,7 @@ export async function crearCompra(req, res) {
         ${iva_porcentaje || 0}, ${metodo_pago || 'efectivo'},
         ${finalDocumentUrl}, ${parsedOcrData ? JSON.stringify(parsedOcrData) : null},
         ${finalAnio}, ${finalTri}, ${numero_factura || null},
-        ${retencion_porcentaje || 0}, ${retencion_importe || 0},
+        ${retencion_porcentaje || 0}, ${retencion_importe || 0}, ${documento_hash || null},
         true
       ) RETURNING *
     `;
