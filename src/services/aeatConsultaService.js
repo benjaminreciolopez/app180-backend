@@ -1,331 +1,31 @@
 // backend/src/services/aeatConsultaService.js
-// Servicio para consultar declaraciones presentadas en AEAT vía certificado electrónico
-// y detectar discrepancias con los datos de la app
+// Servicio para verificar coherencia entre datos presentados y datos actuales
+// Compara el snapshot guardado al presentar vs el cálculo actual para detectar discrepancias
 
-import https from 'https';
-import forge from 'node-forge';
 import { sql } from '../db.js';
 import logger from '../utils/logger.js';
-import { getCertificateForFiling, logUsage } from './certificadoService.js';
-
-// =========================
-// AEAT CONSULTATION URLs
-// =========================
-const AEAT_CONSULTA_URLS = {
-  test: {
-    // Consulta de declaraciones presentadas (autoliquidaciones)
-    autoliquidacion: 'https://www7.aeat.es/wlpl/OVCT-CALC/ConsultaDeclaracionServlet',
-    // Consulta de declaraciones informativas
-    informativa: 'https://www7.aeat.es/wlpl/INOI-CONS/ConsultaDeclaracionServlet',
-    // Consulta de datos fiscales del contribuyente
-    datos_fiscales: 'https://www7.aeat.es/wlpl/PACO-GIC/DatosFiscalesServlet',
-    // Consulta de censo
-    censo: 'https://www7.aeat.es/wlpl/BURT-JDIT/ConsultaCensoServlet',
-  },
-  production: {
-    autoliquidacion: 'https://www1.agenciatributaria.gob.es/wlpl/OVCT-CALC/ConsultaDeclaracionServlet',
-    informativa: 'https://www1.agenciatributaria.gob.es/wlpl/INOI-CONS/ConsultaDeclaracionServlet',
-    datos_fiscales: 'https://www1.agenciatributaria.gob.es/wlpl/PACO-GIC/DatosFiscalesServlet',
-    censo: 'https://www1.agenciatributaria.gob.es/wlpl/BURT-JDIT/ConsultaCensoServlet',
-  }
-};
-
-// Modelos que son autoliquidaciones vs informativas
-const AUTOLIQUIDACIONES = ['303', '130', '111', '115', '390', '100', '200'];
-const INFORMATIVAS = ['190', '180', '347', '349'];
-
-/**
- * Obtener URLs según entorno
- */
-function getUrls() {
-  const env = process.env.AEAT_ENTORNO === 'test' ? 'test' : 'production';
-  return AEAT_CONSULTA_URLS[env];
-}
-
-/**
- * Realizar petición HTTPS a AEAT con certificado electrónico
- * Reutiliza el patrón de aeatPresentacionService.js
- */
-async function requestAeat(url, body, p12Buffer, password) {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
-
-    const options = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || 443,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(body),
-      },
-      rejectUnauthorized: !url.includes('www7'),
-      timeout: 30000,
-    };
-
-    // Convertir PKCS12 a PEM con node-forge (compatible con certificados FNMT)
-    try {
-      const p12Der = forge.util.decode64(p12Buffer.toString('base64'));
-      const p12Asn1 = forge.asn1.fromDer(p12Der);
-      const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password || '', { strict: false });
-
-      const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
-      const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] || [];
-
-      if (certBags.length > 0 && keyBags.length > 0) {
-        options.cert = forge.pki.certificateToPem(certBags[0].cert);
-        options.key = forge.pki.privateKeyToPem(keyBags[0].key);
-      } else {
-        options.pfx = p12Buffer;
-        options.passphrase = password;
-      }
-    } catch (forgeErr) {
-      logger.warn('node-forge PKCS12 conversion failed, using pfx fallback', { error: forgeErr.message });
-      options.pfx = p12Buffer;
-      options.passphrase = password;
-    }
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          body: data,
-        });
-      });
-    });
-
-    req.on('error', (e) => {
-      reject(new Error(`Error de conexión con AEAT: ${e.message}`));
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Timeout: AEAT no respondió en 30 segundos'));
-    });
-
-    req.write(body);
-    req.end();
-  });
-}
-
-/**
- * Parsear respuesta de consulta AEAT
- * AEAT puede devolver XML, HTML o CSV según el tipo de consulta
- */
-function parseAeatResponse(responseBody, tipo) {
-  const result = {
-    raw: responseBody,
-    parsed: null,
-    error: null,
-  };
-
-  try {
-    // Intentar parsear como XML/SOAP
-    if (responseBody.includes('<?xml') || responseBody.includes('<soap:')) {
-      result.parsed = parseXmlResponse(responseBody);
-    }
-    // Intentar parsear como CSV (formato AEAT: campo;valor)
-    else if (responseBody.includes(';')) {
-      result.parsed = parseCsvResponse(responseBody);
-    }
-    // Intentar parsear como formato de casillas (<T...> tags)
-    else if (responseBody.includes('<T')) {
-      result.parsed = parseTaggedResponse(responseBody);
-    }
-    // HTML u otro formato
-    else {
-      result.parsed = { formato: 'desconocido', contenido: responseBody.substring(0, 5000) };
-    }
-  } catch (e) {
-    result.error = e.message;
-    logger.warn('Error parseando respuesta AEAT', { error: e.message, tipo });
-  }
-
-  return result;
-}
-
-/**
- * Parsear respuesta XML simple (extraer campos clave)
- */
-function parseXmlResponse(xml) {
-  const campos = {};
-  const regex = /<(\w+)>([^<]*)<\/\1>/g;
-  let match;
-  while ((match = regex.exec(xml)) !== null) {
-    campos[match[1]] = match[2].trim();
-  }
-  return { formato: 'xml', campos };
-}
-
-/**
- * Parsear respuesta CSV (RESULTADO;CODIGO;CSV;MENSAJE)
- */
-function parseCsvResponse(csv) {
-  const lineas = csv.split('\n').filter(l => l.trim());
-  const campos = {};
-  for (const linea of lineas) {
-    const partes = linea.split(';');
-    if (partes.length >= 2) {
-      campos[partes[0].trim()] = partes.slice(1).join(';').trim();
-    }
-  }
-  return { formato: 'csv', campos };
-}
-
-/**
- * Parsear respuesta con formato de tags <T> (casillas de autoliquidación)
- */
-function parseTaggedResponse(tagged) {
-  const casillas = {};
-  // Buscar patrones de casillas: posiciones con valores numéricos
-  // El formato es posicional, así que extraemos las secciones principales
-  const secciones = tagged.split('<T').filter(s => s.trim());
-
-  for (const seccion of secciones) {
-    const endTag = seccion.indexOf('>');
-    if (endTag > 0) {
-      const id = seccion.substring(0, endTag);
-      const contenido = seccion.substring(endTag + 1);
-      casillas[`T${id}`] = contenido.trim();
-    }
-  }
-
-  return { formato: 'tagged', casillas };
-}
 
 // =========================
 // FUNCIONES PRINCIPALES
 // =========================
 
 /**
- * Consultar una declaración presentada en AEAT
- * @param {string} empresaId
- * @param {string} certificadoId
- * @param {string} modelo - '303', '130', '111', '115', '349', '390', '190', '180', '347', '100', '200'
- * @param {number} ejercicio
- * @param {string} periodo - '1T', '2T', '3T', '4T', '0A'
- * @returns {object} Datos de la declaración según AEAT
- */
-/**
- * Resolver certificado: desde certificados_digitales_180 o desde emisor_180 (fallback)
- */
-async function resolveCert(empresaId, certificadoId, certFromEmisor) {
-  if (certFromEmisor) {
-    // Certificado viene de emisor_180 directamente
-    return {
-      id: null,
-      p12Buffer: certFromEmisor.certificado_data,
-      pfxBuffer: certFromEmisor.certificado_data,
-      password: certFromEmisor.certificado_password,
-      nif: certFromEmisor.nif || '',
-    };
-  }
-  const cert = await getCertificateForFiling(empresaId, certificadoId);
-  if (!cert) throw new Error('No se encontró certificado válido');
-  return { ...cert, pfxBuffer: cert.p12Buffer };
-}
-
-export async function consultarDeclaracionPresentada(empresaId, certificadoId, modelo, ejercicio, periodo, certFromEmisor) {
-  const cert = await resolveCert(empresaId, certificadoId, certFromEmisor);
-
-  const urls = getUrls();
-  const esAutoliquidacion = AUTOLIQUIDACIONES.includes(modelo);
-  const baseUrl = esAutoliquidacion ? urls.autoliquidacion : urls.informativa;
-
-  // Construir body de la petición
-  const params = new URLSearchParams({
-    modelo: modelo,
-    ejercicio: ejercicio.toString(),
-    periodo: periodo || '0A',
-    nif: cert.nif || '',
-    accion: 'CONSULTA',
-  });
-
-  const response = await requestAeat(baseUrl, params.toString(), cert.pfxBuffer || cert.p12Buffer, cert.password);
-
-  // Log de uso del certificado
-  if (certificadoId) {
-    await logUsage(certificadoId, empresaId, `consulta_modelo_${modelo}`, {
-      ejercicio, periodo, statusCode: response.statusCode,
-    });
-  }
-
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(`AEAT respondió con error HTTP ${response.statusCode}`);
-  }
-
-  const parsed = parseAeatResponse(response.body, `modelo_${modelo}`);
-
-  logger.info(`Consulta AEAT modelo ${modelo}: empresa=${empresaId} ejercicio=${ejercicio} periodo=${periodo}`, {
-    statusCode: response.statusCode,
-    formato: parsed.parsed?.formato,
-  });
-
-  return parsed;
-}
-
-/**
- * Consultar datos fiscales del contribuyente en AEAT
- * Devuelve la visión de AEAT sobre ingresos, retenciones, etc.
- */
-export async function consultarDatosFiscales(empresaId, certificadoId, ejercicio, certFromEmisor) {
-  const cert = await resolveCert(empresaId, certificadoId, certFromEmisor);
-
-  const urls = getUrls();
-  const params = new URLSearchParams({
-    ejercicio: ejercicio.toString(),
-    nif: cert.nif || '',
-    accion: 'CONSULTA_DATOS_FISCALES',
-  });
-
-  const response = await requestAeat(urls.datos_fiscales, params.toString(), cert.pfxBuffer || cert.p12Buffer, cert.password);
-
-  if (certificadoId) {
-    await logUsage(certificadoId, empresaId, 'consulta_datos_fiscales', { ejercicio, statusCode: response.statusCode });
-  }
-
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(`AEAT respondió con error HTTP ${response.statusCode}`);
-  }
-
-  return parseAeatResponse(response.body, 'datos_fiscales');
-}
-
-/**
- * Consultar censo del contribuyente
- * Devuelve epígrafes IAE, obligaciones fiscales, etc.
- */
-export async function consultarCenso(empresaId, certificadoId, certFromEmisor) {
-  const cert = await resolveCert(empresaId, certificadoId, certFromEmisor);
-
-  const urls = getUrls();
-  const params = new URLSearchParams({
-    nif: cert.nif || '',
-    accion: 'CONSULTA_CENSO',
-  });
-
-  const response = await requestAeat(urls.censo, params.toString(), cert.pfxBuffer || cert.p12Buffer, cert.password);
-
-  if (certificadoId) {
-    await logUsage(certificadoId, empresaId, 'consulta_censo', { statusCode: response.statusCode });
-  }
-
-  return parseAeatResponse(response.body, 'censo');
-}
-
-/**
- * Realizar consulta completa: consultar AEAT + cargar datos app + detectar discrepancias
+ * Realizar verificación completa: comparar datos presentados vs datos recalculados
  * Esta es la función principal que orquesta todo el flujo
  */
-export async function realizarConsultaCompleta(empresaId, certificadoId, modelo, ejercicio, periodo, userId, certFromEmisor) {
-  // 1. Consultar AEAT
-  const datosAeat = await consultarDeclaracionPresentada(empresaId, certificadoId, modelo, ejercicio, periodo, certFromEmisor);
+export async function realizarConsultaCompleta(empresaId, certificadoId, modelo, ejercicio, periodo, userId) {
+  // 1. Cargar datos presentados (snapshot guardado al presentar)
+  const datosPresentados = await cargarDatosPresentados(empresaId, modelo, ejercicio, periodo);
 
-  // 2. Cargar datos de la app para este modelo/periodo
-  const datosApp = await cargarDatosApp(empresaId, modelo, ejercicio, periodo);
+  if (!datosPresentados) {
+    throw new Error(
+      `No se encontró una presentación del modelo ${modelo} ${periodo || ''} del ejercicio ${ejercicio}. ` +
+      `Solo se pueden verificar modelos que hayan sido presentados desde la app.`
+    );
+  }
+
+  // 2. Cargar datos actuales recalculados de la app
+  const datosActuales = await cargarDatosApp(empresaId, modelo, ejercicio, periodo);
 
   // 3. Cargar mapeo de campos para este modelo
   const mapeos = await sql`
@@ -334,8 +34,8 @@ export async function realizarConsultaCompleta(empresaId, certificadoId, modelo,
     ORDER BY casilla
   `;
 
-  // 4. Detectar discrepancias
-  const discrepancias = detectarDiscrepancias(datosAeat.parsed, datosApp, mapeos);
+  // 4. Detectar discrepancias entre presentado y actual
+  const discrepancias = detectarDiscrepancias(datosPresentados.datos, datosActuales, mapeos);
 
   // 5. Guardar consulta en BD
   const resumen = {
@@ -347,11 +47,13 @@ export async function realizarConsultaCompleta(empresaId, certificadoId, modelo,
 
   const [consulta] = await sql`
     INSERT INTO aeat_consultas_180 (
-      empresa_id, ejercicio, modelo, periodo, certificado_id,
+      empresa_id, ejercicio, modelo, periodo,
       tipo_consulta, datos_aeat, datos_app, discrepancias_resumen, estado
     ) VALUES (
-      ${empresaId}, ${ejercicio}, ${modelo}, ${periodo || '0A'}, ${certificadoId},
-      'declaracion', ${JSON.stringify(datosAeat)}, ${JSON.stringify(datosApp)},
+      ${empresaId}, ${ejercicio}, ${modelo}, ${periodo || '0A'},
+      'verificacion_local',
+      ${JSON.stringify({ presentado: datosPresentados.datos, fecha_presentacion: datosPresentados.fecha })},
+      ${JSON.stringify(datosActuales)},
       ${JSON.stringify(resumen)},
       ${resumen.altas > 0 ? 'pendiente' : resumen.medias > 0 ? 'pendiente' : 'resuelto'}
     )
@@ -369,25 +71,83 @@ export async function realizarConsultaCompleta(empresaId, certificadoId, modelo,
       ) VALUES (
         ${consulta.id}, ${empresaId}, ${modelo}, ${ejercicio}, ${periodo || '0A'},
         ${disc.casilla}, ${disc.campo_app}, ${disc.descripcion},
-        ${disc.valor_app}, ${disc.valor_aeat}, ${disc.diferencia}, ${disc.porcentaje},
+        ${disc.valor_actual}, ${disc.valor_presentado}, ${disc.diferencia}, ${disc.porcentaje},
         ${disc.severidad}
       )
     `;
   }
 
-  logger.info(`Consulta AEAT completa: modelo=${modelo} ejercicio=${ejercicio} discrepancias=${resumen.total} (${resumen.altas} altas)`);
+  logger.info(`Verificación modelo ${modelo}: empresa=${empresaId} ejercicio=${ejercicio} discrepancias=${resumen.total} (${resumen.altas} altas)`);
 
   return {
     consulta,
     discrepancias,
     resumen,
-    datos_aeat: datosAeat,
-    datos_app: datosApp,
+    datos_presentados: datosPresentados,
+    datos_actuales: datosActuales,
   };
 }
 
 /**
- * Cargar datos de la app para un modelo/periodo específico
+ * Cargar datos presentados (snapshot guardado al momento de presentar)
+ */
+async function cargarDatosPresentados(empresaId, modelo, ejercicio, periodo) {
+  switch (modelo) {
+    case '303':
+    case '130':
+    case '111':
+    case '115':
+    case '349': {
+      // Modelos trimestrales: buscar en fiscal_models_180 solo si fue presentado
+      const [fiscal] = await sql`
+        SELECT datos_json, presentado_at, aeat_respuesta_json, resultado_importe, resultado_tipo
+        FROM fiscal_models_180
+        WHERE empresa_id = ${empresaId}
+          AND modelo = ${modelo}
+          AND ejercicio = ${parseInt(ejercicio)}
+          AND periodo = ${periodo}
+          AND estado = 'PRESENTADO'
+        ORDER BY presentado_at DESC LIMIT 1
+      `;
+      if (!fiscal || !fiscal.datos_json) return null;
+      return {
+        datos: fiscal.datos_json,
+        fecha: fiscal.presentado_at,
+        respuesta_aeat: fiscal.aeat_respuesta_json,
+        resultado_importe: fiscal.resultado_importe,
+      };
+    }
+
+    case '390':
+    case '190':
+    case '180':
+    case '347': {
+      // Modelos anuales: buscar en modelos_anuales_180 solo si fue presentado
+      const [anual] = await sql`
+        SELECT datos_calculados, fecha_presentacion, csv_presentacion, numero_justificante
+        FROM modelos_anuales_180
+        WHERE empresa_id = ${empresaId}
+          AND modelo = ${modelo}
+          AND ejercicio = ${parseInt(ejercicio)}
+          AND estado = 'presentado'
+        ORDER BY fecha_presentacion DESC LIMIT 1
+      `;
+      if (!anual || !anual.datos_calculados) return null;
+      return {
+        datos: anual.datos_calculados,
+        fecha: anual.fecha_presentacion,
+        csv: anual.csv_presentacion,
+        justificante: anual.numero_justificante,
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Cargar datos actuales recalculados de la app para un modelo/periodo
  */
 async function cargarDatosApp(empresaId, modelo, ejercicio, periodo) {
   switch (modelo) {
@@ -396,15 +156,13 @@ async function cargarDatosApp(empresaId, modelo, ejercicio, periodo) {
     case '111':
     case '115':
     case '349': {
-      // Modelos trimestrales: buscar en fiscal_models_180
-      const trimestre = periodo?.replace('T', '') || '1';
       const [fiscal] = await sql`
         SELECT datos_json, resultado_importe, resultado_tipo
         FROM fiscal_models_180
         WHERE empresa_id = ${empresaId}
           AND modelo = ${modelo}
           AND ejercicio = ${parseInt(ejercicio)}
-          AND periodo = ${periodo || `${trimestre}T`}
+          AND periodo = ${periodo}
         ORDER BY updated_at DESC LIMIT 1
       `;
       return fiscal?.datos_json || null;
@@ -414,7 +172,6 @@ async function cargarDatosApp(empresaId, modelo, ejercicio, periodo) {
     case '190':
     case '180':
     case '347': {
-      // Modelos anuales: buscar en modelos_anuales_180
       const [anual] = await sql`
         SELECT datos_calculados
         FROM modelos_anuales_180
@@ -426,56 +183,38 @@ async function cargarDatosApp(empresaId, modelo, ejercicio, periodo) {
       return anual?.datos_calculados || null;
     }
 
-    case '100': {
-      // Renta IRPF
-      const [renta] = await sql`
-        SELECT * FROM renta_irpf_180
-        WHERE empresa_id = ${empresaId} AND ejercicio = ${parseInt(ejercicio)}
-      `;
-      return renta || null;
-    }
-
-    case '200': {
-      // Impuesto Sociedades
-      const [is200] = await sql`
-        SELECT * FROM impuesto_sociedades_180
-        WHERE empresa_id = ${empresaId} AND ejercicio = ${parseInt(ejercicio)}
-      `;
-      return is200 || null;
-    }
-
     default:
       return null;
   }
 }
 
 /**
- * Detectar discrepancias entre datos AEAT y datos de la app
+ * Detectar discrepancias entre datos presentados y datos actuales
  * Usa el mapeo de campos para comparar casilla por casilla
  */
-function detectarDiscrepancias(datosAeatParsed, datosApp, mapeos) {
+function detectarDiscrepancias(datosPresentados, datosActuales, mapeos) {
   const discrepancias = [];
 
-  if (!datosAeatParsed || !datosApp || !mapeos || mapeos.length === 0) {
+  if (!datosPresentados || !datosActuales || !mapeos || mapeos.length === 0) {
     return discrepancias;
   }
 
   for (const mapeo of mapeos) {
-    const valorApp = obtenerValorPorPath(datosApp, mapeo.campo_app);
-    const valorAeat = obtenerValorAeat(datosAeatParsed, mapeo.casilla);
+    const valorPresentado = obtenerValorPorPath(datosPresentados, mapeo.campo_app);
+    const valorActual = obtenerValorPorPath(datosActuales, mapeo.campo_app);
 
     // Si ambos valores son null/undefined, no hay discrepancia
-    if (valorApp == null && valorAeat == null) continue;
+    if (valorPresentado == null && valorActual == null) continue;
 
-    const vApp = parseFloat(valorApp) || 0;
-    const vAeat = parseFloat(valorAeat) || 0;
-    const diferencia = Math.abs(vApp - vAeat);
+    const vPres = parseFloat(valorPresentado) || 0;
+    const vActual = parseFloat(valorActual) || 0;
+    const diferencia = Math.abs(vActual - vPres);
     const tolerancia = parseFloat(mapeo.tolerancia) || 0.01;
 
     if (diferencia > tolerancia) {
-      const porcentaje = vAeat !== 0
-        ? Math.round((diferencia / Math.abs(vAeat)) * 10000) / 100
-        : (vApp !== 0 ? 100 : 0);
+      const porcentaje = vPres !== 0
+        ? Math.round((diferencia / Math.abs(vPres)) * 10000) / 100
+        : (vActual !== 0 ? 100 : 0);
 
       let severidad = 'baja';
       if (mapeo.es_campo_clave && (diferencia > 100 || porcentaje > 5)) {
@@ -490,8 +229,8 @@ function detectarDiscrepancias(datosAeatParsed, datosApp, mapeos) {
         casilla: mapeo.casilla,
         campo_app: mapeo.campo_app,
         descripcion: mapeo.descripcion || mapeo.campo_app,
-        valor_app: vApp,
-        valor_aeat: vAeat,
+        valor_actual: vActual,
+        valor_presentado: vPres,
         diferencia,
         porcentaje,
         severidad,
@@ -518,32 +257,7 @@ function obtenerValorPorPath(obj, path) {
 }
 
 /**
- * Obtener valor de los datos AEAT parseados por casilla
- */
-function obtenerValorAeat(datosAeatParsed, casilla) {
-  if (!datosAeatParsed) return null;
-
-  // Formato XML: buscar en campos
-  if (datosAeatParsed.formato === 'xml' && datosAeatParsed.campos) {
-    return datosAeatParsed.campos[casilla] || datosAeatParsed.campos[`casilla_${casilla}`];
-  }
-
-  // Formato CSV: buscar por clave
-  if (datosAeatParsed.formato === 'csv' && datosAeatParsed.campos) {
-    return datosAeatParsed.campos[casilla];
-  }
-
-  // Formato tagged: buscar en casillas
-  if (datosAeatParsed.formato === 'tagged' && datosAeatParsed.casillas) {
-    return datosAeatParsed.casillas[casilla];
-  }
-
-  return null;
-}
-
-/**
- * Actualizar datos de la app para que coincidan con AEAT
- * Aplica el valor de AEAT al campo correspondiente en la app
+ * Actualizar datos de la app para que coincidan con lo presentado
  */
 export async function aplicarCorreccionDesdeAeat(discrepanciaId, userId) {
   const [disc] = await sql`
@@ -580,7 +294,7 @@ export async function aplicarCorreccionDesdeAeat(discrepanciaId, userId) {
     `;
   }
 
-  logger.info(`Discrepancia corregida: id=${discrepanciaId} campo=${disc.campo_app} valor_aeat=${disc.valor_aeat}`);
+  logger.info(`Discrepancia corregida: id=${discrepanciaId} campo=${disc.campo_app}`);
 
   return { success: true, discrepancia: disc };
 }
@@ -616,7 +330,6 @@ export async function getHistorialConsultas(empresaId, filtros = {}) {
     WHERE c.empresa_id = ${empresaId}
   `;
 
-  // Aplicar filtros adicionales en la consulta
   if (modelo) {
     query = sql`${query} AND c.modelo = ${modelo}`;
   }

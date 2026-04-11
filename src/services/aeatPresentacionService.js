@@ -225,6 +225,8 @@ export async function presentarModelo(empresaId, certificadoId, modelo, periodo,
       UPDATE fiscal_models_180
       SET estado = ${resultado.success ? 'PRESENTADO' : 'ERROR_PRESENTACION'},
           aeat_respuesta_json = ${JSON.stringify(resultado)},
+          datos_json = ${JSON.stringify(datosModelo)},
+          presentado_at = ${resultado.success ? sql`now()` : null},
           updated_at = now()
       WHERE empresa_id = ${empresaId}
         AND modelo = ${modelo}

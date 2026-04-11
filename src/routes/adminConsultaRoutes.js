@@ -1,17 +1,16 @@
 // backend/src/routes/adminConsultaRoutes.js
-// Rutas para consulta AEAT y gestión de discrepancias (contexto admin)
+// Rutas para verificación de modelos presentados y gestión de discrepancias (contexto admin)
 
 import { Router } from 'express';
 import { authRequired } from '../middlewares/authMiddleware.js';
 import { roleRequired } from '../middlewares/roleRequired.js';
 import {
   consultarModelo,
-  consultarDatosFiscalesHandler,
-  consultarCensoHandler,
   getHistorial,
   getConsultaDetalle,
   resolverDiscrepancia,
   getResumenEjercicio,
+  importarModeloPresentado,
 } from '../controllers/aeatConsultaController.js';
 
 const router = Router();
@@ -21,41 +20,34 @@ router.use(authRequired, roleRequired('admin'));
 
 /**
  * @route POST /admin/fiscal/consulta/consultar
- * @desc Consultar AEAT para un modelo+periodo y detectar discrepancias
- * @body { modelo, ejercicio, periodo, certificado_id? }
+ * @desc Verificar modelo presentado vs datos actuales
+ * @body { modelo, ejercicio, periodo }
  */
 router.post('/consultar', consultarModelo);
 
 /**
- * @route POST /admin/fiscal/consulta/datos-fiscales
- * @desc Consultar datos fiscales del contribuyente en AEAT
- * @body { ejercicio, certificado_id? }
+ * @route POST /admin/fiscal/consulta/importar
+ * @desc Importar fichero de modelo presentado (.ses, .190, .180, .347)
+ * @body { modelo, ejercicio, periodo?, contenido_fichero }
  */
-router.post('/datos-fiscales', consultarDatosFiscalesHandler);
-
-/**
- * @route POST /admin/fiscal/consulta/censo
- * @desc Consultar censo del contribuyente en AEAT
- * @body { certificado_id? }
- */
-router.post('/censo', consultarCensoHandler);
+router.post('/importar', importarModeloPresentado);
 
 /**
  * @route GET /admin/fiscal/consulta/historial
- * @desc Listar consultas previas con filtros
+ * @desc Listar verificaciones previas con filtros
  * @query { modelo?, ejercicio?, estado?, limit? }
  */
 router.get('/historial', getHistorial);
 
 /**
  * @route GET /admin/fiscal/consulta/resumen/:ejercicio
- * @desc Resumen de estado consultas/discrepancias de un ejercicio
+ * @desc Resumen de estado verificaciones de un ejercicio
  */
 router.get('/resumen/:ejercicio', getResumenEjercicio);
 
 /**
  * @route GET /admin/fiscal/consulta/:consultaId
- * @desc Detalle de una consulta con sus discrepancias
+ * @desc Detalle de una verificación con sus discrepancias
  */
 router.get('/:consultaId', getConsultaDetalle);
 
