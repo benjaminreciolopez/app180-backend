@@ -38,7 +38,7 @@ const INFORMATIVAS = ['190', '180', '347', '349'];
  * Obtener URLs según entorno
  */
 function getUrls() {
-  const env = process.env.AEAT_ENTORNO === 'produccion' ? 'production' : 'test';
+  const env = process.env.AEAT_ENTORNO === 'test' ? 'test' : 'production';
   return AEAT_CONSULTA_URLS[env];
 }
 
