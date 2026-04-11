@@ -1044,6 +1044,81 @@ export async function revisarAsientos(req, res) {
   }
 }
 
+/**
+ * Aplica solo los cambios seleccionados por el usuario (sin re-ejecutar IA).
+ * Recibe array de cambios con { asiento_id, linea_id, cuenta_nueva: { codigo, nombre } }
+ */
+export async function aplicarCambiosSelectivos(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { cambios } = req.body;
+
+    if (!Array.isArray(cambios) || cambios.length === 0) {
+      return res.status(400).json({ error: "No se enviaron cambios para aplicar" });
+    }
+
+    let aplicados = 0;
+    const errores = [];
+
+    for (const cambio of cambios) {
+      try {
+        // Verificar que el asiento pertenece a la empresa
+        const [asiento] = await sql`
+          SELECT id FROM asientos_180
+          WHERE id = ${cambio.asiento_id} AND empresa_id = ${empresaId}
+        `;
+        if (!asiento) {
+          errores.push(`Asiento ${cambio.asiento_id} no encontrado`);
+          continue;
+        }
+
+        await sql`
+          UPDATE asiento_lineas_180
+          SET cuenta_codigo = ${cambio.cuenta_nueva.codigo},
+              cuenta_nombre = ${cambio.cuenta_nueva.nombre}
+          WHERE id = ${cambio.linea_id} AND empresa_id = ${empresaId}
+        `;
+        await sql`
+          UPDATE asientos_180 SET revisado_ia = true WHERE id = ${cambio.asiento_id}
+        `;
+        aplicados++;
+      } catch (err) {
+        errores.push(`Error en asiento ${cambio.asiento_id}: ${err.message}`);
+      }
+    }
+
+    res.json({ aplicados, errores });
+  } catch (err) {
+    console.error("Error aplicarCambiosSelectivos:", err);
+    res.status(500).json({ error: "Error aplicando correcciones" });
+  }
+}
+
+/**
+ * Marca asientos como revisados por el usuario (no necesitan re-revisión).
+ */
+export async function marcarRevisadoUsuario(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { ids, revisado = true } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "No se enviaron IDs de asientos" });
+    }
+
+    await sql`
+      UPDATE asientos_180
+      SET revisado_usuario = ${revisado}
+      WHERE id = ANY(${ids}) AND empresa_id = ${empresaId}
+    `;
+
+    res.json({ success: true, actualizados: ids.length });
+  } catch (err) {
+    console.error("Error marcarRevisadoUsuario:", err);
+    res.status(500).json({ error: "Error marcando asientos como revisados" });
+  }
+}
+
 // =============================================
 // EXPORTACIÓN CONTABLE COMPLETA (FASE C)
 // =============================================

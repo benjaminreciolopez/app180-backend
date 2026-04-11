@@ -2004,6 +2004,7 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
         AND a.tipo IN ('auto_gasto', 'auto_factura')
         AND a.estado != 'anulado'
         AND a.revisado_ia = false
+        AND COALESCE(a.revisado_usuario, false) = false
       ORDER BY a.fecha
     `;
   }
@@ -2221,16 +2222,16 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     return m ? m[1] : null;
   }).filter(Boolean));
 
-  const aptoParaMarcar = asientos.filter(a =>
-    !idsConAlertaCritica.has(a.id) && !idsConCambio.has(a.id) && !idsConError.has(a.id)
-  ).map(a => a.id);
-
-  if (aptoParaMarcar.length > 0) {
-    await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${aptoParaMarcar})`;
-  }
-
-  // Si se aplicaron correcciones (no simulación), marcar también los corregidos
+  // Solo marcar revisado_ia cuando NO es simulación
   if (!soloSimular) {
+    const aptoParaMarcar = asientos.filter(a =>
+      !idsConAlertaCritica.has(a.id) && !idsConCambio.has(a.id) && !idsConError.has(a.id)
+    ).map(a => a.id);
+
+    if (aptoParaMarcar.length > 0) {
+      await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${aptoParaMarcar})`;
+    }
+
     const corregidosIds = resultado.cambios.map(c => c.asiento_id);
     if (corregidosIds.length > 0) {
       await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${corregidosIds})`;

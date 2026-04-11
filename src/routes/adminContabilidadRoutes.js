@@ -28,6 +28,8 @@ import {
   exportarAsientos,
   importarAsientos,
   revisarAsientos,
+  aplicarCambiosSelectivos,
+  marcarRevisadoUsuario,
   exportarBalance,
   exportarPyG,
   exportarMayor,
@@ -61,6 +63,8 @@ router.post("/asientos", crearAsiento);
 router.post("/asientos/generar", generarAsientosPeriodo); // Must be before :id
 router.post("/asientos/importar", upload.single("file"), importarAsientos);
 router.post("/asientos/revisar", revisarAsientos);
+router.post("/asientos/aplicar-cambios", aplicarCambiosSelectivos);
+router.post("/asientos/marcar-revisado", marcarRevisadoUsuario);
 router.put("/asientos/validar-multiple", validarAsientosMultiple);
 router.get("/asientos/:id", getAsientoById);
 router.put("/asientos/:id", editarAsiento);
