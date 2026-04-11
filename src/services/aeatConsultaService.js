@@ -209,9 +209,27 @@ function parseTaggedResponse(tagged) {
  * @param {string} periodo - '1T', '2T', '3T', '4T', '0A'
  * @returns {object} Datos de la declaración según AEAT
  */
-export async function consultarDeclaracionPresentada(empresaId, certificadoId, modelo, ejercicio, periodo) {
+/**
+ * Resolver certificado: desde certificados_digitales_180 o desde emisor_180 (fallback)
+ */
+async function resolveCert(empresaId, certificadoId, certFromEmisor) {
+  if (certFromEmisor) {
+    // Certificado viene de emisor_180 directamente
+    return {
+      id: null,
+      p12Buffer: certFromEmisor.certificado_data,
+      pfxBuffer: certFromEmisor.certificado_data,
+      password: certFromEmisor.certificado_password,
+      nif: certFromEmisor.nif || '',
+    };
+  }
   const cert = await getCertificateForFiling(empresaId, certificadoId);
-  if (!cert) throw new Error('No se encontró certificado válido para consulta');
+  if (!cert) throw new Error('No se encontró certificado válido');
+  return { ...cert, pfxBuffer: cert.p12Buffer };
+}
+
+export async function consultarDeclaracionPresentada(empresaId, certificadoId, modelo, ejercicio, periodo, certFromEmisor) {
+  const cert = await resolveCert(empresaId, certificadoId, certFromEmisor);
 
   const urls = getUrls();
   const esAutoliquidacion = AUTOLIQUIDACIONES.includes(modelo);
@@ -226,12 +244,14 @@ export async function consultarDeclaracionPresentada(empresaId, certificadoId, m
     accion: 'CONSULTA',
   });
 
-  const response = await requestAeat(baseUrl, params.toString(), cert.pfxBuffer, cert.password);
+  const response = await requestAeat(baseUrl, params.toString(), cert.pfxBuffer || cert.p12Buffer, cert.password);
 
   // Log de uso del certificado
-  await logUsage(certificadoId, empresaId, `consulta_modelo_${modelo}`, {
-    ejercicio, periodo, statusCode: response.statusCode,
-  });
+  if (certificadoId) {
+    await logUsage(certificadoId, empresaId, `consulta_modelo_${modelo}`, {
+      ejercicio, periodo, statusCode: response.statusCode,
+    });
+  }
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`AEAT respondió con error HTTP ${response.statusCode}`);
@@ -251,9 +271,8 @@ export async function consultarDeclaracionPresentada(empresaId, certificadoId, m
  * Consultar datos fiscales del contribuyente en AEAT
  * Devuelve la visión de AEAT sobre ingresos, retenciones, etc.
  */
-export async function consultarDatosFiscales(empresaId, certificadoId, ejercicio) {
-  const cert = await getCertificateForFiling(empresaId, certificadoId);
-  if (!cert) throw new Error('No se encontró certificado válido');
+export async function consultarDatosFiscales(empresaId, certificadoId, ejercicio, certFromEmisor) {
+  const cert = await resolveCert(empresaId, certificadoId, certFromEmisor);
 
   const urls = getUrls();
   const params = new URLSearchParams({
@@ -262,9 +281,11 @@ export async function consultarDatosFiscales(empresaId, certificadoId, ejercicio
     accion: 'CONSULTA_DATOS_FISCALES',
   });
 
-  const response = await requestAeat(urls.datos_fiscales, params.toString(), cert.pfxBuffer, cert.password);
+  const response = await requestAeat(urls.datos_fiscales, params.toString(), cert.pfxBuffer || cert.p12Buffer, cert.password);
 
-  await logUsage(certificadoId, empresaId, 'consulta_datos_fiscales', { ejercicio, statusCode: response.statusCode });
+  if (certificadoId) {
+    await logUsage(certificadoId, empresaId, 'consulta_datos_fiscales', { ejercicio, statusCode: response.statusCode });
+  }
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`AEAT respondió con error HTTP ${response.statusCode}`);
@@ -277,9 +298,8 @@ export async function consultarDatosFiscales(empresaId, certificadoId, ejercicio
  * Consultar censo del contribuyente
  * Devuelve epígrafes IAE, obligaciones fiscales, etc.
  */
-export async function consultarCenso(empresaId, certificadoId) {
-  const cert = await getCertificateForFiling(empresaId, certificadoId);
-  if (!cert) throw new Error('No se encontró certificado válido');
+export async function consultarCenso(empresaId, certificadoId, certFromEmisor) {
+  const cert = await resolveCert(empresaId, certificadoId, certFromEmisor);
 
   const urls = getUrls();
   const params = new URLSearchParams({
@@ -287,9 +307,11 @@ export async function consultarCenso(empresaId, certificadoId) {
     accion: 'CONSULTA_CENSO',
   });
 
-  const response = await requestAeat(urls.censo, params.toString(), cert.pfxBuffer, cert.password);
+  const response = await requestAeat(urls.censo, params.toString(), cert.pfxBuffer || cert.p12Buffer, cert.password);
 
-  await logUsage(certificadoId, empresaId, 'consulta_censo', { statusCode: response.statusCode });
+  if (certificadoId) {
+    await logUsage(certificadoId, empresaId, 'consulta_censo', { statusCode: response.statusCode });
+  }
 
   return parseAeatResponse(response.body, 'censo');
 }
@@ -298,9 +320,9 @@ export async function consultarCenso(empresaId, certificadoId) {
  * Realizar consulta completa: consultar AEAT + cargar datos app + detectar discrepancias
  * Esta es la función principal que orquesta todo el flujo
  */
-export async function realizarConsultaCompleta(empresaId, certificadoId, modelo, ejercicio, periodo, userId) {
+export async function realizarConsultaCompleta(empresaId, certificadoId, modelo, ejercicio, periodo, userId, certFromEmisor) {
   // 1. Consultar AEAT
-  const datosAeat = await consultarDeclaracionPresentada(empresaId, certificadoId, modelo, ejercicio, periodo);
+  const datosAeat = await consultarDeclaracionPresentada(empresaId, certificadoId, modelo, ejercicio, periodo, certFromEmisor);
 
   // 2. Cargar datos de la app para este modelo/periodo
   const datosApp = await cargarDatosApp(empresaId, modelo, ejercicio, periodo);

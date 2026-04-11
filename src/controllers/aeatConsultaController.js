@@ -26,22 +26,33 @@ export async function consultarModelo(req, res) {
       return res.status(400).json({ error: 'Modelo y ejercicio son requeridos' });
     }
 
-    // Buscar certificado: usar el proporcionado o el primero activo
+    // Buscar certificado: usar el proporcionado, o buscar en certificados_digitales_180, o fallback a emisor_180
     let certId = certificado_id;
+    let certFromEmisor = null;
     if (!certId) {
       const [cert] = await sql`
         SELECT id FROM certificados_digitales_180
-        WHERE empresa_id = ${empresaId} AND estado = 'activo'
+        WHERE empresa_id = ${empresaId} AND activo = true
         ORDER BY created_at DESC LIMIT 1
       `;
-      if (!cert) {
-        return res.status(400).json({ error: 'No hay certificado electrónico activo. Configure uno primero.' });
+      if (cert) {
+        certId = cert.id;
+      } else {
+        // Fallback: buscar certificado en emisor_180
+        const [emisor] = await sql`
+          SELECT certificado_data, certificado_password, nif
+          FROM emisor_180
+          WHERE empresa_id = ${empresaId} AND certificado_data IS NOT NULL
+        `;
+        if (!emisor) {
+          return res.status(400).json({ error: 'No hay certificado electrónico activo. Configure uno primero.' });
+        }
+        certFromEmisor = emisor;
       }
-      certId = cert.id;
     }
 
     const resultado = await realizarConsultaCompleta(
-      empresaId, certId, modelo, parseInt(ejercicio), periodo, req.user.id
+      empresaId, certId, modelo, parseInt(ejercicio), periodo, req.user.id, certFromEmisor
     );
 
     res.json({
@@ -70,19 +81,29 @@ export async function consultarDatosFiscalesHandler(req, res) {
     }
 
     let certId = certificado_id;
+    let certFromEmisor = null;
     if (!certId) {
       const [cert] = await sql`
         SELECT id FROM certificados_digitales_180
-        WHERE empresa_id = ${empresaId} AND estado = 'activo'
+        WHERE empresa_id = ${empresaId} AND activo = true
         ORDER BY created_at DESC LIMIT 1
       `;
-      if (!cert) {
-        return res.status(400).json({ error: 'No hay certificado electrónico activo.' });
+      if (cert) {
+        certId = cert.id;
+      } else {
+        const [emisor] = await sql`
+          SELECT certificado_data, certificado_password, nif
+          FROM emisor_180
+          WHERE empresa_id = ${empresaId} AND certificado_data IS NOT NULL
+        `;
+        if (!emisor) {
+          return res.status(400).json({ error: 'No hay certificado electrónico activo.' });
+        }
+        certFromEmisor = emisor;
       }
-      certId = cert.id;
     }
 
-    const resultado = await consultarDatosFiscales(empresaId, certId, parseInt(ejercicio));
+    const resultado = await consultarDatosFiscales(empresaId, certId, parseInt(ejercicio), certFromEmisor);
 
     res.json({ success: true, datos_fiscales: resultado });
   } catch (error) {
@@ -101,19 +122,29 @@ export async function consultarCensoHandler(req, res) {
     const empresaId = req.params.empresa_id || req.user.empresa_id;
 
     let certId = certificado_id;
+    let certFromEmisor = null;
     if (!certId) {
       const [cert] = await sql`
         SELECT id FROM certificados_digitales_180
-        WHERE empresa_id = ${empresaId} AND estado = 'activo'
+        WHERE empresa_id = ${empresaId} AND activo = true
         ORDER BY created_at DESC LIMIT 1
       `;
-      if (!cert) {
-        return res.status(400).json({ error: 'No hay certificado electrónico activo.' });
+      if (cert) {
+        certId = cert.id;
+      } else {
+        const [emisor] = await sql`
+          SELECT certificado_data, certificado_password, nif
+          FROM emisor_180
+          WHERE empresa_id = ${empresaId} AND certificado_data IS NOT NULL
+        `;
+        if (!emisor) {
+          return res.status(400).json({ error: 'No hay certificado electrónico activo.' });
+        }
+        certFromEmisor = emisor;
       }
-      certId = cert.id;
     }
 
-    const resultado = await consultarCenso(empresaId, certId);
+    const resultado = await consultarCenso(empresaId, certId, certFromEmisor);
 
     res.json({ success: true, censo: resultado });
   } catch (error) {
