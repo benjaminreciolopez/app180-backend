@@ -836,29 +836,81 @@ export async function downloadBOEAnual(req, res) {
         let data;
         let boe = "";
 
+        // Autoliquidaciones: .ses | Informativas: .NNN | Sociedades: .xml
+        const AUTOLIQUIDACIONES_ANUALES = ['390', '100'];
+
         switch (modelo) {
             case '390':
                 data = await calcularModelo390(empresaId, year);
-                boe = aeatService.generarBOE390 ? aeatService.generarBOE390(data) : JSON.stringify(data, null, 2);
+                boe = aeatService.generarBOE390(data);
                 break;
             case '190':
                 data = await calcularModelo190(empresaId, year);
-                boe = aeatService.generarBOE190 ? aeatService.generarBOE190(data) : JSON.stringify(data, null, 2);
+                boe = aeatService.generarBOE190(data);
                 break;
             case '180':
                 data = await calcularModelo180(empresaId, year);
-                boe = aeatService.generarBOE180 ? aeatService.generarBOE180(data) : JSON.stringify(data, null, 2);
+                boe = aeatService.generarBOE180(data);
                 break;
             case '347':
                 data = await calcularModelo347(empresaId, year);
-                boe = aeatService.generarBOE347 ? aeatService.generarBOE347(data) : JSON.stringify(data, null, 2);
+                boe = aeatService.generarBOE347(data);
                 break;
+            case '100': {
+                // Renta IRPF - cargar datos de renta_irpf_180
+                const [rentaData] = await sql`
+                    SELECT r.*, e.nif, e.nombre
+                    FROM renta_irpf_180 r
+                    LEFT JOIN emisor_180 e ON e.empresa_id = r.empresa_id
+                    WHERE r.empresa_id = ${empresaId} AND r.ejercicio = ${parseInt(year)}
+                `;
+                if (!rentaData) {
+                    return res.status(404).json({ error: "No hay datos de Renta IRPF calculados para este ejercicio. Calcule primero la renta." });
+                }
+                data = rentaData;
+                boe = aeatService.generarBOE100(data);
+                break;
+            }
+            case '200': {
+                // Impuesto Sociedades - cargar datos de impuesto_sociedades_180
+                const [isData] = await sql`
+                    SELECT s.*, e.nif, e.nombre
+                    FROM impuesto_sociedades_180 s
+                    LEFT JOIN emisor_180 e ON e.empresa_id = s.empresa_id
+                    WHERE s.empresa_id = ${empresaId} AND s.ejercicio = ${parseInt(year)}
+                `;
+                if (!isData) {
+                    return res.status(404).json({ error: "No hay datos de Impuesto de Sociedades calculados para este ejercicio." });
+                }
+                data = isData;
+                boe = aeatService.generarXML200(data);
+                break;
+            }
             default:
                 return res.status(400).json({ error: "Modelo anual no soportado" });
         }
 
-        res.setHeader('Content-Type', 'text/plain');
-        res.setHeader('Content-Disposition', `attachment; filename=Modelo_${modelo}_${year}_Anual.txt`);
+        const esAutoliquidacion = AUTOLIQUIDACIONES_ANUALES.includes(modelo);
+        const esXml = modelo === '200';
+        const nif = data.nif || 'SINNI';
+
+        let extension, filename, contentType;
+        if (esXml) {
+            extension = 'xml';
+            filename = `${nif}-${modelo}-${year}.xml`;
+            contentType = 'application/xml; charset=iso-8859-1';
+        } else if (esAutoliquidacion) {
+            extension = 'ses';
+            filename = `${nif}-${modelo}-${year}.ses`;
+            contentType = 'text/plain; charset=iso-8859-1';
+        } else {
+            extension = modelo;
+            filename = `${nif}${year}.${modelo}`;
+            contentType = 'text/plain; charset=iso-8859-1';
+        }
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
         res.send(boe);
 
     } catch (error) {
@@ -1039,6 +1091,11 @@ export async function downloadBOE(req, res) {
         const data = await calcularDatosModelos(empresaId, year, trimestre, opciones);
         let boe = "";
 
+        // Autoliquidaciones usan .ses, informativas usan .NNN (número modelo)
+        const AUTOLIQUIDACIONES = ['303', '130', '111', '115'];
+        const esAutoliquidacion = AUTOLIQUIDACIONES.includes(modelo);
+        const nif = data.nif || 'SINNI';
+
         switch (modelo) {
             case '303':
                 boe = aeatService.generarBOE303(data);
@@ -1050,17 +1107,22 @@ export async function downloadBOE(req, res) {
                 boe = aeatService.generarBOE111(data);
                 break;
             case '115':
-                boe = aeatService.generarBOE115 ? aeatService.generarBOE115(data) : JSON.stringify(data.modelo115, null, 2);
+                boe = aeatService.generarBOE115(data);
                 break;
             case '349':
-                boe = aeatService.generarBOE349 ? aeatService.generarBOE349(data) : JSON.stringify(data.modelo349, null, 2);
+                boe = aeatService.generarBOE349(data);
                 break;
             default:
                 return res.status(400).json({ error: "Modelo no soportado para descarga" });
         }
 
-        res.setHeader('Content-Type', 'text/plain');
-        res.setHeader('Content-Disposition', `attachment; filename=Modelo_${modelo}_${year}_T${trimestre}.txt`);
+        const extension = esAutoliquidacion ? 'ses' : modelo;
+        const filename = esAutoliquidacion
+            ? `${nif}-${modelo}-${year}${trimestre}T.${extension}`
+            : `${nif}${year}${trimestre}T.${extension}`;
+
+        res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
         res.send(boe);
 
     } catch (error) {

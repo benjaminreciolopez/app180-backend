@@ -12,6 +12,7 @@ import {
     calcularModeloAnual,
     marcarPresentado
 } from "../controllers/modelosAnualesController.js";
+import { downloadBOEAnual } from "../controllers/adminFiscalController.js";
 
 const router = Router({ mergeParams: true });
 
@@ -41,5 +42,16 @@ router.post("/:ejercicio/:modelo/calcular", asesorClienteRequired("fiscal", "wri
  * @desc Marcar un modelo anual como presentado
  */
 router.put("/:ejercicio/:modelo/presentar", asesorClienteRequired("fiscal", "write"), marcarPresentado);
+
+/**
+ * @route GET /asesor/clientes/:empresa_id/modelos-anuales/download-boe-anual
+ * @desc Descargar fichero AEAT importable para modelo anual del cliente
+ * @query { year, modelo }
+ */
+router.get("/download-boe-anual", asesorClienteRequired("fiscal", "read"), (req, res, next) => {
+    // Inyectar empresa_id del cliente en req.user para reutilizar downloadBOEAnual
+    req.user.empresa_id = req.params.empresa_id;
+    downloadBOEAnual(req, res, next);
+});
 
 export default router;
