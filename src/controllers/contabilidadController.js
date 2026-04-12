@@ -1081,6 +1081,12 @@ export async function aplicarCambiosSelectivos(req, res) {
         await sql`
           UPDATE asientos_180 SET revisado_ia = true WHERE id = ${cambio.asiento_id}
         `;
+
+        // Registrar en historial
+        await sql`
+          INSERT INTO historial_cambios_asientos_180 (empresa_id, asiento_id, asiento_numero, asiento_concepto, linea_id, tipo_cambio, cuenta_anterior_codigo, cuenta_anterior_nombre, cuenta_nueva_codigo, cuenta_nueva_nombre, importe, realizado_por, origen)
+          VALUES (${empresaId}, ${cambio.asiento_id}, ${cambio.numero || null}, ${cambio.concepto || null}, ${cambio.linea_id}, 'cuenta_corregida', ${cambio.cuenta_anterior?.codigo || null}, ${cambio.cuenta_anterior?.nombre || null}, ${cambio.cuenta_nueva.codigo}, ${cambio.cuenta_nueva.nombre}, ${cambio.importe || null}, ${req.user.id}, 'ia_revision')
+        `;
         aplicados++;
       } catch (err) {
         errores.push(`Error en asiento ${cambio.asiento_id}: ${err.message}`);
@@ -1116,6 +1122,77 @@ export async function marcarRevisadoUsuario(req, res) {
   } catch (err) {
     console.error("Error marcarRevisadoUsuario:", err);
     res.status(500).json({ error: "Error marcando asientos como revisados" });
+  }
+}
+
+/**
+ * Consulta el historial de cambios aplicados a asientos.
+ * Soporta filtros por fecha, asiento_id y tipo_cambio.
+ */
+export async function obtenerHistorialCambios(req, res) {
+  try {
+    const empresaId = req.user.empresa_id;
+    const { desde, hasta, asiento_id, tipo_cambio, limit: lim = 50, offset = 0 } = req.query;
+
+    let query = sql`
+      SELECT h.*, u.name as realizado_por_nombre
+      FROM historial_cambios_asientos_180 h
+      LEFT JOIN users u ON u.id = h.realizado_por
+      WHERE h.empresa_id = ${empresaId}
+    `;
+
+    const conditions = [];
+    const params = [];
+
+    // Build dynamic query with conditions
+    if (desde) {
+      query = sql`
+        SELECT h.*, u.name as realizado_por_nombre
+        FROM historial_cambios_asientos_180 h
+        LEFT JOIN users u ON u.id = h.realizado_por
+        WHERE h.empresa_id = ${empresaId}
+          AND h.created_at >= ${desde}
+          ${hasta ? sql`AND h.created_at <= ${hasta}` : sql``}
+          ${asiento_id ? sql`AND h.asiento_id = ${asiento_id}` : sql``}
+          ${tipo_cambio ? sql`AND h.tipo_cambio = ${tipo_cambio}` : sql``}
+        ORDER BY h.created_at DESC
+        LIMIT ${Number(lim)} OFFSET ${Number(offset)}
+      `;
+    } else {
+      query = sql`
+        SELECT h.*, u.name as realizado_por_nombre
+        FROM historial_cambios_asientos_180 h
+        LEFT JOIN users u ON u.id = h.realizado_por
+        WHERE h.empresa_id = ${empresaId}
+          ${hasta ? sql`AND h.created_at <= ${hasta}` : sql``}
+          ${asiento_id ? sql`AND h.asiento_id = ${asiento_id}` : sql``}
+          ${tipo_cambio ? sql`AND h.tipo_cambio = ${tipo_cambio}` : sql``}
+        ORDER BY h.created_at DESC
+        LIMIT ${Number(lim)} OFFSET ${Number(offset)}
+      `;
+    }
+
+    const cambios = await query;
+
+    // Count total
+    const countQuery = await sql`
+      SELECT COUNT(*) as total
+      FROM historial_cambios_asientos_180
+      WHERE empresa_id = ${empresaId}
+        ${desde ? sql`AND created_at >= ${desde}` : sql``}
+        ${hasta ? sql`AND created_at <= ${hasta}` : sql``}
+        ${asiento_id ? sql`AND asiento_id = ${asiento_id}` : sql``}
+        ${tipo_cambio ? sql`AND tipo_cambio = ${tipo_cambio}` : sql``}
+    `;
+
+    res.json({
+      success: true,
+      cambios,
+      total: Number(countQuery[0]?.total || 0),
+    });
+  } catch (err) {
+    console.error("Error obtenerHistorialCambios:", err);
+    res.status(500).json({ error: "Error obteniendo historial de cambios" });
   }
 }
 
