@@ -153,6 +153,9 @@ export const register = async (req, res) => {
     const finalModulos = modulosInput
       ? { ...defaultModulos, ...modulosInput }
       : defaultModulos;
+    // Contabilidad y fiscal solo disponibles para asesorias, nunca para empresas
+    finalModulos.contable = false;
+    finalModulos.fiscal = false;
     await sql`
       INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens)
       VALUES (${empresa.id}, ${finalModulos}::jsonb, 1000)
