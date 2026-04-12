@@ -2222,16 +2222,18 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
     return m ? m[1] : null;
   }).filter(Boolean));
 
-  // Solo marcar revisado_ia cuando NO es simulación
+  // Asientos sin cambios, sin alertas críticas y sin errores → marcar revisado_ia
+  // (incluso en simulación: si la IA no propone cambios, no hay nada que confirmar)
+  const aptoParaMarcar = asientos.filter(a =>
+    !idsConAlertaCritica.has(a.id) && !idsConCambio.has(a.id) && !idsConError.has(a.id)
+  ).map(a => a.id);
+
+  if (aptoParaMarcar.length > 0) {
+    await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${aptoParaMarcar})`;
+  }
+
+  // Solo marcar los corregidos cuando NO es simulación (requieren confirmación del usuario)
   if (!soloSimular) {
-    const aptoParaMarcar = asientos.filter(a =>
-      !idsConAlertaCritica.has(a.id) && !idsConCambio.has(a.id) && !idsConError.has(a.id)
-    ).map(a => a.id);
-
-    if (aptoParaMarcar.length > 0) {
-      await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${aptoParaMarcar})`;
-    }
-
     const corregidosIds = resultado.cambios.map(c => c.asiento_id);
     if (corregidosIds.length > 0) {
       await sql`UPDATE asientos_180 SET revisado_ia = true WHERE id = ANY(${corregidosIds})`;
