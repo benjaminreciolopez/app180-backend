@@ -108,6 +108,7 @@ import adminCentrosTrabajoRoutes from "./routes/adminCentrosTrabajoRoutes.js";
 import adminParteConfigRoutes from "./routes/adminParteConfigRoutes.js";
 import nominaEntregasRoutes from "./routes/nominaEntregasRoutes.js";
 import asesorModelosAnualesRoutes from "./routes/asesorModelosAnualesRoutes.js";
+import asesorFiscalPresentarRoutes from "./routes/asesorFiscalPresentarRoutes.js";
 import adminModelosAnualesRoutes from "./routes/adminModelosAnualesRoutes.js";
 import adminConsultaRoutes from "./routes/adminConsultaRoutes.js";
 import asesorConsultaRoutes from "./routes/asesorConsultaRoutes.js";
@@ -328,6 +329,7 @@ app.use("/asesor/certificados", asesorCertificadosRoutes); // Certificados digit
 app.use("/asesor/clientes/:empresa_id/certificados", asesorCertificadoRoutes); // Certificados digitales upload real (asesor)
 app.use("/api/admin", adminCertificadoRoutes); // Certificados digitales upload real (admin)
 app.use("/asesor/clientes/:empresa_id/fiscal/cierre", asesorCierreRoutes); // Cierre ejercicio (asesor)
+app.use("/asesor/clientes/:empresa_id/fiscal", asesorFiscalPresentarRoutes); // Presentación AEAT modelos trimestrales (asesor)
 app.use("/asesor/clientes/:empresa_id/sii", asesorSiiRoutes); // SII: Suministro Inmediato de Informacion (asesor)
 app.use("/asesor/clientes/:empresa_id/modelos-anuales", asesorModelosAnualesRoutes); // Modelos anuales AEAT (asesor)
 app.use("/asesor/clientes/:empresa_id/consulta", asesorConsultaRoutes); // Consulta AEAT + discrepancias (asesor)

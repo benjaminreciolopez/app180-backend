@@ -219,22 +219,49 @@ export async function presentarModelo(empresaId, certificadoId, modelo, periodo,
     null
   );
 
-  // 7. Update fiscal_models_180 if exists
+  // 7. Upsert fiscal_models_180: si existe lo actualizamos, si no lo creamos
+  // con los datos calculados y la respuesta de AEAT. La columna correcta es
+  // `ejercicio` (no `anio`).
   try {
-    await sql`
-      UPDATE fiscal_models_180
-      SET estado = ${resultado.success ? 'PRESENTADO' : 'ERROR_PRESENTACION'},
-          aeat_respuesta_json = ${JSON.stringify(resultado)},
-          datos_json = ${JSON.stringify(datosModelo)},
-          presentado_at = ${resultado.success ? sql`now()` : null},
-          updated_at = now()
+    const ejercicioInt = parseInt(ejercicio);
+    const [existing] = await sql`
+      SELECT id FROM fiscal_models_180
       WHERE empresa_id = ${empresaId}
         AND modelo = ${modelo}
         AND periodo = ${periodo}
-        AND anio = ${parseInt(ejercicio)}
+        AND ejercicio = ${ejercicioInt}
+      LIMIT 1
     `;
+    if (existing) {
+      await sql`
+        UPDATE fiscal_models_180
+        SET estado = ${resultado.success ? 'PRESENTADO' : 'ERROR_PRESENTACION'},
+            aeat_respuesta_json = ${JSON.stringify(resultado)},
+            aeat_csv = ${resultado.csv || null},
+            datos_json = ${JSON.stringify(datosModelo)},
+            presentado_at = ${resultado.success ? sql`now()` : null},
+            updated_at = now()
+        WHERE id = ${existing.id}
+      `;
+    } else {
+      await sql`
+        INSERT INTO fiscal_models_180 (
+          empresa_id, modelo, ejercicio, periodo, estado,
+          datos_json, aeat_respuesta_json, aeat_csv,
+          presentado_at, created_at, updated_at
+        ) VALUES (
+          ${empresaId}, ${modelo}, ${ejercicioInt}, ${periodo},
+          ${resultado.success ? 'PRESENTADO' : 'ERROR_PRESENTACION'},
+          ${JSON.stringify(datosModelo)},
+          ${JSON.stringify(resultado)},
+          ${resultado.csv || null},
+          ${resultado.success ? sql`now()` : null},
+          now(), now()
+        )
+      `;
+    }
   } catch (updateErr) {
-    logger.warn('Could not update fiscal_models_180 (table may not exist)', { error: updateErr.message });
+    logger.warn('Could not persist fiscal_models_180', { error: updateErr.message });
   }
 
   logger.info(`Presentación modelo ${modelo} ${periodo} ${ejercicio}: ${resultado.success ? 'OK' : 'ERROR'}`, {

@@ -1275,3 +1275,51 @@ export async function downloadBOE(req, res) {
         res.status(500).json({ success: false, error: "Error generando fichero descarga" });
     }
 }
+
+/**
+ * Presentación telemática a AEAT (modelos 303/130/111/115).
+ * Body: { modelo, year, trimestre, certificado_id, opciones? }
+ *
+ * Recalcula los datos del modelo, genera el contenido BOE, lo firma con el
+ * certificado digital del cliente y lo envía a la sede de AEAT. El CSV
+ * (Código Seguro de Verificación) devuelto se persiste en fiscal_models_180.
+ */
+export async function presentarFiscalModel(req, res) {
+    try {
+        const { presentarModelo: presentarAEAT } = await import('../services/aeatPresentacionService.js');
+
+        const empresaId = req.params.empresa_id || req.user?.empresa_id;
+        if (!empresaId) {
+            return res.status(400).json({ success: false, error: "empresa_id requerido" });
+        }
+
+        const { modelo, year, trimestre, certificado_id, opciones } = req.body || {};
+        if (!modelo || !year || !trimestre || !certificado_id) {
+            return res.status(400).json({
+                success: false,
+                error: "Faltan parámetros: modelo, year, trimestre, certificado_id"
+            });
+        }
+
+        const datos = await calcularDatosModelos(empresaId, year, trimestre, opciones || {});
+        const datosModelo = datos[`modelo${modelo}`];
+        if (!datosModelo) {
+            return res.status(400).json({ success: false, error: `Modelo ${modelo} no calculado` });
+        }
+
+        const periodo = `${parseInt(trimestre)}T`;
+        const resultado = await presentarAEAT(
+            empresaId,
+            certificado_id,
+            String(modelo),
+            periodo,
+            String(year),
+            datosModelo
+        );
+
+        return res.json({ success: resultado.success, ...resultado });
+    } catch (error) {
+        logger.error("presentarFiscalModel failed", { message: error.message });
+        return res.status(500).json({ success: false, error: error.message || "Error en presentación AEAT" });
+    }
+}

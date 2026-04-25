@@ -13,7 +13,8 @@ import {
     getModelo190,
     getModelo180,
     getModelo347,
-    downloadBOEAnual
+    downloadBOEAnual,
+    presentarFiscalModel
 } from "../controllers/adminFiscalController.js";
 import {
     getFiscalAlerts,
@@ -71,6 +72,13 @@ router.get("/libro-nominas", getLibroNominas);
  * @query year, trimestre, modelo
  */
 router.get("/download-boe", downloadBOE);
+
+/**
+ * @route POST /admin/fiscal/presentar
+ * @desc Presentación telemática AEAT (303/130/111/115) con certificado
+ * @body { modelo, year, trimestre, certificado_id, opciones? }
+ */
+router.post("/presentar", presentarFiscalModel);
 
 /**
  * @route GET /admin/fiscal/alerts
