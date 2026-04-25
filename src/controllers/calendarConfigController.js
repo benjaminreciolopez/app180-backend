@@ -66,7 +66,7 @@ export async function startOAuth2(req, res) {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_CALENDAR_REDIRECT_URI
+      process.env.GOOGLE_REDIRECT_URI
     );
 
     const scopes = [
@@ -74,10 +74,11 @@ export async function startOAuth2(req, res) {
       'https://www.googleapis.com/auth/userinfo.email'
     ];
 
-    // Almacenar user ID y type en state para recuperar después del callback
+    // El unified callback (auth/google/unified-callback) usa userId + empresaId + type
     const state = Buffer.from(JSON.stringify({
       userId: req.user.id,
-      type: 'calendar' // Para diferenciar de callback de email
+      empresaId: req.user.empresa_id,
+      type: 'calendar'
     })).toString('base64');
 
     const authUrl = oauth2Client.generateAuthUrl({
