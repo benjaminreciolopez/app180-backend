@@ -13,6 +13,7 @@ import {
     extractCasillasConRegex,
     parseImporteEspanol
 } from "../services/fiscalRulesEngine.js";
+import { calcularAmortizacionAcumulada } from "../services/amortizacionService.js";
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -841,10 +842,30 @@ export async function simularIRPF(req, res) {
 
         // 2. Calcular rendimiento neto
         const ingresos = parseFloat(facturacion.ingresos);
-        const gastosDeducibles = parseFloat(gastos.total_gastos)
+        const gastosDirectos = parseFloat(gastos.total_gastos)
             + parseFloat(nominas.bruto_total)
             + parseFloat(nominas.ss_empresa);
-        const rendimientoNeto = ingresos - gastosDeducibles;
+
+        // Amortización lineal del inmovilizado (Art. 28 RIRPF, ED simplificada)
+        const amortizacion = await calcularAmortizacionAcumulada(
+            empresaId, `${year}-01-01`, `${year}-12-31`
+        );
+        const gastoAmortizacion = parseFloat(amortizacion.total) || 0;
+
+        // Rendimiento neto previo (antes de gastos de difícil justificación)
+        const rendimientoNetoPrevio = ingresos - gastosDirectos - gastoAmortizacion;
+
+        // Gastos de difícil justificación (Art. 30 RIRPF — ED simplificada):
+        // 5% del rendimiento neto previo positivo, máximo 2.000 €/año.
+        // Aplica solo en estimación directa simplificada; permite override por reglas BD.
+        const dificilJustPct = rules.getNum('deducciones', 'dificil_justificacion_pct', 5) / 100;
+        const dificilJustMax = rules.getNum('deducciones', 'dificil_justificacion_max', 2000);
+        const gastosDificilJustificacion = rendimientoNetoPrevio > 0
+            ? Math.min(rendimientoNetoPrevio * dificilJustPct, dificilJustMax)
+            : 0;
+
+        const rendimientoNeto = rendimientoNetoPrevio - gastosDificilJustificacion;
+        const gastosDeducibles = gastosDirectos + gastoAmortizacion + gastosDificilJustificacion;
 
         // 3. Reducciones (límites desde BD)
         const planPensiones = datosPersonales?.aportacion_plan_pensiones || 0;
@@ -957,8 +978,13 @@ export async function simularIRPF(req, res) {
                 reglas_ejercicio: rules.ejercicio, // Confirma qué año de reglas se usó
                 rendimientos: {
                     ingresos_actividades: ingresos,
-                    gastos_deducibles: gastosDeducibles,
-                    rendimiento_neto: rendimientoNeto,
+                    gastos_directos: Math.round(gastosDirectos * 100) / 100,
+                    amortizacion: Math.round(gastoAmortizacion * 100) / 100,
+                    amortizacion_detalle: amortizacion.detalle,
+                    rendimiento_neto_previo: Math.round(rendimientoNetoPrevio * 100) / 100,
+                    gastos_dificil_justificacion: Math.round(gastosDificilJustificacion * 100) / 100,
+                    gastos_deducibles: Math.round(gastosDeducibles * 100) / 100,
+                    rendimiento_neto: Math.round(rendimientoNeto * 100) / 100,
                 },
                 reducciones: {
                     plan_pensiones: reduccionPensiones,
@@ -1013,7 +1039,100 @@ export async function simularIRPF(req, res) {
 }
 
 // =============================================
-// 5. DOSSIER PRE-RENTA
+// 5. MODELO 100 — CASILLAS PARA RENTAWEB
+// =============================================
+
+/**
+ * GET /admin/fiscal/renta/modelo-100/:ejercicio
+ *
+ * Construye un mapa de casillas oficiales del Modelo 100 (RentaWEB) a partir
+ * del cálculo de simularIRPF. AEAT no admite presentación telemática del
+ * 100 desde software propio; el gestor debe copiar los importes en RentaWEB.
+ *
+ * Los códigos de casilla pueden cambiar año a año en RentaWEB; este endpoint
+ * mantiene la nomenclatura usada por la AEAT en los últimos ejercicios. El
+ * gestor debe verificar contra la versión vigente del modelo cada campaña.
+ */
+export async function getCasillas100(req, res) {
+    try {
+        // Reutilizamos simularIRPF construyendo un res "fake" que captura su
+        // payload y luego lo transformamos en casillas oficiales.
+        let captured = null;
+        const captureRes = {
+            json: (payload) => { captured = payload; return captureRes; },
+            status: () => captureRes,
+        };
+        await simularIRPF(req, captureRes);
+
+        if (!captured?.success) {
+            return res.status(500).json({
+                success: false,
+                error: captured?.error || "Error simulando IRPF para modelo 100"
+            });
+        }
+
+        const d = captured.data;
+
+        const casillas = [
+            // Rendimientos de actividades económicas (ED simplificada)
+            { codigo: "0165", descripcion: "Ingresos íntegros de actividades económicas", importe: d.rendimientos.ingresos_actividades },
+            { codigo: "0186", descripcion: "Gastos fiscalmente deducibles (directos)",   importe: d.rendimientos.gastos_directos },
+            { codigo: "0188", descripcion: "Amortizaciones del inmovilizado",             importe: d.rendimientos.amortizacion },
+            { codigo: "0224", descripcion: "Rendimiento neto previo",                     importe: d.rendimientos.rendimiento_neto_previo },
+            { codigo: "0228", descripcion: "Gastos de difícil justificación (5%, máx 2.000 €)", importe: d.rendimientos.gastos_dificil_justificacion },
+            { codigo: "0229", descripcion: "Rendimiento neto reducido",                   importe: d.rendimientos.rendimiento_neto },
+
+            // Reducciones
+            { codigo: "0500", descripcion: "Reducciones por aportaciones a planes de pensiones", importe: d.reducciones.plan_pensiones },
+
+            // Bases
+            { codigo: "0505", descripcion: "Base imponible general", importe: d.base_imponible_general },
+            { codigo: "0510", descripcion: "Base liquidable general", importe: d.base_liquidable },
+
+            // Mínimo personal y familiar
+            { codigo: "0596", descripcion: "Mínimo personal y familiar (estatal)",   importe: d.minimo_personal_familiar.estatal },
+            { codigo: "0597", descripcion: "Mínimo personal y familiar (autonómico)", importe: d.minimo_personal_familiar.autonomico },
+
+            // Cuotas íntegras
+            { codigo: "0532", descripcion: "Cuota íntegra estatal",   importe: d.cuota_integra.estatal },
+            { codigo: "0546", descripcion: "Cuota íntegra autonómica", importe: d.cuota_integra.autonomica },
+
+            // Deducciones
+            { codigo: "0553", descripcion: "Deducciones estatales (vivienda, donaciones)", importe: d.deducciones.estatales },
+            { codigo: "0564", descripcion: "Deducciones autonómicas",                       importe: d.deducciones.autonomicas?.total || 0 },
+
+            // Cuota líquida
+            { codigo: "0595", descripcion: "Cuota líquida total", importe: d.cuota_liquida },
+
+            // Pagos a cuenta
+            { codigo: "0599", descripcion: "Retenciones (clientes)",          importe: d.anticipado.retenciones_clientes },
+            { codigo: "0600", descripcion: "Retenciones de nóminas (IRPF)",   importe: d.anticipado.retenciones_nominas },
+            { codigo: "0610", descripcion: "Pagos fraccionados Modelo 130",   importe: d.anticipado.pagos_fraccionados_130 },
+
+            // Resultado
+            { codigo: "0670", descripcion: "Resultado de la declaración (a pagar +, a devolver -)", importe: d.resultado },
+        ];
+
+        res.json({
+            success: true,
+            data: {
+                ejercicio: d.ejercicio,
+                comunidad_autonoma: d.comunidad_autonoma,
+                regimen: d.regimen,
+                tipo_efectivo: d.tipo_efectivo,
+                resultado_texto: d.resultado_texto,
+                casillas,
+                aviso: "El Modelo 100 no se presenta vía API desde software externo. Copiar importes en RentaWEB de la AEAT. Verificar códigos de casilla vigentes para la campaña."
+            }
+        });
+    } catch (error) {
+        console.error("Error getCasillas100:", error);
+        res.status(500).json({ success: false, error: "Error generando casillas Modelo 100" });
+    }
+}
+
+// =============================================
+// 6. DOSSIER PRE-RENTA
 // =============================================
 
 /**

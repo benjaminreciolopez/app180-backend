@@ -14,6 +14,7 @@ import {
     updateRenta,
     deleteRenta,
     simularIRPF,
+    getCasillas100,
     generarDossier
 } from "../controllers/adminRentaController.js";
 
@@ -82,6 +83,12 @@ router.delete("/historial/:ejercicio", deleteRenta);
  * @desc Simular declaración de la renta con tramos IRPF reales
  */
 router.get("/simular/:ejercicio", simularIRPF);
+
+/**
+ * @route GET /admin/fiscal/renta/modelo-100/:ejercicio
+ * @desc Casillas oficiales del Modelo 100 para copiar a RentaWEB de la AEAT
+ */
+router.get("/modelo-100/:ejercicio", getCasillas100);
 
 /**
  * @route GET /admin/fiscal/renta/dossier/:ejercicio

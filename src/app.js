@@ -109,6 +109,8 @@ import adminParteConfigRoutes from "./routes/adminParteConfigRoutes.js";
 import nominaEntregasRoutes from "./routes/nominaEntregasRoutes.js";
 import asesorModelosAnualesRoutes from "./routes/asesorModelosAnualesRoutes.js";
 import asesorFiscalPresentarRoutes from "./routes/asesorFiscalPresentarRoutes.js";
+import adminInmovilizadoRoutes from "./routes/adminInmovilizadoRoutes.js";
+import asesorInmovilizadoRoutes from "./routes/asesorInmovilizadoRoutes.js";
 import adminModelosAnualesRoutes from "./routes/adminModelosAnualesRoutes.js";
 import adminConsultaRoutes from "./routes/adminConsultaRoutes.js";
 import asesorConsultaRoutes from "./routes/asesorConsultaRoutes.js";
@@ -305,6 +307,7 @@ app.use("/api/admin/fiscal", asesorWriteGuard("fiscal"), adminFiscalRoutes);
 app.use("/api/admin/fiscal/renta", asesorWriteGuard("fiscal"), adminRentaRoutes);
 app.use("/api/admin/fiscal/reglas", asesorWriteGuard("fiscal"), adminFiscalRulesRoutes);
 app.use("/api/admin/fiscal/modelos-anuales", asesorWriteGuard("fiscal"), adminModelosAnualesRoutes);
+app.use("/api/admin/inmovilizado", asesorWriteGuard("fiscal"), adminInmovilizadoRoutes);
 app.use("/api/admin/fiscal/consulta", asesorWriteGuard("fiscal"), adminConsultaRoutes);
 app.use("/api/admin/nominas", nominasRoutes);
 app.use("/api/admin/nominas", nominaEntregasRoutes); // Entregas y firma de nóminas
@@ -330,6 +333,7 @@ app.use("/asesor/clientes/:empresa_id/certificados", asesorCertificadoRoutes); /
 app.use("/api/admin", adminCertificadoRoutes); // Certificados digitales upload real (admin)
 app.use("/asesor/clientes/:empresa_id/fiscal/cierre", asesorCierreRoutes); // Cierre ejercicio (asesor)
 app.use("/asesor/clientes/:empresa_id/fiscal", asesorFiscalPresentarRoutes); // Presentación AEAT modelos trimestrales (asesor)
+app.use("/asesor/clientes/:empresa_id/inmovilizado", asesorInmovilizadoRoutes); // Inmovilizado y amortizaciones (asesor)
 app.use("/asesor/clientes/:empresa_id/sii", asesorSiiRoutes); // SII: Suministro Inmediato de Informacion (asesor)
 app.use("/asesor/clientes/:empresa_id/modelos-anuales", asesorModelosAnualesRoutes); // Modelos anuales AEAT (asesor)
 app.use("/asesor/clientes/:empresa_id/consulta", asesorConsultaRoutes); // Consulta AEAT + discrepancias (asesor)
@@ -349,6 +353,7 @@ app.use("/admin/fiscal", asesorWriteGuard("fiscal"), adminFiscalRoutes);
 app.use("/admin/fiscal/renta", asesorWriteGuard("fiscal"), adminRentaRoutes);
 app.use("/admin/fiscal/reglas", asesorWriteGuard("fiscal"), adminFiscalRulesRoutes);
 app.use("/admin/fiscal/modelos-anuales", asesorWriteGuard("fiscal"), adminModelosAnualesRoutes);
+app.use("/admin/inmovilizado", asesorWriteGuard("fiscal"), adminInmovilizadoRoutes);
 app.use("/admin/fiscal/consulta", asesorWriteGuard("fiscal"), adminConsultaRoutes);
 app.use("/admin/purchases", asesorWriteGuard("gastos"), adminPurchasesRoutes);
 app.use("/admin/nominas", nominasRoutes);

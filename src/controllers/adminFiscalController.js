@@ -2,6 +2,7 @@
 import { sql } from "../db.js";
 import { aeatService } from "../services/aeatService.js";
 import { FiscalRules } from "../services/fiscalRulesEngine.js";
+import { calcularAmortizacionAcumulada } from "../services/amortizacionService.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -34,6 +35,20 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     // Reglas fiscales del ejercicio (coeficientes, tipos, límites desde BD)
     const rules = await FiscalRules.forYear(parseInt(year));
 
+    // Cargar emisor para conocer régimen IVA y pro-rata antes de las queries.
+    const [emisor] = await sql`
+        SELECT nif, nombre,
+               COALESCE(regimen_iva, 'general') as regimen_iva,
+               COALESCE(prorrata_iva_pct, 100)::numeric as prorrata_iva_pct,
+               prorrata_iva_definitivo,
+               modulos_simplificado,
+               compensacion_reagp_pct
+        FROM emisor_180 WHERE empresa_id = ${empresaId}
+    `;
+    const criterioCaja = emisor?.regimen_iva === 'criterio_caja';
+    const esREAGP = emisor?.regimen_iva === 'agricultura';
+    const esSimplificado = emisor?.regimen_iva === 'simplificado';
+
     // =========================================================================
     // MODELO 303: Lee IVA desde ASIENTOS CONTABLES (cuentas 472/477)
     // Esto refleja los importes reales contabilizados (con deducciones parciales)
@@ -47,7 +62,35 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     // importes negativos) se declara en el periodo en que se emite. Por eso
     // incluimos también ANULADAs que tengan factura_rectificativa_id
     // (anuladas por rectificativa, no por borrado manual).
-    const ventasPorTipo = await sql`
+    //
+    // Régimen criterio de caja (Art. 163 decies LIVA): el devengo se produce
+    // en el momento del cobro. Filtramos por la fecha de la última imputación
+    // de pago (payment_allocations_180 → payments_180.fecha_pago) en lugar
+    // de f.fecha. Solo se incluyen facturas marcadas como cobradas.
+    const ventasPorTipo = criterioCaja ? await sql`
+        SELECT
+            COALESCE(lf.iva_percent, 21) as tipo_iva,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario), 0) as base_imponible,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario * lf.iva_percent / 100), 0) as cuota_iva
+        FROM factura_180 f
+        JOIN lineafactura_180 lf ON lf.factura_id = f.id
+        JOIN LATERAL (
+            SELECT MAX(p.fecha_pago) as fecha_cobro
+            FROM payment_allocations_180 pa
+            JOIN payments_180 p ON p.id = pa.payment_id
+            WHERE pa.factura_id = f.id AND pa.empresa_id = f.empresa_id
+        ) cobro ON TRUE
+        WHERE f.empresa_id = ${empresaId}
+        AND f.estado_pago = 'pagado'
+        AND (
+            f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+            OR (f.estado = 'ANULADA' AND f.factura_rectificativa_id IS NOT NULL)
+        )
+        AND cobro.fecha_cobro BETWEEN ${startDate} AND ${endDate}
+        AND (f.es_test IS NOT TRUE)
+        GROUP BY COALESCE(lf.iva_percent, 21)
+        ORDER BY tipo_iva
+    ` : await sql`
         SELECT
             COALESCE(lf.iva_percent, 21) as tipo_iva,
             COALESCE(SUM(lf.cantidad * lf.precio_unitario), 0) as base_imponible,
@@ -68,7 +111,28 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     // Desglose adicional: solo rectificativas del periodo (informativo para
     // el frontend y para el casillado del modelo 303 cuando AEAT pida
     // separar correcciones de cuotas devengadas).
-    const rectificativasPorTipo = await sql`
+    const rectificativasPorTipo = criterioCaja ? await sql`
+        SELECT
+            COALESCE(lf.iva_percent, 21) as tipo_iva,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario), 0) as base_imponible,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario * lf.iva_percent / 100), 0) as cuota_iva
+        FROM factura_180 f
+        JOIN lineafactura_180 lf ON lf.factura_id = f.id
+        JOIN LATERAL (
+            SELECT MAX(p.fecha_pago) as fecha_cobro
+            FROM payment_allocations_180 pa
+            JOIN payments_180 p ON p.id = pa.payment_id
+            WHERE pa.factura_id = f.id AND pa.empresa_id = f.empresa_id
+        ) cobro ON TRUE
+        WHERE f.empresa_id = ${empresaId}
+        AND f.rectificativa = true
+        AND f.estado_pago = 'pagado'
+        AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND cobro.fecha_cobro BETWEEN ${startDate} AND ${endDate}
+        AND (f.es_test IS NOT TRUE)
+        GROUP BY COALESCE(lf.iva_percent, 21)
+        ORDER BY tipo_iva
+    ` : await sql`
         SELECT
             COALESCE(lf.iva_percent, 21) as tipo_iva,
             COALESCE(SUM(lf.cantidad * lf.precio_unitario), 0) as base_imponible,
@@ -129,7 +193,21 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     };
 
     // 2. IVA DEDUCIBLE - Cuenta 472 (Debe) en asientos del trimestre
-    const comprasPorTipo = await sql`
+    // En régimen criterio de caja se filtra por fecha_pago (solo compras
+    // efectivamente pagadas en el periodo); en régimen general por fecha_compra.
+    const comprasPorTipo = criterioCaja ? await sql`
+        SELECT
+            COALESCE(iva_porcentaje, 21) as tipo_iva,
+            COALESCE(SUM(base_imponible), 0) as base_imponible,
+            COALESCE(SUM(COALESCE(cuota_iva, iva_importe, 0)), 0) as cuota_iva
+        FROM purchases_180
+        WHERE empresa_id = ${empresaId}
+        AND activo = true
+        AND fecha_pago IS NOT NULL
+        AND fecha_pago BETWEEN ${startDate} AND ${endDate}
+        GROUP BY COALESCE(iva_porcentaje, 21)
+        ORDER BY tipo_iva
+    ` : await sql`
         SELECT
             COALESCE(iva_porcentaje, 21) as tipo_iva,
             COALESCE(SUM(base_imponible), 0) as base_imponible,
@@ -308,13 +386,6 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     `;
     const total349 = operaciones349.reduce((sum, op) => sum + parseFloat(op.total), 0);
 
-    const [emisor] = await sql`
-        SELECT nif, nombre,
-               COALESCE(prorrata_iva_pct, 100)::numeric as prorrata_iva_pct,
-               prorrata_iva_definitivo
-        FROM emisor_180 WHERE empresa_id = ${empresaId}
-    `;
-
     // Helper para extraer base+cuota de un tipo de IVA concreto
     const getDevengadoPorTipo = (tipo) => {
         const row = ventasPorTipo.find(r => parseFloat(r.tipo_iva) === tipo);
@@ -409,7 +480,8 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         ? cuotasPendientesPosterior + Math.abs(resultadoAutoliquidacion)
         : cuotasPendientesPosterior;
 
-    const modelo303 = {
+    let modelo303 = {
+        regimen_iva: emisor?.regimen_iva || 'general',
         devengado: {
             base: parseFloat(ventas.base_imponible),
             cuota: parseFloat(ventas.iva_repercutido),
@@ -453,7 +525,92 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         }
     };
 
-    const totalGastosDirectos = parseFloat(acumuladoCompras.gastos) + parseFloat(acumuladoNominas.total_coste);
+    // REAGP (Arts. 124-134 LIVA): el autónomo NO repercute IVA en sus ventas;
+    // percibe una compensación a tanto alzado del cliente. No presenta modelo
+    // 303 de actividad ordinaria (Art. 47.4 RGAT). Se devuelve payload "sin
+    // actividad" indicando el régimen y el porcentaje de compensación.
+    if (esREAGP) {
+        modelo303 = {
+            regimen_iva: 'agricultura',
+            sin_actividad: true,
+            nota: 'REAGP no presenta modelo 303 ordinario (Art. 47.4 RGAT). El autónomo percibe compensación a tanto alzado del cliente.',
+            compensacion_reagp_pct: emisor?.compensacion_reagp_pct !== null && emisor?.compensacion_reagp_pct !== undefined
+                ? parseFloat(emisor.compensacion_reagp_pct) : null,
+            ingresos_actividad: parseFloat(ventas.base_imponible),
+            resultado: 0
+        };
+    }
+
+    // Régimen simplificado IVA (Arts. 122-123 LIVA): cuotas devengadas por
+    // módulos (Anexo II Orden HFP). Se paga 1/4 de la cuota anual fija en
+    // 1T, 2T y 3T (sin regularizar), y en 4T se regulariza con la cuota
+    // efectiva (devengado real - 1% deducible difícil justificación).
+    if (esSimplificado) {
+        const mods = emisor?.modulos_simplificado || {};
+        const cuotaAnualFija = parseFloat(mods.cuota_devengada_anual || 0);
+        const cuotaMinAnual = parseFloat(mods.cuota_minima_anual || 0);
+        const cuotaTrimestral = cuotaAnualFija / 4;
+
+        // Deducible: 1% del IVA devengado por gastos de difícil justificación.
+        const dificilJustPct = rules.getNum('modelo_303', 'simplificado_deducible_pct', 1) / 100;
+
+        if (parseInt(trimestre) < 4) {
+            // 1T/2T/3T: pago a cuenta de 1/4 de la cuota fija
+            modelo303 = {
+                regimen_iva: 'simplificado',
+                tipo_pago: 'a_cuenta',
+                modulos: mods,
+                cuota_devengada_anual: cuotaAnualFija,
+                cuota_minima_anual: cuotaMinAnual,
+                cuota_trimestral: cuotaTrimestral,
+                resultado: cuotaTrimestral
+            };
+        } else {
+            // 4T: regularización anual
+            // Cuota devengada = max(cuotaAnualFija, cuotaMinAnual)
+            // Deducible = 1% de la cuota devengada
+            // Resultado anual = devengada - deducible
+            // A ingresar 4T = resultado anual - pagos a cuenta de 1T/2T/3T
+            const cuotaDevengadaAnual = Math.max(cuotaAnualFija, cuotaMinAnual);
+            const deducibleDificilJust = cuotaDevengadaAnual * dificilJustPct;
+            const resultadoAnual = cuotaDevengadaAnual - deducibleDificilJust;
+
+            const yearInt = parseInt(year);
+            const [pagosACuenta] = await sql`
+                SELECT COALESCE(SUM(resultado_importe), 0) as total
+                FROM fiscal_models_180
+                WHERE empresa_id = ${empresaId}
+                AND modelo = '303'
+                AND ejercicio = ${yearInt}
+                AND periodo IN ('1T','2T','3T')
+                AND estado IN ('GENERADO', 'PRESENTADO')
+            `;
+            const yaPagado = parseFloat(pagosACuenta.total);
+            const aIngresar4T = resultadoAnual - yaPagado;
+
+            modelo303 = {
+                regimen_iva: 'simplificado',
+                tipo_pago: 'regularizacion_4t',
+                modulos: mods,
+                cuota_devengada_anual: cuotaAnualFija,
+                cuota_minima_anual: cuotaMinAnual,
+                cuota_devengada_efectiva: cuotaDevengadaAnual,
+                deducible_dificil_justificacion_pct: dificilJustPct * 100,
+                deducible_dificil_justificacion: deducibleDificilJust,
+                resultado_anual: resultadoAnual,
+                pagos_a_cuenta_previos: yaPagado,
+                resultado: aIngresar4T
+            };
+        }
+    }
+
+    // Amortización acumulada del inmovilizado afecto a la actividad
+    // (Art. 28 RIRPF - tabla simplificada). Se prorratea por días desde
+    // fecha_alta hasta endDate del periodo del modelo.
+    const amortizacionAcum = await calcularAmortizacionAcumulada(empresaId, startYear, endDate);
+    const gastoAmortizacion = amortizacionAcum.total;
+
+    const totalGastosDirectos = parseFloat(acumuladoCompras.gastos) + parseFloat(acumuladoNominas.total_coste) + gastoAmortizacion;
     const rendimientoPrevio = parseFloat(acumuladoVentas.ingresos) - totalGastosDirectos;
 
     // Gastos de difícil justificación: % del rendimiento neto previo
@@ -537,6 +694,8 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
             compras: parseFloat(acumuladoCompras.gastos),
             nominas: parseFloat(acumuladoNominas.total_coste),
             ajuste_vehiculo_irpf: acumuladoCompras.ajuste_vehiculo_irpf || 0,
+            amortizacion: gastoAmortizacion,
+            amortizacion_detalle: amortizacionAcum.detalle,
             gastos_dificil_justificacion: gastosDificilJustificacion
         },
         rendimiento_previo: rendimientoPrevio,

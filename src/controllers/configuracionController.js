@@ -73,7 +73,7 @@ export async function updateEmisorConfig(req, res) {
 
         if (exists) {
             [result] = await sql`
-                update emisor_180 set 
+                update emisor_180 set
                     nombre=${data.nombre || null},
                     nombre_comercial=${data.nombre_comercial || null},
                     nif=${data.nif || null},
@@ -91,7 +91,12 @@ export async function updateEmisorConfig(req, res) {
                     texto_exento=${data.texto_exento || null},
                     texto_rectificativa=${data.texto_rectificativa || null},
                     terminos_legales=${data.terminos_legales || null},
-                    mensaje_iva=${data.mensaje_iva || null}
+                    mensaje_iva=${data.mensaje_iva || null},
+                    regimen_iva=COALESCE(${data.regimen_iva || null}, regimen_iva),
+                    prorrata_iva_pct=COALESCE(${data.prorrata_iva_pct !== undefined && data.prorrata_iva_pct !== null && data.prorrata_iva_pct !== '' ? parseFloat(data.prorrata_iva_pct) : null}, prorrata_iva_pct),
+                    prorrata_iva_definitivo=${data.prorrata_iva_definitivo !== undefined && data.prorrata_iva_definitivo !== null && data.prorrata_iva_definitivo !== '' ? parseFloat(data.prorrata_iva_definitivo) : null},
+                    modulos_simplificado=${data.modulos_simplificado ? sql.json(data.modulos_simplificado) : null},
+                    compensacion_reagp_pct=${data.compensacion_reagp_pct !== undefined && data.compensacion_reagp_pct !== null && data.compensacion_reagp_pct !== '' ? parseFloat(data.compensacion_reagp_pct) : null}
                 where empresa_id=${empresaId}
                 returning *
             `;
