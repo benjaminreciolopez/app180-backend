@@ -12,6 +12,7 @@ import {
     calcularResumen,
     generarAsientoRegularizacion,
     generarAsientoCierre,
+    generarAsientoAplicacionResultado,
     generarAsientoApertura,
     cerrarEjercicio,
     reabrirEjercicio,
@@ -28,6 +29,7 @@ router.put("/:ejercicio/checklist", asesorClienteRequired("fiscal", "write"), up
 router.post("/:ejercicio/calcular", asesorClienteRequired("fiscal", "read"), calcularResumen);
 router.post("/:ejercicio/asiento-regularizacion", asesorClienteRequired("fiscal", "write"), generarAsientoRegularizacion);
 router.post("/:ejercicio/asiento-cierre", asesorClienteRequired("fiscal", "write"), generarAsientoCierre);
+router.post("/:ejercicio/asiento-aplicacion-resultado", asesorClienteRequired("fiscal", "write"), generarAsientoAplicacionResultado);
 router.post("/:ejercicio/asiento-apertura", asesorClienteRequired("fiscal", "write"), generarAsientoApertura);
 router.post("/:ejercicio/cerrar", asesorClienteRequired("fiscal", "write"), cerrarEjercicio);
 router.post("/:ejercicio/reabrir", asesorClienteRequired("fiscal", "write"), reabrirEjercicio);

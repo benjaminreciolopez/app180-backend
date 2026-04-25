@@ -44,6 +44,47 @@ export async function inicializarPGC(empresaId) {
 }
 
 /**
+ * Lanza un error si el ejercicio del año dado está cerrado, ya sea en
+ * `ejercicios_contables_180` (motor contable) o en `cierre_ejercicio_180`
+ * (checklist del asesor). No bloquea si el ejercicio no existe todavía.
+ *
+ * Uso típico: antes de crear / actualizar facturas, gastos o asientos cuya
+ * fecha caiga en un año ya cerrado.
+ *
+ * @param {string} empresaId
+ * @param {Date|string} fecha - fecha del documento (YYYY-MM-DD o Date)
+ */
+export async function assertEjercicioAbierto(empresaId, fecha) {
+  if (!empresaId || !fecha) return;
+  const anio = new Date(fecha).getFullYear();
+  if (!Number.isFinite(anio)) return;
+
+  const [contable] = await sql`
+    SELECT estado FROM ejercicios_contables_180
+    WHERE empresa_id = ${empresaId} AND anio = ${anio}
+    LIMIT 1
+  `;
+  if (contable?.estado === 'cerrado') {
+    throw Object.assign(
+      new Error(`El ejercicio ${anio} está cerrado. Reabre para modificar.`),
+      { status: 409 }
+    );
+  }
+
+  const [checklist] = await sql`
+    SELECT estado FROM cierre_ejercicio_180
+    WHERE empresa_id = ${empresaId} AND ejercicio = ${anio}
+    LIMIT 1
+  `;
+  if (checklist?.estado === 'cerrado') {
+    throw Object.assign(
+      new Error(`El ejercicio ${anio} está cerrado. Reabre para modificar.`),
+      { status: 409 }
+    );
+  }
+}
+
+/**
  * Obtener o crear el ejercicio contable del año dado.
  */
 export async function getOrCreateEjercicio(empresaId, anio) {

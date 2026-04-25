@@ -421,7 +421,7 @@ export async function generarAsientoCierre(req, res) {
             SELECT la.cuenta_codigo, la.cuenta_nombre,
                 COALESCE(SUM(la.debe), 0) as total_debe,
                 COALESCE(SUM(la.haber), 0) as total_haber
-            FROM lineas_asiento_180 la
+            FROM asiento_lineas_180 la
             JOIN asientos_180 a ON a.id = la.asiento_id
             WHERE a.empresa_id = ${empresaId}
             AND a.ejercicio = ${ejercicio}
@@ -434,7 +434,7 @@ export async function generarAsientoCierre(req, res) {
             SELECT la.cuenta_codigo, la.cuenta_nombre,
                 COALESCE(SUM(la.debe), 0) as total_debe,
                 COALESCE(SUM(la.haber), 0) as total_haber
-            FROM lineas_asiento_180 la
+            FROM asiento_lineas_180 la
             JOIN asientos_180 a ON a.id = la.asiento_id
             WHERE a.empresa_id = ${empresaId}
             AND a.ejercicio = ${ejercicio}
@@ -528,6 +528,116 @@ export async function generarAsientoCierre(req, res) {
 }
 
 /**
+ * POST /cierre/:ejercicio/asiento-aplicacion-resultado
+ *
+ * Aplica el resultado del ejercicio (saldo de la cuenta 129) al destino que
+ * corresponda según la decisión del titular o de la junta general:
+ *
+ *   - Beneficio (saldo acreedor en 129) → 113 Reservas voluntarias por defecto.
+ *   - Pérdida (saldo deudor en 129)     → 121 Resultados negativos de ejercicios
+ *                                         anteriores.
+ *
+ * Body opcional:
+ *   { destino_codigo: '113' | '1140' | '1141' | '121', destino_nombre?: '...' }
+ *
+ * Sin este asiento, el saldo de 129 viajaría al ejercicio siguiente vía la
+ * apertura, lo que es contablemente incorrecto. Por eso se ejecuta entre el
+ * asiento de cierre y el de apertura.
+ */
+export async function generarAsientoAplicacionResultado(req, res) {
+    try {
+        const empresaId = getEmpresaId(req);
+        const ejercicio = parseInt(req.params.ejercicio);
+        const cierre = await getOrCreateCierre(empresaId, ejercicio);
+
+        if (cierre.estado === "cerrado") {
+            return res.status(400).json({ error: "El ejercicio está cerrado" });
+        }
+
+        const [saldoRow] = await sql`
+            SELECT
+                COALESCE(SUM(la.debe), 0)  AS total_debe,
+                COALESCE(SUM(la.haber), 0) AS total_haber
+            FROM asiento_lineas_180 la
+            JOIN asientos_180 a ON a.id = la.asiento_id
+            WHERE a.empresa_id = ${empresaId}
+              AND a.ejercicio = ${ejercicio}
+              AND la.cuenta_codigo LIKE '129%'
+        `;
+
+        const totalDebe = parseFloat(saldoRow?.total_debe || 0);
+        const totalHaber = parseFloat(saldoRow?.total_haber || 0);
+        const saldoAcreedor = totalHaber - totalDebe; // >0 beneficio, <0 pérdida
+
+        if (Math.abs(saldoAcreedor) < 0.01) {
+            return res.status(400).json({
+                error: "La cuenta 129 no tiene saldo. Ejecuta primero el asiento de cierre."
+            });
+        }
+
+        const esBeneficio = saldoAcreedor > 0;
+        const importe = Math.abs(saldoAcreedor);
+
+        const destinoCodigoDefault = esBeneficio ? "113" : "121";
+        const destinoNombreDefault = esBeneficio
+            ? "Reservas voluntarias"
+            : "Resultados negativos de ejercicios anteriores";
+
+        const destinoCodigo = req.body?.destino_codigo || destinoCodigoDefault;
+        const destinoNombre = req.body?.destino_nombre || destinoNombreDefault;
+
+        const lineas = esBeneficio
+            ? [
+                  { cuenta_codigo: "129", cuenta_nombre: "Resultado del ejercicio", debe: importe, haber: 0, concepto: "Aplicación del resultado" },
+                  { cuenta_codigo: destinoCodigo, cuenta_nombre: destinoNombre,    debe: 0,       haber: importe, concepto: "Aplicación del resultado" }
+              ]
+            : [
+                  { cuenta_codigo: destinoCodigo, cuenta_nombre: destinoNombre,    debe: importe, haber: 0,       concepto: "Aplicación del resultado" },
+                  { cuenta_codigo: "129", cuenta_nombre: "Resultado del ejercicio", debe: 0,      haber: importe, concepto: "Aplicación del resultado" }
+              ];
+
+        const asiento = await contabilidadService.crearAsiento({
+            empresaId,
+            fecha: `${ejercicio}-12-31`,
+            concepto: `Aplicación del resultado ejercicio ${ejercicio}`,
+            tipo: "aplicacion_resultado",
+            referencia_tipo: "cierre_ejercicio",
+            referencia_id: cierre.id,
+            lineas,
+        });
+
+        await sql`
+            UPDATE cierre_ejercicio_180
+            SET asiento_aplicacion_resultado = true,
+                aplicacion_resultado_destino = ${destinoCodigo},
+                updated_at = now()
+            WHERE id = ${cierre.id}
+        `;
+
+        await logAccion(
+            cierre.id,
+            "asiento_aplicacion_resultado",
+            `Asiento #${asiento.numero} - ${esBeneficio ? "Beneficio" : "Pérdida"} ${importe.toFixed(2)}€ → ${destinoCodigo}`,
+            req.user?.id
+        );
+
+        res.json({
+            success: true,
+            data: {
+                asiento,
+                saldo_129: saldoAcreedor,
+                destino_codigo: destinoCodigo,
+                destino_nombre: destinoNombre
+            }
+        });
+    } catch (error) {
+        console.error("Error generarAsientoAplicacionResultado:", error);
+        if (error.status) return res.status(error.status).json({ error: error.message });
+        res.status(500).json({ error: error.message || "Error generando asiento de aplicación del resultado" });
+    }
+}
+
+/**
  * POST /cierre/:ejercicio/asiento-apertura
  * Genera asiento de apertura para el ejercicio siguiente (inverso del balance).
  */
@@ -541,12 +651,31 @@ export async function generarAsientoApertura(req, res) {
             return res.status(400).json({ error: "El ejercicio está cerrado" });
         }
 
+        // Si la cuenta 129 aún tiene saldo, exigir aplicación de resultado antes
+        // de la apertura (de lo contrario, el resultado viaja al ejercicio
+        // siguiente sin haberse repartido a reservas o pérdidas acumuladas).
+        if (!cierre.asiento_aplicacion_resultado) {
+            const [saldo129] = await sql`
+                SELECT COALESCE(SUM(la.debe), 0) - COALESCE(SUM(la.haber), 0) AS saldo_deudor
+                FROM asiento_lineas_180 la
+                JOIN asientos_180 a ON a.id = la.asiento_id
+                WHERE a.empresa_id = ${empresaId}
+                  AND a.ejercicio = ${ejercicio}
+                  AND la.cuenta_codigo LIKE '129%'
+            `;
+            if (saldo129 && Math.abs(parseFloat(saldo129.saldo_deudor || 0)) > 0.01) {
+                return res.status(400).json({
+                    error: "La cuenta 129 tiene saldo. Ejecuta primero el asiento de aplicación del resultado."
+                });
+            }
+        }
+
         // Get balance accounts (grupo 1-5) saldos at year end
         const saldos = await sql`
             SELECT la.cuenta_codigo, la.cuenta_nombre,
                 COALESCE(SUM(la.debe), 0) as total_debe,
                 COALESCE(SUM(la.haber), 0) as total_haber
-            FROM lineas_asiento_180 la
+            FROM asiento_lineas_180 la
             JOIN asientos_180 a ON a.id = la.asiento_id
             WHERE a.empresa_id = ${empresaId}
             AND a.ejercicio = ${ejercicio}
@@ -636,6 +765,14 @@ export async function cerrarEjercicio(req, res) {
             RETURNING *
         `;
 
+        // Sincronizar con ejercicios_contables_180 para que el motor contable
+        // (crearAsiento + assertEjercicioAbierto) también bloquee mutaciones.
+        await sql`
+            UPDATE ejercicios_contables_180
+            SET estado = 'cerrado', updated_at = now()
+            WHERE empresa_id = ${empresaId} AND anio = ${ejercicio}
+        `;
+
         await logAccion(cierre.id, "ejercicio_cerrado", `Cerrado por ${req.user?.nombre || req.user?.email || "usuario"}`, req.user?.id);
 
         res.json({ success: true, data: updated[0] });
@@ -673,6 +810,13 @@ export async function reabrirEjercicio(req, res) {
                 updated_at = now()
             WHERE id = ${cierre.id}
             RETURNING *
+        `;
+
+        // Reabrir también el ejercicio contable.
+        await sql`
+            UPDATE ejercicios_contables_180
+            SET estado = 'abierto', updated_at = now()
+            WHERE empresa_id = ${empresaId} AND anio = ${ejercicio}
         `;
 
         await logAccion(cierre.id, "ejercicio_reabierto", `Motivo: ${motivo}`, req.user?.id);

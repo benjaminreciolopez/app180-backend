@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import crypto from "crypto";
 import { ocrExtractTextFromUpload, extractFullPdfText } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
-import { generarAsientoGasto, generarAsientoPagoGasto } from "../services/contabilidadService.js";
+import { generarAsientoGasto, generarAsientoPagoGasto, assertEjercicioAbierto } from "../services/contabilidadService.js";
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -293,6 +293,10 @@ export async function crearCompra(req, res) {
             documento_hash
         } = req.body;
 
+        if (fecha_compra) {
+            await assertEjercicioAbierto(empresa_id, fecha_compra);
+        }
+
         // 1. Detección de duplicados
         if (!ignorar_duplicado) {
             if (numero_factura && proveedor) {
@@ -429,6 +433,7 @@ export async function crearCompra(req, res) {
         res.status(201).json(newPurchase);
     } catch (error) {
         console.error("[Purchases] Error crearCompra:", error);
+        if (error.status) return res.status(error.status).json({ error: error.message });
         res.status(500).json({ error: "Error al registrar el gasto." });
     }
 }
@@ -498,6 +503,20 @@ export async function actualizarCompra(req, res) {
             return res.status(400).json({ error: "No se proporcionaron campos para actualizar." });
         }
 
+        // Bloquea editar si el gasto pertenece a un ejercicio cerrado, o si la
+        // nueva fecha cae en uno cerrado.
+        const [actual] = await sql`
+            SELECT fecha_compra FROM purchases_180
+            WHERE id = ${id} AND empresa_id = ${empresa_id}
+            LIMIT 1
+        `;
+        if (actual?.fecha_compra) {
+            await assertEjercicioAbierto(empresa_id, actual.fecha_compra);
+        }
+        if (finalData.fecha_compra) {
+            await assertEjercicioAbierto(empresa_id, finalData.fecha_compra);
+        }
+
         const columns = Object.keys(finalData);
         const [updated] = await sql`
       UPDATE purchases_180
@@ -513,6 +532,7 @@ export async function actualizarCompra(req, res) {
         res.json(updated);
     } catch (error) {
         console.error("[Purchases] Error actualizarCompra:", error);
+        if (error.status) return res.status(error.status).json({ error: error.message });
         res.status(500).json({ error: "Error al actualizar el gasto." });
     }
 }
@@ -526,6 +546,15 @@ export async function eliminarCompra(req, res) {
     try {
         const { id } = req.params;
         const { empresa_id } = req.user;
+
+        const [actual] = await sql`
+            SELECT fecha_compra FROM purchases_180
+            WHERE id = ${id} AND empresa_id = ${empresa_id}
+            LIMIT 1
+        `;
+        if (actual?.fecha_compra) {
+            await assertEjercicioAbierto(empresa_id, actual.fecha_compra);
+        }
 
         const [deleted] = await sql`
       UPDATE purchases_180
@@ -541,6 +570,7 @@ export async function eliminarCompra(req, res) {
         res.json({ message: "Gasto eliminado correctamente.", id: deleted.id });
     } catch (error) {
         console.error("[Purchases] Error eliminarCompra:", error);
+        if (error.status) return res.status(error.status).json({ error: error.message });
         res.status(500).json({ error: "Error al eliminar el gasto." });
     }
 }

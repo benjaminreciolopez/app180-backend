@@ -1,6 +1,7 @@
 
 import { sql } from "../db.js";
 import { aeatService } from "../services/aeatService.js";
+import { FiscalRules } from "../services/fiscalRulesEngine.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -30,13 +31,22 @@ function getTrimestreDates(year, quarter) {
 export async function calcularDatosModelos(empresaId, year, trimestre, opciones = {}) {
     const { startDate, endDate } = getTrimestreDates(year, trimestre);
 
+    // Reglas fiscales del ejercicio (coeficientes, tipos, límites desde BD)
+    const rules = await FiscalRules.forYear(parseInt(year));
+
     // =========================================================================
     // MODELO 303: Lee IVA desde ASIENTOS CONTABLES (cuentas 472/477)
     // Esto refleja los importes reales contabilizados (con deducciones parciales)
     // =========================================================================
 
     // 1. IVA DEVENGADO - Cuenta 477 (Haber) en asientos del trimestre
-    // Desglosamos por tipo de IVA usando las líneas de factura como referencia
+    // Desglosamos por tipo de IVA usando las líneas de factura como referencia.
+    //
+    // Art. 89 LIVA: una factura anulada por rectificativa sigue declarándose
+    // en el periodo en que se emitió la original; la rectificativa (con
+    // importes negativos) se declara en el periodo en que se emite. Por eso
+    // incluimos también ANULADAs que tengan factura_rectificativa_id
+    // (anuladas por rectificativa, no por borrado manual).
     const ventasPorTipo = await sql`
         SELECT
             COALESCE(lf.iva_percent, 21) as tipo_iva,
@@ -45,6 +55,28 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         FROM factura_180 f
         JOIN lineafactura_180 lf ON lf.factura_id = f.id
         WHERE f.empresa_id = ${empresaId}
+        AND (
+            f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+            OR (f.estado = 'ANULADA' AND f.factura_rectificativa_id IS NOT NULL)
+        )
+        AND f.fecha BETWEEN ${startDate} AND ${endDate}
+        AND (f.es_test IS NOT TRUE)
+        GROUP BY COALESCE(lf.iva_percent, 21)
+        ORDER BY tipo_iva
+    `;
+
+    // Desglose adicional: solo rectificativas del periodo (informativo para
+    // el frontend y para el casillado del modelo 303 cuando AEAT pida
+    // separar correcciones de cuotas devengadas).
+    const rectificativasPorTipo = await sql`
+        SELECT
+            COALESCE(lf.iva_percent, 21) as tipo_iva,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario), 0) as base_imponible,
+            COALESCE(SUM(lf.cantidad * lf.precio_unitario * lf.iva_percent / 100), 0) as cuota_iva
+        FROM factura_180 f
+        JOIN lineafactura_180 lf ON lf.factura_id = f.id
+        WHERE f.empresa_id = ${empresaId}
+        AND f.rectificativa = true
         AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
         AND f.fecha BETWEEN ${startDate} AND ${endDate}
         AND (f.es_test IS NOT TRUE)
@@ -276,7 +308,12 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     `;
     const total349 = operaciones349.reduce((sum, op) => sum + parseFloat(op.total), 0);
 
-    const [emisor] = await sql`SELECT nif, nombre FROM emisor_180 WHERE empresa_id = ${empresaId}`;
+    const [emisor] = await sql`
+        SELECT nif, nombre,
+               COALESCE(prorrata_iva_pct, 100)::numeric as prorrata_iva_pct,
+               prorrata_iva_definitivo
+        FROM emisor_180 WHERE empresa_id = ${empresaId}
+    `;
 
     // Helper para extraer base+cuota de un tipo de IVA concreto
     const getDevengadoPorTipo = (tipo) => {
@@ -288,7 +325,42 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         return { base: row ? parseFloat(row.base_imponible) : 0, cuota: row ? parseFloat(row.cuota_iva) : 0 };
     };
 
-    const resultadoRegimenGeneral = parseFloat(ventas.iva_repercutido) - parseFloat(compras.iva_soportado);
+    // Pro-rata IVA general (Art. 102 LIVA): si la empresa realiza operaciones
+    // con y sin derecho a deducción, solo es deducible la fracción del IVA
+    // soportado correspondiente al porcentaje provisional configurado.
+    const prorrataPct = emisor?.prorrata_iva_pct !== undefined && emisor?.prorrata_iva_pct !== null
+        ? parseFloat(emisor.prorrata_iva_pct) : 100;
+    const aplicaProrrata = prorrataPct < 100;
+    const ivaSoportadoBruto = parseFloat(compras.iva_soportado);
+    const ivaSoportadoDeducible = aplicaProrrata
+        ? ivaSoportadoBruto * (prorrataPct / 100)
+        : ivaSoportadoBruto;
+    const ivaSoportadoNoDeducible = ivaSoportadoBruto - ivaSoportadoDeducible;
+
+    // Casilla 44: Regularización por aplicación del porcentaje definitivo de
+    // pro-rata. Solo aplica en 4T cuando emisor tiene prorrata_iva_definitivo
+    // distinta de la provisional. Diferencia se aplica como ajuste positivo
+    // (si definitivo > provisional → más deducible) o negativo.
+    let regularizacionProrrata = 0;
+    if (parseInt(trimestre) === 4 && emisor?.prorrata_iva_definitivo !== null && emisor?.prorrata_iva_definitivo !== undefined) {
+        const definitivo = parseFloat(emisor.prorrata_iva_definitivo);
+        if (!Number.isNaN(definitivo) && Math.abs(definitivo - prorrataPct) > 0.01) {
+            // Regularización sobre el IVA soportado anual.
+            const [ivaSoportadoAnual] = await sql`
+                SELECT COALESCE(SUM(COALESCE(cuota_iva, iva_importe, 0)), 0) as total
+                FROM purchases_180
+                WHERE empresa_id = ${empresaId}
+                AND activo = true
+                AND fecha_compra BETWEEN ${`${year}-01-01`} AND ${endDate}
+            `;
+            const totalAnual = parseFloat(ivaSoportadoAnual.total);
+            const deducibleConProvisional = totalAnual * (prorrataPct / 100);
+            const deducibleConDefinitivo = totalAnual * (definitivo / 100);
+            regularizacionProrrata = deducibleConDefinitivo - deducibleConProvisional;
+        }
+    }
+
+    const resultadoRegimenGeneral = parseFloat(ventas.iva_repercutido) - ivaSoportadoDeducible + regularizacionProrrata;
 
     // Cuotas a compensar de periodos anteriores (casillas 110, 78, 87)
     // Se buscan saldos negativos pendientes de trimestres anteriores del mismo año
@@ -349,39 +421,101 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         },
         deducible: {
             base: parseFloat(compras.base_imponible),
-            cuota: parseFloat(compras.iva_soportado),
+            cuota: ivaSoportadoDeducible,
+            cuota_bruta: ivaSoportadoBruto,
+            cuota_no_deducible: ivaSoportadoNoDeducible,
             por_tipo: {
                 al_4:  getDeduciblePorTipo(4),
                 al_10: getDeduciblePorTipo(10),
                 al_21: getDeduciblePorTipo(21),
             }
         },
+        prorrata: {
+            aplica: aplicaProrrata,
+            pct_provisional: prorrataPct,
+            pct_definitivo: emisor?.prorrata_iva_definitivo !== null && emisor?.prorrata_iva_definitivo !== undefined
+                ? parseFloat(emisor.prorrata_iva_definitivo) : null,
+            regularizacion_casilla_44: regularizacionProrrata
+        },
         resultado_regimen_general: resultadoRegimenGeneral,
         cuotas_compensar_pendientes: cuotasCompensarPendientes,       // Casilla 110
         cuotas_compensar_aplicadas: cuotasAplicadas,                   // Casilla 78
         cuotas_compensar_pendientes_posterior: nuevasCuotasCompensar,  // Casilla 87
-        resultado: resultadoAutoliquidacion                            // Casilla 69/71
+        resultado: resultadoAutoliquidacion,                           // Casilla 69/71
+        rectificativas: {
+            base: rectificativasPorTipo.reduce((s, r) => s + parseFloat(r.base_imponible), 0),
+            cuota: rectificativasPorTipo.reduce((s, r) => s + parseFloat(r.cuota_iva), 0),
+            por_tipo: {
+                al_4:  (() => { const r = rectificativasPorTipo.find(x => parseFloat(x.tipo_iva) === 4);  return { base: r ? parseFloat(r.base_imponible) : 0, cuota: r ? parseFloat(r.cuota_iva) : 0 }; })(),
+                al_10: (() => { const r = rectificativasPorTipo.find(x => parseFloat(x.tipo_iva) === 10); return { base: r ? parseFloat(r.base_imponible) : 0, cuota: r ? parseFloat(r.cuota_iva) : 0 }; })(),
+                al_21: (() => { const r = rectificativasPorTipo.find(x => parseFloat(x.tipo_iva) === 21); return { base: r ? parseFloat(r.base_imponible) : 0, cuota: r ? parseFloat(r.cuota_iva) : 0 }; })(),
+            }
+        }
     };
 
     const totalGastosDirectos = parseFloat(acumuladoCompras.gastos) + parseFloat(acumuladoNominas.total_coste);
     const rendimientoPrevio = parseFloat(acumuladoVentas.ingresos) - totalGastosDirectos;
 
-    // Gastos de difícil justificación: 5% del rendimiento neto previo
+    // Gastos de difícil justificación: % del rendimiento neto previo
     // (Art. 30 Reglamento IRPF - Estimación Directa Simplificada)
-    // Límite máximo anual: 2.000€
-    const COEF_GASTOS_DIFICIL_JUSTIFICACION = 0.05;
-    const LIMITE_GASTOS_DIFICIL_JUSTIFICACION = 2000;
+    // Coeficiente y tope cargados desde fiscal_reglas_180 (modelo_130).
+    const COEF_GASTOS_DIFICIL_JUSTIFICACION = rules.getNum('modelo_130', 'coef_gastos_dificil_justificacion', 0.05);
+    const LIMITE_GASTOS_DIFICIL_JUSTIFICACION = rules.getNum('modelo_130', 'limite_gastos_dificil_justificacion', 2000);
     const gastosDificilJustificacion = rendimientoPrevio > 0
         ? Math.min(rendimientoPrevio * COEF_GASTOS_DIFICIL_JUSTIFICACION, LIMITE_GASTOS_DIFICIL_JUSTIFICACION)
         : 0;
 
     const totalGastos = totalGastosDirectos + gastosDificilJustificacion;
     const rendimientoNeto = parseFloat(acumuladoVentas.ingresos) - totalGastos;
-    const pagoFraccionado = rendimientoNeto > 0 ? rendimientoNeto * 0.20 : 0;
+
+    const trimestreActual = parseInt(trimestre);
+    const yearInt = parseInt(year);
+
+    // Bases negativas de ejercicios anteriores (Art. 25 / 31 LIRPF):
+    // un autónomo en estimación directa puede compensar resultados negativos
+    // de los N ejercicios anteriores (configurable; por defecto 4). En el
+    // modelo 130 esto reduce el rendimiento neto antes del pago fraccionado.
+    const ANIOS_COMPENSACION = rules.getNum('modelo_130', 'anios_compensacion_bases_negativas', 4);
+    let basesNegativasPool = 0;          // Total disponible de los N ejercicios anteriores
+    let basesNegativasYaAplicadas = 0;   // Ya consumido en trimestres anteriores del año actual
+    if (rendimientoNeto > 0) {
+        const yearsAtras = Array.from({ length: ANIOS_COMPENSACION }, (_, i) => yearInt - 1 - i);
+        const prioresEjercicios = await sql`
+            SELECT ejercicio, datos_json
+            FROM fiscal_models_180
+            WHERE empresa_id = ${empresaId}
+            AND modelo = '130'
+            AND periodo = '4T'
+            AND ejercicio IN ${sql(yearsAtras)}
+            AND estado IN ('GENERADO', 'PRESENTADO')
+        `;
+        for (const e of prioresEjercicios) {
+            const rend = parseFloat(e.datos_json?.rendimiento || 0);
+            if (rend < 0) basesNegativasPool += Math.abs(rend);
+        }
+
+        if (trimestreActual > 1) {
+            const previousQuarters = Array.from({ length: trimestreActual - 1 }, (_, i) => `${i + 1}T`);
+            const [yaAplicado] = await sql`
+                SELECT COALESCE(SUM((datos_json->>'bases_negativas_aplicadas')::numeric), 0) as total
+                FROM fiscal_models_180
+                WHERE empresa_id = ${empresaId}
+                AND modelo = '130'
+                AND ejercicio = ${yearInt}
+                AND periodo IN ${sql(previousQuarters)}
+                AND estado IN ('GENERADO', 'PRESENTADO')
+            `;
+            basesNegativasYaAplicadas = parseFloat(yaAplicado.total);
+        }
+    }
+    const basesNegativasDisponibles = Math.max(0, basesNegativasPool - basesNegativasYaAplicadas);
+    const basesNegativasAplicadas = Math.min(basesNegativasDisponibles, Math.max(0, rendimientoNeto));
+    const rendimientoTrasCompensar = rendimientoNeto - basesNegativasAplicadas;
+    const TIPO_PAGO_FRACCIONADO = rules.getNum('modelo_130', 'tipo_pago_fraccionado', 20) / 100;
+    const pagoFraccionado = rendimientoTrasCompensar > 0 ? rendimientoTrasCompensar * TIPO_PAGO_FRACCIONADO : 0;
 
     // Cargar pagos fraccionados de trimestres anteriores del mismo año
     let pagosAnteriores = 0;
-    const trimestreActual = parseInt(trimestre);
     if (trimestreActual > 1) {
         const previousQuarters = Array.from({ length: trimestreActual - 1 }, (_, i) => `${i + 1}T`);
         const [prev] = await sql`
@@ -389,7 +523,7 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
             FROM fiscal_models_180
             WHERE empresa_id = ${empresaId}
             AND modelo = '130'
-            AND ejercicio = ${parseInt(year)}
+            AND ejercicio = ${yearInt}
             AND periodo IN ${sql(previousQuarters)}
             AND estado IN ('GENERADO', 'PRESENTADO')
         `;
@@ -408,6 +542,12 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
         rendimiento_previo: rendimientoPrevio,
         coef_gastos_dificil_justificacion: COEF_GASTOS_DIFICIL_JUSTIFICACION,
         rendimiento: rendimientoNeto,
+        // Casilla 13 / 15 del modelo 130: compensación bases negativas
+        bases_negativas_pool: basesNegativasPool,
+        bases_negativas_ya_aplicadas: basesNegativasYaAplicadas,
+        bases_negativas_disponibles: basesNegativasDisponibles,
+        bases_negativas_aplicadas: basesNegativasAplicadas,
+        rendimiento_tras_compensar: rendimientoTrasCompensar,
         pago_fraccionado: pagoFraccionado,
         a_ingresar: pagoFraccionado - pagosAnteriores
     };
@@ -457,6 +597,8 @@ export async function calcularModelo390(empresaId, year) {
     const endDate = `${year}-12-31`;
 
     // IVA DEVENGADO (VENTAS) - Todo el año por tipo de IVA
+    // Incluye facturas rectificadas (ANULADA con factura_rectificativa_id)
+    // por Art. 89 LIVA: deben seguir declarándose en su periodo original.
     const ventasPorTipo = await sql`
         SELECT
             COALESCE(lf.iva_percent, 21) as tipo_iva,
@@ -465,7 +607,10 @@ export async function calcularModelo390(empresaId, year) {
         FROM factura_180 f
         JOIN lineafactura_180 lf ON lf.factura_id = f.id
         WHERE f.empresa_id = ${empresaId}
-        AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+        AND (
+            f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+            OR (f.estado = 'ANULADA' AND f.factura_rectificativa_id IS NOT NULL)
+        )
         AND f.fecha BETWEEN ${startDate} AND ${endDate}
         AND (f.es_test IS NOT TRUE)
         GROUP BY COALESCE(lf.iva_percent, 21)

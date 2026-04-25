@@ -6,7 +6,7 @@ import * as emailService from "../services/emailService.js";
 import { verificarVerifactu, crearRegistroAnulacion } from "../services/verifactuService.js";
 import { enviarRegistroAeat } from "../services/verifactuAeatService.js";
 import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
-import { generarAsientoFactura } from "../services/contabilidadService.js";
+import { generarAsientoFactura, assertEjercicioAbierto } from "../services/contabilidadService.js";
 import { saveToStorage } from "./storageController.js";
 import { registrarEventoVerifactu } from "./verifactuEventosController.js";
 
@@ -385,6 +385,8 @@ export async function createFactura(req, res) {
       return res.status(400).json({ success: false, error: "Fecha requerida y debe ser válida (YYYY-MM-DD)" });
     }
 
+    await assertEjercicioAbierto(empresaId, fecha);
+
     // Validar iva_global es numérico y razonable
     const ivaNum = Number(iva_global);
     if (iva_global != null && (typeof iva_global === 'boolean' || isNaN(ivaNum) || ivaNum < 0 || ivaNum > 100)) {
@@ -633,6 +635,7 @@ export async function createFactura(req, res) {
     res.status(201).json({ success: true, message: "Factura creada en borrador" });
   } catch (err) {
     console.error("Error createFactura:", err);
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     res.status(500).json({ success: false, error: "Error creando factura" });
   }
 }
@@ -664,6 +667,10 @@ export async function updateFactura(req, res) {
         error: "Solo se pueden editar facturas en borrador",
       });
     }
+
+    // Bloquea editar si la fecha original o la nueva caen en ejercicio cerrado.
+    await assertEjercicioAbierto(empresaId, factura.fecha);
+    if (fecha) await assertEjercicioAbierto(empresaId, fecha);
 
     if (!Array.isArray(lineas)) {
       return res.status(400).json({ success: false, error: "Líneas deben ser un array" });
@@ -789,6 +796,7 @@ export async function updateFactura(req, res) {
     res.json({ success: true, message: "Factura actualizada" });
   } catch (err) {
     console.error("Error updateFactura:", err);
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     res.status(500).json({ success: false, error: "Error actualizando factura" });
   }
 }
@@ -820,6 +828,8 @@ export async function validarFactura(req, res) {
     if (factura.estado === "VALIDADA") {
       return res.status(400).json({ success: false, error: "Factura ya validada" });
     }
+
+    await assertEjercicioAbierto(empresaId, fecha);
 
     // Validar orden cronológico
     const [ultima] = await sql`
@@ -1013,6 +1023,7 @@ export async function validarFactura(req, res) {
     });
   } catch (err) {
     console.error("Error validarFactura:", err);
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     res.status(500).json({ success: false, error: err.message || "Error validando factura" });
   }
 }
@@ -1368,6 +1379,8 @@ export async function anularFactura(req, res) {
       });
     }
 
+    await assertEjercicioAbierto(empresaId, factura.fecha);
+
     // Verificar si ya existe rectificativa
     const numeroRect = `${factura.numero}R`;
     const [existe] = await sql`
@@ -1410,7 +1423,8 @@ export async function anularFactura(req, res) {
       const [rect] = await tx`
         insert into factura_180 (
           empresa_id, cliente_id, fecha, numero, estado,
-          subtotal, iva_total, total, iva_global, mensaje_iva, metodo_pago, created_at
+          subtotal, iva_total, total, iva_global, mensaje_iva, metodo_pago,
+          rectificativa, created_at
         ) values (
           ${empresaId},
           ${factura.cliente_id},
@@ -1423,9 +1437,19 @@ export async function anularFactura(req, res) {
           ${factura.iva_global},
           ${`Factura rectificativa de ${factura.numero}`},
           ${factura.metodo_pago},
+          true,
           now()
         )
         returning *
+      `;
+
+      // Vincular original → rectificativa (Art. 89 LIVA): permite que el
+      // modelo 303 mantenga la original en su periodo y aplique la negativa
+      // en el periodo de la rectificativa.
+      await tx`
+        update factura_180
+        set factura_rectificativa_id = ${rect.id}
+        where id = ${id}
       `;
 
       // Crear líneas negativas
@@ -1515,6 +1539,7 @@ export async function anularFactura(req, res) {
     });
   } catch (err) {
     console.error("Error anularFactura:", err);
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     res.status(500).json({ success: false, error: "Error anulando factura" });
   }
 }

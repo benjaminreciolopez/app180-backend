@@ -29,6 +29,7 @@ import {
     calcularResumen,
     generarAsientoRegularizacion,
     generarAsientoCierre,
+    generarAsientoAplicacionResultado,
     generarAsientoApertura,
     cerrarEjercicio,
     reabrirEjercicio,
@@ -150,6 +151,7 @@ router.put("/cierre/:ejercicio/checklist", updateCierreChecklist);
 router.post("/cierre/:ejercicio/calcular", calcularResumen);
 router.post("/cierre/:ejercicio/asiento-regularizacion", generarAsientoRegularizacion);
 router.post("/cierre/:ejercicio/asiento-cierre", generarAsientoCierre);
+router.post("/cierre/:ejercicio/asiento-aplicacion-resultado", generarAsientoAplicacionResultado);
 router.post("/cierre/:ejercicio/asiento-apertura", generarAsientoApertura);
 router.post("/cierre/:ejercicio/cerrar", cerrarEjercicio);
 router.post("/cierre/:ejercicio/reabrir", reabrirEjercicio);
