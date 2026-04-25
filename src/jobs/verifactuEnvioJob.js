@@ -1,16 +1,17 @@
 import { sql } from '../db.js';
 import { enviarRegistrosPendientes } from '../services/verifactuAeatService.js';
+import logger from '../utils/logger.js';
 
 /**
- * Cron Job: Envío periódico de registros VeriFactu pendientes a AEAT
+ * Cron Job: Envío periódico de registros VeriFactu pendientes a AEAT.
  *
- * Recorre todas las empresas con VeriFactu activo y envía cualquier
- * registro en estado PENDIENTE o que haya fallado anteriormente.
- * Actúa como respaldo del envío inmediato post-validación.
+ * Recorre todas las empresas con VeriFactu activo y delega a
+ * `enviarRegistrosPendientes`, que procesa tanto registros PENDIENTE
+ * como ERROR cuyo backoff exponencial ya ha vencido.
  */
 export async function verifactuEnvioJob() {
     try {
-        console.log('⏰ VeriFactu: iniciando envío de registros pendientes...');
+        logger.info('verifactuEnvioJob start');
 
         const empresas = await sql`
             SELECT empresa_id, verifactu_modo,
@@ -21,7 +22,7 @@ export async function verifactuEnvioJob() {
         `;
 
         if (empresas.length === 0) {
-            console.log('ℹ️ VeriFactu: ninguna empresa con modo activo');
+            logger.info('verifactuEnvioJob: no companies with active mode');
             return;
         }
 
@@ -40,12 +41,15 @@ export async function verifactuEnvioJob() {
                 totalEnviados += resultado?.enviados || 0;
                 totalErrores += resultado?.errores || 0;
             } catch (err) {
-                console.error(`❌ VeriFactu: error procesando empresa ${cfg.empresa_id}:`, err.message);
+                logger.error('verifactuEnvioJob: empresa failed', {
+                    empresa_id: cfg.empresa_id,
+                    message: err.message
+                });
             }
         }
 
-        console.log(`✅ VeriFactu: ${totalEnviados} enviado(s), ${totalErrores} error(es)`);
+        logger.info('verifactuEnvioJob done', { totalEnviados, totalErrores });
     } catch (error) {
-        console.error('❌ Error en verifactuEnvioJob:', error);
+        logger.error('verifactuEnvioJob crashed', { message: error.message, stack: error.stack });
     }
 }

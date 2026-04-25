@@ -19,6 +19,40 @@ const ENDPOINTS = {
   PRODUCCION: 'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
 };
 
+// Backoff exponencial para reintentos automáticos.
+// Tras MAX_INTENTOS fallos consecutivos el registro pasa a ERROR_FATAL y
+// queda fuera del cron — requiere intervención manual.
+const MAX_INTENTOS = 8;
+const BACKOFF_CAP_MIN = 480; // 8 h
+
+function calcularProximoReintento(intentos) {
+  // 2^intentos minutos, capped a 8 h.
+  const minutos = Math.min(Math.pow(2, intentos), BACKOFF_CAP_MIN);
+  return new Date(Date.now() + minutos * 60_000);
+}
+
+async function marcarRegistroError(registroId, respuestaAeat, mensaje) {
+  // Lee intentos actuales y decide si pasa a ERROR_FATAL o se programa reintento.
+  const [actual] = await sql`
+    SELECT intentos FROM registroverifactu_180 WHERE id = ${registroId}
+  `;
+  const intentos = (actual?.intentos || 0) + 1;
+  const fatal = intentos >= MAX_INTENTOS;
+  const proximo = fatal ? null : calcularProximoReintento(intentos);
+
+  await sql`
+    UPDATE registroverifactu_180
+    SET estado_envio = ${fatal ? 'ERROR_FATAL' : 'ERROR'},
+        intentos = ${intentos},
+        proximo_reintento_at = ${proximo},
+        ultimo_error = ${mensaje || null},
+        respuesta_aeat = ${JSON.stringify(respuestaAeat)}
+    WHERE id = ${registroId}
+  `;
+
+  return { intentos, fatal, proximo };
+}
+
 /**
  * Construye el XML para el envío a AEAT según especificación VeriFactu
  * @param {object} registro - Registro de VeriFactu de la BD
@@ -268,7 +302,10 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
         UPDATE registroverifactu_180
         SET estado_envio = 'ENVIADO',
             fecha_envio = ${new Date()},
-            respuesta_aeat = ${JSON.stringify(respuesta)}
+            respuesta_aeat = ${JSON.stringify(respuesta)},
+            intentos = 0,
+            proximo_reintento_at = NULL,
+            ultimo_error = NULL
         WHERE id = ${registroId}
       `;
 
@@ -283,21 +320,26 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       }).catch(() => {});
 
     } else {
-      await sql`
-        UPDATE registroverifactu_180
-        SET estado_envio = 'ERROR',
-            respuesta_aeat = ${JSON.stringify(respuesta)}
-        WHERE id = ${registroId}
-      `;
+      const { intentos, fatal, proximo } = await marcarRegistroError(
+        registroId,
+        respuesta,
+        respuesta.mensaje
+      );
 
-      logger.error('verifactu AEAT send failed', { registroId, message: respuesta.mensaje });
+      logger.error('verifactu AEAT send failed', {
+        registroId,
+        message: respuesta.mensaje,
+        intentos,
+        fatal,
+        proximoReintento: proximo
+      });
 
       // Registrar error AEAT en auditoría
       registrarEventoVerifactu({
         empresaId: registro.empresa_id,
-        tipoEvento: 'ERROR',
-        descripcion: `❌ AEAT rechazó factura ${registro.numero_factura} — Error ${respuesta.codigoError || ''}: ${respuesta.mensaje || 'Error desconocido'}`,
-        metaData: { registroId, numero: registro.numero_factura, codigoError: respuesta.codigoError, mensaje: respuesta.mensaje }
+        tipoEvento: fatal ? 'ERROR_FATAL' : 'ERROR',
+        descripcion: `${fatal ? '🛑 ERROR_FATAL' : '❌ Reintento'} factura ${registro.numero_factura} — Error ${respuesta.codigoError || ''}: ${respuesta.mensaje || 'Error desconocido'} (intento ${intentos}/${MAX_INTENTOS})`,
+        metaData: { registroId, numero: registro.numero_factura, codigoError: respuesta.codigoError, mensaje: respuesta.mensaje, intentos, fatal }
       }).catch(() => {});
     }
 
@@ -306,13 +348,12 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
   } catch (error) {
     logger.error('enviarRegistroAeat error', { message: error.message });
 
-    // Actualizar estado a ERROR
-    await sql`
-      UPDATE registroverifactu_180
-      SET estado_envio = 'ERROR',
-          respuesta_aeat = ${JSON.stringify({ error: error.message })}
-      WHERE id = ${registroId}
-    `;
+    // Excepción de red/sistema → backoff exponencial
+    await marcarRegistroError(
+      registroId,
+      { error: error.message },
+      error.message
+    );
 
     // Registrar error de conexión en auditoría
     const [regInfo] = await sql`SELECT empresa_id, numero_factura FROM registroverifactu_180 WHERE id = ${registroId}`;
@@ -508,11 +549,19 @@ function parsearRespuestaAeat(xmlResponse, statusCode) {
  * @returns {Promise<object>} Resumen del envío
  */
 export async function enviarRegistrosPendientes(empresaId, entorno = 'PRUEBAS', certificadoPath = null, certificadoPassword = null) {
+  // Elegibles: PENDIENTE (nunca enviado) o ERROR cuyo backoff venció.
+  // ERROR_FATAL queda fuera — requiere intervención manual.
   const pendientes = await sql`
-    SELECT id, numero_factura
+    SELECT id, numero_factura, estado_envio, intentos
     FROM registroverifactu_180
     WHERE empresa_id = ${empresaId}
-      AND estado_envio = 'PENDIENTE'
+      AND (
+        estado_envio = 'PENDIENTE'
+        OR (
+          estado_envio = 'ERROR'
+          AND (proximo_reintento_at IS NULL OR proximo_reintento_at <= NOW())
+        )
+      )
     ORDER BY fecha_registro ASC
   `;
 
