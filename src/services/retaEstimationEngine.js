@@ -83,26 +83,39 @@ export const RetaEngine = {
     /**
      * Obtener perfil RETA de un autonomo (crea uno por defecto si no existe)
      */
-    async getPerfil(empresaId, ejercicio) {
-        const [perfil] = await sql`
-            SELECT * FROM reta_autonomo_perfil_180
-            WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio}
-        `;
+    async getPerfil(empresaId, ejercicio, titularId = null) {
+        const [perfil] = titularId
+            ? await sql`
+                SELECT * FROM reta_autonomo_perfil_180
+                WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio} AND titular_id = ${titularId}
+            `
+            : await sql`
+                SELECT * FROM reta_autonomo_perfil_180
+                WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+            `;
 
         if (perfil) return perfil;
 
-        // Auto-crear perfil por defecto
+        // Auto-crear perfil por defecto (con o sin titular)
         const [nuevo] = await sql`
-            INSERT INTO reta_autonomo_perfil_180 (empresa_id, ejercicio)
-            VALUES (${empresaId}, ${ejercicio})
-            ON CONFLICT (empresa_id, ejercicio) DO NOTHING
+            INSERT INTO reta_autonomo_perfil_180 (empresa_id, ejercicio, titular_id)
+            VALUES (${empresaId}, ${ejercicio}, ${titularId})
+            ON CONFLICT DO NOTHING
             RETURNING *
         `;
 
-        return nuevo || (await sql`
-            SELECT * FROM reta_autonomo_perfil_180
-            WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio}
-        `)[0];
+        if (nuevo) return nuevo;
+
+        const [reload] = titularId
+            ? await sql`
+                SELECT * FROM reta_autonomo_perfil_180
+                WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio} AND titular_id = ${titularId}
+            `
+            : await sql`
+                SELECT * FROM reta_autonomo_perfil_180
+                WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+            `;
+        return reload;
     },
 
     /**
@@ -230,7 +243,17 @@ export const RetaEngine = {
     /**
      * Obtener eventos RETA activos para un autonomo
      */
-    async getEventos(empresaId, ejercicio) {
+    async getEventos(empresaId, ejercicio, titularId = null) {
+        if (titularId) {
+            return await sql`
+                SELECT * FROM reta_eventos_180
+                WHERE empresa_id = ${empresaId}
+                AND ejercicio = ${ejercicio}
+                AND (titular_id = ${titularId} OR titular_id IS NULL)
+                AND activo = true
+                ORDER BY fecha_inicio
+            `;
+        }
         return await sql`
             SELECT * FROM reta_eventos_180
             WHERE empresa_id = ${empresaId}
@@ -575,6 +598,7 @@ export const RetaEngine = {
             ajustesManuales = null,
             creadoPor = null,
             tipoCreador = 'system',
+            titularId = null,
         } = options;
 
         const mesActual = new Date().getMonth() + 1;
@@ -582,10 +606,10 @@ export const RetaEngine = {
         // 1. Obtener datos en paralelo
         const [tramos, perfil, datosYTD, datosAnterior, eventos] = await Promise.all([
             this.getTramosForYear(ejercicio),
-            this.getPerfil(empresaId, ejercicio),
+            this.getPerfil(empresaId, ejercicio, titularId),
             this.getRendimientoNetoYTD(empresaId, ejercicio),
             this.getDatosEjercicioAnterior(empresaId, ejercicio),
-            this.getEventos(empresaId, ejercicio),
+            this.getEventos(empresaId, ejercicio, titularId),
         ]);
 
         // 2. Seleccionar metodo de proyeccion
@@ -659,7 +683,7 @@ export const RetaEngine = {
         // 8. Guardar snapshot
         const [estimacion] = await sql`
             INSERT INTO reta_estimaciones_180 (
-                empresa_id, ejercicio,
+                empresa_id, ejercicio, titular_id,
                 ingresos_reales_ytd, gastos_reales_ytd, nominas_reales_ytd,
                 metodo_proyeccion,
                 ingresos_proyectados_anual, gastos_proyectados_anual,
@@ -673,7 +697,7 @@ export const RetaEngine = {
                 ajustes_manuales,
                 creado_por, tipo_creador
             ) VALUES (
-                ${empresaId}, ${ejercicio},
+                ${empresaId}, ${ejercicio}, ${titularId},
                 ${datosYTD.ingresosYTD}, ${datosYTD.gastosYTD}, ${datosYTD.nominasYTD},
                 ${metodoUsado},
                 ${proyeccionAjustada.ingresos}, ${proyeccionAjustada.gastos},
@@ -729,16 +753,22 @@ export const RetaEngine = {
     /**
      * Simulacion what-if: que pasa si los ingresos/gastos cambian un %
      */
-    async simulate(empresaId, ejercicio, { variacionIngresosPct = 0, variacionGastosPct = 0 }) {
+    async simulate(empresaId, ejercicio, { variacionIngresosPct = 0, variacionGastosPct = 0, titularId = null }) {
         const tramos = await this.getTramosForYear(ejercicio);
-        const perfil = await this.getPerfil(empresaId, ejercicio);
+        const perfil = await this.getPerfil(empresaId, ejercicio, titularId);
 
-        // Obtener ultima estimacion como base
-        const [ultimaEst] = await sql`
-            SELECT * FROM reta_estimaciones_180
-            WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio}
-            ORDER BY fecha_calculo DESC LIMIT 1
-        `;
+        // Obtener ultima estimacion como base (filtrada por titular si aplica)
+        const [ultimaEst] = titularId
+            ? await sql`
+                SELECT * FROM reta_estimaciones_180
+                WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio} AND titular_id = ${titularId}
+                ORDER BY fecha_calculo DESC LIMIT 1
+            `
+            : await sql`
+                SELECT * FROM reta_estimaciones_180
+                WHERE empresa_id = ${empresaId} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+                ORDER BY fecha_calculo DESC LIMIT 1
+            `;
 
         if (!ultimaEst) return null;
 
