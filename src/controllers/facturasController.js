@@ -40,6 +40,38 @@ function n(v) {
   return v === undefined || v === null ? null : v;
 }
 
+// REAGP: el autónomo agrícola/ganadero/pesca no repercute IVA (Art. 130 LIVA)
+// pero percibe compensación a tanto alzado (12% agric/forestal o 10,5% ganadería/pesca).
+async function loadRegimenEmisor(executor, empresaId) {
+  const [row] = await executor`
+    select coalesce(regimen_iva, 'general') as regimen_iva,
+           compensacion_reagp_pct
+    from emisor_180
+    where empresa_id = ${empresaId}
+    limit 1
+  `;
+  return {
+    regimen_iva: row?.regimen_iva || 'general',
+    compensacion_reagp_pct: row?.compensacion_reagp_pct != null ? parseFloat(row.compensacion_reagp_pct) : null,
+  };
+}
+
+// Devuelve el iva_pct efectivo para una línea según el régimen del emisor.
+function ivaPctSegunRegimen(regimen, ivaPctSolicitado) {
+  if (regimen.regimen_iva === 'agricultura') return 0;
+  return ivaPctSolicitado;
+}
+
+// Calcula la compensación REAGP para un subtotal dado.
+function compensacionReagpDe(regimen, subtotal) {
+  if (regimen.regimen_iva !== 'agricultura' || regimen.compensacion_reagp_pct == null) {
+    return { pct: null, importe: 0 };
+  }
+  const pct = regimen.compensacion_reagp_pct;
+  const importe = Math.round(subtotal * pct) / 100;
+  return { pct, importe };
+}
+
 function getTrimestre(fecha) {
   const f = new Date(fecha);
   const mes = f.getUTCMonth(); // 0-11
@@ -423,6 +455,7 @@ export async function createFactura(req, res) {
     let createdFactura;
 
     await sql.begin(async (tx) => {
+      const regimen = await loadRegimenEmisor(tx, empresaId);
       let subtotal = 0;
       let iva_total = 0;
 
@@ -439,7 +472,7 @@ export async function createFactura(req, res) {
           ${cliente_id},
           ${fecha}::date,
           'BORRADOR',
-          ${n(iva_global) || 0},
+          ${regimen.regimen_iva === 'agricultura' ? 0 : (n(iva_global) || 0)},
           ${n(mensaje_iva)},
           ${n(metodo_pago) || 'TRANSFERENCIA'},
           0, 0, 0,
@@ -458,7 +491,7 @@ export async function createFactura(req, res) {
 
         const cantidad = parseFloat(linea.cantidad || 0);
         const precio_unitario = parseFloat(linea.precio_unitario || 0);
-        const iva_pct = parseFloat(linea.iva || iva_global || 0);
+        const iva_pct = ivaPctSegunRegimen(regimen, parseFloat(linea.iva || iva_global || 0));
         const base = cantidad * precio_unitario;
         const importe_iva = base * iva_pct / 100;
 
@@ -480,15 +513,16 @@ export async function createFactura(req, res) {
         `;
       }
 
-      // Actualizar totales
-      // Actualizar totales
+      const compensacion = compensacionReagpDe(regimen, subtotal);
       const retencion_importe = (subtotal * retencion_porcentaje) / 100;
-      const total = subtotal + iva_total - retencion_importe;
+      const total = subtotal + iva_total + compensacion.importe - retencion_importe;
 
       const [updated] = await tx`
         update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
+            compensacion_reagp_pct = ${compensacion.pct},
+            compensacion_reagp_importe = ${compensacion.importe},
             retencion_importe = ${Math.round(retencion_importe * 100) / 100},
             total = ${Math.round(total * 100) / 100}
         where id = ${factura.id}
@@ -555,6 +589,7 @@ export async function createFactura(req, res) {
 
       let verifactuResult = null;
       await sql.begin(async (tx) => {
+        const regimen = await loadRegimenEmisor(tx, empresaId);
         const lineas_db = await tx`select * from lineafactura_180 where factura_id=${facturaId}`;
 
         let subtotal = 0;
@@ -565,9 +600,10 @@ export async function createFactura(req, res) {
           iva_total += (base * (l.iva_percent || createdFactura.iva_global || 0) / 100);
         }
 
+        const compensacion = compensacionReagpDe(regimen, subtotal);
         const ret_pct = createdFactura.retencion_porcentaje || 0;
         const ret_imp = (subtotal * ret_pct) / 100;
-        const total = Math.round((subtotal + iva_total - ret_imp) * 100) / 100;
+        const total = Math.round((subtotal + iva_total + compensacion.importe - ret_imp) * 100) / 100;
 
         const [updatedRecord] = await tx`
           update factura_180
@@ -580,6 +616,8 @@ export async function createFactura(req, res) {
               subtotal = ${Math.round(subtotal * 100) / 100},
               iva_total = ${Math.round(iva_total * 100) / 100},
               iva_global = ${Math.round(iva_total * 100) / 100},
+              compensacion_reagp_pct = ${compensacion.pct},
+              compensacion_reagp_importe = ${compensacion.importe},
               retencion_importe = ${Math.round(ret_imp * 100) / 100},
               total = ${total}
           where id = ${facturaId}
@@ -677,12 +715,17 @@ export async function updateFactura(req, res) {
     }
 
     await sql.begin(async (tx) => {
+      const regimen = await loadRegimenEmisor(tx, empresaId);
+      const ivaGlobalEfectivo = regimen.regimen_iva === 'agricultura'
+        ? 0
+        : (n(iva_global) ?? factura.iva_global);
+
       // Actualizar datos básicos
       await tx`
         update factura_180
         set cliente_id = ${n(cliente_id) || factura.cliente_id},
             fecha = ${n(fecha) || factura.fecha}::date,
-            iva_global = ${n(iva_global) || factura.iva_global},
+            iva_global = ${ivaGlobalEfectivo},
             mensaje_iva = ${n(mensaje_iva) || factura.mensaje_iva},
             metodo_pago = ${n(metodo_pago) || factura.metodo_pago},
             retencion_porcentaje = ${retencion_porcentaje}
@@ -702,7 +745,7 @@ export async function updateFactura(req, res) {
 
         const cantidad = parseFloat(linea.cantidad || 0);
         const precio_unitario = parseFloat(linea.precio_unitario || 0);
-        const iva_pct = parseFloat(linea.iva || iva_global || 0);
+        const iva_pct = ivaPctSegunRegimen(regimen, parseFloat(linea.iva || iva_global || 0));
         const base = cantidad * precio_unitario;
         const importe_iva = base * iva_pct / 100;
 
@@ -724,16 +767,16 @@ export async function updateFactura(req, res) {
         `;
       }
 
-      // Actualizar totales
-      // Actualizar totales
-      // Actualizar totales
+      const compensacion = compensacionReagpDe(regimen, subtotal);
       const retencion_importe = (subtotal * retencion_porcentaje) / 100;
-      const total = subtotal + iva_total - retencion_importe;
+      const total = subtotal + iva_total + compensacion.importe - retencion_importe;
 
       await tx`
         update factura_180
         set subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
+            compensacion_reagp_pct = ${compensacion.pct},
+            compensacion_reagp_importe = ${compensacion.importe},
             retencion_importe = ${Math.round(retencion_importe * 100) / 100},
             total = ${Math.round(total * 100) / 100}
         where id = ${id}
@@ -872,6 +915,7 @@ export async function validarFactura(req, res) {
 
     let verifactuResult = null;
     await sql.begin(async (tx) => {
+      const regimen = await loadRegimenEmisor(tx, empresaId);
       // Obtener líneas para recalcular
       const lineas = await tx`select * from lineafactura_180 where factura_id=${id}`;
 
@@ -880,12 +924,14 @@ export async function validarFactura(req, res) {
       for (const l of lineas) {
         const base = l.cantidad * l.precio_unitario;
         subtotal += base;
-        iva_total += (base * (l.iva_percent || factura.iva_global || 0) / 100);
+        const ivaPct = ivaPctSegunRegimen(regimen, l.iva_percent || factura.iva_global || 0);
+        iva_total += (base * ivaPct / 100);
       }
 
+      const compensacion = compensacionReagpDe(regimen, subtotal);
       const retencion_porcentaje = factura.retencion_porcentaje || 0;
       const retencion_importe = (subtotal * retencion_porcentaje) / 100;
-      const total = Math.round((subtotal + iva_total - retencion_importe) * 100) / 100;
+      const total = Math.round((subtotal + iva_total + compensacion.importe - retencion_importe) * 100) / 100;
 
       // Actualizar factura
       const [updatedRecord] = await tx`
@@ -899,6 +945,8 @@ export async function validarFactura(req, res) {
             subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
             iva_global = ${Math.round(iva_total * 100) / 100},
+            compensacion_reagp_pct = ${compensacion.pct},
+            compensacion_reagp_importe = ${compensacion.importe},
             retencion_importe = ${Math.round(retencion_importe * 100) / 100},
             total = ${total}
         where id = ${id}
@@ -1104,6 +1152,7 @@ export async function batchValidar(req, res) {
 
         let verifactuResult = null;
         await sql.begin(async (tx) => {
+          const regimen = await loadRegimenEmisor(tx, empresaId);
           const lineas = await tx`select * from lineafactura_180 where factura_id=${facturaId}`;
 
           let subtotal = 0;
@@ -1111,12 +1160,14 @@ export async function batchValidar(req, res) {
           for (const l of lineas) {
             const base = l.cantidad * l.precio_unitario;
             subtotal += base;
-            iva_total += (base * (l.iva_percent || factura.iva_global || 0) / 100);
+            const ivaPct = ivaPctSegunRegimen(regimen, l.iva_percent || factura.iva_global || 0);
+            iva_total += (base * ivaPct / 100);
           }
 
+          const compensacion = compensacionReagpDe(regimen, subtotal);
           const retencion_porcentaje = factura.retencion_porcentaje || 0;
           const retencion_importe = (subtotal * retencion_porcentaje) / 100;
-          const total = Math.round((subtotal + iva_total - retencion_importe) * 100) / 100;
+          const total = Math.round((subtotal + iva_total + compensacion.importe - retencion_importe) * 100) / 100;
 
           const [updatedRecord] = await tx`
             update factura_180
@@ -1128,6 +1179,8 @@ export async function batchValidar(req, res) {
                 subtotal = ${Math.round(subtotal * 100) / 100},
                 iva_total = ${Math.round(iva_total * 100) / 100},
                 iva_global = ${Math.round(iva_total * 100) / 100},
+                compensacion_reagp_pct = ${compensacion.pct},
+                compensacion_reagp_importe = ${compensacion.importe},
                 retencion_importe = ${Math.round(retencion_importe * 100) / 100},
                 total = ${total}
             where id = ${facturaId}

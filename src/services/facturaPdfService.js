@@ -453,9 +453,12 @@ export const generarHtmlFactura = async (factura, emisor, cliente, lineas, confi
   <div class="totals-section">
     <div class="totals-block">
       <div class="total-row">Subtotal: ${fmtEur(subtotal)}</div>
-      ${Object.entries(desgloseIva).map(([pct, data]) => `
+      ${Object.entries(desgloseIva).filter(([, d]) => d.cuota > 0).map(([pct, data]) => `
         <div class="total-row">IVA (${pct}%): ${fmtEur(data.cuota)}</div>
       `).join('')}
+      ${factura.compensacion_reagp_pct ? `
+        <div class="total-row">Compensaci&oacute;n REAGP (${Number(factura.compensacion_reagp_pct)}%): ${fmtEur(factura.compensacion_reagp_importe)}</div>
+      ` : ''}
       <div class="total-row total-final">TOTAL FACTURA: ${fmtEur(total)}</div>
     </div>
   </div>

@@ -272,6 +272,19 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor, cuent
     });
   }
 
+  // REAGP: la compensación a tanto alzado (Art. 130 LIVA) se contabiliza como
+  // mayor ingreso del autónomo (forma parte del precio percibido), no como IVA.
+  const compensacionReagp = parseFloat(factura.compensacion_reagp_importe || 0);
+  if (compensacionReagp > 0) {
+    lineas.push({
+      cuenta_codigo: "705",
+      cuenta_nombre: "Compensación REAGP percibida",
+      debe: 0,
+      haber: compensacionReagp,
+      concepto: `Compensación REAGP factura ${factura.numero || ""}`.trim(),
+    });
+  }
+
   if (retencion > 0) {
     lineas.push({
       cuenta_codigo: "4751",
