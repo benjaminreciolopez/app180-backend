@@ -464,12 +464,12 @@ export async function createCambioBase(req, res) {
         // Obtener ultima estimacion para vincular (filtrada por titular)
         const [ultimaEst] = titular_id
             ? await sql`
-                SELECT id FROM reta_estimaciones_180
+                SELECT id, tramo_recomendado FROM reta_estimaciones_180
                 WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id = ${titular_id}
                 ORDER BY fecha_calculo DESC LIMIT 1
             `
             : await sql`
-                SELECT id FROM reta_estimaciones_180
+                SELECT id, tramo_recomendado FROM reta_estimaciones_180
                 WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id IS NULL
                 ORDER BY fecha_calculo DESC LIMIT 1
             `;
@@ -509,6 +509,31 @@ export async function createCambioBase(req, res) {
                     cuota_mensual_actual = ${Math.round(base_nueva * (tramos[0]?.tipoCotizacion || 31.20) / 100 * 100) / 100},
                     updated_at = NOW()
                 WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+            `;
+        }
+
+        // Auto-resolver alertas que ya no aplican: el usuario actuó sobre el aviso
+        // de "ventana de cambio" y, si la base nueva coincide con la recomendada,
+        // también las desviaciones de tramo / regularización.
+        const tiposResueltos = ['plazo_cambio_proximo'];
+        if (ultimaEst && tramoNuevo === ultimaEst.tramo_recomendado) {
+            tiposResueltos.push('desviacion_tramo', 'regularizacion_alta');
+        }
+        if (titular_id) {
+            await sql`
+                UPDATE reta_alertas_180 SET descartada = true, leida = true
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
+                AND titular_id = ${titular_id}
+                AND tipo IN ${sql(tiposResueltos)}
+                AND descartada = false
+            `;
+        } else {
+            await sql`
+                UPDATE reta_alertas_180 SET descartada = true, leida = true
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
+                AND titular_id IS NULL
+                AND tipo IN ${sql(tiposResueltos)}
+                AND descartada = false
             `;
         }
 
