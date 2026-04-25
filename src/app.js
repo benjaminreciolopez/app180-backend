@@ -321,7 +321,8 @@ app.use("/api/admin/facturacion/recurrentes", facturaRecurrenteRoutes); // Factu
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
 app.use("/api/admin/asesoria", adminAsesoriaRoutes); // Mi Asesoría (lado cliente)
 app.use("/api/admin/reta", adminRetaAutonomoRoutes); // RETA: estimacion propia autonomo
-app.use("/admin", adminTitularesRoutes); // Titulares/socios empresa (admin)
+app.use("/admin", adminTitularesRoutes); // Titulares/socios empresa (admin) - legacy
+app.use("/api/admin", adminTitularesRoutes); // Titulares/socios empresa (admin) - api
 app.use("/api/admin", adminCentrosTrabajoRoutes); // Centros de Trabajo (sedes)
 app.use("/admin", adminParteConfigRoutes); // Partes configurables
 app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
@@ -339,7 +340,8 @@ app.use("/asesor/clientes/:empresa_id/modelos-anuales", asesorModelosAnualesRout
 app.use("/asesor/clientes/:empresa_id/consulta", asesorConsultaRoutes); // Consulta AEAT + discrepancias (asesor)
 app.use("/asesor", asesorLaboralRoutes); // Laboral profesional (contratos, bajas, cotizaciones SS)
 app.use("/asesor", asesorRentaRoutes); // Renta IRPF + Impuesto Sociedades (asesor)
-app.use("/asesor", asesorTitularesRoutes); // Titulares de clientes (asesor)
+app.use("/asesor", asesorTitularesRoutes); // Titulares de clientes (asesor) - legacy
+app.use("/api/asesor", asesorTitularesRoutes); // Titulares de clientes (asesor) - api
 app.use("/asesor", asesorRoutes); // Portal asesor
 
 
