@@ -3,7 +3,7 @@
 import { sql } from "../db.js";
 import { generarPdfFactura } from "../services/facturaPdfService.js";
 import * as emailService from "../services/emailService.js";
-import { verificarVerifactu } from "../services/verifactuService.js";
+import { verificarVerifactu, crearRegistroAnulacion } from "../services/verifactuService.js";
 import { enviarRegistroAeat } from "../services/verifactuAeatService.js";
 import { registrarAuditoria } from "../middlewares/auditMiddleware.js";
 import { generarAsientoFactura } from "../services/contabilidadService.js";
@@ -1383,6 +1383,7 @@ export async function anularFactura(req, res) {
     }
 
     let verifactuResultRect = null;
+    let verifactuResultAnulacion = null;
     await sql.begin(async (tx) => {
       // Marcar original como anulada
       await tx`
@@ -1390,6 +1391,14 @@ export async function anularFactura(req, res) {
         set estado = 'ANULADA'
         where id = ${id}
       `;
+
+      // RegistroAnulacion AEAT (RD 1007/2023): cancelar la factura original
+      // antes de crear la rectificativa. La cadena de huellas continúa.
+      verifactuResultAnulacion = await crearRegistroAnulacion(
+        factura,
+        `Anulada por usuario; rectificativa ${numeroRect}`,
+        tx
+      );
 
       // Obtener líneas originales
       const lineasOriginales = await tx`
@@ -1439,7 +1448,14 @@ export async function anularFactura(req, res) {
       verifactuResultRect = await verificarVerifactu(rect, tx);
     });
 
-    // Envío a AEAT post-transacción rectificativa (fire-and-forget)
+    // Envío a AEAT post-transacción (fire-and-forget): primero la anulación
+    // del original, luego la rectificativa, en ese orden lógico.
+    if (verifactuResultAnulacion?.registroId) {
+      const { registroId, config: vfConfig } = verifactuResultAnulacion;
+      const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';
+      enviarRegistroAeat(registroId, entorno, vfConfig.verifactu_certificado_path, vfConfig.verifactu_certificado_password)
+        .catch(err => console.error('VeriFactu: envío async anulación falló:', err.message));
+    }
     if (verifactuResultRect?.registroId) {
       const { registroId, config: vfConfig } = verifactuResultRect;
       const entorno = vfConfig.verifactu_modo === 'PRODUCCION' ? 'PRODUCCION' : 'PRUEBAS';

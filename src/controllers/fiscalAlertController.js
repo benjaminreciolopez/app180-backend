@@ -215,7 +215,11 @@ export async function updateAlertConfig(req, res) {
         if (raw) {
             if (typeof raw === 'string') {
                 try { current = JSON.parse(raw); } catch { current = {}; }
-            } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+            } else if (Array.isArray(raw)) {
+                // Recuperar el primer objeto si la columna se corrompió a array.
+                const primero = raw.find((x) => x && typeof x === 'object' && !Array.isArray(x));
+                current = primero || {};
+            } else if (typeof raw === 'object') {
                 current = raw;
             }
         }

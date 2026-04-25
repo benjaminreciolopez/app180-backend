@@ -176,6 +176,119 @@ function construirXmlRegistro(registro, factura, emisor, facturaAnterior = null,
 }
 
 /**
+ * Construye el XML SOAP para un RegistroAnulacion (RD 1007/2023).
+ * Usa el mismo wsdl `RegFactuSistemaFacturacion` pero envuelve el bloque
+ * en `<sf:RegistroAnulacion>` en vez de `<sf:RegistroAlta>`.
+ */
+function construirXmlAnulacion(registro, factura, emisor, facturaAnterior = null) {
+    const fechaExpedicion = new Date(factura.fecha);
+    const fechaRegistro = new Date(registro.fecha_registro);
+
+    const formatFecha = (date) => {
+        const d = String(date.getDate()).padStart(2, '0');
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const y = date.getFullYear();
+        return `${d}-${m}-${y}`;
+    };
+
+    const formatDateTime = (date) => {
+        const y = date.getFullYear();
+        const mo = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const h = String(date.getHours()).padStart(2, '0');
+        const mi = String(date.getMinutes()).padStart(2, '0');
+        const s = String(date.getSeconds()).padStart(2, '0');
+        return `${y}-${mo}-${d}T${h}:${mi}:${s}+01:00`;
+    };
+
+    let encadenamiento;
+    if (registro.hash_anterior && facturaAnterior) {
+        const fechaAnt = new Date(facturaAnterior.fecha);
+        encadenamiento = `<sf:RegistroAnterior>
+            <sf:IDEmisorFactura>${emisor.nif}</sf:IDEmisorFactura>
+            <sf:NumSerieFactura>${escaparXml(facturaAnterior.numero)}</sf:NumSerieFactura>
+            <sf:FechaExpedicionFactura>${formatFecha(fechaAnt)}</sf:FechaExpedicionFactura>
+            <sf:Huella>${registro.hash_anterior}</sf:Huella>
+          </sf:RegistroAnterior>`;
+    } else {
+        encadenamiento = `<sf:PrimerRegistro>S</sf:PrimerRegistro>`;
+    }
+
+    const nsLR = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd';
+    const nsSF = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd';
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:sfLR="${nsLR}"
+                  xmlns:sf="${nsSF}">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <sfLR:RegFactuSistemaFacturacion>
+      <sfLR:Cabecera>
+        <sf:ObligadoEmision>
+          <sf:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sf:NombreRazon>
+          <sf:NIF>${emisor.nif}</sf:NIF>
+        </sf:ObligadoEmision>
+      </sfLR:Cabecera>
+      <sfLR:RegistroFactura>
+        <sf:RegistroAnulacion>
+          <sf:IDVersion>1.0</sf:IDVersion>
+          <sf:IDFactura>
+            <sf:IDEmisorFacturaAnulada>${emisor.nif}</sf:IDEmisorFacturaAnulada>
+            <sf:NumSerieFacturaAnulada>${escaparXml(factura.numero)}</sf:NumSerieFacturaAnulada>
+            <sf:FechaExpedicionFacturaAnulada>${formatFecha(fechaExpedicion)}</sf:FechaExpedicionFacturaAnulada>
+          </sf:IDFactura>
+          <sf:Encadenamiento>
+            ${encadenamiento}
+          </sf:Encadenamiento>
+          <sf:SistemaInformatico>
+            <sf:NombreRazon>${escaparXml(emisor.nombre || emisor.nombre_comercial)}</sf:NombreRazon>
+            <sf:NIF>${emisor.nif}</sf:NIF>
+            <sf:NombreSistemaInformatico>APP180</sf:NombreSistemaInformatico>
+            <sf:IdSistemaInformatico>01</sf:IdSistemaInformatico>
+            <sf:Version>1.0</sf:Version>
+            <sf:NumeroInstalacion>INST-001</sf:NumeroInstalacion>
+            <sf:TipoUsoPosibleSoloVerifactu>S</sf:TipoUsoPosibleSoloVerifactu>
+            <sf:TipoUsoPosibleMultiOT>N</sf:TipoUsoPosibleMultiOT>
+            <sf:IndicadorMultiplesOT>N</sf:IndicadorMultiplesOT>
+          </sf:SistemaInformatico>
+          <sf:FechaHoraHusoGenRegistro>${formatDateTime(fechaRegistro)}</sf:FechaHoraHusoGenRegistro>
+          <sf:TipoHuella>01</sf:TipoHuella>
+          <sf:Huella>${registro.hash_actual}</sf:Huella>
+        </sf:RegistroAnulacion>
+      </sfLR:RegistroFactura>
+    </sfLR:RegFactuSistemaFacturacion>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+}
+
+/**
+ * Genera el fragmento <sf:RegistroAlta> aislado, con namespaces inline y un
+ * atributo Id, listo para ser firmado XAdES-EPES y persistido como evidencia.
+ * No incluye el sobre SOAP — es el documento canónico que se conserva.
+ */
+export function construirFragmentoRegistroAlta(registro, factura, emisor, facturaAnterior = null, cliente = null) {
+    // Reutilizamos la lógica del XML SOAP pero extraemos sólo el <sf:RegistroAlta>.
+    const xml = construirXmlRegistro(registro, factura, emisor, facturaAnterior, cliente);
+    return extraerFragmento(xml, 'RegistroAlta', `reg-${registro.id}`);
+}
+
+export function construirFragmentoRegistroAnulacion(registro, factura, emisor, facturaAnterior = null) {
+    const xml = construirXmlAnulacion(registro, factura, emisor, facturaAnterior);
+    return extraerFragmento(xml, 'RegistroAnulacion', `reg-${registro.id}`);
+}
+
+function extraerFragmento(soapXml, elementName, id) {
+    const re = new RegExp(`<sf:${elementName}([^>]*)>([\\s\\S]*?)<\\/sf:${elementName}>`);
+    const m = soapXml.match(re);
+    if (!m) {
+        throw new Error(`No se encontró <sf:${elementName}> en el XML SOAP`);
+    }
+    const nsSF = 'https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd';
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<sf:${elementName} xmlns:sf="${nsSF}" Id="${id}">${m[2]}</sf:${elementName}>`;
+}
+
+/**
  * Escapa caracteres especiales XML
  */
 function escaparXml(texto) {
@@ -290,8 +403,10 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       }
     }
 
-    // 7. Construir XML
-    const xmlBody = construirXmlRegistro(registro, factura, emisor, facturaAnterior, cliente);
+    // 7. Construir XML — despachar según tipo de registro (ALTA vs ANULACION)
+    const xmlBody = registro.tipo_registro === 'ANULACION'
+      ? construirXmlAnulacion(registro, factura, emisor, facturaAnterior)
+      : construirXmlRegistro(registro, factura, emisor, facturaAnterior, cliente);
 
     // 6. Enviar a AEAT (SOAP) - pasar certificado data de BD
     const respuesta = await enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPassword, certData);

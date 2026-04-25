@@ -203,7 +203,13 @@ export async function getAlertConfig(empresaId) {
     if (raw) {
         if (typeof raw === 'string') {
             try { stored = JSON.parse(raw); } catch { stored = {}; }
-        } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+        } else if (Array.isArray(raw)) {
+            // Resilencia: filas históricas donde el UPDATE rompió la columna
+            // a un array (jsonb `||` con array hace append, no merge). Tomar
+            // el primer objeto y descartar los strings/last_scan_at sueltos.
+            const primero = raw.find((x) => x && typeof x === 'object' && !Array.isArray(x));
+            stored = primero || {};
+        } else if (typeof raw === 'object') {
             stored = raw;
         }
     }
@@ -415,9 +421,15 @@ function checkIvaRatio(modelData, config) {
 // CHECK 4: Cambios bruscos de patrón
 // ──────────────────────────────────────────────
 
-async function checkPatternChanges(empresaId, year, quarter) {
+async function checkPatternChanges(empresaId, year, quarter, config) {
     const alerts = [];
     const threshold = 40; // 40% cambio brusco
+    // Sólo considerar el spike "sospechoso" si el ratio absoluto
+    // gastos/ingresos del trimestre actual ya está cerca del umbral del sector
+    // (>=70% del máximo). Crecimientos relativos sobre bases pequeñas con
+    // ingresos muy superiores no son una señal real para Hacienda.
+    const ratioThreshold = config?.thresholds?.gastos_ingresos_ratio_max || 0.7;
+    const ratioGuard = ratioThreshold * 0.7;
 
     // Comparar con trimestre anterior
     const prev = prevQuarter(year, quarter);
@@ -485,34 +497,43 @@ async function checkPatternChanges(empresaId, year, quarter) {
 
     const diasInfo = ` (comparando primeros ${diasTranscurridos} días de cada trimestre)`;
 
-    // Spike de gastos
-    if (prevG > 0) {
+    // Spike de gastos: sólo es señal real si el ratio absoluto gastos/ingresos
+    // ya está en zona de riesgo. Con ingresos varias veces superiores a los
+    // gastos, un crecimiento relativo no representa un patrón sospechoso para
+    // Hacienda — es simple actividad económica.
+    if (prevG > 0 && curV > 0) {
         const gastoChange = ((curG - prevG) / prevG) * 100;
-        if (gastoChange > threshold) {
+        const ratioActual = curG / curV;
+        if (gastoChange > threshold && ratioActual >= ratioGuard) {
             alerts.push({
                 triggered: true,
                 alert_type: 'gasto_spike',
                 severity: gastoChange > threshold * 2 ? 'critical' : 'warning',
                 current_value: gastoChange,
                 threshold,
-                message: `Los gastos han aumentado un ${gastoChange.toFixed(0)}% respecto al trimestre anterior` + diasInfo,
-                recommendation: 'Un aumento brusco de gastos sin aumento proporcional de ingresos genera alertas en los algoritmos de Hacienda.',
+                message: `Los gastos han aumentado un ${gastoChange.toFixed(0)}% respecto al trimestre anterior y el ratio gastos/ingresos (${(ratioActual * 100).toFixed(0)}%) se acerca al máximo del sector (${(ratioThreshold * 100).toFixed(0)}%)` + diasInfo,
+                recommendation: 'Un aumento brusco de gastos cuando el ratio gastos/ingresos ya es elevado genera alertas en los algoritmos de Hacienda.',
             });
         }
     }
 
-    // Caída de ingresos
+    // Caída de ingresos: sólo es preocupante si va acompañada de gastos
+    // que se mantienen o aumentan. Una caída con gastos también a la baja
+    // es coherente con menor actividad (vacaciones, estacionalidad), no una
+    // anomalía. Hacienda lo cruza con la evolución de gastos.
     if (prevV > 0) {
         const ventaChange = ((curV - prevV) / prevV) * 100;
-        if (ventaChange < -threshold) {
+        const gastoChange = prevG > 0 ? ((curG - prevG) / prevG) * 100 : 0;
+        const gastosNoBajan = gastoChange > -20;
+        if (ventaChange < -threshold && gastosNoBajan) {
             alerts.push({
                 triggered: true,
                 alert_type: 'ingreso_drop',
                 severity: ventaChange < -threshold * 2 ? 'critical' : 'warning',
                 current_value: ventaChange,
                 threshold: -threshold,
-                message: `Los ingresos han caído un ${Math.abs(ventaChange).toFixed(0)}% respecto al trimestre anterior` + diasInfo,
-                recommendation: 'Una caída brusca de ingresos con gastos estables puede indicar irregularidades para Hacienda.',
+                message: `Los ingresos han caído un ${Math.abs(ventaChange).toFixed(0)}% mientras los gastos no han bajado proporcionalmente` + diasInfo,
+                recommendation: 'Una caída brusca de ingresos con gastos estables o crecientes puede indicar irregularidades para Hacienda.',
             });
         }
     }
@@ -750,7 +771,7 @@ export async function analyzeCurrentQuarter(empresaId, year, quarter) {
         checkGastosIngresosRatio(modelData, config),
         await checkConsecutiveLosses(empresaId, year, quarter),
         checkIvaRatio(modelData, config),
-        await checkPatternChanges(empresaId, year, quarter),
+        await checkPatternChanges(empresaId, year, quarter, config),
         await checkCashPayments(empresaId, startDate, endDate, config),
         await checkMissingRetentions(empresaId, startDate, endDate),
         await checkVehicleExpenseDeduction(empresaId, startDate, endDate, config),
@@ -921,11 +942,24 @@ export async function runAlertScanForCompany(empresaId) {
         });
     }
 
-    // Update last scan timestamp
+    // Update last scan timestamp.
+    // Importante: si la columna terminó como array por bugs históricos,
+    // `jsonb || jsonb` haría append en vez de merge. Forzamos un objeto base
+    // antes de mergear para mantener el shape canónico.
     await sql`
         UPDATE empresa_config_180
-        SET fiscal_alert_config = COALESCE(fiscal_alert_config, '{}'::jsonb) ||
-            ${JSON.stringify({ last_scan_at: new Date().toISOString() })}::jsonb
+        SET fiscal_alert_config =
+            CASE
+                WHEN jsonb_typeof(COALESCE(fiscal_alert_config, '{}'::jsonb)) = 'object'
+                    THEN COALESCE(fiscal_alert_config, '{}'::jsonb)
+                        || ${JSON.stringify({ last_scan_at: new Date().toISOString() })}::jsonb
+                ELSE
+                    COALESCE(
+                        (SELECT v FROM jsonb_array_elements(fiscal_alert_config) v
+                          WHERE jsonb_typeof(v) = 'object' LIMIT 1),
+                        '{}'::jsonb
+                    ) || ${JSON.stringify({ last_scan_at: new Date().toISOString() })}::jsonb
+            END
         WHERE empresa_id = ${empresaId}
     `;
 }
