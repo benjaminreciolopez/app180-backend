@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { syncDailyReport } from "../services/dailyReportService.js";
 import { resolverPlanDia } from "../services/planificacionResolver.js";
 import { saveToStorage } from "./storageController.js";
+import { ensureAutonomoOwnerEmployee } from "../services/autonomoOwnerService.js";
 
 // ==========================
 // CREAR EMPLEADO (PASSWORD FORZADO)
@@ -94,6 +95,8 @@ export const getEmployeesAdmin = async (req, res) => {
 
     const empresaId = await resolveEmpresaId(req);
     if (!empresaId) return res.status(400).json({ error: "Empresa no encontrada" });
+
+    await ensureAutonomoOwnerEmployee(empresaId);
 
     const empleados = await sql`
       SELECT DISTINCT ON (e.id)

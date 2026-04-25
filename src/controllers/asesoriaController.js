@@ -1,6 +1,7 @@
 // backend/src/controllers/asesoriaController.js
 // Dashboard and client management for the asesor portal
 import { sql } from "../db.js";
+import { ensureAutonomoOwnerEmployee } from "../services/autonomoOwnerService.js";
 
 /**
  * GET /asesor/dashboard
@@ -216,23 +217,7 @@ export async function getClienteResumen(req, res) {
         AND EXTRACT(YEAR FROM fecha_compra) = ${currentYear}
     `;
 
-    // Si es autónomo y no tiene empleados, auto-crear el empleado-dueño
-    const [empleadosCheck] = await sql`
-      SELECT COUNT(*)::int AS total
-      FROM employees_180
-      WHERE empresa_id = ${empresaId} AND activo = true
-    `;
-    if (empresa?.tipo_contribuyente === 'autonomo' && empleadosCheck.total === 0) {
-      // Buscar el user_id dueño de la empresa
-      const [empData] = await sql`SELECT user_id FROM empresa_180 WHERE id = ${empresaId}`;
-      if (empData?.user_id) {
-        await sql`
-          INSERT INTO employees_180 (user_id, empresa_id, nombre, activo, tipo_trabajo, tipo_contrato, created_at)
-          VALUES (${empData.user_id}, ${empresaId}, ${empresa.nombre || 'Autónomo'}, true, 'autonomo', 'autonomo', now())
-          ON CONFLICT DO NOTHING
-        `;
-      }
-    }
+    await ensureAutonomoOwnerEmployee(empresaId);
 
     // Total empleados activos
     const [empleados] = await sql`
@@ -475,5 +460,55 @@ export async function updateClienteTipoContribuyente(req, res) {
   } catch (err) {
     console.error("Error updateClienteTipoContribuyente:", err);
     return res.status(500).json({ error: "Error actualizando tipo de contribuyente" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/:empresa_id/permisos
+ * Asesor updates the delegated permissions matrix for a specific client.
+ * Body: { permisos: { fiscal:{read,write}, gastos:{...}, nominas:{...}, facturas:{...}, contabilidad:{...}, documentos:{read,upload} } }
+ *
+ * Semantically, write:true on an area means "the asesoría handles this area on behalf of the empresa",
+ * which the empresa-side UI reads to lock/hide the corresponding module toggles.
+ */
+export async function updateClientePermisos(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const empresaId = req.params.empresa_id;
+    const { permisos } = req.body;
+
+    if (!permisos || typeof permisos !== "object" || Array.isArray(permisos)) {
+      return res.status(400).json({ error: "Permisos requeridos (objeto JSON)" });
+    }
+
+    const ALLOWED_KEYS = ["fiscal", "gastos", "nominas", "facturas", "contabilidad", "documentos", "empleados", "configuracion", "clientes"];
+    const sanitized = {};
+    for (const [key, value] of Object.entries(permisos)) {
+      if (!ALLOWED_KEYS.includes(key)) continue;
+      if (!value || typeof value !== "object") continue;
+      const entry = {};
+      if (typeof value.read === "boolean") entry.read = value.read;
+      if (typeof value.write === "boolean") entry.write = value.write;
+      if (typeof value.upload === "boolean") entry.upload = value.upload;
+      sanitized[key] = entry;
+    }
+
+    const [updated] = await sql`
+      UPDATE asesoria_clientes_180
+      SET permisos = ${sql.json(sanitized)}
+      WHERE asesoria_id = ${asesoriaId}
+        AND empresa_id = ${empresaId}
+        AND estado = 'activo'
+      RETURNING id, permisos
+    `;
+
+    if (!updated) {
+      return res.status(404).json({ error: "Sin vínculo activo con esa empresa" });
+    }
+
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error("Error updateClientePermisos:", err);
+    return res.status(500).json({ error: "Error actualizando permisos del cliente" });
   }
 }
