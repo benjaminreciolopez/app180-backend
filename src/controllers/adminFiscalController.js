@@ -1,6 +1,7 @@
 
 import { sql } from "../db.js";
 import { aeatService } from "../services/aeatService.js";
+import logger from "../utils/logger.js";
 
 /**
  * Helper para obtener rango de fechas de un trimestre
@@ -776,7 +777,7 @@ export async function getModelo390(req, res) {
         const data = await calcularModelo390(empresaId, year);
         res.json({ success: true, data });
     } catch (error) {
-        console.error("Error getModelo390:", error);
+        logger.error("getModelo390 failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo datos modelo 390" });
     }
 }
@@ -789,7 +790,7 @@ export async function getModelo190(req, res) {
         const data = await calcularModelo190(empresaId, year);
         res.json({ success: true, data });
     } catch (error) {
-        console.error("Error getModelo190:", error);
+        logger.error("getModelo190 failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo datos modelo 190" });
     }
 }
@@ -802,7 +803,7 @@ export async function getModelo180(req, res) {
         const data = await calcularModelo180(empresaId, year);
         res.json({ success: true, data });
     } catch (error) {
-        console.error("Error getModelo180:", error);
+        logger.error("getModelo180 failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo datos modelo 180" });
     }
 }
@@ -815,7 +816,7 @@ export async function getModelo347(req, res) {
         const data = await calcularModelo347(empresaId, year);
         res.json({ success: true, data });
     } catch (error) {
-        console.error("Error getModelo347:", error);
+        logger.error("getModelo347 failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo datos modelo 347" });
     }
 }
@@ -913,7 +914,7 @@ export async function downloadBOEAnual(req, res) {
         res.send(boe);
 
     } catch (error) {
-        console.error("Error downloadBOEAnual:", error);
+        logger.error("downloadBOEAnual failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error generando fichero descarga anual" });
     }
 }
@@ -937,7 +938,7 @@ export async function getFiscalData(req, res) {
         res.json({ success: true, data });
 
     } catch (error) {
-        console.error("Error getFiscalData:", error);
+        logger.error("getFiscalData failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo datos fiscales" });
     }
 }
@@ -976,7 +977,7 @@ export async function getLibroVentas(req, res) {
 
         res.json({ success: true, data: facturasWithClientName });
     } catch (error) {
-        console.error("Error getLibroVentas:", error);
+        logger.error("getLibroVentas failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo libro ventas" });
     }
 }
@@ -1004,7 +1005,7 @@ export async function getLibroGastos(req, res) {
 
         res.json({ success: true, data: gastos });
     } catch (error) {
-        console.error("Error getLibroGastos:", error);
+        logger.error("getLibroGastos failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo libro gastos" });
     }
 }
@@ -1034,7 +1035,7 @@ export async function getLibroNominas(req, res) {
 
         res.json({ success: true, data: nominasConNombres });
     } catch (error) {
-        console.error("Error getLibroNominas:", error);
+        logger.error("getLibroNominas failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error obteniendo libro nóminas" });
     }
 }
@@ -1061,7 +1062,7 @@ export async function getCalendarioFiscal(req, res) {
         res.json({ success: true, data: models });
 
     } catch (error) {
-        console.error("Error getCalendarioFiscal:", error);
+        logger.error("getCalendarioFiscal failed", { message: error.message });
         // If table doesn't exist yet, return empty array gracefully
         if (error.code === '42P01') {
             return res.json({ success: true, data: [] });
@@ -1125,7 +1126,7 @@ export async function downloadBOE(req, res) {
         res.send(boe);
 
     } catch (error) {
-        console.error("Error downloadBOE:", error);
+        logger.error("downloadBOE failed", { message: error.message });
         res.status(500).json({ success: false, error: "Error generando fichero descarga" });
     }
 }

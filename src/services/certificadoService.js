@@ -9,7 +9,17 @@ import logger from '../utils/logger.js';
 // PASSWORD ENCRYPTION (AES-256-GCM)
 // =========================
 const ALGORITHM = 'aes-256-gcm';
-const KEY = process.env.CERT_ENCRYPTION_KEY || 'default-key-change-in-production-32b';
+const CERT_DEV_FALLBACK = 'default-key-change-in-production-32b';
+const KEY = (() => {
+  const k = process.env.CERT_ENCRYPTION_KEY;
+  if (k && k.length >= 32) return k;
+  if (process.env.NODE_ENV === 'production') {
+    logger.error('FATAL: CERT_ENCRYPTION_KEY missing or shorter than 32 chars in production');
+    throw new Error('CERT_ENCRYPTION_KEY env var is required in production (>=32 chars)');
+  }
+  logger.warn('CERT_ENCRYPTION_KEY not set — using insecure development fallback. NEVER use in production.');
+  return CERT_DEV_FALLBACK;
+})();
 
 function encryptPassword(password) {
   const iv = crypto.randomBytes(16);

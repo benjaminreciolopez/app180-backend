@@ -1,6 +1,7 @@
 import { sql } from '../db.js';
 import crypto from 'crypto';
 import { firmarRegistroDoble } from './firmaDigitalService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Servicio de Veri*Factu (Sistema de Emisión de Facturas Verificables)
@@ -88,7 +89,7 @@ function generarHashVerifactu(factura, nifEmisor, fechaGeneracion, hashAnterior)
         `FechaHoraHusoGenRegistro=${fechaHoraHuso}`
     ].join('&');
 
-    console.log('🔐 Hash VeriFactu cadena:', cadena);
+    logger.debug('verifactu hash cadena built', { length: cadena.length });
 
     // AEAT calcula y compara hashes en MAYÚSCULAS
     return crypto.createHash('sha256').update(cadena, 'utf8').digest('hex').toUpperCase();
@@ -108,7 +109,7 @@ export async function verificarVerifactu(factura, tx = sql) {
 
         // Si no hay config o está OFF, salir
         if (!config || !config.verifactu_activo || config.verifactu_modo === 'OFF') {
-            console.log("ℹ️ Veri*Factu OFF o no configurado");
+            logger.info('verifactu off or not configured');
             return;
         }
 
@@ -145,13 +146,13 @@ export async function verificarVerifactu(factura, tx = sql) {
                     config.verifactu_cert_fabricante_path,
                     config.verifactu_cert_fabricante_password
                 );
-                console.log('✅ Registro firmado digitalmente (cliente + fabricante)');
+                logger.info('verifactu signed: client + fabricante');
             } catch (error) {
-                console.warn('⚠️ Error al firmar registro:', error.message);
+                logger.warn('verifactu sign failed', { message: error.message });
                 // No fallar la transacción por fallo de firma (aún puede enviarse sin firma)
             }
         } else {
-            console.log('ℹ️ Firma digital no configurada, registro sin firmar');
+            logger.info('verifactu sign skipped: no signature config');
         }
 
         // Guardar registro
@@ -191,7 +192,7 @@ export async function verificarVerifactu(factura, tx = sql) {
       WHERE id = ${factura.id}
     `;
 
-        console.log(`✅ Veri*Factu: Registro generado para factura ${factura.numero}`);
+        logger.info('verifactu record created', { facturaId: factura.id });
 
         // Retornar datos necesarios para el envío post-transacción
         return {
@@ -201,7 +202,7 @@ export async function verificarVerifactu(factura, tx = sql) {
         };
 
     } catch (error) {
-        console.error("❌ Error en verificarVerifactu:", error);
+        logger.error('verifactu verify failed', { message: error.message });
         // En un sistema fiscal estricto, esto debería fallar la transacción.
         throw error;
     }

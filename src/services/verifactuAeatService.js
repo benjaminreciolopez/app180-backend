@@ -4,6 +4,7 @@ import fs from 'fs';
 import forge from 'node-forge';
 import { sql } from '../db.js';
 import { registrarEventoVerifactu } from '../controllers/verifactuEventosController.js';
+import logger from '../utils/logger.js';
 
 /**
  * Servicio de envío de registros VeriFactu a la AEAT
@@ -175,7 +176,7 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
     }
 
     if (registro.estado_envio === 'ENVIADO') {
-      console.log(`⚠️ Registro ${registroId} ya fue enviado anteriormente`);
+      logger.warn('verifactu register already sent', { registroId });
       return {
         success: true,
         mensaje: 'Ya enviado previamente',
@@ -224,7 +225,7 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
       certData = emisor.certificado_data;
     }
 
-    console.log(`📡 Enviando a AEAT (${entorno}): ${factura.numero} [cert BD: ${certData ? 'SI' : 'NO'}]`);
+    logger.info('verifactu sending to AEAT', { entorno, facturaId: factura.id, certFromDB: !!certData });
 
     // 5. Obtener factura anterior para encadenamiento
     let facturaAnterior = null;
@@ -271,7 +272,7 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
         WHERE id = ${registroId}
       `;
 
-      console.log(`✅ Registro ${registroId} enviado correctamente a AEAT`);
+      logger.info('verifactu sent to AEAT', { registroId });
 
       // Registrar éxito en auditoría
       registrarEventoVerifactu({
@@ -289,7 +290,7 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
         WHERE id = ${registroId}
       `;
 
-      console.error(`❌ Error al enviar registro ${registroId}:`, respuesta.mensaje);
+      logger.error('verifactu AEAT send failed', { registroId, message: respuesta.mensaje });
 
       // Registrar error AEAT en auditoría
       registrarEventoVerifactu({
@@ -303,7 +304,7 @@ export async function enviarRegistroAeat(registroId, entorno = 'PRUEBAS', certif
     return respuesta;
 
   } catch (error) {
-    console.error('❌ Error en enviarRegistroAeat:', error);
+    logger.error('enviarRegistroAeat error', { message: error.message });
 
     // Actualizar estado a ERROR
     await sql`
@@ -361,11 +362,11 @@ async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPas
 
       if (certificadoData) {
         p12Der = forge.util.decode64(certificadoData);
-        console.log('🔐 Certificado cargado desde BD (base64)');
+        logger.debug('certificate loaded from DB');
       } else if (certificadoPath && fs.existsSync(certificadoPath)) {
         const fileBuffer = fs.readFileSync(certificadoPath);
         p12Der = forge.util.decode64(fileBuffer.toString('base64'));
-        console.log('🔐 Certificado cargado desde filesystem');
+        logger.debug('certificate loaded from filesystem');
       }
 
       if (p12Der) {
@@ -384,18 +385,18 @@ async function enviarSoapAeat(endpoint, xmlBody, certificadoPath, certificadoPas
           options.key = keyPem;
           options.rejectUnauthorized = endpoint.includes('prewww') ? false : true;
           certLoaded = true;
-          console.log('🔐 Certificado convertido a PEM correctamente');
+          logger.debug('certificate converted to PEM');
         } else {
-          console.warn('⚠️ No se encontraron certificado/clave en el PKCS#12');
+          logger.warn('PKCS#12: no certificate/key found');
         }
       }
     } catch (error) {
-      console.error('❌ Error al procesar certificado PKCS#12:', error.message);
+      logger.error('PKCS#12 processing failed', { message: error.message });
       return reject(new Error(`Error al procesar certificado: ${error.message}`));
     }
 
     if (!certLoaded) {
-      console.warn('⚠️ No se encontró certificado digital. La AEAT puede rechazar la petición.');
+      logger.warn('No digital certificate found, AEAT may reject');
     }
 
     const req = https.request(options, (res) => {
@@ -524,7 +525,7 @@ export async function enviarRegistrosPendientes(empresaId, entorno = 'PRUEBAS', 
     };
   }
 
-  console.log(`📤 Enviando ${pendientes.length} registros pendientes...`);
+  logger.info('verifactu pending batch', { count: pendientes.length });
 
   let enviados = 0;
   let errores = 0;
@@ -580,15 +581,14 @@ export async function testConexionAeat(entorno = 'PRUEBAS', certificadoPath = nu
     ? ENDPOINTS.PRODUCCION
     : ENDPOINTS.PRUEBAS;
 
-  console.log(`🧪 Probando conexión con AEAT (${entorno})...`);
-  console.log(`   Endpoint: ${endpoint}`);
+  logger.info('verifactu testing AEAT connection', { entorno, endpoint });
 
   if (certificadoData) {
-    console.log(`   Certificado: desde BD (base64)`);
+    logger.debug('certificate source: DB');
   } else if (certificadoPath) {
-    console.log(`   Certificado: ${certificadoPath}`);
+    logger.debug('certificate source: filesystem');
   } else {
-    console.warn(`   ⚠️ Sin certificado - la conexión puede fallar`);
+    logger.warn('No certificate set, connection may fail');
   }
 
   return new Promise((resolve) => {
