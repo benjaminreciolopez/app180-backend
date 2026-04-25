@@ -72,31 +72,39 @@ export async function updateEmisorConfig(req, res) {
         let result;
 
         if (exists) {
+            const has = (k) => Object.prototype.hasOwnProperty.call(data, k);
+            const orNull = (k) => (has(k) ? (data[k] === '' ? null : data[k]) : undefined);
+            const numOrNull = (k) => {
+                if (!has(k)) return undefined;
+                const v = data[k];
+                if (v === null || v === '' || v === undefined) return null;
+                return parseFloat(v);
+            };
             [result] = await sql`
                 update emisor_180 set
-                    nombre=${data.nombre || null},
-                    nombre_comercial=${data.nombre_comercial || null},
-                    nif=${data.nif || null},
-                    direccion=${data.direccion || null},
-                    poblacion=${data.poblacion || null},
-                    provincia=${data.provincia || null},
-                    cp=${data.cp || null},
-                    pais=${data.pais || "España"},
-                    telefono=${data.telefono || null},
-                    email=${data.email || null},
-                    web=${data.web || null},
-                    iban=${data.iban || null},
-                    registro_mercantil=${data.registro_mercantil || null},
-                    texto_pie=${data.texto_pie || null},
-                    texto_exento=${data.texto_exento || null},
-                    texto_rectificativa=${data.texto_rectificativa || null},
-                    terminos_legales=${data.terminos_legales || null},
-                    mensaje_iva=${data.mensaje_iva || null},
-                    regimen_iva=COALESCE(${data.regimen_iva || null}, regimen_iva),
-                    prorrata_iva_pct=COALESCE(${data.prorrata_iva_pct !== undefined && data.prorrata_iva_pct !== null && data.prorrata_iva_pct !== '' ? parseFloat(data.prorrata_iva_pct) : null}, prorrata_iva_pct),
-                    prorrata_iva_definitivo=${data.prorrata_iva_definitivo !== undefined && data.prorrata_iva_definitivo !== null && data.prorrata_iva_definitivo !== '' ? parseFloat(data.prorrata_iva_definitivo) : null},
-                    modulos_simplificado=${data.modulos_simplificado ? sql.json(data.modulos_simplificado) : null},
-                    compensacion_reagp_pct=${data.compensacion_reagp_pct !== undefined && data.compensacion_reagp_pct !== null && data.compensacion_reagp_pct !== '' ? parseFloat(data.compensacion_reagp_pct) : null}
+                    nombre=COALESCE(${orNull('nombre') ?? null}, nombre),
+                    nombre_comercial=COALESCE(${orNull('nombre_comercial') ?? null}, nombre_comercial),
+                    nif=COALESCE(${orNull('nif') ?? null}, nif),
+                    direccion=COALESCE(${orNull('direccion') ?? null}, direccion),
+                    poblacion=COALESCE(${orNull('poblacion') ?? null}, poblacion),
+                    provincia=COALESCE(${orNull('provincia') ?? null}, provincia),
+                    cp=COALESCE(${orNull('cp') ?? null}, cp),
+                    pais=COALESCE(${orNull('pais') ?? null}, pais),
+                    telefono=COALESCE(${orNull('telefono') ?? null}, telefono),
+                    email=COALESCE(${orNull('email') ?? null}, email),
+                    web=COALESCE(${orNull('web') ?? null}, web),
+                    iban=COALESCE(${orNull('iban') ?? null}, iban),
+                    registro_mercantil=COALESCE(${orNull('registro_mercantil') ?? null}, registro_mercantil),
+                    texto_pie=COALESCE(${orNull('texto_pie') ?? null}, texto_pie),
+                    texto_exento=COALESCE(${orNull('texto_exento') ?? null}, texto_exento),
+                    texto_rectificativa=COALESCE(${orNull('texto_rectificativa') ?? null}, texto_rectificativa),
+                    terminos_legales=COALESCE(${orNull('terminos_legales') ?? null}, terminos_legales),
+                    mensaje_iva=COALESCE(${orNull('mensaje_iva') ?? null}, mensaje_iva),
+                    regimen_iva=COALESCE(${orNull('regimen_iva') ?? null}, regimen_iva),
+                    prorrata_iva_pct=COALESCE(${numOrNull('prorrata_iva_pct') ?? null}, prorrata_iva_pct),
+                    prorrata_iva_definitivo=CASE WHEN ${has('prorrata_iva_definitivo')} THEN ${numOrNull('prorrata_iva_definitivo') ?? null}::numeric ELSE prorrata_iva_definitivo END,
+                    modulos_simplificado=CASE WHEN ${has('modulos_simplificado')} THEN ${data.modulos_simplificado ? sql.json(data.modulos_simplificado) : null} ELSE modulos_simplificado END,
+                    compensacion_reagp_pct=CASE WHEN ${has('compensacion_reagp_pct')} THEN ${numOrNull('compensacion_reagp_pct') ?? null}::numeric ELSE compensacion_reagp_pct END
                 where empresa_id=${empresaId}
                 returning *
             `;
@@ -120,20 +128,20 @@ export async function updateEmisorConfig(req, res) {
             INSERT INTO perfil_180 (
                 empresa_id, nombre_fiscal, cif, direccion, poblacion, provincia, cp, pais, telefono, email, web, updated_at
             ) VALUES (
-                ${empresaId}, ${data.nombre}, ${data.nif}, ${data.direccion}, ${data.poblacion}, ${data.provincia}, 
-                ${data.cp}, ${data.pais || 'España'}, ${data.telefono}, ${data.email}, ${data.web}, now()
+                ${empresaId}, ${data.nombre ?? result?.nombre ?? null}, ${data.nif ?? result?.nif ?? null}, ${data.direccion ?? result?.direccion ?? null}, ${data.poblacion ?? result?.poblacion ?? null}, ${data.provincia ?? result?.provincia ?? null},
+                ${data.cp ?? result?.cp ?? null}, ${data.pais || result?.pais || 'España'}, ${data.telefono ?? result?.telefono ?? null}, ${data.email ?? result?.email ?? null}, ${data.web ?? result?.web ?? null}, now()
             )
             ON CONFLICT (empresa_id) DO UPDATE SET
-                nombre_fiscal = EXCLUDED.nombre_fiscal,
-                cif = EXCLUDED.cif,
-                direccion = EXCLUDED.direccion,
-                poblacion = EXCLUDED.poblacion,
-                provincia = EXCLUDED.provincia,
-                cp = EXCLUDED.cp,
-                pais = EXCLUDED.pais,
-                telefono = EXCLUDED.telefono,
-                email = EXCLUDED.email,
-                web = EXCLUDED.web,
+                nombre_fiscal = COALESCE(EXCLUDED.nombre_fiscal, perfil_180.nombre_fiscal),
+                cif = COALESCE(EXCLUDED.cif, perfil_180.cif),
+                direccion = COALESCE(EXCLUDED.direccion, perfil_180.direccion),
+                poblacion = COALESCE(EXCLUDED.poblacion, perfil_180.poblacion),
+                provincia = COALESCE(EXCLUDED.provincia, perfil_180.provincia),
+                cp = COALESCE(EXCLUDED.cp, perfil_180.cp),
+                pais = COALESCE(EXCLUDED.pais, perfil_180.pais),
+                telefono = COALESCE(EXCLUDED.telefono, perfil_180.telefono),
+                email = COALESCE(EXCLUDED.email, perfil_180.email),
+                web = COALESCE(EXCLUDED.web, perfil_180.web),
                 updated_at = now()
         `;
 
