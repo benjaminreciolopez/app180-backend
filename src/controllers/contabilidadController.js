@@ -736,6 +736,59 @@ export async function exportarAsientos(req, res) {
       return res.send(Buffer.from(csv, "utf-8"));
     }
 
+    if (formato === "a3") {
+      // a3CON / a3ECO Movimientos: fichero ASCII de ancho fijo (95 bytes/registro,
+      // 1 registro por movimiento). Formato público:
+      //   001-008  Asiento (8 numérico, padding ceros)
+      //   009-016  Fecha (DDMMAAAA)
+      //   017-028  Cuenta (12 alfanumérico, padding espacios derecha)
+      //   029-042  Importe (14 numérico, 2 decimales implícitos, padding ceros izq)
+      //   043-043  Cargo/Abono ('D'/'H')
+      //   044-073  Concepto (30 alfanumérico, padding espacios derecha)
+      //   074-085  Documento (12 alfanumérico) — número de factura/justificante
+      //   086-093  Tipo (8 alfanumérico) — tipo de asiento
+      //   094-095  Departamento (2 alfanumérico) — vacío por defecto
+      const padR = (s, n) => String(s ?? '').slice(0, n).padEnd(n, ' ');
+      const padL = (s, n, ch = '0') => String(s ?? '').slice(0, n).padStart(n, ch);
+      const ddmmaaaa = (d) => {
+        const dt = new Date(d);
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const yy = String(dt.getFullYear());
+        return `${dd}${mm}${yy}`;
+      };
+      const stripAccents = (s) => String(s ?? '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7E]/g, ' ');
+
+      const tipoByAsiento = {};
+      for (const a of asientos) tipoByAsiento[a.numero] = a.tipo || '';
+
+      const records = lineas.map(l => {
+        const debe = Math.round(Number(l.debe || 0) * 100);
+        const haber = Math.round(Number(l.haber || 0) * 100);
+        const importe = debe > 0 ? debe : haber;
+        const sentido = debe > 0 ? 'D' : 'H';
+        const concepto = stripAccents(l.linea_concepto || '').toUpperCase();
+        return [
+          padL(l.asiento_numero, 8),
+          ddmmaaaa(l.asiento_fecha),
+          padR(l.cuenta_codigo, 12),
+          padL(importe, 14),
+          sentido,
+          padR(concepto, 30),
+          padR('', 12),                                   // Documento (no disponible aún)
+          padR(stripAccents(tipoByAsiento[l.asiento_numero] || '').toUpperCase(), 8),
+          padR('', 2),                                    // Departamento
+        ].join('');
+      });
+      // a3 espera CRLF y codificación CP1252; usamos ASCII (sin acentos) que es subconjunto.
+      const out = records.join('\r\n') + '\r\n';
+      res.setHeader('Content-Type', 'text/plain; charset=ascii');
+      res.setHeader('Content-Disposition', `attachment; filename=movimientos_a3_${ejercicio || 'all'}.dat`);
+      return res.send(Buffer.from(out, 'binary'));
+    }
+
     // Excel format (default) - two sheets: Diario + Libro Mayor resumen
     const wb = new ExcelJS.Workbook();
     wb.creator = "CONTENDO";
