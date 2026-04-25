@@ -270,7 +270,7 @@ export async function getConfiguracion(req, res) {
     const asesoriaId = req.user.asesoria_id;
 
     const [asesoria] = await sql`
-      SELECT id, nombre, cif, email_contacto, telefono, direccion, logo_url, plan, max_clientes, activo, created_at
+      SELECT id, nombre, cif, email_contacto, telefono, direccion, logo_url, plan, max_clientes, activo, created_at, modulos, modulos_mobile
       FROM asesorias_180
       WHERE id = ${asesoriaId}
     `;
@@ -423,6 +423,43 @@ export async function updateConfiguracion(req, res) {
   } catch (err) {
     console.error("Error updateConfiguracion (asesoria):", err);
     return res.status(500).json({ error: "Error actualizando configuración" });
+  }
+}
+
+/**
+ * PUT /asesor/configuracion/modulos-mobile
+ * Define the subset of modules visible in the asesor PWA mobile shell.
+ * Pass `null` (or omit) to disable the override and use full `modulos`.
+ */
+export async function updateModulosMobile(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const { modulos_mobile } = req.body;
+
+    if (modulos_mobile !== null && (typeof modulos_mobile !== "object" || Array.isArray(modulos_mobile))) {
+      return res.status(400).json({ error: "modulos_mobile debe ser un objeto o null" });
+    }
+
+    let sanitized = null;
+    if (modulos_mobile && typeof modulos_mobile === "object") {
+      const ALLOWED = ["empleados", "fichajes", "calendario", "clientes", "facturacion", "fiscal", "pagos", "worklogs", "contable"];
+      sanitized = {};
+      for (const key of ALLOWED) {
+        if (key in modulos_mobile) sanitized[key] = !!modulos_mobile[key];
+      }
+    }
+
+    await sql`
+      UPDATE asesorias_180
+      SET modulos_mobile = ${sanitized === null ? null : sql.json(sanitized)},
+          updated_at = now()
+      WHERE id = ${asesoriaId}
+    `;
+
+    return res.json({ success: true, data: { modulos_mobile: sanitized } });
+  } catch (err) {
+    console.error("Error updateModulosMobile (asesoria):", err);
+    return res.status(500).json({ error: "Error guardando módulos móvil" });
   }
 }
 

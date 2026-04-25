@@ -5,7 +5,7 @@ import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { asesorClienteRequired } from "../middlewares/asesorRequired.js";
-import { getDashboard, getClientes, getClienteResumen, getConfiguracion, updateConfiguracion, getDashboardWidgets, updateDashboardWidgets, updateClienteTipoContribuyente, updateClientePermisos } from "../controllers/asesoriaController.js";
+import { getDashboard, getClientes, getClienteResumen, getConfiguracion, updateConfiguracion, getDashboardWidgets, updateDashboardWidgets, updateClienteTipoContribuyente, updateClientePermisos, updateModulosMobile } from "../controllers/asesoriaController.js";
 import { getMensajes, enviarMensaje, marcarLeido, getNoLeidos, enviarMensajeConAdjunto } from "../controllers/asesoriaMensajesController.js";
 import { invitarClienteDesdeAsesor, registrarAsesoria, aceptarVinculoDesdeAsesor, rechazarVinculoDesdeAsesor } from "../controllers/asesoriaInvitacionController.js";
 import { exportTrimestral, exportMensual, exportMultiCliente, exportResumenFiscal } from "../controllers/asesoriaExportController.js";
@@ -35,6 +35,7 @@ router.get("/configuracion", getConfiguracion);
 router.put("/configuracion", updateConfiguracion);
 router.get("/configuracion/widgets", getDashboardWidgets);
 router.put("/configuracion/widgets", updateDashboardWidgets);
+router.put("/configuracion/modulos-mobile", updateModulosMobile);
 
 // Notificaciones del asesor
 router.get("/notificaciones", getNotificacionesAsesor);

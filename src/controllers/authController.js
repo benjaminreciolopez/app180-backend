@@ -362,7 +362,7 @@ export const login = async (req, res) => {
     // =========================
     if (user.role === "asesor") {
       const asesorRows = await sql`
-        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, au.activo, a.modulos, a.empresa_id
+        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, au.activo, a.modulos, a.modulos_mobile, a.empresa_id
         FROM asesoria_usuarios_180 au
         JOIN asesorias_180 a ON a.id = au.asesoria_id
         WHERE au.user_id = ${user.id}
@@ -382,6 +382,7 @@ export const login = async (req, res) => {
       const asesoriaId = asesorRows[0].asesoria_id;
       const asesoriaNombre = asesorRows[0].asesoria_nombre;
       const modulos = asesorRows[0].modulos || {};
+      const modulosMobile = asesorRows[0].modulos_mobile || null;
       const asesorEmpresaId = asesorRows[0].empresa_id || null;
 
       // 🔒 Registro Veri*Factu: Inicio Sesión Asesor
@@ -422,6 +423,7 @@ export const login = async (req, res) => {
           asesoria_nombre: asesoriaNombre,
           empresa_id: asesorEmpresaId,
           modulos,
+          modulos_mobile: modulosMobile,
           password_forced: user.password_forced === true,
         },
       });
@@ -938,7 +940,7 @@ export const getMe = async (req, res) => {
     // 🏢 ASESOR: respuesta con empresa_id propio de la asesoría
     if (r.role === "asesor") {
       const asesorRows = await sql`
-        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, a.modulos, a.empresa_id
+        SELECT au.asesoria_id, a.nombre AS asesoria_nombre, a.modulos, a.modulos_mobile, a.empresa_id
         FROM asesoria_usuarios_180 au
         JOIN asesorias_180 a ON a.id = au.asesoria_id
         WHERE au.user_id = ${r.id} AND au.activo = true
@@ -965,6 +967,7 @@ export const getMe = async (req, res) => {
         asesoria_nombre: asesorRows[0]?.asesoria_nombre || null,
         empresa_id: asesorRows[0]?.empresa_id || null,
         modulos: asesorRows[0]?.modulos || {},
+        modulos_mobile: asesorRows[0]?.modulos_mobile || null,
         password_forced: r.password_forced === true,
       });
     }
