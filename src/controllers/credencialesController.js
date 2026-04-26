@@ -188,11 +188,13 @@ async function pingHttps(url, withCert) {
   }
 }
 
+// Endpoints públicos de los organismos para verificar alcanzabilidad.
+// Cualquier endpoint específico de SOAP/REST se configura vía variables de entorno.
 const SERVICIO_ENDPOINTS = {
-  dehu: "https://servicios1.seap.minhap.es/dehuws/services/LemaPeticionarioWS",
-  ss_red: "https://w3.seg-social.es/",
-  siltra: "https://w6.seg-social.es/",
-  aeat_apoderamiento: "https://sede.agenciatributaria.gob.es/",
+  dehu: process.env.DEHU_ENDPOINT || "https://dehu.redsara.es/",
+  ss_red: process.env.SS_RED_ENDPOINT || "https://w3.seg-social.es/",
+  siltra: process.env.SILTRA_ENDPOINT || "https://w6.seg-social.es/",
+  aeat_apoderamiento: process.env.AEAT_APODERAMIENTO_ENDPOINT || "https://sede.agenciatributaria.gob.es/",
   otros: null,
 };
 

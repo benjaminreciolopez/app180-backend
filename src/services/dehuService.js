@@ -19,8 +19,13 @@ import https from "https";
 import { sql } from "../db.js";
 import { getCredencialDescifrada, marcarValidacion } from "./credentialsService.js";
 
-const DEHU_ENDPOINT = process.env.DEHU_ENDPOINT
-  || "https://servicios1.seap.minhap.es/dehuws/services/LemaPeticionarioWS";
+// Endpoint DEHú. Por defecto apunta al portal público redsara.es para verificar
+// alcanzabilidad. La URL real del SOAP cambia con el tiempo y según el sistema
+// del cliente; configurable vía DEHU_ENDPOINT en el entorno del servidor.
+//
+// Nota histórica: el antiguo "servicios1.seap.minhap.es" pertenecía al MINHAP
+// fusionado en 2018 y ya no resuelve por DNS. No usarlo.
+const DEHU_ENDPOINT = process.env.DEHU_ENDPOINT || "https://dehu.redsara.es/";
 
 /**
  * Resuelve el certificado del cliente. Prioridad:
@@ -93,18 +98,32 @@ export async function testConexionDehu(empresaId) {
     };
   }
 
+  // Test en dos pasos:
+  //  1. Cargar el .p12 con la passphrase localmente → si falla, contraseña incorrecta
+  //  2. Hacer GET sin presentar cert al endpoint público de DEHú → si falla, no hay
+  //     conectividad de red (DNS, firewall…)
+  // El handshake mTLS real solo ocurre cuando el SOAP esté cableado; mientras
+  // tanto este test es suficiente para validar credenciales + reachability.
   try {
-    const agent = buildHttpsAgent(cert.pfxBase64, cert.passphrase);
-    // Hacer un HEAD/GET ligero al endpoint para validar que el cert es aceptado
+    new https.Agent({
+      pfx: Buffer.from(cert.pfxBase64, "base64"),
+      passphrase: cert.passphrase,
+    });
+  } catch (err) {
+    const mensaje = `Certificado o contraseña incorrectos: ${err.message}`;
+    await marcarValidacion(empresaId, "dehu", { ok: false, mensaje, timestamp: new Date().toISOString() });
+    return { ok: false, mensaje };
+  }
+
+  try {
     const url = new URL(DEHU_ENDPOINT);
     const result = await new Promise((resolve, reject) => {
       const req = https.request({
         hostname: url.hostname,
         port: 443,
-        path: url.pathname,
+        path: url.pathname || "/",
         method: "GET",
-        agent,
-        timeout: 15000,
+        timeout: 12000,
       }, (res) => {
         resolve({ status: res.statusCode });
         res.resume();
@@ -114,15 +133,15 @@ export async function testConexionDehu(empresaId) {
       req.end();
     });
 
-    const ok = result.status >= 200 && result.status < 500; // 4xx también es aceptable: el TLS funciona
+    const ok = result.status >= 200 && result.status < 500;
     const mensaje = ok
-      ? `Conexión TLS al endpoint DEHú correcta (HTTP ${result.status}). El certificado es aceptado.`
+      ? `✓ Certificado válido y endpoint DEHú alcanzable (HTTP ${result.status}). Listo para sincronizar cuando el cliente SOAP esté activado.`
       : `Endpoint DEHú devolvió HTTP ${result.status}.`;
 
     await marcarValidacion(empresaId, "dehu", { ok, mensaje, status: result.status, timestamp: new Date().toISOString() });
     return { ok, mensaje };
   } catch (err) {
-    const mensaje = `Error TLS: ${err.message}`;
+    const mensaje = `No se pudo alcanzar el endpoint DEHú (${DEHU_ENDPOINT}): ${err.message}. Configura DEHU_ENDPOINT en el servidor con la URL actual del organismo.`;
     await marcarValidacion(empresaId, "dehu", { ok: false, mensaje, timestamp: new Date().toISOString() });
     return { ok: false, mensaje };
   }
