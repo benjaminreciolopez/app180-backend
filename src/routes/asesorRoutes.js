@@ -106,17 +106,22 @@ router.put("/clientes/:empresa_id/fichajes/:id/validar", asesorClienteRequired("
 router.get("/clientes/:empresa_id/cobros-pagos", asesorClienteRequired("facturas", "read"), getCobrosPagos);
 router.post("/clientes/:empresa_id/cobros-pagos/registrar", asesorClienteRequired("facturas", "write"), registrarCobro);
 
-// Credenciales externas (DEHú, SS RED, SILTRA…) — requiere permiso 'configuracion'
-router.get("/clientes/:empresa_id/credenciales", asesorClienteRequired("configuracion", "read"), listarCredenciales);
-router.put("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired("configuracion", "write"), guardarCredencialEndpoint);
-router.delete("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired("configuracion", "write"), eliminarCredencialEndpoint);
-router.post("/clientes/:empresa_id/credenciales/:servicio/test", asesorClienteRequired("configuracion", "write"), testCredencial);
+// Credenciales externas (DEHú, SS RED, SILTRA…)
+// Las credenciales son config del asesor para integrar con servicios externos
+// en nombre del cliente. Basta con vínculo activo — el cliente no necesita
+// haber concedido permiso especial para que el asesor pueda configurarlas.
+router.get("/clientes/:empresa_id/credenciales", asesorClienteRequired(), listarCredenciales);
+router.put("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired(), guardarCredencialEndpoint);
+router.delete("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired(), eliminarCredencialEndpoint);
+router.post("/clientes/:empresa_id/credenciales/:servicio/test", asesorClienteRequired(), testCredencial);
 
-// DEHú notificaciones — requiere permiso 'fiscal' (notifs vienen de AEAT)
-router.get("/clientes/:empresa_id/dehu/notificaciones", asesorClienteRequired("fiscal", "read"), listarDehuNotificaciones);
-router.post("/clientes/:empresa_id/dehu/sync", asesorClienteRequired("fiscal", "write"), sincronizarDehu);
-router.post("/clientes/:empresa_id/dehu/test", asesorClienteRequired("configuracion", "write"), testDehu);
-router.put("/clientes/:empresa_id/dehu/notificaciones/:id/estado", asesorClienteRequired("fiscal", "write"), cambiarEstadoDehuNotificacion);
+// DEHú notificaciones — requiere vínculo activo (no permiso específico).
+// Las notificaciones que entran son de AEAT/TGSS y la asesoría las gestiona
+// en bloque para todos sus clientes vinculados.
+router.get("/clientes/:empresa_id/dehu/notificaciones", asesorClienteRequired(), listarDehuNotificaciones);
+router.post("/clientes/:empresa_id/dehu/sync", asesorClienteRequired(), sincronizarDehu);
+router.post("/clientes/:empresa_id/dehu/test", asesorClienteRequired(), testDehu);
+router.put("/clientes/:empresa_id/dehu/notificaciones/:id/estado", asesorClienteRequired(), cambiarEstadoDehuNotificacion);
 
 // RRHH — Ausencias (requiere permiso 'empleados')
 router.get("/clientes/:empresa_id/ausencias", asesorClienteRequired("empleados", "read"), listarAusencias);
