@@ -194,9 +194,27 @@ export async function sincronizarNotificacionesDehu(empresaId) {
   });
 
   if (!result.ok) {
+    // Diagnóstico específico: errores típicos cuando el endpoint no es alcanzable
+    let mensajeAmpliado = result.error;
+    if (/ENOTFOUND|EAI_AGAIN/i.test(result.error || "")) {
+      mensajeAmpliado =
+        `El dominio del endpoint DEHú no resuelve por DNS desde el servidor.\n\n` +
+        `Esto suele ocurrir porque DEHú vive dentro de la red SARA de la AGE y NO es alcanzable desde internet público. ` +
+        `Tu servidor (Render) está en internet, así que no puede llegar.\n\n` +
+        `Opciones reales:\n` +
+        `  1. Usar un intermediario comercial (Notifica.es, gestores de notificaciones electrónicas) que tenga acceso autorizado a SARA y exponga API pública.\n` +
+        `  2. Conectar el servidor a la red SARA via VPN o punto de acceso (requiere contrato con la AGE).\n` +
+        `  3. Web scraping con Puppeteer en https://dehu.redsara.es (que SÍ es accesible) usando login con certificado del cliente.\n\n` +
+        `Detalle técnico: ${result.error}`;
+    } else if (/ECONNREFUSED|ETIMEDOUT/i.test(result.error || "")) {
+      mensajeAmpliado = `El endpoint DEHú no responde. Si está bien configurado y antes funcionaba, puede ser bloqueo de red. ${result.error}`;
+    } else if (/SOAP|Fault|XML/i.test(result.error || "")) {
+      mensajeAmpliado = `DEHú respondió, pero el formato no coincide con lo esperado. Edita los namespaces/operación en /admin/app-config: ${result.error}`;
+    }
+
     return {
       ok: false,
-      mensaje: `Error consultando DEHú: ${result.error}`,
+      mensaje: mensajeAmpliado,
       nuevas: 0,
     };
   }
