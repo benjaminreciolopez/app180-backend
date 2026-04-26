@@ -23,6 +23,13 @@ import {
   rechazarAusencia,
   crearAusenciaAsesor,
 } from "../controllers/asesorRRHHController.js";
+import { getCobrosPagos, registrarCobro } from "../controllers/asesorCobrosPagosController.js";
+import {
+  listarCredenciales,
+  guardarCredencialEndpoint,
+  eliminarCredencialEndpoint,
+  testCredencial,
+} from "../controllers/credencialesController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -88,6 +95,16 @@ router.get("/clientes/:empresa_id/fichajes", asesorClienteRequired("empleados", 
 router.get("/clientes/:empresa_id/fichajes/sospechosos", asesorClienteRequired("empleados", "read"), listarFichajesSospechosos);
 router.put("/clientes/:empresa_id/fichajes/validar-masivo", asesorClienteRequired("empleados", "write"), validarFichajesMasivo);
 router.put("/clientes/:empresa_id/fichajes/:id/validar", asesorClienteRequired("empleados", "write"), validarFichaje);
+
+// Cobros y pagos (requiere permiso 'facturas')
+router.get("/clientes/:empresa_id/cobros-pagos", asesorClienteRequired("facturas", "read"), getCobrosPagos);
+router.post("/clientes/:empresa_id/cobros-pagos/registrar", asesorClienteRequired("facturas", "write"), registrarCobro);
+
+// Credenciales externas (DEHú, SS RED, SILTRA…) — requiere permiso 'configuracion'
+router.get("/clientes/:empresa_id/credenciales", asesorClienteRequired("configuracion", "read"), listarCredenciales);
+router.put("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired("configuracion", "write"), guardarCredencialEndpoint);
+router.delete("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired("configuracion", "write"), eliminarCredencialEndpoint);
+router.post("/clientes/:empresa_id/credenciales/:servicio/test", asesorClienteRequired("configuracion", "write"), testCredencial);
 
 // RRHH — Ausencias (requiere permiso 'empleados')
 router.get("/clientes/:empresa_id/ausencias", asesorClienteRequired("empleados", "read"), listarAusencias);

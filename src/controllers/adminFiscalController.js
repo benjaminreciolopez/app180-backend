@@ -883,7 +883,8 @@ export async function calcularModelo390(empresaId, year) {
  * Modelo 190 — Resumen anual retenciones e ingresos a cuenta
  */
 export async function calcularModelo190(empresaId, year) {
-    // Perceptores de nóminas (clave A - trabajo)
+    // Perceptores de nóminas (clave A - trabajo).
+    // Excluimos nóminas anuladas y eliminadas: NO entran en el 190.
     const trabajadores = await sql`
         SELECT
             COALESCE(e.nombre, 'Sin asignar') as nombre,
@@ -896,6 +897,8 @@ export async function calcularModelo190(empresaId, year) {
         LEFT JOIN employees_180 e ON e.id = n.empleado_id
         WHERE n.empresa_id = ${empresaId}
         AND n.anio = ${parseInt(year)}
+        AND n.deleted_at IS NULL
+        AND COALESCE(n.estado, 'borrador') != 'anulada'
         GROUP BY e.id, e.nombre, e.dni_nif
     `;
 
