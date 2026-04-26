@@ -18,14 +18,14 @@
 import https from "https";
 import { sql } from "../db.js";
 import { getCredencialDescifrada, marcarValidacion } from "./credentialsService.js";
+import { getConfig } from "./appConfigService.js";
 
-// Endpoint DEHú. Por defecto apunta al portal público redsara.es para verificar
-// alcanzabilidad. La URL real del SOAP cambia con el tiempo y según el sistema
-// del cliente; configurable vía DEHU_ENDPOINT en el entorno del servidor.
-//
-// Nota histórica: el antiguo "servicios1.seap.minhap.es" pertenecía al MINHAP
-// fusionado en 2018 y ya no resuelve por DNS. No usarlo.
-const DEHU_ENDPOINT = process.env.DEHU_ENDPOINT || "https://dehu.redsara.es/";
+// Endpoint DEHú: leído de app_config_180 (clave 'endpoint_dehu') con override
+// opcional vía env var DEHU_ENDPOINT. Si cambia el dominio del organismo, se
+// edita desde la propia app sin redeploy.
+async function getDehuEndpoint() {
+  return await getConfig("endpoint_dehu", "https://dehu.redsara.es/");
+}
 
 /**
  * Resuelve el certificado del cliente. Prioridad:
@@ -115,8 +115,9 @@ export async function testConexionDehu(empresaId) {
     return { ok: false, mensaje };
   }
 
+  const endpointActual = await getDehuEndpoint();
   try {
-    const url = new URL(DEHU_ENDPOINT);
+    const url = new URL(endpointActual);
     const result = await new Promise((resolve, reject) => {
       const req = https.request({
         hostname: url.hostname,
@@ -141,7 +142,7 @@ export async function testConexionDehu(empresaId) {
     await marcarValidacion(empresaId, "dehu", { ok, mensaje, status: result.status, timestamp: new Date().toISOString() });
     return { ok, mensaje };
   } catch (err) {
-    const mensaje = `No se pudo alcanzar el endpoint DEHú (${DEHU_ENDPOINT}): ${err.message}. Configura DEHU_ENDPOINT en el servidor con la URL actual del organismo.`;
+    const mensaje = `No se pudo alcanzar el endpoint DEHú (${endpointActual}): ${err.message}. Edita la URL en /admin/app-config si el dominio ha cambiado.`;
     await marcarValidacion(empresaId, "dehu", { ok: false, mensaje, timestamp: new Date().toISOString() });
     return { ok: false, mensaje };
   }

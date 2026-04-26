@@ -115,6 +115,7 @@ import adminModelosAnualesRoutes from "./routes/adminModelosAnualesRoutes.js";
 import adminConsultaRoutes from "./routes/adminConsultaRoutes.js";
 import asesorConsultaRoutes from "./routes/asesorConsultaRoutes.js";
 import { adminCredencialesRouter } from "./routes/credencialesRoutes.js";
+import appConfigRoutes from "./routes/appConfigRoutes.js";
 import { miParteConfig } from "./controllers/parteConfiguracionesController.js";
 
 const app = express();
@@ -285,6 +286,7 @@ app.use("/admin", paymentsRoutes);
 app.use("/perfil", adminProfileRoutes);
 app.use("/admin/auditoria", auditRoutes);
 app.use("/admin/credenciales", adminCredencialesRouter);
+app.use("/admin/app-config", appConfigRoutes);
 app.use("/admin", emailConfigRoutes); // Email configuration routes
 app.use("/admin/reportes", adminReportesRoutes);
 app.use("/admin/export", exportRoutes);

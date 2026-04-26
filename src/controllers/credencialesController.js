@@ -11,6 +11,7 @@ import {
 } from "../services/credentialsService.js";
 import { sql } from "../db.js";
 import { testConexionDehu } from "../services/dehuService.js";
+import { getConfig } from "../services/appConfigService.js";
 import https from "https";
 
 /**
@@ -188,17 +189,20 @@ async function pingHttps(url, withCert) {
   }
 }
 
-// Endpoints públicos de los organismos para verificar alcanzabilidad.
-// Cualquier endpoint específico de SOAP/REST se configura vía variables de entorno.
-// Histórico: los dominios *.seg-social.es / *.minhap.es son anteriores a 2018 y
-// muchos ya no resuelven. Los actuales viven bajo *.gob.es.
-const SERVICIO_ENDPOINTS = {
-  dehu: process.env.DEHU_ENDPOINT || "https://dehu.redsara.es/",
-  ss_red: process.env.SS_RED_ENDPOINT || "https://sede.seg-social.gob.es/",
-  siltra: process.env.SILTRA_ENDPOINT || "https://sede.seg-social.gob.es/",
-  aeat_apoderamiento: process.env.AEAT_APODERAMIENTO_ENDPOINT || "https://sede.agenciatributaria.gob.es/",
-  otros: null,
-};
+// Endpoints leídos de app_config_180 (editable desde la propia app).
+// Defaults razonables si la BD no tiene valor.
+async function getServicioEndpoint(servicio) {
+  const map = {
+    dehu: ["endpoint_dehu", "https://dehu.redsara.es/"],
+    ss_red: ["endpoint_ss_red", "https://sede.seg-social.gob.es/"],
+    siltra: ["endpoint_siltra", "https://sede.seg-social.gob.es/"],
+    aeat_apoderamiento: ["endpoint_aeat_apoderamiento", "https://sede.agenciatributaria.gob.es/"],
+    otros: [null, null],
+  };
+  const [clave, def] = map[servicio] || [null, null];
+  if (!clave) return null;
+  return await getConfig(clave, def);
+}
 
 /**
  * POST /admin/credenciales/:servicio/test
@@ -265,7 +269,7 @@ export async function testCredencial(req, res) {
     }
 
     // 2) Conectividad al endpoint del organismo
-    const endpoint = SERVICIO_ENDPOINTS[servicio];
+    const endpoint = await getServicioEndpoint(servicio);
     if (endpoint) {
       const ping = await pingHttps(endpoint, certInfo.pfxBase64 ? { pfx: Buffer.from(certInfo.pfxBase64, "base64"), passphrase: certInfo.passphrase } : null);
       if (ping.ok) {
