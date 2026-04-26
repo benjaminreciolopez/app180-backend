@@ -129,12 +129,15 @@ export async function getClientes(req, res) {
       ORDER BY ac.estado ASC, e.nombre ASC
     `;
 
-    const clientesConFlag = clientes.map((c) => ({
-      ...c,
-      es_propia: false,
-      gestionada: c.gestionada_por_asesoria_id === asesoriaId || c.empresa_user_id === null,
-    }));
-    const data = empresaPropia ? [empresaPropia, ...clientesConFlag] : clientesConFlag;
+    // Excluir la propia empresa de la asesoría del listado de clientes
+    // (la asesoría no es cliente de sí misma)
+    const data = clientes
+      .filter((c) => !ownEmpresaId || c.empresa_id !== ownEmpresaId)
+      .map((c) => ({
+        ...c,
+        es_propia: false,
+        gestionada: c.gestionada_por_asesoria_id === asesoriaId || c.empresa_user_id === null,
+      }));
 
     return res.json({ success: true, data });
   } catch (err) {
