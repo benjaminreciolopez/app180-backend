@@ -89,51 +89,19 @@ export async function getDashboard(req, res) {
 
 /**
  * GET /asesor/clientes
- * List all clients linked to this asesoria
+ * Lista todos los clientes (empresas) vinculados a esta asesoría.
+ * NO incluye la propia empresa de la asesoría — eso se gestiona desde su panel
+ * de despacho/configuración, no como un "cliente".
  */
 export async function getClientes(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
 
-    // Get the asesoria's own empresa_id
+    // Get the asesoria's own empresa_id (para excluirla del listado)
     const [asesoria] = await sql`
       SELECT empresa_id FROM asesorias_180 WHERE id = ${asesoriaId}
     `;
-    const ownEmpresaId = asesoria?.empresa_id;
-
-    // Get the asesoria's own empresa details (prepended with es_propia: true)
-    let empresaPropia = null;
-    if (ownEmpresaId) {
-      const [ep] = await sql`
-        SELECT
-          e.id AS empresa_id,
-          e.nombre,
-          e.tipo_contribuyente,
-          (
-            SELECT u.email
-            FROM users_180 u
-            WHERE u.id = e.user_id
-            LIMIT 1
-          ) AS email
-        FROM empresa_180 e
-        WHERE e.id = ${ownEmpresaId}
-      `;
-      if (ep) {
-        empresaPropia = {
-          vinculo_id: null,
-          empresa_id: ep.empresa_id,
-          nombre: ep.nombre,
-          tipo_contribuyente: ep.tipo_contribuyente,
-          estado: 'activo',
-          invitado_por: null,
-          permisos: null,
-          connected_at: null,
-          created_at: null,
-          email: ep.email,
-          es_propia: true,
-        };
-      }
-    }
+    const ownEmpresaId = asesoria?.empresa_id || null;
 
     // Get client empresas (incluye gestionadas sin app: e.user_id IS NULL)
     const clientes = await sql`

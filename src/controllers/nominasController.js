@@ -499,6 +499,122 @@ export const resumenEmpresario = async (req, res) => {
 };
 
 /**
+ * @desc Exporta CSV con datos de cotización por empleado para entrada/conciliación en SILTRA.
+ *       Columnas: NAF, NIF, nombre, base cotización, IRPF, SS empleado, SS empresa, líquido.
+ *       NO genera el .CRA binario oficial (eso requiere format SILTRA exacto), pero da
+ *       los datos clave para introducir o cruzar en el sistema RED/SILTRA.
+ * @route GET /api/admin/nominas/siltra/cra?year=2026&month=4
+ */
+export const descargarSiltraCRA = async (req, res) => {
+    try {
+        const empresaId = req.user.empresa_id;
+        const { year, month } = req.query;
+
+        if (!year || !month) {
+            return res.status(400).json({ error: "year y month son requeridos" });
+        }
+        const yearNum = parseInt(year, 10);
+        const monthNum = parseInt(month, 10);
+        if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+            return res.status(400).json({ error: "year/month inválidos" });
+        }
+
+        const [emisor] = await sql`
+          SELECT nif, nombre FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1
+        `;
+
+        const filas = await sql`
+          SELECT
+            n.id,
+            COALESCE(em.numero_afiliacion_ss, '') AS naf,
+            COALESCE(em.dni_nif, '') AS nif_empleado,
+            COALESCE(u.nombre, em.nombre, '(sin nombre)') AS nombre,
+            COALESCE(em.tipo_contrato, '') AS contrato,
+            COALESCE(n.base_cotizacion, 0)::numeric AS base_cotizacion,
+            COALESCE(n.bruto, 0)::numeric AS bruto,
+            COALESCE(n.irpf_retencion, 0)::numeric AS irpf,
+            COALESCE(n.seguridad_social_empleado, 0)::numeric AS ss_empleado,
+            COALESCE(n.seguridad_social_empresa, 0)::numeric AS ss_empresa,
+            COALESCE(n.tipo_contingencias_comunes, 0)::numeric AS contingencias,
+            COALESCE(n.tipo_desempleo, 0)::numeric AS desempleo,
+            COALESCE(n.tipo_formacion, 0)::numeric AS formacion,
+            COALESCE(n.tipo_fogasa, 0)::numeric AS fogasa,
+            COALESCE(n.liquido, 0)::numeric AS liquido,
+            COALESCE(n.estado, 'borrador') AS estado
+          FROM nominas_180 n
+          JOIN employees_180 em ON em.id = n.empleado_id
+          LEFT JOIN users_180 u ON u.id = em.user_id
+          WHERE n.empresa_id = ${empresaId}
+            AND n.anio = ${yearNum}
+            AND n.mes = ${monthNum}
+            AND n.deleted_at IS NULL
+            AND COALESCE(n.estado, 'borrador') != 'anulada'
+          ORDER BY u.nombre ASC, em.nombre ASC
+        `;
+
+        if (filas.length === 0) {
+            return res.status(400).json({ error: "No hay nóminas válidas para ese periodo" });
+        }
+
+        // Construir CSV (separador ; para Excel ES, BOM UTF-8 para tildes)
+        const sep = ";";
+        const fmt = (v) => Number(v || 0).toFixed(2).replace(".", ",");
+        const escape = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+        const headers = [
+            "NAF", "NIF", "Nombre", "Contrato",
+            "Base cotización", "Bruto", "Cont. comunes", "Desempleo",
+            "Formación", "FOGASA", "SS empleado", "SS empresa",
+            "IRPF", "Líquido", "Estado",
+        ];
+        const lines = [headers.join(sep)];
+        let totBase = 0, totBruto = 0, totSsEmp = 0, totSsEmpr = 0, totIrpf = 0, totLiq = 0;
+        for (const r of filas) {
+            totBase += Number(r.base_cotizacion);
+            totBruto += Number(r.bruto);
+            totSsEmp += Number(r.ss_empleado);
+            totSsEmpr += Number(r.ss_empresa);
+            totIrpf += Number(r.irpf);
+            totLiq += Number(r.liquido);
+            lines.push([
+                escape(r.naf), escape(r.nif_empleado), escape(r.nombre), escape(r.contrato),
+                fmt(r.base_cotizacion), fmt(r.bruto),
+                fmt(r.contingencias), fmt(r.desempleo),
+                fmt(r.formacion), fmt(r.fogasa),
+                fmt(r.ss_empleado), fmt(r.ss_empresa),
+                fmt(r.irpf), fmt(r.liquido),
+                escape(r.estado),
+            ].join(sep));
+        }
+        // Totales
+        lines.push([
+            "", "", escape("TOTAL"), "",
+            fmt(totBase), fmt(totBruto),
+            "", "", "", "",
+            fmt(totSsEmp), fmt(totSsEmpr),
+            fmt(totIrpf), fmt(totLiq),
+            "",
+        ].join(sep));
+
+        // Cabecera con info empresa
+        const meta = [
+            `Empresa: ${emisor?.nombre || ""} (NIF ${emisor?.nif || ""})`,
+            `Periodo: ${String(monthNum).padStart(2, "0")}/${yearNum}`,
+            `Trabajadores: ${filas.length}`,
+            "",
+        ];
+        const csv = "﻿" + meta.join("\n") + "\n" + lines.join("\n");
+
+        const filename = `siltra_cra_${yearNum}_${String(monthNum).padStart(2, "0")}.csv`;
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.send(csv);
+    } catch (error) {
+        console.error("Error descargarSiltraCRA:", error);
+        return res.status(500).json({ success: false, error: error.message || "Error generando CSV SILTRA" });
+    }
+};
+
+/**
  * @desc Genera y descarga remesa SEPA Credit Transfer (pain.001.001.03) con
  *       todas las nóminas válidas del mes (excluye anuladas, borradores y empleados sin IBAN).
  * @route GET /api/admin/nominas/sepa?year=2026&month=4&fechaPago=2026-05-05

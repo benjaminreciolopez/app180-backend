@@ -30,6 +30,12 @@ import {
   eliminarCredencialEndpoint,
   testCredencial,
 } from "../controllers/credencialesController.js";
+import {
+  listarNotificaciones as listarDehuNotificaciones,
+  sincronizar as sincronizarDehu,
+  test as testDehu,
+  cambiarEstadoNotificacion as cambiarEstadoDehuNotificacion,
+} from "../controllers/dehuController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -105,6 +111,12 @@ router.get("/clientes/:empresa_id/credenciales", asesorClienteRequired("configur
 router.put("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired("configuracion", "write"), guardarCredencialEndpoint);
 router.delete("/clientes/:empresa_id/credenciales/:servicio", asesorClienteRequired("configuracion", "write"), eliminarCredencialEndpoint);
 router.post("/clientes/:empresa_id/credenciales/:servicio/test", asesorClienteRequired("configuracion", "write"), testCredencial);
+
+// DEHú notificaciones — requiere permiso 'fiscal' (notifs vienen de AEAT)
+router.get("/clientes/:empresa_id/dehu/notificaciones", asesorClienteRequired("fiscal", "read"), listarDehuNotificaciones);
+router.post("/clientes/:empresa_id/dehu/sync", asesorClienteRequired("fiscal", "write"), sincronizarDehu);
+router.post("/clientes/:empresa_id/dehu/test", asesorClienteRequired("configuracion", "write"), testDehu);
+router.put("/clientes/:empresa_id/dehu/notificaciones/:id/estado", asesorClienteRequired("fiscal", "write"), cambiarEstadoDehuNotificacion);
 
 // RRHH — Ausencias (requiere permiso 'empleados')
 router.get("/clientes/:empresa_id/ausencias", asesorClienteRequired("empleados", "read"), listarAusencias);

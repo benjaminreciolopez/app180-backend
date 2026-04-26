@@ -12,6 +12,7 @@ import {
   resumenAnual,
   resumenEmpresario,
   descargarSepaNominas,
+  descargarSiltraCRA,
 } from "../controllers/nominasController.js";
 import upload from "../middlewares/uploadMiddleware.js";
 
@@ -22,6 +23,7 @@ router.use(authRequired, roleRequired("admin"));
 router.get("/resumen-anual", resumenAnual);
 router.get("/resumen-empresario", resumenEmpresario);
 router.get("/sepa", descargarSepaNominas);
+router.get("/siltra/cra", descargarSiltraCRA);
 router.get("/", getNominas);
 router.post("/", upload.single("pdf"), createNomina);
 router.post("/ocr", upload.single("pdf"), ocrNomina);
