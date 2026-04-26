@@ -2,9 +2,117 @@
 // CRUD de clientes propios de la asesoría + helper para auto-crear desde vínculo
 
 import { sql } from "../db.js";
+import { crearNotificacionSistema } from "./notificacionesController.js";
 
 function n(v) {
   return v === undefined ? null : v;
+}
+
+// Permisos por defecto cuando se crea un vínculo pendiente desde el asesor (cliente con app)
+const ASESOR_DEFAULT_PERMISOS = {
+  facturas: { read: true, write: false },
+  gastos: { read: true, write: false },
+  clientes: { read: true, write: false },
+  empleados: { read: true, write: false },
+  nominas: { read: true, write: false },
+  fiscal: { read: true, write: false },
+  contabilidad: { read: true, write: false },
+  configuracion: { read: true, write: false },
+};
+
+// Permisos completos cuando la empresa es gestionada (cliente sin app)
+const ASESOR_FULL_PERMISOS = {
+  facturas: { read: true, write: true },
+  gastos: { read: true, write: true },
+  clientes: { read: true, write: true },
+  empleados: { read: true, write: true },
+  nominas: { read: true, write: true },
+  fiscal: { read: true, write: true },
+  contabilidad: { read: true, write: true },
+  configuracion: { read: true, write: true },
+  documentos: { read: true, write: true },
+};
+
+/**
+ * Busca o crea la empresa "destino" para un cliente del asesor:
+ *  - Si encuentra una empresa por NIF con user_id → la empresa USA la app: crea vínculo pendiente.
+ *  - Si encuentra una empresa por NIF sin user_id, gestionada por la misma asesoría → reusa.
+ *  - Si encuentra una empresa por NIF sin user_id, gestionada por OTRA asesoría → error.
+ *  - Si no encuentra → crea empresa gestionada con vínculo activo.
+ *
+ * Devuelve { empresa_id, vinculo_id, action, modo } o null si no se aplicó (sin NIF).
+ */
+async function ensureEmpresaForClienteAsesoria(tx, { asesoriaId, nif, nombre, tipoContribuyente, regimenIva, email }) {
+  if (!nif) return null;
+  const nifNorm = String(nif).trim().toUpperCase();
+
+  const [existing] = await tx`
+    SELECT id, user_id, gestionada_por_asesoria_id, nombre
+    FROM empresa_180 WHERE nif = ${nifNorm} LIMIT 1
+  `;
+
+  if (existing) {
+    if (existing.user_id) {
+      // Empresa con app instalada: crear vínculo pendiente si no existe
+      const [vinExist] = await tx`
+        SELECT id, estado FROM asesoria_clientes_180
+        WHERE asesoria_id = ${asesoriaId} AND empresa_id = ${existing.id}
+        LIMIT 1
+      `;
+      if (vinExist) {
+        return { empresa_id: existing.id, vinculo_id: vinExist.id, action: 'existed', modo: 'con_app', estado: vinExist.estado };
+      }
+      const [vin] = await tx`
+        INSERT INTO asesoria_clientes_180 (asesoria_id, empresa_id, estado, invitado_por, permisos, created_at)
+        VALUES (${asesoriaId}, ${existing.id}, 'pendiente', 'asesoria', ${tx.json(ASESOR_DEFAULT_PERMISOS)}, now())
+        RETURNING id, estado
+      `;
+      return { empresa_id: existing.id, vinculo_id: vin.id, action: 'invited', modo: 'con_app', estado: 'pendiente' };
+    }
+
+    if (existing.gestionada_por_asesoria_id && existing.gestionada_por_asesoria_id !== asesoriaId) {
+      // Otra asesoría ya la gestiona
+      throw Object.assign(new Error(`Empresa con NIF ${nifNorm} ya gestionada por otra asesoría`), { status: 409 });
+    }
+
+    // Misma asesoría o sin gestionar — asegurar vínculo activo
+    const [vinExist] = await tx`
+      SELECT id, estado FROM asesoria_clientes_180
+      WHERE asesoria_id = ${asesoriaId} AND empresa_id = ${existing.id}
+      LIMIT 1
+    `;
+    if (vinExist) {
+      if (vinExist.estado !== 'activo') {
+        await tx`UPDATE asesoria_clientes_180 SET estado = 'activo', connected_at = now() WHERE id = ${vinExist.id}`;
+      }
+      return { empresa_id: existing.id, vinculo_id: vinExist.id, action: 'reused', modo: 'sin_app', estado: 'activo' };
+    }
+    const [vin] = await tx`
+      INSERT INTO asesoria_clientes_180 (asesoria_id, empresa_id, estado, invitado_por, permisos, connected_at, created_at)
+      VALUES (${asesoriaId}, ${existing.id}, 'activo', 'asesoria', ${tx.json(ASESOR_FULL_PERMISOS)}, now(), now())
+      RETURNING id, estado
+    `;
+    return { empresa_id: existing.id, vinculo_id: vin.id, action: 'reused', modo: 'sin_app', estado: 'activo' };
+  }
+
+  // No existe: crear empresa gestionada + vínculo activo
+  const [emp] = await tx`
+    INSERT INTO empresa_180 (
+      user_id, nombre, nif, tipo_contribuyente, regimen_iva,
+      activo, gestionada_por_asesoria_id, created_at
+    ) VALUES (
+      NULL, ${nombre || nifNorm}, ${nifNorm},
+      ${tipoContribuyente || null}, ${regimenIva || null},
+      true, ${asesoriaId}, now()
+    )
+    RETURNING id, nombre
+  `;
+  const [vin] = await tx`
+    INSERT INTO asesoria_clientes_180 (asesoria_id, empresa_id, estado, invitado_por, permisos, connected_at, created_at)
+    VALUES (${asesoriaId}, ${emp.id}, 'activo', 'asesoria', ${tx.json(ASESOR_FULL_PERMISOS)}, now(), now())
+    RETURNING id, estado
+  `;
+  return { empresa_id: emp.id, vinculo_id: vin.id, action: 'created', modo: 'sin_app', estado: 'activo' };
 }
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -211,10 +319,71 @@ export async function crearCliente(req, res) {
         }
       }
 
-      return cli;
+      // Si la asesoría está creando este cliente, intentar vincularlo o crear empresa gestionada
+      let vinculoInfo = null;
+      const asesoriaId = req.user?.asesoria_id || null;
+      if (asesoriaId) {
+        try {
+          vinculoInfo = await ensureEmpresaForClienteAsesoria(tx, {
+            asesoriaId,
+            nif: nif || nif_cif,
+            nombre: nombre || razon_social,
+            tipoContribuyente: tipo_fiscal || null,
+            regimenIva: null,
+            email: email || email_factura,
+          });
+          if (vinculoInfo?.empresa_id) {
+            await tx`
+              UPDATE clients_180 SET vinculado_empresa_id = ${vinculoInfo.empresa_id}
+              WHERE id = ${cli.id}
+            `;
+          }
+        } catch (e) {
+          // Si el NIF colisiona con otra asesoría, no abortamos la creación del contacto:
+          // el cliente queda como contacto suelto (sin empresa gestionada).
+          console.warn(`[crearCliente] No se pudo crear/vincular empresa: ${e.message}`);
+          vinculoInfo = { error: e.message };
+        }
+      }
+
+      return { cli, vinculoInfo };
     });
 
-    res.status(201).json({ ...newClient, razon_social, nif_cif });
+    const { cli, vinculoInfo } = newClient;
+
+    // Si se creó vínculo "con app" en estado pendiente → notificar al admin de la empresa
+    if (vinculoInfo?.action === 'invited' && vinculoInfo.empresa_id) {
+      try {
+        const asesoriaNombre = req.user?.asesoria_nombre || "Una asesoría";
+        await crearNotificacionSistema({
+          empresaId: vinculoInfo.empresa_id,
+          tipo: "invitacion_asesoria",
+          titulo: "Nueva solicitud de asesoría",
+          mensaje: `${asesoriaNombre} quiere vincularse con tu empresa`,
+          accionUrl: "/admin/mi-asesoria",
+          accionLabel: "Ver solicitud",
+          metadata: { vinculo_id: vinculoInfo.vinculo_id },
+        });
+      } catch (e) {
+        console.warn("Error notificando invitación:", e.message);
+      }
+    }
+
+    res.status(201).json({
+      ...cli,
+      razon_social,
+      nif_cif,
+      vinculo: vinculoInfo
+        ? {
+            empresa_id: vinculoInfo.empresa_id,
+            vinculo_id: vinculoInfo.vinculo_id,
+            modo: vinculoInfo.modo,    // 'con_app' | 'sin_app'
+            estado: vinculoInfo.estado,
+            action: vinculoInfo.action, // 'invited' | 'reused' | 'created' | 'existed'
+            error: vinculoInfo.error || null,
+          }
+        : null,
+    });
   } catch (err) {
     console.error("Error crearCliente:", err);
     const status = err.message === "Código duplicado" ? 400 : (err.status || 500);

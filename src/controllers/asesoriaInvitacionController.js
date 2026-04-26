@@ -22,6 +22,7 @@ const DEFAULT_PERMISOS = {
   configuracion: { read: true, write: false },
 };
 
+
 /**
  * POST /admin/asesoria/invitar
  * Client (admin) invites an asesoria by email

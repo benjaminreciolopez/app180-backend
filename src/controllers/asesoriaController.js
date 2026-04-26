@@ -135,13 +135,15 @@ export async function getClientes(req, res) {
       }
     }
 
-    // Get client empresas
+    // Get client empresas (incluye gestionadas sin app: e.user_id IS NULL)
     const clientes = await sql`
       SELECT
         ac.id AS vinculo_id,
         ac.empresa_id,
         e.nombre,
         e.tipo_contribuyente,
+        e.gestionada_por_asesoria_id,
+        e.user_id AS empresa_user_id,
         ac.estado,
         ac.invitado_por,
         ac.permisos,
@@ -159,7 +161,11 @@ export async function getClientes(req, res) {
       ORDER BY ac.estado ASC, e.nombre ASC
     `;
 
-    const clientesConFlag = clientes.map((c) => ({ ...c, es_propia: false }));
+    const clientesConFlag = clientes.map((c) => ({
+      ...c,
+      es_propia: false,
+      gestionada: c.gestionada_por_asesoria_id === asesoriaId || c.empresa_user_id === null,
+    }));
     const data = empresaPropia ? [empresaPropia, ...clientesConFlag] : clientesConFlag;
 
     return res.json({ success: true, data });
