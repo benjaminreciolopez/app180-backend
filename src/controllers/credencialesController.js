@@ -190,10 +190,12 @@ async function pingHttps(url, withCert) {
 
 // Endpoints públicos de los organismos para verificar alcanzabilidad.
 // Cualquier endpoint específico de SOAP/REST se configura vía variables de entorno.
+// Histórico: los dominios *.seg-social.es / *.minhap.es son anteriores a 2018 y
+// muchos ya no resuelven. Los actuales viven bajo *.gob.es.
 const SERVICIO_ENDPOINTS = {
   dehu: process.env.DEHU_ENDPOINT || "https://dehu.redsara.es/",
-  ss_red: process.env.SS_RED_ENDPOINT || "https://w3.seg-social.es/",
-  siltra: process.env.SILTRA_ENDPOINT || "https://w6.seg-social.es/",
+  ss_red: process.env.SS_RED_ENDPOINT || "https://sede.seg-social.gob.es/",
+  siltra: process.env.SILTRA_ENDPOINT || "https://sede.seg-social.gob.es/",
   aeat_apoderamiento: process.env.AEAT_APODERAMIENTO_ENDPOINT || "https://sede.agenciatributaria.gob.es/",
   otros: null,
 };
