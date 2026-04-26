@@ -136,12 +136,13 @@ export async function getClientes(req, res) {
     }
 
     // Get client empresas (incluye gestionadas sin app: e.user_id IS NULL)
+    // tipo_contribuyente vive en emisor_180, no en empresa_180.
     const clientes = await sql`
       SELECT
         ac.id AS vinculo_id,
         ac.empresa_id,
         e.nombre,
-        e.tipo_contribuyente,
+        em.tipo_contribuyente,
         e.gestionada_por_asesoria_id,
         e.user_id AS empresa_user_id,
         ac.estado,
@@ -157,6 +158,7 @@ export async function getClientes(req, res) {
         ) AS email
       FROM asesoria_clientes_180 ac
       JOIN empresa_180 e ON e.id = ac.empresa_id
+      LEFT JOIN emisor_180 em ON em.empresa_id = e.id
       WHERE ac.asesoria_id = ${asesoriaId}
       ORDER BY ac.estado ASC, e.nombre ASC
     `;
@@ -196,10 +198,12 @@ export async function getClienteResumen(req, res) {
 
     const currentYear = new Date().getFullYear();
 
-    // Get empresa name and tipo_contribuyente
+    // Get empresa name and tipo_contribuyente (tipo_contribuyente vive en emisor_180)
     const [empresa] = await sql`
-      SELECT nombre, tipo_contribuyente FROM empresa_180
-      WHERE id = ${empresaId}
+      SELECT e.nombre, em.tipo_contribuyente
+      FROM empresa_180 e
+      LEFT JOIN emisor_180 em ON em.empresa_id = e.id
+      WHERE e.id = ${empresaId}
       LIMIT 1
     `;
 

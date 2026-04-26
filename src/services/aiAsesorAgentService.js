@@ -64,10 +64,11 @@ async function listarMisClientes({ incluir_inactivos = "false", limite = 50 }, a
       ac.estado,
       ac.created_at,
       e.nombre,
-      e.nif,
-      e.tipo_contribuyente
+      em.nif,
+      em.tipo_contribuyente
     FROM asesoria_clientes_180 ac
     LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
+    LEFT JOIN emisor_180 em ON em.empresa_id = e.id
     WHERE ac.asesoria_id = ${asesoriaId}
       ${incluirInactivos ? sql`` : sql`AND ac.estado = 'activo'`}
     ORDER BY e.nombre ASC
@@ -93,12 +94,13 @@ async function buscarCliente({ consulta }, asesoriaId) {
   }
   const q = `%${consulta.trim().toLowerCase()}%`;
   const rows = await sql`
-    SELECT ac.empresa_id, e.nombre, e.nif, e.tipo_contribuyente, ac.estado
+    SELECT ac.empresa_id, e.nombre, em.nif, em.tipo_contribuyente, ac.estado
     FROM asesoria_clientes_180 ac
     LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
+    LEFT JOIN emisor_180 em ON em.empresa_id = e.id
     WHERE ac.asesoria_id = ${asesoriaId}
       AND ac.estado = 'activo'
-      AND (LOWER(e.nombre) LIKE ${q} OR LOWER(COALESCE(e.nif, '')) LIKE ${q})
+      AND (LOWER(e.nombre) LIKE ${q} OR LOWER(COALESCE(em.nif, '')) LIKE ${q})
     ORDER BY e.nombre ASC
     LIMIT 20
   `;
@@ -118,8 +120,10 @@ async function infoCliente({ empresa_id }, asesoriaId) {
   if (!access.ok) return { error: access.error, message: access.message };
 
   const [empresa] = await sql`
-    SELECT id, nombre, nif, tipo_contribuyente, regimen_iva, prorrata_iva_pct
-    FROM empresa_180 WHERE id = ${empresa_id} LIMIT 1
+    SELECT e.id, e.nombre, em.nif, em.tipo_contribuyente, em.regimen_iva, em.prorrata_iva_pct
+    FROM empresa_180 e
+    LEFT JOIN emisor_180 em ON em.empresa_id = e.id
+    WHERE e.id = ${empresa_id} LIMIT 1
   `;
   if (!empresa) return { error: "empresa_no_encontrada" };
 
@@ -194,7 +198,12 @@ async function compararClientesFiscal({ empresa_ids = [], trimestre, year }, ase
 
   const resultados = [];
   for (const empresa_id of empresa_ids) {
-    const [empresa] = await sql`SELECT id, nombre, nif, tipo_contribuyente FROM empresa_180 WHERE id = ${empresa_id}`;
+    const [empresa] = await sql`
+      SELECT e.id, e.nombre, em.nif, em.tipo_contribuyente
+      FROM empresa_180 e
+      LEFT JOIN emisor_180 em ON em.empresa_id = e.id
+      WHERE e.id = ${empresa_id}
+    `;
     if (!empresa) continue;
 
     const [agg] = await sql`
@@ -235,9 +244,10 @@ async function topClientesRiesgo({ limite = 10, tipo_riesgo = "todos" }, asesori
   // Subqueries: facturación pendiente cobro, modelos pendientes
   const rows = await sql`
     WITH clientes AS (
-      SELECT ac.empresa_id, e.nombre, e.nif
+      SELECT ac.empresa_id, e.nombre, em.nif
       FROM asesoria_clientes_180 ac
       LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
+      LEFT JOIN emisor_180 em ON em.empresa_id = e.id
       WHERE ac.asesoria_id = ${asesoriaId} AND ac.estado = 'activo'
     ),
     deuda AS (
@@ -299,9 +309,10 @@ async function consultarClientesEstadoModelos({ modelo = "todos", trimestre, yea
   const soloPend = String(solo_pendientes).toLowerCase() === "true";
 
   const rows = await sql`
-    SELECT ac.empresa_id, e.nombre, e.nif
+    SELECT ac.empresa_id, e.nombre, em.nif
     FROM asesoria_clientes_180 ac
     LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
+    LEFT JOIN emisor_180 em ON em.empresa_id = e.id
     WHERE ac.asesoria_id = ${asesoriaId} AND ac.estado = 'activo'
     ORDER BY e.nombre ASC
   `;
@@ -346,13 +357,14 @@ async function rankingFacturacionClientes({ year, trimestre, limite = 10 }, ases
 
   const rows = await sql`
     SELECT
-      ac.empresa_id, e.nombre, e.nif,
+      ac.empresa_id, e.nombre, em.nif,
       COALESCE(SUM(CASE WHEN f.estado = 'VALIDADA' THEN f.total ELSE 0 END), 0) AS total
     FROM asesoria_clientes_180 ac
     LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
+    LEFT JOIN emisor_180 em ON em.empresa_id = e.id
     LEFT JOIN factura_180 f ON f.empresa_id = ac.empresa_id ${timeFilter}
     WHERE ac.asesoria_id = ${asesoriaId} AND ac.estado = 'activo'
-    GROUP BY ac.empresa_id, e.nombre, e.cif
+    GROUP BY ac.empresa_id, e.nombre, em.nif
     ORDER BY total DESC
     LIMIT ${lim}
   `;
