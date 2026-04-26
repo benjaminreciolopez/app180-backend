@@ -100,13 +100,25 @@ async function ensureEmpresaForClienteAsesoria(tx, { asesoriaId, nif, nombre, ti
     return { empresa_id: existing.id, vinculo_id: vin.id, action: 'reused', modo: 'sin_app', estado: 'activo' };
   }
 
-  // No existe: crear empresa gestionada (solo columnas válidas en empresa_180)
-  // y crear emisor_180 con la identidad fiscal (NIF, nombre, regimen_iva).
-  const [emp] = await tx`
-    INSERT INTO empresa_180 (user_id, nombre, activo, gestionada_por_asesoria_id, created_at)
-    VALUES (NULL, ${nombre || nifNorm}, true, ${asesoriaId}, now())
-    RETURNING id, nombre
-  `;
+  // No existe: crear empresa gestionada. tipo_contribuyente vive en empresa_180;
+  // NIF y regimen_iva viven en emisor_180.
+  let emp;
+  try {
+    const r = await tx`
+      INSERT INTO empresa_180 (user_id, nombre, tipo_contribuyente, activo, gestionada_por_asesoria_id, created_at)
+      VALUES (NULL, ${nombre || nifNorm}, ${tipoContribuyente || null}, true, ${asesoriaId}, now())
+      RETURNING id, nombre
+    `;
+    emp = r[0];
+  } catch (e) {
+    // Fallback por si tipo_contribuyente no existe en esta instancia
+    const r = await tx`
+      INSERT INTO empresa_180 (user_id, nombre, activo, gestionada_por_asesoria_id, created_at)
+      VALUES (NULL, ${nombre || nifNorm}, true, ${asesoriaId}, now())
+      RETURNING id, nombre
+    `;
+    emp = r[0];
+  }
 
   try {
     await tx`
@@ -114,7 +126,6 @@ async function ensureEmpresaForClienteAsesoria(tx, { asesoriaId, nif, nombre, ti
       VALUES (${emp.id}, ${nombre || nifNorm}, ${nifNorm}, ${regimenIva || 'general'})
     `;
   } catch (e) {
-    // Fallback si la columna regimen_iva aún no existe en esta instancia
     await tx`
       INSERT INTO emisor_180 (empresa_id, nombre, nif)
       VALUES (${emp.id}, ${nombre || nifNorm}, ${nifNorm})

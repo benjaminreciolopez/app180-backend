@@ -64,8 +64,8 @@ async function listarMisClientes({ incluir_inactivos = "false", limite = 50 }, a
       ac.estado,
       ac.created_at,
       e.nombre,
-      em.nif,
-      em.tipo_contribuyente
+      e.tipo_contribuyente,
+      em.nif
     FROM asesoria_clientes_180 ac
     LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
     LEFT JOIN emisor_180 em ON em.empresa_id = e.id
@@ -94,7 +94,7 @@ async function buscarCliente({ consulta }, asesoriaId) {
   }
   const q = `%${consulta.trim().toLowerCase()}%`;
   const rows = await sql`
-    SELECT ac.empresa_id, e.nombre, em.nif, em.tipo_contribuyente, ac.estado
+    SELECT ac.empresa_id, e.nombre, e.tipo_contribuyente, em.nif, ac.estado
     FROM asesoria_clientes_180 ac
     LEFT JOIN empresa_180 e ON ac.empresa_id = e.id
     LEFT JOIN emisor_180 em ON em.empresa_id = e.id
@@ -120,7 +120,7 @@ async function infoCliente({ empresa_id }, asesoriaId) {
   if (!access.ok) return { error: access.error, message: access.message };
 
   const [empresa] = await sql`
-    SELECT e.id, e.nombre, em.nif, em.tipo_contribuyente, em.regimen_iva, em.prorrata_iva_pct
+    SELECT e.id, e.nombre, e.tipo_contribuyente, em.nif, em.regimen_iva, em.prorrata_iva_pct
     FROM empresa_180 e
     LEFT JOIN emisor_180 em ON em.empresa_id = e.id
     WHERE e.id = ${empresa_id} LIMIT 1
@@ -199,7 +199,7 @@ async function compararClientesFiscal({ empresa_ids = [], trimestre, year }, ase
   const resultados = [];
   for (const empresa_id of empresa_ids) {
     const [empresa] = await sql`
-      SELECT e.id, e.nombre, em.nif, em.tipo_contribuyente
+      SELECT e.id, e.nombre, e.tipo_contribuyente, em.nif
       FROM empresa_180 e
       LEFT JOIN emisor_180 em ON em.empresa_id = e.id
       WHERE e.id = ${empresa_id}
