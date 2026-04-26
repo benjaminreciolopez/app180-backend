@@ -12,6 +12,7 @@ import { exportTrimestral, exportMensual, exportMultiCliente, exportResumenFisca
 import { getDashboardConsolidado } from "../controllers/asesorDashboardConsolidadoController.js";
 import { getNotificacionesAsesor, marcarLeidaAsesor, marcarTodasLeidasAsesor, limpiarNotificacionesAsesor } from "../controllers/asesorNotificacionesController.js";
 import { getDocumentosCliente, uploadDocumentoAsesor, downloadDocumento, deleteDocumento } from "../controllers/asesorDocumentosController.js";
+import { chatAsesor } from "../controllers/aiAsesorController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -36,6 +37,9 @@ router.put("/configuracion", updateConfiguracion);
 router.get("/configuracion/widgets", getDashboardWidgets);
 router.put("/configuracion/widgets", updateDashboardWidgets);
 router.put("/configuracion/modulos-mobile", updateModulosMobile);
+
+// IA Asesor (multi-cliente)
+router.post("/ai/chat", chatAsesor);
 
 // Notificaciones del asesor
 router.get("/notificaciones", getNotificacionesAsesor);

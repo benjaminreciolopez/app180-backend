@@ -138,6 +138,20 @@ export async function crearCliente(req, res) {
     if (finalPais === "ESPAÑA" || finalPais === "SPAIN" || finalPais === "ESP") finalPais = "ES";
     if (finalPais.length > 2) finalPais = finalPais.substring(0, 2);
 
+    // Normalizar modo_defecto + iva_defecto (constraint clients_iva_check):
+    //   exento → modo='exento', iva_defecto=NULL
+    //   con iva_defecto numérico → modo='fijo'
+    //   sin iva_defecto → modo='mixto', iva_defecto=NULL
+    let finalModoDefecto = "mixto";
+    let finalIvaDefecto = null;
+    if (exento_iva === true || exento_iva === "true") {
+      finalModoDefecto = "exento";
+      finalIvaDefecto = null;
+    } else if (iva_defecto !== undefined && iva_defecto !== null && String(iva_defecto).trim() !== "") {
+      finalModoDefecto = "fijo";
+      finalIvaDefecto = String(iva_defecto).trim();
+    }
+
     const newClient = await sql.begin(async (tx) => {
       // Verificar duplicado
       const [existe] = await tx`
@@ -162,8 +176,8 @@ export async function crearCliente(req, res) {
           ${n(provincia)},
           ${n(cp || codigo_postal)}, ${n(codigo_postal || cp)},
           ${finalPais}, ${n(email)},
-          'mixto',
-          ${n(razon_social)}, ${n(iban)}, ${n(iva_defecto)}, ${exento_iva === true}, true
+          ${finalModoDefecto},
+          ${n(razon_social)}, ${n(iban)}, ${finalIvaDefecto}, ${finalModoDefecto === "exento"}, true
         )
         RETURNING *
       `;
@@ -260,6 +274,21 @@ export async function actualizarCliente(req, res) {
 
     if ("nombre" in fieldsGeneral && !fieldsGeneral.nombre) {
       return res.status(400).json({ error: "El nombre del cliente es obligatorio" });
+    }
+
+    // Reconciliar modo_defecto si el usuario cambia iva_defecto/exento_iva
+    if ("iva_defecto" in fieldsGeneral || "exento_iva" in fieldsGeneral) {
+      const iva = fieldsGeneral.iva_defecto;
+      const exento = fieldsGeneral.exento_iva;
+      if (exento === true || exento === "true") {
+        fieldsGeneral.modo_defecto = "exento";
+        fieldsGeneral.iva_defecto = null;
+      } else if (iva !== null && iva !== undefined && String(iva).trim() !== "") {
+        fieldsGeneral.modo_defecto = "fijo";
+      } else {
+        fieldsGeneral.modo_defecto = "mixto";
+        fieldsGeneral.iva_defecto = null;
+      }
     }
 
     let clientUpdated = null;
