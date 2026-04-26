@@ -19,6 +19,7 @@ import https from "https";
 import { sql } from "../db.js";
 import { getCredencialDescifrada, marcarValidacion } from "./credentialsService.js";
 import { getConfig } from "./appConfigService.js";
+import { listarPendientesDehu } from "./dehuSoapClient.js";
 
 // Endpoint DEHú: leído de app_config_180 (clave 'endpoint_dehu') con override
 // opcional vía env var DEHU_ENDPOINT. Si cambia el dominio del organismo, se
@@ -163,24 +164,71 @@ export async function sincronizarNotificacionesDehu(empresaId) {
     return { ok: false, mensaje: cert.error, nuevas: 0 };
   }
 
-  // Si DEHU_SOAP_ENABLED=true en el entorno, intenta la llamada SOAP real.
-  // Por defecto, devuelve mensaje informativo y 0 nuevas.
-  if (process.env.DEHU_SOAP_ENABLED !== "true") {
+  // Flag editable desde /admin/app-config (clave 'dehu_soap_enabled').
+  // Activar para llamar al endpoint SOAP real de DEHú.
+  const soapEnabled = (await getConfig("dehu_soap_enabled", "false")).toString().toLowerCase() === "true";
+  if (!soapEnabled) {
     return {
       ok: false,
-      mensaje: "Sincronización con DEHú no activa. Falta cablear el cliente SOAP oficial. Las credenciales y el certificado están listos. Activa DEHU_SOAP_ENABLED=true en el servidor cuando esté implementado.",
+      mensaje: "Sincronización SOAP no activada. Edita la clave 'dehu_soap_enabled' en /admin/app-config (ponla en 'true') para hacer llamadas reales a DEHú. Las credenciales y el certificado ya están listos.",
       nuevas: 0,
     };
   }
 
-  // ------------------------------------------------------------------
-  // Punto de extensión: aquí va la llamada SOAP real cuando se cablee.
-  // Esquema: SOAP envelope → consulta pendientes → array de notificaciones.
-  // ------------------------------------------------------------------
+  if (!cert.pfxBase64) {
+    return { ok: false, mensaje: "DEHú requiere certificado digital. Configura uno o usa el certificado del cliente.", nuevas: 0 };
+  }
+
+  // NIF del titular: el del emisor del cliente (lo que figura en AEAT)
+  const [emisor] = await sql`SELECT nif FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+  const nifTitular = emisor?.nif;
+  if (!nifTitular) {
+    return { ok: false, mensaje: "El cliente no tiene NIF en sus datos fiscales. Edítalos en la pestaña Datos antes de sincronizar.", nuevas: 0 };
+  }
+
+  // Llamada SOAP real con WS-Security
+  const result = await listarPendientesDehu({
+    pfxBase64: cert.pfxBase64,
+    passphrase: cert.passphrase,
+    nifTitular,
+  });
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      mensaje: `Error consultando DEHú: ${result.error}`,
+      nuevas: 0,
+    };
+  }
+
+  // Guardar en BD las notificaciones recibidas (UPSERT por identificador)
+  let nuevas = 0;
+  for (const n of result.items || []) {
+    if (!n.identificador) continue;
+    try {
+      const [inserted] = await sql`
+        INSERT INTO notificaciones_dehu_180
+          (empresa_id, identificador, organismo, concepto,
+           fecha_puesta_disposicion, fecha_caducidad, payload, estado)
+        VALUES (
+          ${empresaId}, ${n.identificador}, ${n.organismo || null}, ${n.concepto || null},
+          ${n.fecha_puesta_disposicion || null}, ${n.fecha_caducidad || null},
+          ${sql.json(n)}, 'pendiente'
+        )
+        ON CONFLICT (empresa_id, identificador) DO NOTHING
+        RETURNING id
+      `;
+      if (inserted) nuevas++;
+    } catch (e) {
+      console.warn("[DEHú] No se pudo insertar notif:", e.message);
+    }
+  }
+
   return {
-    ok: false,
-    mensaje: "Cliente SOAP DEHú aún no implementado. Estructura preparada.",
-    nuevas: 0,
+    ok: true,
+    mensaje: `Sincronización completada. ${nuevas} notificaciones nuevas (de ${result.items?.length || 0} recibidas).`,
+    nuevas,
+    total_recibidas: result.items?.length || 0,
   };
 }
 
