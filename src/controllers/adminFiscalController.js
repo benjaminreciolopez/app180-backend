@@ -320,6 +320,8 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
             WHERE empresa_id = ${empresaId}
             AND anio = ${year}
             AND mes <= ${(parseInt(trimestre) * 3)}
+            AND deleted_at IS NULL
+            AND COALESCE(estado, 'borrador') != 'anulada'
         `;
         acumuladoVentas = v;
         const ajusteIrpf = parseFloat(c.ajuste_vehiculo_irpf);
@@ -328,15 +330,18 @@ export async function calcularDatosModelos(empresaId, year, trimestre, opciones 
     }
 
     // 4. DATOS MODELO 111 (Retenciones IRPF)
+    // Excluimos nóminas anuladas y soft-deleted del cálculo de retenciones.
     const [nominas111] = await sql`
-        SELECT 
-            COUNT(*) as perceptores,
+        SELECT
+            COUNT(DISTINCT empleado_id) as perceptores,
             COALESCE(SUM(bruto), 0) as rendimientos,
             COALESCE(SUM(irpf_retencion), 0) as retenciones
         FROM nominas_180
         WHERE empresa_id = ${empresaId}
         AND anio = ${year}
         AND mes BETWEEN ${(parseInt(trimestre) - 1) * 3 + 1} AND ${parseInt(trimestre) * 3}
+        AND deleted_at IS NULL
+        AND COALESCE(estado, 'borrador') != 'anulada'
     `;
     const [actividades111] = await sql`
         SELECT 

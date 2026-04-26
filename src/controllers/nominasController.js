@@ -3,6 +3,7 @@ import { sql } from "../db.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { ocrExtractTextFromUpload } from "../services/ocr/ocrEngine.js";
 import { saveToStorage } from "./storageController.js";
+import { generarSepaCreditTransfer } from "../services/sepaService.js";
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || ""
@@ -263,6 +264,52 @@ export const updateNomina = async (req, res) => {
 };
 
 /**
+ * @desc Anular una nómina (mantiene el registro pero la marca como anulada).
+ *       Aceptable también en nóminas aprobadas/entregadas — al contrario que delete.
+ * @route POST /api/admin/nominas/:id/anular
+ * Body: { motivo: string }
+ */
+export const anularNomina = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const empresaId = req.user.empresa_id;
+        const { motivo } = req.body || {};
+
+        if (!motivo || motivo.trim().length < 3) {
+            return res.status(400).json({ error: "Motivo de anulación obligatorio (mínimo 3 caracteres)" });
+        }
+
+        const [existing] = await sql`
+          SELECT id, estado FROM nominas_180
+          WHERE id = ${id} AND empresa_id = ${empresaId} AND deleted_at IS NULL
+          LIMIT 1
+        `;
+        if (!existing) {
+            return res.status(404).json({ error: "Nómina no encontrada" });
+        }
+        if (existing.estado === "anulada") {
+            return res.status(409).json({ error: "La nómina ya está anulada" });
+        }
+
+        const [updated] = await sql`
+          UPDATE nominas_180
+          SET estado = 'anulada',
+              motivo_anulacion = ${motivo.trim()},
+              anulada_at = NOW(),
+              anulada_por = ${req.user.id},
+              updated_at = NOW()
+          WHERE id = ${id} AND empresa_id = ${empresaId}
+          RETURNING *
+        `;
+
+        return res.json({ success: true, data: updated, message: "Nómina anulada" });
+    } catch (error) {
+        console.error("Error anularNomina:", error);
+        return res.status(500).json({ success: false, error: "Error anulando nómina" });
+    }
+};
+
+/**
  * @desc Eliminar una nómina
  * @route DELETE /api/nominas/:id
  */
@@ -448,5 +495,97 @@ export const resumenEmpresario = async (req, res) => {
     } catch (error) {
         console.error("Error resumenEmpresario:", error);
         return res.status(500).json({ success: false, error: "Error generando resumen empresario" });
+    }
+};
+
+/**
+ * @desc Genera y descarga remesa SEPA Credit Transfer (pain.001.001.03) con
+ *       todas las nóminas válidas del mes (excluye anuladas, borradores y empleados sin IBAN).
+ * @route GET /api/admin/nominas/sepa?year=2026&month=4&fechaPago=2026-05-05
+ */
+export const descargarSepaNominas = async (req, res) => {
+    try {
+        const empresaId = req.user.empresa_id;
+        const { year, month, fechaPago } = req.query;
+
+        if (!year || !month) {
+            return res.status(400).json({ error: "year y month son requeridos" });
+        }
+        const yearNum = parseInt(year, 10);
+        const monthNum = parseInt(month, 10);
+        if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+            return res.status(400).json({ error: "year/month inválidos" });
+        }
+
+        // Datos del emisor (asumimos un emisor por empresa)
+        const [emisor] = await sql`
+          SELECT nombre, nif, iban FROM emisor_180
+          WHERE empresa_id = ${empresaId} LIMIT 1
+        `;
+        if (!emisor || !emisor.iban) {
+            return res.status(400).json({ error: "La empresa no tiene IBAN configurado en datos fiscales (emisor_180)" });
+        }
+
+        // Nóminas + IBAN del empleado
+        const nominas = await sql`
+          SELECT
+            n.id, n.empleado_id, n.liquido,
+            COALESCE(u.nombre, em.nombre, 'Empleado') AS nombre,
+            em.iban AS iban_empleado
+          FROM nominas_180 n
+          JOIN employees_180 em ON em.id = n.empleado_id
+          LEFT JOIN users_180 u ON u.id = em.user_id
+          WHERE n.empresa_id = ${empresaId}
+            AND n.anio = ${yearNum}
+            AND n.mes = ${monthNum}
+            AND n.deleted_at IS NULL
+            AND COALESCE(n.estado, 'borrador') != 'anulada'
+            AND n.liquido > 0
+        `;
+
+        const sinIban = nominas.filter((n) => !n.iban_empleado).map((n) => n.nombre);
+        const validas = nominas.filter((n) => !!n.iban_empleado);
+
+        if (validas.length === 0) {
+            return res.status(400).json({
+                error: "No hay nóminas válidas para incluir en la remesa",
+                empleados_sin_iban: sinIban,
+            });
+        }
+
+        const transacciones = validas.map((n) => ({
+            id: n.id,
+            beneficiario_nombre: n.nombre,
+            beneficiario_iban: n.iban_empleado,
+            importe: Number(n.liquido),
+            concepto: `Nomina ${String(monthNum).padStart(2, "0")}/${yearNum}`,
+        }));
+
+        const { xml, totalImporte, numTransacciones, msgId } = generarSepaCreditTransfer({
+            emisor: { nombre: emisor.nombre || "EMPRESA", nif: emisor.nif, iban: emisor.iban },
+            fechaPago: fechaPago || undefined,
+            referencia: `NOMINAS-${yearNum}-${String(monthNum).padStart(2, "0")}`,
+            transacciones,
+        });
+
+        // Si el cliente acepta JSON (preview), devolvemos metadata
+        if (req.query.format === "json") {
+            return res.json({
+                success: true,
+                msgId,
+                num_transacciones: numTransacciones,
+                total_importe: totalImporte,
+                empleados_sin_iban: sinIban,
+                xml,
+            });
+        }
+
+        const filename = `sepa_nominas_${yearNum}_${String(monthNum).padStart(2, "0")}.xml`;
+        res.setHeader("Content-Type", "application/xml; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.send(xml);
+    } catch (error) {
+        console.error("Error descargarSepaNominas:", error);
+        return res.status(500).json({ success: false, error: error.message || "Error generando SEPA" });
     }
 };

@@ -198,8 +198,10 @@ export async function getClienteResumen(req, res) {
 
     // Get empresa name and tipo_contribuyente (tipo_contribuyente vive en empresa_180)
     const [empresa] = await sql`
-      SELECT nombre, tipo_contribuyente FROM empresa_180
-      WHERE id = ${empresaId}
+      SELECT e.nombre, e.tipo_contribuyente, em.nif, em.direccion, em.poblacion, em.provincia, em.cp, em.pais, em.telefono, em.email, em.iban, em.regimen_iva
+      FROM empresa_180 e
+      LEFT JOIN emisor_180 em ON em.empresa_id = e.id
+      WHERE e.id = ${empresaId}
       LIMIT 1
     `;
 
@@ -553,5 +555,102 @@ export async function updateClientePermisos(req, res) {
   } catch (err) {
     console.error("Error updateClientePermisos:", err);
     return res.status(500).json({ error: "Error actualizando permisos del cliente" });
+  }
+}
+
+/**
+ * GET /asesor/clientes/:empresa_id/datos
+ * Devuelve los datos personales/fiscales editables de la empresa cliente
+ * (combinando empresa_180 + emisor_180).
+ */
+export async function getClienteDatos(req, res) {
+  try {
+    const empresaId = req.targetEmpresaId;
+
+    const [empresa] = await sql`
+      SELECT id, nombre, tipo_contribuyente, gestionada_por_asesoria_id, user_id
+      FROM empresa_180 WHERE id = ${empresaId} LIMIT 1
+    `;
+    if (!empresa) return res.status(404).json({ error: "Empresa no encontrada" });
+
+    const [emisor] = await sql`
+      SELECT nombre AS nombre_fiscal, nif, direccion, poblacion, provincia, cp, pais,
+             telefono, email, web, iban, regimen_iva, registro_mercantil, nombre_comercial
+      FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1
+    `;
+
+    return res.json({
+      success: true,
+      data: {
+        empresa_id: empresa.id,
+        nombre: empresa.nombre,
+        tipo_contribuyente: empresa.tipo_contribuyente,
+        gestionada: !empresa.user_id || !!empresa.gestionada_por_asesoria_id,
+        ...(emisor || {}),
+      },
+    });
+  } catch (err) {
+    console.error("Error getClienteDatos:", err);
+    return res.status(500).json({ error: "Error obteniendo datos del cliente" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/:empresa_id/datos
+ * Actualiza datos personales/fiscales del cliente.
+ * Crea la fila emisor_180 si no existe.
+ */
+export async function updateClienteDatos(req, res) {
+  try {
+    const empresaId = req.targetEmpresaId;
+    const body = req.body || {};
+
+    // 1) Campos de empresa_180 (nombre y tipo_contribuyente)
+    const empresaUpdates = {};
+    if (typeof body.nombre === "string" && body.nombre.trim()) {
+      empresaUpdates.nombre = body.nombre.trim();
+    }
+    if (body.tipo_contribuyente !== undefined) {
+      empresaUpdates.tipo_contribuyente = body.tipo_contribuyente || null;
+    }
+    if (Object.keys(empresaUpdates).length > 0) {
+      await sql`UPDATE empresa_180 SET ${sql(empresaUpdates)} WHERE id = ${empresaId}`;
+    }
+
+    // 2) Campos de emisor_180 (datos fiscales y de contacto)
+    const ALLOWED_EMISOR = [
+      "nombre_fiscal", "nif", "direccion", "poblacion", "provincia", "cp", "pais",
+      "telefono", "email", "web", "iban", "regimen_iva", "registro_mercantil", "nombre_comercial",
+    ];
+    const emisorUpdates = {};
+    for (const k of ALLOWED_EMISOR) {
+      if (k in body) {
+        const v = body[k];
+        const dbKey = k === "nombre_fiscal" ? "nombre" : k;
+        if (k === "nif" && typeof v === "string") {
+          emisorUpdates[dbKey] = v.trim().toUpperCase() || null;
+        } else if (typeof v === "string") {
+          emisorUpdates[dbKey] = v.trim() || null;
+        } else {
+          emisorUpdates[dbKey] = v ?? null;
+        }
+      }
+    }
+
+    if (Object.keys(emisorUpdates).length > 0) {
+      const [exists] = await sql`SELECT id FROM emisor_180 WHERE empresa_id = ${empresaId} LIMIT 1`;
+      if (exists) {
+        await sql`UPDATE emisor_180 SET ${sql(emisorUpdates)} WHERE empresa_id = ${empresaId}`;
+      } else {
+        await sql`
+          INSERT INTO emisor_180 ${sql({ empresa_id: empresaId, ...emisorUpdates })}
+        `;
+      }
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Error updateClienteDatos:", err);
+    return res.status(500).json({ error: "Error actualizando datos del cliente" });
   }
 }
