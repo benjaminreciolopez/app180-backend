@@ -197,6 +197,72 @@ export const createNomina = async (req, res) => {
 };
 
 /**
+ * @desc Actualizar una nómina (solo si no está aprobada/enviada).
+ * @route PUT /api/admin/nominas/:id
+ */
+export const updateNomina = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const empresaId = req.user.empresa_id;
+
+        // Comprobar existencia y estado
+        const [existing] = await sql`
+          SELECT id, estado, estado_entrega
+          FROM nominas_180
+          WHERE id = ${id} AND empresa_id = ${empresaId} AND deleted_at IS NULL
+          LIMIT 1
+        `;
+        if (!existing) {
+            return res.status(404).json({ error: "Nómina no encontrada" });
+        }
+        // No permitir editar nómina aprobada o ya entregada al empleado
+        if (existing.estado === "aprobada") {
+            return res.status(409).json({ error: "No se puede editar una nómina aprobada. Anúlala primero." });
+        }
+        if (["enviada", "recibida", "firmada"].includes(existing.estado_entrega)) {
+            return res.status(409).json({ error: "No se puede editar una nómina ya entregada al empleado." });
+        }
+
+        const allowed = [
+            "empleado_id", "anio", "mes",
+            "bruto", "seguridad_social_empresa", "seguridad_social_empleado",
+            "irpf_retencion", "liquido",
+            "base_cotizacion", "tipo_contingencias_comunes", "tipo_desempleo",
+            "tipo_formacion", "tipo_fogasa", "horas_extra", "complementos", "notas",
+        ];
+        const updates = {};
+        for (const k of allowed) {
+            if (k in req.body) {
+                const v = req.body[k];
+                if (k === "empleado_id" || k === "notas") {
+                    updates[k] = v === "" || v === undefined ? null : v;
+                } else if (k === "anio" || k === "mes") {
+                    updates[k] = v === "" || v === undefined ? null : parseInt(v, 10);
+                } else {
+                    updates[k] = v === "" || v === undefined || v === null ? 0 : parseFloat(v);
+                }
+            }
+        }
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ error: "Sin campos para actualizar" });
+        }
+        updates.updated_at = new Date();
+
+        const [updated] = await sql`
+          UPDATE nominas_180
+          SET ${sql(updates)}
+          WHERE id = ${id} AND empresa_id = ${empresaId}
+          RETURNING *
+        `;
+
+        return res.json({ success: true, data: updated });
+    } catch (error) {
+        console.error("Error updateNomina:", error);
+        return res.status(500).json({ success: false, error: "Error al actualizar nómina" });
+    }
+};
+
+/**
  * @desc Eliminar una nómina
  * @route DELETE /api/nominas/:id
  */
@@ -285,5 +351,102 @@ export const resumenAnual = async (req, res) => {
     } catch (error) {
         console.error("Error resumen anual nóminas:", error);
         res.status(500).json({ success: false, error: "Error generando resumen anual" });
+    }
+};
+
+/**
+ * @desc Resumen mensual para entregar al empresario: totales del mes, neto a pagar a cada empleado,
+ *       coste total empresa (bruto + SS empresa), agrupado por empleado. Útil para que el empresario
+ *       sepa cuánto va a transferir en nóminas y cuánto cuesta su plantilla en total.
+ * @route GET /api/admin/nominas/resumen-empresario?year=2026&month=4
+ */
+export const resumenEmpresario = async (req, res) => {
+    try {
+        const empresaId = req.user.empresa_id;
+        const yearRaw = req.query.year;
+        const monthRaw = req.query.month;
+
+        if (!yearRaw || !monthRaw) {
+            return res.status(400).json({ error: "Año y mes requeridos" });
+        }
+        const year = parseInt(yearRaw, 10);
+        const month = parseInt(monthRaw, 10);
+        if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+            return res.status(400).json({ error: "Año o mes inválido" });
+        }
+
+        const empleados = await sql`
+          SELECT
+            n.id,
+            n.empleado_id,
+            COALESCE(u.nombre, em.nombre, '(sin nombre)') AS nombre_empleado,
+            n.bruto::numeric,
+            n.irpf_retencion::numeric,
+            n.seguridad_social_empleado::numeric,
+            n.seguridad_social_empresa::numeric,
+            n.liquido::numeric,
+            n.estado,
+            n.estado_entrega
+          FROM nominas_180 n
+          LEFT JOIN employees_180 em ON n.empleado_id = em.id
+          LEFT JOIN users_180 u ON em.user_id = u.id
+          WHERE n.empresa_id = ${empresaId}
+            AND n.anio = ${year}
+            AND n.mes = ${month}
+            AND n.deleted_at IS NULL
+          ORDER BY u.nombre ASC
+        `;
+
+        // Totales agregados
+        let total_bruto = 0;
+        let total_irpf = 0;
+        let total_ss_empleado = 0;
+        let total_ss_empresa = 0;
+        let total_liquido = 0;
+        for (const r of empleados) {
+            total_bruto += Number(r.bruto || 0);
+            total_irpf += Number(r.irpf_retencion || 0);
+            total_ss_empleado += Number(r.seguridad_social_empleado || 0);
+            total_ss_empresa += Number(r.seguridad_social_empresa || 0);
+            total_liquido += Number(r.liquido || 0);
+        }
+
+        const coste_total_empresa = total_bruto + total_ss_empresa;
+        const transferencias_a_empleados = total_liquido;
+        const a_pagar_a_aeat = total_irpf;
+        const a_pagar_a_seg_social = total_ss_empleado + total_ss_empresa;
+
+        return res.json({
+            success: true,
+            year,
+            month,
+            num_nominas: empleados.length,
+            empleados: empleados.map((r) => ({
+                nomina_id: r.id,
+                empleado_id: r.empleado_id,
+                nombre: r.nombre_empleado,
+                bruto: Number(r.bruto || 0),
+                irpf: Number(r.irpf_retencion || 0),
+                ss_empleado: Number(r.seguridad_social_empleado || 0),
+                ss_empresa: Number(r.seguridad_social_empresa || 0),
+                neto_a_pagar: Number(r.liquido || 0),
+                estado: r.estado,
+                estado_entrega: r.estado_entrega,
+            })),
+            totales: {
+                total_bruto,
+                total_irpf,
+                total_ss_empleado,
+                total_ss_empresa,
+                total_liquido,
+                coste_total_empresa,
+                transferencias_a_empleados,
+                a_pagar_a_aeat,
+                a_pagar_a_seg_social,
+            },
+        });
+    } catch (error) {
+        console.error("Error resumenEmpresario:", error);
+        return res.status(500).json({ success: false, error: "Error generando resumen empresario" });
     }
 };
