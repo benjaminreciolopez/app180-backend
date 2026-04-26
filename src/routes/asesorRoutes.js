@@ -13,6 +13,16 @@ import { getDashboardConsolidado } from "../controllers/asesorDashboardConsolida
 import { getNotificacionesAsesor, marcarLeidaAsesor, marcarTodasLeidasAsesor, limpiarNotificacionesAsesor } from "../controllers/asesorNotificacionesController.js";
 import { getDocumentosCliente, uploadDocumentoAsesor, downloadDocumento, deleteDocumento } from "../controllers/asesorDocumentosController.js";
 import { chatAsesor } from "../controllers/aiAsesorController.js";
+import {
+  listarFichajes,
+  listarFichajesSospechosos,
+  validarFichaje,
+  validarFichajesMasivo,
+  listarAusencias,
+  aprobarAusencia,
+  rechazarAusencia,
+  crearAusenciaAsesor,
+} from "../controllers/asesorRRHHController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -70,5 +80,17 @@ router.get("/clientes/:empresa_id/documentos", asesorClienteRequired(), getDocum
 router.post("/clientes/:empresa_id/documentos/upload", asesorClienteRequired(), upload.single("file"), uploadDocumentoAsesor);
 router.get("/clientes/:empresa_id/documentos/:id/download", asesorClienteRequired(), downloadDocumento);
 router.delete("/clientes/:empresa_id/documentos/:id", asesorClienteRequired(), deleteDocumento);
+
+// RRHH — Fichajes (requiere permiso 'empleados')
+router.get("/clientes/:empresa_id/fichajes", asesorClienteRequired("empleados", "read"), listarFichajes);
+router.get("/clientes/:empresa_id/fichajes/sospechosos", asesorClienteRequired("empleados", "read"), listarFichajesSospechosos);
+router.put("/clientes/:empresa_id/fichajes/validar-masivo", asesorClienteRequired("empleados", "write"), validarFichajesMasivo);
+router.put("/clientes/:empresa_id/fichajes/:id/validar", asesorClienteRequired("empleados", "write"), validarFichaje);
+
+// RRHH — Ausencias (requiere permiso 'empleados')
+router.get("/clientes/:empresa_id/ausencias", asesorClienteRequired("empleados", "read"), listarAusencias);
+router.post("/clientes/:empresa_id/ausencias", asesorClienteRequired("empleados", "write"), crearAusenciaAsesor);
+router.put("/clientes/:empresa_id/ausencias/:id/aprobar", asesorClienteRequired("empleados", "write"), aprobarAusencia);
+router.put("/clientes/:empresa_id/ausencias/:id/rechazar", asesorClienteRequired("empleados", "write"), rechazarAusencia);
 
 export default router;
