@@ -59,7 +59,12 @@ export async function getNotificaciones(req, res) {
       `;
     }
 
-    const cleaned = notificaciones.map(n => ({ ...n }));
+    const cleaned = notificaciones.map(n => ({
+      ...n,
+      metadata: typeof n.metadata === 'string'
+        ? (() => { try { return JSON.parse(n.metadata); } catch { return n.metadata; } })()
+        : n.metadata
+    }));
 
     res.json({
       notificaciones: cleaned,
@@ -231,7 +236,10 @@ export async function responderSugerenciaRecurrente(req, res) {
       return res.status(404).json({ error: "Notificación no encontrada." });
     }
 
-    const metadata = notif.metadata;
+    let metadata = notif.metadata;
+    if (typeof metadata === 'string') {
+      try { metadata = JSON.parse(metadata); } catch { metadata = null; }
+    }
     if (!metadata || !metadata.proveedor) {
       return res.status(400).json({ error: "La notificación no tiene datos de sugerencia." });
     }
@@ -401,7 +409,7 @@ export async function crearNotificacionSistema({ empresaId, userId = null, tipo,
         accion_url, accion_label, metadata
       ) VALUES (
         ${empresaId}, ${userId}, ${tipo}, ${titulo}, ${mensaje},
-        ${accionUrl}, ${accionLabel}, ${metadata ? JSON.stringify(metadata) : null}
+        ${accionUrl}, ${accionLabel}, ${metadata ?? null}
       )
     `;
   } catch (err) {

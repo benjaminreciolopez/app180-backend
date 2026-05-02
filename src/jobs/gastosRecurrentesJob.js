@@ -53,6 +53,48 @@ export async function ejecutarGastosRecurrentes() {
 }
 
 /**
+ * Catch-up al arrancar el servidor: ejecuta plantillas que debían haberse ejecutado hoy
+ * pero no lo hicieron (p.ej. si el servidor estaba caído a las 7 AM).
+ * Llamar una vez al iniciar la app.
+ */
+export async function catchUpGastosRecurrentes() {
+    try {
+        const hoy = new Date();
+        const diaActual = hoy.getDate();
+        const mesActual = hoy.getMonth() + 1;
+        const anioActual = hoy.getFullYear();
+        const fechaHoy = hoy.toISOString().split('T')[0];
+
+        const plantillas = await sql`
+            SELECT gr.*, e.id AS _empresa_check
+            FROM gastos_recurrentes_180 gr
+            JOIN empresas_180 e ON e.id = gr.empresa_id
+            WHERE gr.activo = true
+              AND gr.dia_ejecucion = ${diaActual}
+              AND (
+                  gr.ultima_ejecucion IS NULL
+                  OR EXTRACT(MONTH FROM gr.ultima_ejecucion) != ${mesActual}
+                  OR EXTRACT(YEAR FROM gr.ultima_ejecucion) != ${anioActual}
+              )
+        `;
+
+        if (plantillas.length === 0) return;
+
+        console.log(`[GastosRecurrentes] Catch-up: ${plantillas.length} plantillas pendientes de hoy`);
+        for (const plantilla of plantillas) {
+            try {
+                await ejecutarGastoRecurrenteInterno(plantilla, fechaHoy, plantilla.empresa_id);
+                console.log(`[GastosRecurrentes] Catch-up OK: "${plantilla.nombre}" (empresa ${plantilla.empresa_id})`);
+            } catch (err) {
+                console.error(`[GastosRecurrentes] Catch-up error "${plantilla.nombre}":`, err.message);
+            }
+        }
+    } catch (err) {
+        console.error("[GastosRecurrentes] Error en catch-up:", err);
+    }
+}
+
+/**
  * Detectar gastos repetidos mensualmente y notificar para crear recurrentes.
  * Se ejecuta el día 1 de cada mes.
  * Busca proveedores con gastos similares en 3+ meses consecutivos
@@ -148,7 +190,7 @@ export async function detectarGastosRecurrentes() {
                     ${'Gasto recurrente detectado: ' + patron.proveedor},
                     ${'Se han detectado ' + patron.meses_distintos + ' gastos similares de "' + patron.proveedor + '" (~' + patron.total_promedio + '€/mes). ¿Quieres crear un gasto recurrente automático?'},
                     false,
-                    ${JSON.stringify(metadata)}
+                    ${metadata}
                 )
             `;
 

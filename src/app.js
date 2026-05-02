@@ -28,7 +28,7 @@ import { runFiscalAlertScan } from "./jobs/fiscalAlertScan.js";
 import { generarAlertasPagoModelos } from "./jobs/fiscalPaymentAlertJob.js";
 import { runAsesorDailyAlertScan, runAsesorMonthlyCheck } from "./jobs/asesorAlertScan.js";
 import { verifactuEnvioJob } from "./jobs/verifactuEnvioJob.js";
-import { ejecutarGastosRecurrentes, detectarGastosRecurrentes } from "./jobs/gastosRecurrentesJob.js";
+import { ejecutarGastosRecurrentes, detectarGastosRecurrentes, catchUpGastosRecurrentes } from "./jobs/gastosRecurrentesJob.js";
 import { ejecutarFacturasRecurrentes } from "./jobs/facturaRecurrenteJob.js";
 
 import empleadoAdjuntosRoutes from "./routes/empleadoAdjuntosRoutes.js";
@@ -133,9 +133,9 @@ cron.schedule("0 8 * * 1", () => runFiscalAlertScan()); // Escaneo fiscal semana
 cron.schedule("0 9 * * *", () => runAsesorDailyAlertScan()); // Alertas asesor: plazos fiscales + docs nuevos
 cron.schedule("0 8 1 * *", () => runAsesorMonthlyCheck()); // Revision mensual: clientes inactivos + alertas
 cron.schedule("*/30 * * * *", () => verifactuEnvioJob()); // VeriFactu: reintentar pendientes cada 30 min
-cron.schedule("0 7 * * *", () => ejecutarGastosRecurrentes()); // Gastos recurrentes: ejecutar plantillas diariamente a las 7 AM
-cron.schedule("0 9 1 * *", () => detectarGastosRecurrentes()); // Gastos recurrentes: detectar patrones el día 1 de cada mes
-cron.schedule("0 6 * * *", () => ejecutarFacturasRecurrentes()); // Facturas recurrentes: generar borradores diario a las 6 AM
+cron.schedule("0 7 * * *", () => ejecutarGastosRecurrentes(), { timezone: "Europe/Madrid" }); // Gastos recurrentes: ejecutar plantillas diariamente a las 7 AM (Madrid)
+cron.schedule("0 9 1 * *", () => detectarGastosRecurrentes(), { timezone: "Europe/Madrid" }); // Gastos recurrentes: detectar patrones el día 1 de cada mes (Madrid)
+cron.schedule("0 6 * * *", () => ejecutarFacturasRecurrentes(), { timezone: "Europe/Madrid" }); // Facturas recurrentes: generar borradores diario a las 6 AM (Madrid)
 cron.schedule("0 8 15 1,4,7,10 *", () => generarAlertasPagoModelos()); // Modelos fiscales: alertar pago el 15 de ene/abr/jul/oct
 cron.schedule("0 7 1,15 * *", () => runRetaEstimationScan()); // RETA: recalcular estimaciones 1 y 15 de cada mes
 cron.schedule("0 8 * * *", () => runRetaAlertScan()); // RETA: alertas diarias a las 8 AM
@@ -425,9 +425,11 @@ process.on("uncaughtException", (err) => {
 export default app;
 
 if (process.env.NODE_ENV !== 'test') {
-  const server = app.listen(config.port, () =>
-    logger.info(`Servidor iniciado en puerto ${config.port}`),
-  );
+  const server = app.listen(config.port, () => {
+    logger.info(`Servidor iniciado en puerto ${config.port}`);
+    // Catch-up: ejecutar gastos recurrentes de hoy si el servidor arrancó tarde
+    setTimeout(() => catchUpGastosRecurrentes(), 5000);
+  });
 
   // Graceful shutdown
   const gracefulShutdown = (signal) => {
