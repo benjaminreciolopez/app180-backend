@@ -64,11 +64,12 @@ export async function catchUpGastosRecurrentes() {
         const anioActual = hoy.getFullYear();
         const fechaHoy = hoy.toISOString().split('T')[0];
 
+        // Busca plantillas cuyo día de ejecución ya pasó este mes y no se han ejecutado
         const plantillas = await sql`
             SELECT *
             FROM gastos_recurrentes_180
             WHERE activo = true
-              AND dia_ejecucion = ${diaActual}
+              AND dia_ejecucion <= ${diaActual}
               AND (
                   ultima_ejecucion IS NULL
                   OR EXTRACT(MONTH FROM ultima_ejecucion) != ${mesActual}
