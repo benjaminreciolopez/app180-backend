@@ -23,15 +23,14 @@ export async function ejecutarGastosRecurrentes() {
 
         // Buscar plantillas activas para hoy que no se hayan ejecutado este mes
         const plantillas = await sql`
-            SELECT gr.*, e.id AS _empresa_check
-            FROM gastos_recurrentes_180 gr
-            JOIN empresas_180 e ON e.id = gr.empresa_id
-            WHERE gr.activo = true
-              AND gr.dia_ejecucion = ${diaActual}
+            SELECT *
+            FROM gastos_recurrentes_180
+            WHERE activo = true
+              AND dia_ejecucion = ${diaActual}
               AND (
-                  gr.ultima_ejecucion IS NULL
-                  OR EXTRACT(MONTH FROM gr.ultima_ejecucion) != ${mesActual}
-                  OR EXTRACT(YEAR FROM gr.ultima_ejecucion) != ${anioActual}
+                  ultima_ejecucion IS NULL
+                  OR EXTRACT(MONTH FROM ultima_ejecucion) != ${mesActual}
+                  OR EXTRACT(YEAR FROM ultima_ejecucion) != ${anioActual}
               )
         `;
 
@@ -66,15 +65,14 @@ export async function catchUpGastosRecurrentes() {
         const fechaHoy = hoy.toISOString().split('T')[0];
 
         const plantillas = await sql`
-            SELECT gr.*, e.id AS _empresa_check
-            FROM gastos_recurrentes_180 gr
-            JOIN empresas_180 e ON e.id = gr.empresa_id
-            WHERE gr.activo = true
-              AND gr.dia_ejecucion = ${diaActual}
+            SELECT *
+            FROM gastos_recurrentes_180
+            WHERE activo = true
+              AND dia_ejecucion = ${diaActual}
               AND (
-                  gr.ultima_ejecucion IS NULL
-                  OR EXTRACT(MONTH FROM gr.ultima_ejecucion) != ${mesActual}
-                  OR EXTRACT(YEAR FROM gr.ultima_ejecucion) != ${anioActual}
+                  ultima_ejecucion IS NULL
+                  OR EXTRACT(MONTH FROM ultima_ejecucion) != ${mesActual}
+                  OR EXTRACT(YEAR FROM ultima_ejecucion) != ${anioActual}
               )
         `;
 
