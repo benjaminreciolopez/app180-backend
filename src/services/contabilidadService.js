@@ -330,8 +330,32 @@ export async function generarAsientoGasto(empresaId, gasto, creadoPor, cuentaGas
     if (found) cuentaGuardada = found;
   }
 
+  // Si este gasto no trae cuenta, buscar la última cuenta usada en gastos previos del MISMO proveedor.
+  // Esto evita re-revisar cada vez que el cliente sube otro gasto del proveedor ya clasificado.
+  if (!cuentaGuardada && proveedorNombre && proveedorNombre !== "Proveedor") {
+    try {
+      const [previo] = await sql`
+        SELECT p.cuenta_contable AS codigo, c.nombre
+        FROM purchases_180 p
+        LEFT JOIN pgc_cuentas_180 c
+          ON c.empresa_id = p.empresa_id AND c.codigo = p.cuenta_contable
+        WHERE p.empresa_id = ${empresaId}
+          AND p.cuenta_contable IS NOT NULL
+          AND p.id <> ${gasto.id}
+          AND LOWER(TRIM(p.proveedor)) = LOWER(TRIM(${proveedorNombre}))
+        ORDER BY p.fecha_compra DESC NULLS LAST, p.created_at DESC NULLS LAST
+        LIMIT 1
+      `;
+      if (previo?.codigo) {
+        cuentaGuardada = { codigo: previo.codigo, nombre: previo.nombre || previo.codigo };
+      }
+    } catch (err) {
+      console.error("[generarAsientoGasto] error buscando cuenta_contable previa por proveedor:", err.message);
+    }
+  }
+
   // Clasificación por prioridad:
-  // IA pre-clasificada > cuenta guardada > histórico proveedor > regex > IA individual > categoría
+  // IA pre-clasificada > cuenta guardada (este gasto o gasto previo del proveedor) > histórico proveedor > regex > IA individual > categoría
   let cuentaGasto = null;
   let origenCuenta = 'fallback'; // track de dónde viene la cuenta
 
@@ -1328,7 +1352,7 @@ async function buscarCuentaHistoricoProveedor(empresaId, proveedorNombre) {
       JOIN purchases_180 p ON p.id::text = a.referencia_id::text
       WHERE a.empresa_id = ${empresaId}
         AND a.tipo = 'auto_gasto'
-        AND a.estado = 'validado'
+        AND a.estado <> 'anulado'
         AND l.cuenta_codigo ~ '^6'
         AND l.debe > 0
         AND LOWER(TRIM(p.proveedor)) = LOWER(TRIM(${proveedorNombre}))
@@ -2253,6 +2277,19 @@ export async function revisarCuentasAsientos(empresaId, asientoIds = [], soloSim
         await sql`
           UPDATE asientos_180 SET revisado_ia = true WHERE id = ${asiento.id}
         `;
+        // Propagar la cuenta corregida al purchase para que futuros gastos del
+        // mismo proveedor la reutilicen automáticamente (sin re-revisión).
+        if (
+          (info?.tipo === "gasto" || asiento.tipo === "auto_gasto") &&
+          asiento.referencia_id &&
+          /^6/.test(cuentaCorrecta.codigo)
+        ) {
+          await sql`
+            UPDATE purchases_180
+            SET cuenta_contable = ${cuentaCorrecta.codigo}
+            WHERE id::text = ${String(asiento.referencia_id)} AND empresa_id = ${empresaId}
+          `;
+        }
         resultado.corregidos++;
       } else {
         resultado.corregidos++;

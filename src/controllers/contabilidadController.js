@@ -390,7 +390,7 @@ export async function editarAsiento(req, res) {
 
     // Se pueden editar borradores y validados (no anulados)
     const [existing] = await sql`
-      SELECT estado FROM asientos_180
+      SELECT estado, tipo, referencia_tipo, referencia_id FROM asientos_180
       WHERE id = ${id} AND empresa_id = ${empresaId}
     `;
 
@@ -436,6 +436,21 @@ export async function editarAsiento(req, res) {
 
         await tx`INSERT INTO asiento_lineas_180 ${tx(lineasData)}`;
       });
+
+      // Si es un asiento de gasto, propagar la cuenta 6xx (mayor importe en debe) al
+      // purchase asociado para que futuros gastos del mismo proveedor la reutilicen.
+      if (existing.referencia_tipo === 'gasto' && existing.referencia_id) {
+        const lineaGasto = lineas
+          .filter(l => /^6/.test(l.cuenta_codigo || '') && parseFloat(l.debe || 0) > 0)
+          .sort((a, b) => parseFloat(b.debe || 0) - parseFloat(a.debe || 0))[0];
+        if (lineaGasto?.cuenta_codigo) {
+          await sql`
+            UPDATE purchases_180
+            SET cuenta_contable = ${lineaGasto.cuenta_codigo}
+            WHERE id::text = ${String(existing.referencia_id)} AND empresa_id = ${empresaId}
+          `;
+        }
+      }
     } else {
       await sql`
         UPDATE asientos_180
@@ -1117,7 +1132,7 @@ export async function aplicarCambiosSelectivos(req, res) {
       try {
         // Verificar que el asiento pertenece a la empresa
         const [asiento] = await sql`
-          SELECT id FROM asientos_180
+          SELECT id, tipo, referencia_tipo, referencia_id FROM asientos_180
           WHERE id = ${cambio.asiento_id} AND empresa_id = ${empresaId}
         `;
         if (!asiento) {
@@ -1134,6 +1149,20 @@ export async function aplicarCambiosSelectivos(req, res) {
         await sql`
           UPDATE asientos_180 SET revisado_ia = true WHERE id = ${cambio.asiento_id}
         `;
+
+        // Si la línea corregida es la cuenta 6xx de un asiento de gasto, propagar la
+        // corrección al purchase para que futuros gastos del mismo proveedor la usen.
+        if (
+          asiento.referencia_tipo === 'gasto' &&
+          asiento.referencia_id &&
+          /^6/.test(cambio.cuenta_nueva.codigo || '')
+        ) {
+          await sql`
+            UPDATE purchases_180
+            SET cuenta_contable = ${cambio.cuenta_nueva.codigo}
+            WHERE id::text = ${String(asiento.referencia_id)} AND empresa_id = ${empresaId}
+          `;
+        }
 
         // Registrar en historial
         await sql`
