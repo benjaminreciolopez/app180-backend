@@ -14,6 +14,7 @@ import {
     getCambiosBase, createCambioBase,
     confirmCambioBase, descartarCambioBase, getCambiosPendientes,
     parsearPdfCambioBase, importarCambioBase,
+    crearCuotaRecurrenteReta,
     getSimulacion,
     createPreOnboarding, getPreOnboarding, updatePreOnboarding,
     vincularPreOnboarding, listPreOnboarding,
@@ -70,6 +71,11 @@ router.post(
     upload.single("pdf"),
     asesorClienteRequired(),
     importarCambioBase
+);
+router.post(
+    "/clientes/:empresa_id/cuota-recurrente/crear",
+    asesorClienteRequired(),
+    crearCuotaRecurrenteReta
 );
 router.get("/clientes/:empresa_id/simulacion", asesorClienteRequired(), getSimulacion);
 

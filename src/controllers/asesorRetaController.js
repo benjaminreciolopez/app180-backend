@@ -571,12 +571,12 @@ export async function confirmCambioBase(req, res) {
             RETURNING *
         `;
 
-        // 2b) Sincronizar gastos recurrentes vinculados al perfil RETA.
-        // Solo se actualizan los gastos con vinculado_perfil_reta_id; los
-        // manuales se respetan.
+        // 2b) Sincronizar gastos recurrentes vinculados al perfil RETA, o
+        // auto-crear/vincular si no existían.
         let gastosSincronizados = [];
+        let gastoAutoCreado = null;
         try {
-            const { syncGastosRecurrentesPerfilReta } = await import(
+            const { syncGastosRecurrentesPerfilReta, crearOrLinkGastoRecurrenteReta } = await import(
                 "../services/retaSyncService.js"
             );
             gastosSincronizados = await syncGastosRecurrentesPerfilReta(
@@ -585,8 +585,17 @@ export async function confirmCambioBase(req, res) {
                 titular_id,
                 cuota
             );
+            if (gastosSincronizados.length === 0) {
+                const r = await crearOrLinkGastoRecurrenteReta({
+                    empresaId: empresa_id,
+                    ejercicio,
+                    titularId: titular_id,
+                    cuotaMensual: cuota,
+                });
+                if (r.accion !== "ninguna") gastoAutoCreado = r;
+            }
         } catch (err) {
-            console.error("Error sincronizando gastos recurrentes con RETA:", err);
+            console.error("Error sincronizando/creando gastos recurrentes con RETA:", err);
         }
 
         // 3) Auto-resolver alertas RETA que dejen de aplicar
@@ -636,7 +645,11 @@ export async function confirmCambioBase(req, res) {
             `;
         }
 
-        res.json({ cambio: confirmado, gastos_sincronizados: gastosSincronizados });
+        res.json({
+            cambio: confirmado,
+            gastos_sincronizados: gastosSincronizados,
+            gasto_auto: gastoAutoCreado,
+        });
     } catch (err) {
         console.error("confirmCambioBase error:", err);
         res.status(500).json({ error: err.message });
@@ -879,10 +892,12 @@ export async function importarCambioBase(req, res) {
             `;
         }
 
-        // Sincronizar gastos recurrentes vinculados
+        // Sincronizar gastos recurrentes vinculados, o auto-crear/vincular
+        // si no existía ninguno.
         let gastosSincronizados = [];
+        let gastoAutoCreado = null;
         try {
-            const { syncGastosRecurrentesPerfilReta } = await import(
+            const { syncGastosRecurrentesPerfilReta, crearOrLinkGastoRecurrenteReta } = await import(
                 "../services/retaSyncService.js"
             );
             gastosSincronizados = await syncGastosRecurrentesPerfilReta(
@@ -891,8 +906,17 @@ export async function importarCambioBase(req, res) {
                 titular_id,
                 cuota
             );
+            if (gastosSincronizados.length === 0) {
+                const r = await crearOrLinkGastoRecurrenteReta({
+                    empresaId: empresa_id,
+                    ejercicio,
+                    titularId: titular_id,
+                    cuotaMensual: cuota,
+                });
+                if (r.accion !== "ninguna") gastoAutoCreado = r;
+            }
         } catch (err) {
-            console.error("Error sincronizando gastos recurrentes RETA:", err);
+            console.error("Error sincronizando/creando gastos recurrentes RETA:", err);
         }
 
         // Auto-resolver alertas RETA equivalentes
@@ -929,9 +953,86 @@ export async function importarCambioBase(req, res) {
             console.error("Error auto-resolviendo alertas tras importar:", err);
         }
 
-        res.json({ cambio, gastos_sincronizados: gastosSincronizados });
+        res.json({
+            cambio,
+            gastos_sincronizados: gastosSincronizados,
+            gasto_auto: gastoAutoCreado,
+        });
     } catch (err) {
         console.error("importarCambioBase error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+/**
+ * POST /asesor/reta/clientes/:empresa_id/cuota-recurrente/crear
+ *
+ * Crea (o vincula a un candidato existente) un gasto recurrente para la
+ * cuota mensual del autónomo, usando los datos del perfil RETA actual.
+ * Si ya hay uno vinculado, no hace nada.
+ *
+ * Body opcional:
+ *   - ejercicio (default: año actual)
+ *   - titular_id (default: null)
+ */
+export async function crearCuotaRecurrenteReta(req, res) {
+    try {
+        const { empresa_id } = req.params;
+        const ejercicio = parseInt(req.body?.ejercicio) || new Date().getFullYear();
+        const titular_id = req.body?.titular_id || null;
+
+        const perfil = await RetaEngine.getPerfil(empresa_id, ejercicio, titular_id);
+        if (!perfil || !perfil.cuota_mensual_actual) {
+            return res.status(400).json({
+                error: "No hay cuota mensual definida en el perfil RETA. Genera primero la estimación o importa una resolución.",
+            });
+        }
+
+        let titularNombre = null;
+        if (titular_id) {
+            try {
+                const [t] = await sql`SELECT nombre FROM titulares_180 WHERE id = ${titular_id}`;
+                titularNombre = t?.nombre || null;
+            } catch { /* tabla puede no existir en algunos despliegues */ }
+        }
+
+        const { crearOrLinkGastoRecurrenteReta } = await import(
+            "../services/retaSyncService.js"
+        );
+        const r = await crearOrLinkGastoRecurrenteReta({
+            empresaId: empresa_id,
+            ejercicio,
+            titularId: titular_id,
+            cuotaMensual: parseFloat(perfil.cuota_mensual_actual),
+            titularNombre,
+        });
+
+        // Auto-resolver alerta 'cuota_no_configurada' si existía
+        try {
+            const descartadas = await sql`
+                UPDATE reta_alertas_180 SET descartada = true, leida = true
+                WHERE empresa_id = ${empresa_id}
+                  AND tipo = 'cuota_no_configurada'
+                  AND descartada = false
+                RETURNING id
+            `;
+            if (descartadas?.length > 0) {
+                const ids = descartadas.map((d) => d.id);
+                await sql`
+                    UPDATE notificaciones_asesor_180
+                    SET leida = TRUE, leida_at = NOW()
+                    WHERE asesoria_id = ${req.user.asesoria_id}
+                      AND (metadata ->> 'alerta_reta_id')::uuid = ANY(${ids}::uuid[])
+                      AND leida = FALSE
+                `;
+            }
+        } catch (err) {
+            console.error("auto-resolve cuota_no_configurada:", err);
+        }
+
+        res.json({ resultado: r });
+    } catch (err) {
+        console.error("crearCuotaRecurrenteReta error:", err);
         res.status(500).json({ error: err.message });
     }
 }

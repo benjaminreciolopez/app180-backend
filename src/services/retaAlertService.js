@@ -113,7 +113,52 @@ async function checkAlertasEmpresa(empresaId, ejercicio) {
     // 4. Datos insuficientes
     alertas += await checkDatosInsuficientes(empresaId, ejercicio);
 
+    // 5. Cuota mensual sin configurar como gasto recurrente
+    alertas += await checkCuotaNoConfigurada(empresaId, ejercicio, perfil);
+
     return alertas;
+}
+
+/**
+ * Alerta: el autónomo tiene cuota mensual definida pero no hay un gasto
+ * recurrente vinculado al perfil RETA, ni candidato obvio sin vincular.
+ * El asesor olvidó dar de alta la cuota como gasto recurrente.
+ */
+async function checkCuotaNoConfigurada(empresaId, ejercicio, perfil) {
+    if (!perfil || !perfil.cuota_mensual_actual || parseFloat(perfil.cuota_mensual_actual) <= 0) {
+        return 0;
+    }
+
+    // Empresa debe ser de tipo autónomo
+    const [empresa] = await sql`
+        SELECT tipo_contribuyente, nombre FROM empresa_180 WHERE id = ${empresaId}
+    `;
+    if (!empresa || empresa.tipo_contribuyente !== "autonomo") return 0;
+
+    // ¿Ya hay un gasto recurrente vinculado al perfil?
+    const [vinculado] = await sql`
+        SELECT g.id FROM gastos_recurrentes_180 g
+        JOIN reta_autonomo_perfil_180 p ON p.id = g.vinculado_perfil_reta_id
+        WHERE p.empresa_id = ${empresaId} AND p.ejercicio = ${ejercicio} AND g.activo = true
+        LIMIT 1
+    `;
+    if (vinculado) return 0;
+
+    // Throttle: no avisar más de una vez cada 30 días
+    if (await alertaRecienteExiste(empresaId, ejercicio, "cuota_no_configurada", 30)) return 0;
+
+    await crearAlerta(empresaId, ejercicio, {
+        tipo: "cuota_no_configurada",
+        severidad: "media",
+        titulo: "Cuota RETA sin configurar como gasto recurrente",
+        mensaje: `${empresa.nombre || "Cliente"} tiene cuota mensual de ${parseFloat(perfil.cuota_mensual_actual).toFixed(2)} € pero no hay un gasto recurrente activo vinculado. Crea uno para que se contabilice cada mes.`,
+        datos: {
+            cuota_mensual: parseFloat(perfil.cuota_mensual_actual),
+            base_actual: perfil.base_cotizacion_actual ? parseFloat(perfil.base_cotizacion_actual) : null,
+            accion_sugerida: "crear_gasto_recurrente",
+        },
+    });
+    return 1;
 }
 
 /**
@@ -301,6 +346,20 @@ async function crearAlerta(empresaId, ejercicio, { tipo, severidad, titulo, mens
             WHERE empresa_id = ${empresaId} AND estado = 'activo'
         `;
 
+        // Personalizamos accion_url / accion_label según el tipo de alerta
+        // para que ciertos clics ejecuten una acción concreta en lugar de
+        // abrir solo el panel.
+        let accionUrl = `/asesor/reta/clientes/${empresaId}`;
+        let accionLabel = "Ver RETA";
+        if (tipo === "cuota_no_configurada") {
+            accionUrl = `/asesor/reta/clientes/${empresaId}?accion=crear-cuota`;
+            accionLabel = "Crear cuota RETA";
+        } else if (tipo === "plazo_cambio_proximo") {
+            accionLabel = "Revisar ventana";
+        } else if (tipo === "desviacion_tramo" || tipo === "regularizacion_alta") {
+            accionLabel = "Revisar tramo";
+        }
+
         for (const { asesoria_id } of asesores) {
             await sql`
                 INSERT INTO notificaciones_asesor_180 (
@@ -311,8 +370,8 @@ async function crearAlerta(empresaId, ejercicio, { tipo, severidad, titulo, mens
                     ${"reta_" + tipo},
                     ${titulo},
                     ${mensaje},
-                    ${`/asesor/reta/clientes/${empresaId}`},
-                    'Ver RETA',
+                    ${accionUrl},
+                    ${accionLabel},
                     ${JSON.stringify({
                         ejercicio,
                         severidad,
