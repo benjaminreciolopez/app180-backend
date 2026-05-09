@@ -496,27 +496,9 @@ export async function createCambioBase(req, res) {
             RETURNING *
         `;
 
-        // Notificación al cliente (si su empresa tiene user_id, es decir, usa la app)
-        try {
-            const [empresa] = await sql`SELECT user_id, nombre FROM empresa_180 WHERE id = ${empresa_id}`;
-            if (empresa?.user_id) {
-                await sql`
-                    INSERT INTO notificaciones_180 (
-                        empresa_id, user_id, tipo, titulo, mensaje, origen, categoria, datos_extra
-                    ) VALUES (
-                        ${empresa_id}, ${empresa.user_id},
-                        'reta_cambio_propuesto',
-                        'Tu gestoría propone un cambio de base RETA',
-                        ${`Nueva base sugerida: ${parseFloat(base_nueva).toFixed(2)} € (efectos ${ventana.fechaEfectiva}). Cuando confirmes el cambio en Importass, súbenos el justificante desde tu panel RETA.`},
-                        'reta',
-                        'fiscal',
-                        ${JSON.stringify({ cambio_base_id: cambio.id, base_nueva, fecha_efectiva: ventana.fechaEfectiva })}
-                    )
-                `;
-            }
-        } catch (err) {
-            console.error("Error notificando al cliente del cambio propuesto:", err);
-        }
+        // El módulo RETA es exclusivo del asesor — no notificamos al cliente.
+        // El asesor avisa al cliente por sus propios canales (mail/whatsapp) y
+        // luego importará la resolución TGSS cuando le llegue.
 
         res.json({ cambio });
     } catch (err) {
@@ -693,32 +675,91 @@ export async function descartarCambioBase(req, res) {
  * resolución TGSS sobre cambio de base de autónomo. Heurístico — si no
  * encuentra los datos devuelve null en cada campo.
  */
+const MESES_ES = {
+    enero: "01", febrero: "02", marzo: "03", abril: "04",
+    mayo: "05", junio: "06", julio: "07", agosto: "08",
+    septiembre: "09", setiembre: "09", octubre: "10",
+    noviembre: "11", diciembre: "12",
+};
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function fechaNumericaToISO(d, m, y) {
+    const dd = pad2(d);
+    const mm = pad2(m);
+    const yyyy = String(y).length === 2 ? "20" + y : String(y);
+    if (parseInt(mm) < 1 || parseInt(mm) > 12) return null;
+    if (parseInt(dd) < 1 || parseInt(dd) > 31) return null;
+    return `${yyyy}-${mm}-${dd}`;
+}
+
 function parsearTextoResolucionTGSS(texto) {
-    const t = (texto || "").replace(/\s+/g, " ");
+    const original = texto || "";
+    const t = original.replace(/\s+/g, " ");
 
-    // Base de cotización: "Base de cotización: 1.041,66" / "1.041,66 euros" / "1.041,66 €"
+    // ========== Base de cotización ==========
     let base = null;
-    const reBase = /(?:base\s+de\s+cotizaci[oó]n|nueva\s+base|base\s+mensual)[^\d]{0,30}([\d.]{1,9},\d{2})/i;
-    const m1 = t.match(reBase);
-    if (m1) {
-        // 1.041,66 → 1041.66
-        base = parseFloat(m1[1].replace(/\./g, "").replace(",", "."));
-        if (isNaN(base) || base <= 0) base = null;
+    const patronesBase = [
+        /(?:nueva\s+base\s+(?:de\s+cotizaci[oó]n)?|base\s+(?:mensual\s+)?(?:elegida|solicitada|de\s+cotizaci[oó]n))[^\d€]{0,40}?([\d.]{1,9},\d{2})/i,
+        /([\d.]{1,9},\d{2})\s*(?:€|euros?)\s*(?:de\s+base|mensuales?\s+de\s+base)/i,
+        // Cualquier número con formato moneda dentro de los primeros 800 caracteres
+        // — fallback débil; usa solo si no hubo match específico
+    ];
+    for (const re of patronesBase) {
+        const m = t.match(re);
+        if (m) {
+            const n = parseFloat(m[1].replace(/\./g, "").replace(",", "."));
+            if (!isNaN(n) && n > 0 && n < 100000) { base = n; break; }
+        }
+    }
+    // Fallback: buscar la primera cifra "X.XXX,XX" del documento (suele ser la base)
+    if (base == null) {
+        const m = t.match(/([\d]{1,3}\.[\d]{3},\d{2}|[\d]{3,5},\d{2})/);
+        if (m) {
+            const n = parseFloat(m[1].replace(/\./g, "").replace(",", "."));
+            if (!isNaN(n) && n >= 200 && n <= 5000) base = n; // banda de bases plausibles
+        }
     }
 
-    // Fecha de efectos: "con efectos desde 01/06/2026" / "fecha de efectos: 01-06-2026"
+    // ========== Fecha de efectos ==========
     let fecha = null;
-    const reFecha = /(?:con\s+efectos?\s+(?:desde\s+|de\s+)?|fecha\s+de\s+efectos?\s*:?\s*|efectos\s+(?:de\s+)?)(\d{2})[\/\-](\d{2})[\/\-](\d{4})/i;
-    const m2 = t.match(reFecha);
-    if (m2) {
-        fecha = `${m2[3]}-${m2[2]}-${m2[1]}`; // YYYY-MM-DD
+
+    // 1) Patrones específicos: "efectos desde DD/MM/YYYY" o variantes con guiones / puntos
+    const reNumEspecifica = /(?:con\s+efectos?\s+(?:desde\s+(?:el\s+)?|de\s+)?|fecha\s+(?:de\s+)?efectos?\s*:?\s*|surt(?:e|ir[aá]n?)\s+efectos?\s+(?:desde\s+(?:el\s+)?)?|aplicable\s+(?:desde\s+(?:el\s+)?)?|vigencia\s+(?:desde\s+(?:el\s+)?)?|desde\s+el)\s*(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})/i;
+    let m = t.match(reNumEspecifica);
+    if (m) fecha = fechaNumericaToISO(m[1], m[2], m[3]);
+
+    // 2) "1 de junio de 2026" / "01 de Junio del 2026"
+    if (!fecha) {
+        const reLiteral = /(?:efectos?\s+(?:desde\s+(?:el\s+)?|de\s+)?|fecha\s+(?:de\s+)?efectos?\s*:?\s*|desde\s+el|a\s+partir\s+del?)\s*(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\s+(?:de\s+|del\s+)?(\d{4})/i;
+        const m2 = t.match(reLiteral);
+        if (m2) {
+            const mm = MESES_ES[m2[2].toLowerCase()];
+            if (mm) fecha = `${m2[3]}-${mm}-${pad2(m2[1])}`;
+        }
     }
 
-    // NIF/NIE/DNI (informativo)
+    // 3) Formato literal sin etiqueta: "1 de junio de 2026"
+    if (!fecha) {
+        const m3 = t.match(/(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\s+(?:de\s+|del\s+)?(\d{4})/i);
+        if (m3) {
+            const mm = MESES_ES[m3[2].toLowerCase()];
+            if (mm) fecha = `${m3[3]}-${mm}-${pad2(m3[1])}`;
+        }
+    }
+
+    // 4) Fallback: primera fecha numérica del documento (las resoluciones TGSS
+    //    suelen empezar con la fecha de efectos)
+    if (!fecha) {
+        const m4 = t.match(/(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})/);
+        if (m4) fecha = fechaNumericaToISO(m4[1], m4[2], m4[3]);
+    }
+
+    // ========== NIF/NIE/DNI ==========
     let nif = null;
     const reNif = /\b([0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])\b/;
-    const m3 = (texto || "").match(reNif);
-    if (m3) nif = m3[1];
+    const m5 = original.match(reNif);
+    if (m5) nif = m5[1];
 
     return { base_nueva: base, fecha_efectiva: fecha, nif };
 }
