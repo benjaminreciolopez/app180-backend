@@ -77,6 +77,7 @@ WHERE contexto_tipo IS NULL;
 CREATE OR REPLACE FUNCTION recalc_empresa_contexto_tipo(p_empresa_id uuid)
 RETURNS void
 LANGUAGE plpgsql
+SET search_path = public, pg_catalog
 AS $$
 DECLARE
   v_tipo TEXT;
@@ -106,6 +107,7 @@ $$;
 CREATE OR REPLACE FUNCTION trg_asesoria_clientes_recalc_contexto()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public, pg_catalog
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -134,6 +136,7 @@ FOR EACH ROW EXECUTE FUNCTION trg_asesoria_clientes_recalc_contexto();
 CREATE OR REPLACE FUNCTION trg_asesorias_recalc_contexto()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public, pg_catalog
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -168,6 +171,7 @@ FOR EACH ROW EXECUTE FUNCTION trg_asesorias_recalc_contexto();
 CREATE OR REPLACE FUNCTION trg_empresa_180_recalc_contexto()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public, pg_catalog
 AS $$
 BEGIN
   -- Solo recalcular si cambia gestionada_por_asesoria_id (no en otros UPDATEs).

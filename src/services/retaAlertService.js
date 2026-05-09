@@ -284,8 +284,49 @@ async function alertaRecienteExiste(empresaId, ejercicio, tipo, diasMinimos) {
 }
 
 async function crearAlerta(empresaId, ejercicio, { tipo, severidad, titulo, mensaje, datos }) {
-    await sql`
+    const [alerta] = await sql`
         INSERT INTO reta_alertas_180 (empresa_id, ejercicio, tipo, severidad, titulo, mensaje, datos)
         VALUES (${empresaId}, ${ejercicio}, ${tipo}, ${severidad}, ${titulo}, ${mensaje}, ${JSON.stringify(datos)})
+        RETURNING id
     `;
+
+    // Replicar a notificaciones_asesor_180 para que el campanario del asesor
+    // muestre las alertas RETA igual que cualquier otra notificación.
+    // Las dos tablas conviven (reta_alertas_180 mantiene el detalle, descarte,
+    // accion_tomada; notificaciones_asesor_180 es el inbox unificado).
+    try {
+        const asesores = await sql`
+            SELECT DISTINCT asesoria_id
+            FROM asesoria_clientes_180
+            WHERE empresa_id = ${empresaId} AND estado = 'activo'
+        `;
+
+        for (const { asesoria_id } of asesores) {
+            await sql`
+                INSERT INTO notificaciones_asesor_180 (
+                    asesoria_id, tipo, titulo, mensaje,
+                    accion_url, accion_label, metadata, empresa_id
+                ) VALUES (
+                    ${asesoria_id},
+                    ${"reta_" + tipo},
+                    ${titulo},
+                    ${mensaje},
+                    ${`/asesor/reta/clientes/${empresaId}`},
+                    'Ver RETA',
+                    ${JSON.stringify({
+                        ejercicio,
+                        severidad,
+                        alerta_reta_id: alerta.id,
+                        ...datos,
+                    })},
+                    ${empresaId}
+                )
+            `;
+        }
+    } catch (err) {
+        // No fallamos la creación de la alerta si el espejo en notificaciones falla.
+        logger.warn("[RETA Alert] Replicación a notificaciones_asesor_180 falló:", err.message);
+    }
+
+    return alerta?.id;
 }

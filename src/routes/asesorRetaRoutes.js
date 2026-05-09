@@ -2,6 +2,7 @@
  * Rutas RETA para el asesor - Gestion base de cotizacion autonomos
  */
 import { Router } from "express";
+import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
 import { asesorClienteRequired } from "../middlewares/asesorRequired.js";
@@ -11,6 +12,8 @@ import {
     getPerfil, updatePerfil,
     createEvento, deleteEvento,
     getCambiosBase, createCambioBase,
+    confirmCambioBase, descartarCambioBase, getCambiosPendientes,
+    parsearPdfCambioBase, importarCambioBase,
     getSimulacion,
     createPreOnboarding, getPreOnboarding, updatePreOnboarding,
     vincularPreOnboarding, listPreOnboarding,
@@ -19,6 +22,10 @@ import {
 } from "../controllers/asesorRetaController.js";
 
 const router = Router();
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 // Todas las rutas requieren auth + role asesor
 router.use(authRequired, roleRequired("asesor"));
@@ -29,6 +36,12 @@ router.get("/dashboard", getRetaDashboard);
 // Alertas RETA (todas las empresas del asesor)
 router.get("/alertas", getAlertas);
 router.put("/alertas/:id/leer", marcarAlertaLeida);
+
+// Bandeja de cambios pendientes (cross-cliente)
+router.get("/cambios-pendientes", getCambiosPendientes);
+
+// Parser PDF resolución TGSS (para autorrellenar el formulario de import)
+router.post("/parsear-pdf-cambio-base", upload.single("pdf"), parsearPdfCambioBase);
 
 // Pre-onboarding (no requiere empresa_id)
 router.get("/pre-onboarding", listPreOnboarding);
@@ -50,6 +63,14 @@ router.post("/clientes/:empresa_id/eventos", asesorClienteRequired(), createEven
 router.delete("/clientes/:empresa_id/eventos/:id", asesorClienteRequired(), deleteEvento);
 router.get("/clientes/:empresa_id/cambios-base", asesorClienteRequired(), getCambiosBase);
 router.post("/clientes/:empresa_id/cambios-base", asesorClienteRequired(), createCambioBase);
+router.put("/clientes/:empresa_id/cambios-base/:id/confirmar", asesorClienteRequired(), confirmCambioBase);
+router.put("/clientes/:empresa_id/cambios-base/:id/descartar", asesorClienteRequired(), descartarCambioBase);
+router.post(
+    "/clientes/:empresa_id/cambios-base/importar",
+    upload.single("pdf"),
+    asesorClienteRequired(),
+    importarCambioBase
+);
 router.get("/clientes/:empresa_id/simulacion", asesorClienteRequired(), getSimulacion);
 
 export default router;

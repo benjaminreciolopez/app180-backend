@@ -43,7 +43,10 @@ export async function getDashboardAgregados(req, res) {
 
     const clientes = await calcularKpisClientes(clienteIds, desde, hasta);
 
-    return res.json({ ejercicio, despacho, clientes });
+    // KPIs RETA cross-cliente (Nivel 3 — flujo bidireccional)
+    const reta = await calcularKpisReta(asesoriaId, clienteIds, ejercicio);
+
+    return res.json({ ejercicio, despacho, clientes, reta });
   } catch (err) {
     console.error("getDashboardAgregados error:", err);
     return res.status(500).json({ error: "Error calculando agregados" });
@@ -171,5 +174,72 @@ async function calcularKpisClientes(empresaIds, desde, hasta) {
     num_borradores: parseInt(emit?.num_borradores || 0, 10),
     num_gastos: parseInt(gas?.num_gastos || 0, 10),
     pendientes_revision_asientos: pendientes,
+  };
+}
+
+async function calcularKpisReta(asesoriaId, empresaIds, ejercicio) {
+  // Alertas pendientes (no descartadas) en TODOS los clientes del asesor
+  let alertas_pendientes = 0;
+  if (empresaIds.length > 0) {
+    try {
+      const [a] = await poolSql`
+        SELECT COUNT(*)::int AS n
+        FROM reta_alertas_180
+        WHERE empresa_id = ANY(${empresaIds}::uuid[])
+          AND ejercicio = ${ejercicio}
+          AND descartada = false
+      `;
+      alertas_pendientes = parseInt(a?.n || 0, 10);
+    } catch {
+      alertas_pendientes = 0;
+    }
+  }
+
+  // Cambios de base en estado pendiente
+  let cambios_comunicados = 0;
+  let cambios_propuestos = 0;
+  if (empresaIds.length > 0) {
+    try {
+      const [c] = await poolSql`
+        SELECT
+          COUNT(*) FILTER (WHERE estado = 'comunicado_pdte_asesor') AS comunicados,
+          COUNT(*) FILTER (WHERE estado = 'propuesto_pdte_cliente') AS propuestos
+        FROM reta_cambios_base_180
+        WHERE empresa_id = ANY(${empresaIds}::uuid[])
+          AND ejercicio = ${ejercicio}
+      `;
+      cambios_comunicados = parseInt(c?.comunicados || 0, 10);
+      cambios_propuestos = parseInt(c?.propuestos || 0, 10);
+    } catch {
+      // tabla puede no existir en entornos antiguos
+    }
+  }
+
+  // Autónomos sin estimación generada en este ejercicio (señal de "datos pendientes")
+  let autonomos_sin_estimacion = 0;
+  if (empresaIds.length > 0) {
+    try {
+      const [s] = await poolSql`
+        SELECT COUNT(*)::int AS n
+        FROM empresa_180 e
+        WHERE e.id = ANY(${empresaIds}::uuid[])
+          AND e.tipo_contribuyente = 'autonomo'
+          AND NOT EXISTS (
+            SELECT 1 FROM reta_estimaciones_180 r
+            WHERE r.empresa_id = e.id AND r.ejercicio = ${ejercicio}
+          )
+      `;
+      autonomos_sin_estimacion = parseInt(s?.n || 0, 10);
+    } catch {
+      autonomos_sin_estimacion = 0;
+    }
+  }
+
+  return {
+    alertas_pendientes,
+    cambios_comunicados,
+    cambios_propuestos,
+    autonomos_sin_estimacion,
+    total_pendientes: alertas_pendientes + cambios_comunicados,
   };
 }

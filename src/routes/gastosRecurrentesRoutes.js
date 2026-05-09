@@ -7,6 +7,7 @@ import {
     actualizar,
     eliminar,
     ejecutar,
+    vincularReta,
 } from "../controllers/gastosRecurrentesController.js";
 
 const router = Router();
@@ -15,6 +16,7 @@ router.use(authRequired, roleRequired("admin"));
 router.get("/", listar);
 router.post("/", crear);
 router.put("/:id", actualizar);
+router.put("/:id/vincular-reta", vincularReta);
 router.delete("/:id", eliminar);
 router.post("/:id/ejecutar", ejecutar);
 

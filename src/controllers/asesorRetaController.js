@@ -474,6 +474,11 @@ export async function createCambioBase(req, res) {
                 ORDER BY fecha_calculo DESC LIMIT 1
             `;
 
+        // Crear como propuesta del asesor (estado por defecto:
+        // 'propuesto_pdte_cliente'). El perfil RETA NO se actualiza hasta que
+        // el asesor confirme manualmente que la TGSS aplicó el cambio
+        // (endpoint confirmCambioBase, tras subida de justificante o
+        // confirmación verbal del cliente).
         const [cambio] = await sql`
             INSERT INTO reta_cambios_base_180 (
                 empresa_id, ejercicio, titular_id,
@@ -491,54 +496,439 @@ export async function createCambioBase(req, res) {
             RETURNING *
         `;
 
-        // Actualizar perfil con la nueva base (si se confirma) - filtrado por titular
+        // Notificación al cliente (si su empresa tiene user_id, es decir, usa la app)
+        try {
+            const [empresa] = await sql`SELECT user_id, nombre FROM empresa_180 WHERE id = ${empresa_id}`;
+            if (empresa?.user_id) {
+                await sql`
+                    INSERT INTO notificaciones_180 (
+                        empresa_id, user_id, tipo, titulo, mensaje, origen, categoria, datos_extra
+                    ) VALUES (
+                        ${empresa_id}, ${empresa.user_id},
+                        'reta_cambio_propuesto',
+                        'Tu gestoría propone un cambio de base RETA',
+                        ${`Nueva base sugerida: ${parseFloat(base_nueva).toFixed(2)} € (efectos ${ventana.fechaEfectiva}). Cuando confirmes el cambio en Importass, súbenos el justificante desde tu panel RETA.`},
+                        'reta',
+                        'fiscal',
+                        ${JSON.stringify({ cambio_base_id: cambio.id, base_nueva, fecha_efectiva: ventana.fechaEfectiva })}
+                    )
+                `;
+            }
+        } catch (err) {
+            console.error("Error notificando al cliente del cambio propuesto:", err);
+        }
+
+        res.json({ cambio });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
+/**
+ * PUT /asesor/reta/clientes/:empresa_id/cambios-base/:id/confirmar
+ *
+ * El asesor confirma que el cambio de base ya está aplicado en la TGSS
+ * (porque el cliente subió justificante o lo verificó verbalmente).
+ * Esta es la transición final: pasa a 'confirmado_ss' y APLICA el cambio
+ * sobre el perfil RETA del autónomo.
+ */
+export async function confirmCambioBase(req, res) {
+    try {
+        const { empresa_id, id } = req.params;
+
+        const [cambio] = await sql`
+            SELECT * FROM reta_cambios_base_180
+            WHERE id = ${id} AND empresa_id = ${empresa_id}
+        `;
+        if (!cambio) return res.status(404).json({ error: "Cambio no encontrado" });
+        if (cambio.estado === 'confirmado_ss') {
+            return res.status(409).json({ error: "Ya estaba confirmado" });
+        }
+        if (cambio.estado === 'descartado') {
+            return res.status(409).json({ error: "El cambio está descartado" });
+        }
+
+        const ejercicio = cambio.ejercicio;
+        const titular_id = cambio.titular_id;
+        const tramoNuevo = cambio.tramo_nuevo;
+        const baseNueva = parseFloat(cambio.base_nueva);
+
+        const tramos = await RetaEngine.getTramosForYear(ejercicio);
+        const tipoCot = tramos[0]?.tipoCotizacion || 31.20;
+        const cuota = Math.round(baseNueva * tipoCot / 100 * 100) / 100;
+
+        // 1) Aplicar al perfil RETA
         if (titular_id) {
             await sql`
                 UPDATE reta_autonomo_perfil_180 SET
-                    base_cotizacion_actual = ${base_nueva},
+                    base_cotizacion_actual = ${baseNueva},
                     tramo_actual = ${tramoNuevo},
-                    cuota_mensual_actual = ${Math.round(base_nueva * (tramos[0]?.tipoCotizacion || 31.20) / 100 * 100) / 100},
+                    cuota_mensual_actual = ${cuota},
                     updated_at = NOW()
                 WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id = ${titular_id}
             `;
         } else {
             await sql`
                 UPDATE reta_autonomo_perfil_180 SET
-                    base_cotizacion_actual = ${base_nueva},
+                    base_cotizacion_actual = ${baseNueva},
                     tramo_actual = ${tramoNuevo},
-                    cuota_mensual_actual = ${Math.round(base_nueva * (tramos[0]?.tipoCotizacion || 31.20) / 100 * 100) / 100},
+                    cuota_mensual_actual = ${cuota},
                     updated_at = NOW()
                 WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id IS NULL
             `;
         }
 
-        // Auto-resolver alertas que ya no aplican: el usuario actuó sobre el aviso
-        // de "ventana de cambio" y, si la base nueva coincide con la recomendada,
-        // también las desviaciones de tramo / regularización.
+        // 2) Marcar el cambio como confirmado
+        const [confirmado] = await sql`
+            UPDATE reta_cambios_base_180 SET
+                estado = 'confirmado_ss',
+                confirmado_at = NOW(),
+                confirmado_por = ${req.user.id},
+                updated_at = NOW()
+            WHERE id = ${id}
+            RETURNING *
+        `;
+
+        // 2b) Sincronizar gastos recurrentes vinculados al perfil RETA.
+        // Solo se actualizan los gastos con vinculado_perfil_reta_id; los
+        // manuales se respetan.
+        let gastosSincronizados = [];
+        try {
+            const { syncGastosRecurrentesPerfilReta } = await import(
+                "../services/retaSyncService.js"
+            );
+            gastosSincronizados = await syncGastosRecurrentesPerfilReta(
+                empresa_id,
+                ejercicio,
+                titular_id,
+                cuota
+            );
+        } catch (err) {
+            console.error("Error sincronizando gastos recurrentes con RETA:", err);
+        }
+
+        // 3) Auto-resolver alertas RETA que dejen de aplicar
+        const [ultimaEst] = titular_id
+            ? await sql`
+                SELECT tramo_recomendado FROM reta_estimaciones_180
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id = ${titular_id}
+                ORDER BY fecha_calculo DESC LIMIT 1
+            `
+            : await sql`
+                SELECT tramo_recomendado FROM reta_estimaciones_180
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+                ORDER BY fecha_calculo DESC LIMIT 1
+            `;
         const tiposResueltos = ['plazo_cambio_proximo'];
         if (ultimaEst && tramoNuevo === ultimaEst.tramo_recomendado) {
             tiposResueltos.push('desviacion_tramo', 'regularizacion_alta');
         }
-        if (titular_id) {
-            await sql`
+
+        const descartadas = titular_id
+            ? await sql`
                 UPDATE reta_alertas_180 SET descartada = true, leida = true
                 WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
-                AND titular_id = ${titular_id}
-                AND tipo IN ${sql(tiposResueltos)}
-                AND descartada = false
+                  AND titular_id = ${titular_id}
+                  AND tipo IN ${sql(tiposResueltos)}
+                  AND descartada = false
+                RETURNING id
+            `
+            : await sql`
+                UPDATE reta_alertas_180 SET descartada = true, leida = true
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
+                  AND titular_id IS NULL
+                  AND tipo IN ${sql(tiposResueltos)}
+                  AND descartada = false
+                RETURNING id
             `;
-        } else {
+
+        // 4) Apagar notificaciones espejo del asesor
+        if (descartadas?.length > 0) {
+            const ids = descartadas.map((d) => d.id);
             await sql`
-                UPDATE reta_alertas_180 SET descartada = true, leida = true
-                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
-                AND titular_id IS NULL
-                AND tipo IN ${sql(tiposResueltos)}
-                AND descartada = false
+                UPDATE notificaciones_asesor_180
+                SET leida = TRUE, leida_at = NOW()
+                WHERE asesoria_id = ${req.user.asesoria_id}
+                  AND (metadata ->> 'alerta_reta_id')::uuid = ANY(${ids}::uuid[])
+                  AND leida = FALSE
             `;
         }
 
+        res.json({ cambio: confirmado, gastos_sincronizados: gastosSincronizados });
+    } catch (err) {
+        console.error("confirmCambioBase error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+/**
+ * PUT /asesor/reta/clientes/:empresa_id/cambios-base/:id/descartar
+ * Anula un cambio en cualquier estado no confirmado.
+ */
+export async function descartarCambioBase(req, res) {
+    try {
+        const { empresa_id, id } = req.params;
+        const { motivo } = req.body || {};
+
+        const [cambio] = await sql`
+            UPDATE reta_cambios_base_180 SET
+                estado = 'descartado',
+                motivo = COALESCE(${motivo || null}, motivo),
+                updated_at = NOW()
+            WHERE id = ${id} AND empresa_id = ${empresa_id}
+              AND estado != 'confirmado_ss'
+            RETURNING *
+        `;
+        if (!cambio) return res.status(404).json({ error: "Cambio no encontrado o ya confirmado" });
+
         res.json({ cambio });
     } catch (err) {
+        console.error("descartarCambioBase error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+/**
+ * Extrae base de cotización y fecha de efectos del texto plano de un PDF de
+ * resolución TGSS sobre cambio de base de autónomo. Heurístico — si no
+ * encuentra los datos devuelve null en cada campo.
+ */
+function parsearTextoResolucionTGSS(texto) {
+    const t = (texto || "").replace(/\s+/g, " ");
+
+    // Base de cotización: "Base de cotización: 1.041,66" / "1.041,66 euros" / "1.041,66 €"
+    let base = null;
+    const reBase = /(?:base\s+de\s+cotizaci[oó]n|nueva\s+base|base\s+mensual)[^\d]{0,30}([\d.]{1,9},\d{2})/i;
+    const m1 = t.match(reBase);
+    if (m1) {
+        // 1.041,66 → 1041.66
+        base = parseFloat(m1[1].replace(/\./g, "").replace(",", "."));
+        if (isNaN(base) || base <= 0) base = null;
+    }
+
+    // Fecha de efectos: "con efectos desde 01/06/2026" / "fecha de efectos: 01-06-2026"
+    let fecha = null;
+    const reFecha = /(?:con\s+efectos?\s+(?:desde\s+|de\s+)?|fecha\s+de\s+efectos?\s*:?\s*|efectos\s+(?:de\s+)?)(\d{2})[\/\-](\d{2})[\/\-](\d{4})/i;
+    const m2 = t.match(reFecha);
+    if (m2) {
+        fecha = `${m2[3]}-${m2[2]}-${m2[1]}`; // YYYY-MM-DD
+    }
+
+    // NIF/NIE/DNI (informativo)
+    let nif = null;
+    const reNif = /\b([0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])\b/;
+    const m3 = (texto || "").match(reNif);
+    if (m3) nif = m3[1];
+
+    return { base_nueva: base, fecha_efectiva: fecha, nif };
+}
+
+/**
+ * POST /asesor/reta/parsear-pdf-cambio-base
+ * Recibe un PDF (multipart) y devuelve datos extraídos. NO crea nada en BD.
+ * Útil para autorrellenar el formulario antes de importar.
+ */
+export async function parsearPdfCambioBase(req, res) {
+    try {
+        if (!req.file) return res.status(400).json({ error: "Falta el PDF" });
+        const { extractFullPdfText } = await import("../services/ocr/ocrEngine.js");
+        const texto = await extractFullPdfText(req.file.buffer, 5);
+        const datos = parsearTextoResolucionTGSS(texto);
+        res.json({ datos, longitud_texto: texto.length });
+    } catch (err) {
+        console.error("parsearPdfCambioBase error:", err);
+        res.status(500).json({ error: err.message || "Error parseando PDF" });
+    }
+}
+
+/**
+ * POST /asesor/reta/clientes/:empresa_id/cambios-base/importar
+ * El asesor sube directamente el PDF de la resolución TGSS y crea el cambio
+ * en estado 'confirmado_ss' (porque el documento de SS ya es la confirmación).
+ * Aplica al perfil RETA y sincroniza gastos recurrentes vinculados.
+ */
+export async function importarCambioBase(req, res) {
+    try {
+        const { empresa_id } = req.params;
+        const ejercicio = parseInt(req.body.ejercicio) || new Date().getFullYear();
+        const titular_id = req.body.titular_id || null;
+        const baseNueva = parseFloat(req.body.base_nueva);
+        const fechaEfectiva = req.body.fecha_efectiva;
+        const motivo = req.body.motivo || "Importado por asesor desde resolución TGSS";
+
+        if (!baseNueva || baseNueva <= 0) {
+            return res.status(400).json({ error: "base_nueva inválida" });
+        }
+        if (!fechaEfectiva) {
+            return res.status(400).json({ error: "fecha_efectiva es obligatoria" });
+        }
+
+        // Subir el PDF si llega
+        let justificantePdfUrl = null;
+        if (req.file) {
+            try {
+                const { saveToStorage } = await import("./storageController.js");
+                const ext = (req.file.originalname || "").split(".").pop()?.toLowerCase() || "pdf";
+                justificantePdfUrl = await saveToStorage({
+                    empresaId: empresa_id,
+                    folder: "reta",
+                    nombre: `reta_resolucion_asesor_${empresa_id}.${ext}`,
+                    buffer: req.file.buffer,
+                    mimeType: req.file.mimetype,
+                });
+            } catch (err) {
+                console.error("Error subiendo PDF resolución TGSS:", err);
+            }
+        }
+
+        // Calcular tramo nuevo y cuota
+        const perfil = await RetaEngine.getPerfil(empresa_id, ejercicio, titular_id);
+        const tramos = await RetaEngine.getTramosForYear(ejercicio);
+        let tramoNuevo = 1;
+        for (const t of tramos) {
+            if (baseNueva >= t.baseMin && baseNueva <= t.baseMax) {
+                tramoNuevo = t.tramo;
+                break;
+            }
+        }
+        const tipoCot = tramos[0]?.tipoCotizacion || 31.20;
+        const cuota = Math.round(baseNueva * tipoCot / 100 * 100) / 100;
+
+        // Insertar registro en estado 'confirmado_ss' con el PDF como justificante
+        const ventana = RetaEngine.getNextChangeWindow(ejercicio);
+        const [cambio] = await sql`
+            INSERT INTO reta_cambios_base_180 (
+                empresa_id, ejercicio, titular_id,
+                base_anterior, base_nueva,
+                tramo_anterior, tramo_nuevo,
+                fecha_efectiva, fecha_solicitud, fecha_limite_solicitud,
+                motivo, solicitado_por,
+                estado, justificante_pdf_url, justificante_uploaded_at,
+                confirmado_at, confirmado_por
+            ) VALUES (
+                ${empresa_id}, ${ejercicio}, ${titular_id},
+                ${perfil?.base_cotizacion_actual || 0}, ${baseNueva},
+                ${perfil?.tramo_actual || null}, ${tramoNuevo},
+                ${fechaEfectiva}, ${new Date().toISOString().slice(0, 10)}, ${ventana.fechaLimite},
+                ${motivo}, ${req.user.id},
+                'confirmado_ss', ${justificantePdfUrl}, ${justificantePdfUrl ? new Date() : null},
+                NOW(), ${req.user.id}
+            )
+            RETURNING *
+        `;
+
+        // Aplicar al perfil RETA
+        if (titular_id) {
+            await sql`
+                UPDATE reta_autonomo_perfil_180 SET
+                    base_cotizacion_actual = ${baseNueva},
+                    tramo_actual = ${tramoNuevo},
+                    cuota_mensual_actual = ${cuota},
+                    updated_at = NOW()
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id = ${titular_id}
+            `;
+        } else {
+            await sql`
+                UPDATE reta_autonomo_perfil_180 SET
+                    base_cotizacion_actual = ${baseNueva},
+                    tramo_actual = ${tramoNuevo},
+                    cuota_mensual_actual = ${cuota},
+                    updated_at = NOW()
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+            `;
+        }
+
+        // Sincronizar gastos recurrentes vinculados
+        let gastosSincronizados = [];
+        try {
+            const { syncGastosRecurrentesPerfilReta } = await import(
+                "../services/retaSyncService.js"
+            );
+            gastosSincronizados = await syncGastosRecurrentesPerfilReta(
+                empresa_id,
+                ejercicio,
+                titular_id,
+                cuota
+            );
+        } catch (err) {
+            console.error("Error sincronizando gastos recurrentes RETA:", err);
+        }
+
+        // Auto-resolver alertas RETA equivalentes
+        try {
+            const tiposResueltos = ['plazo_cambio_proximo', 'desviacion_tramo', 'regularizacion_alta'];
+            const descartadas = titular_id
+                ? await sql`
+                    UPDATE reta_alertas_180 SET descartada = true, leida = true
+                    WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
+                      AND titular_id = ${titular_id}
+                      AND tipo IN ${sql(tiposResueltos)}
+                      AND descartada = false
+                    RETURNING id
+                `
+                : await sql`
+                    UPDATE reta_alertas_180 SET descartada = true, leida = true
+                    WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio}
+                      AND titular_id IS NULL
+                      AND tipo IN ${sql(tiposResueltos)}
+                      AND descartada = false
+                    RETURNING id
+                `;
+            if (descartadas?.length > 0) {
+                const ids = descartadas.map((d) => d.id);
+                await sql`
+                    UPDATE notificaciones_asesor_180
+                    SET leida = TRUE, leida_at = NOW()
+                    WHERE asesoria_id = ${req.user.asesoria_id}
+                      AND (metadata ->> 'alerta_reta_id')::uuid = ANY(${ids}::uuid[])
+                      AND leida = FALSE
+                `;
+            }
+        } catch (err) {
+            console.error("Error auto-resolviendo alertas tras importar:", err);
+        }
+
+        res.json({ cambio, gastos_sincronizados: gastosSincronizados });
+    } catch (err) {
+        console.error("importarCambioBase error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+/**
+ * GET /asesor/reta/cambios-pendientes
+ * Bandeja del asesor: cambios comunicados por cliente que esperan revisión,
+ * y cambios propuestos por el asesor que el cliente aún no ha aceptado.
+ */
+export async function getCambiosPendientes(req, res) {
+    try {
+        const asesoriaId = req.user.asesoria_id;
+        if (!asesoriaId) {
+            return res.status(403).json({ error: "Solo asesores con asesoría asignada" });
+        }
+
+        const cambios = await sql`
+            SELECT
+                cb.*,
+                e.nombre AS empresa_nombre
+            FROM reta_cambios_base_180 cb
+            JOIN empresa_180 e ON e.id = cb.empresa_id
+            JOIN asesoria_clientes_180 ac
+              ON ac.empresa_id = cb.empresa_id
+              AND ac.asesoria_id = ${asesoriaId}
+              AND ac.estado = 'activo'
+            WHERE cb.estado IN ('comunicado_pdte_asesor', 'propuesto_pdte_cliente')
+            ORDER BY
+              CASE cb.estado
+                WHEN 'comunicado_pdte_asesor' THEN 1
+                WHEN 'propuesto_pdte_cliente' THEN 2
+              END,
+              cb.created_at DESC
+        `;
+
+        res.json({ cambios });
+    } catch (err) {
+        console.error("getCambiosPendientes error:", err);
         res.status(500).json({ error: err.message });
     }
 }
@@ -678,6 +1068,17 @@ export async function marcarAlertaLeida(req, res) {
     try {
         const { id } = req.params;
         await sql`UPDATE reta_alertas_180 SET leida = true WHERE id = ${id}`;
+
+        // Reflejar en el campanario del asesor: marcar la notificación espejo
+        // como leída (si existe). El metadata.alerta_reta_id apunta a la alerta.
+        await sql`
+            UPDATE notificaciones_asesor_180
+            SET leida = TRUE, leida_at = NOW()
+            WHERE asesoria_id = ${req.user.asesoria_id}
+              AND (metadata ->> 'alerta_reta_id')::uuid = ${id}
+              AND leida = FALSE
+        `;
+
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

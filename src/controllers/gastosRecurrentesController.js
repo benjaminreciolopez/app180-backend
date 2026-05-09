@@ -141,6 +141,72 @@ export async function crear(req, res) {
 /**
  * PUT /:id — Actualizar plantilla
  */
+/**
+ * PUT /api/admin/gastos-recurrentes/:id/vincular-reta
+ *
+ * Marca este gasto recurrente como "cuota mensual del autónomo RETA",
+ * vinculándolo al perfil RETA del ejercicio. A partir de ahora su importe
+ * se sincronizará automáticamente cuando el asesor confirme cambios de base
+ * (mediante syncGastosRecurrentesPerfilReta).
+ *
+ * Body:
+ *   - ejercicio?: number (default: año actual)
+ *   - titular_id?: string|null (default: null = perfil principal)
+ *   - desvincular?: boolean (default: false; si true se quita el vínculo)
+ */
+export async function vincularReta(req, res) {
+    try {
+        const { id } = req.params;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
+        const { ejercicio: ejParam, titular_id: titularId = null, desvincular = false } = req.body || {};
+        const ejercicio = parseInt(ejParam) || new Date().getFullYear();
+
+        const [gasto] = await sql`
+            SELECT id FROM gastos_recurrentes_180
+            WHERE id = ${id} AND empresa_id = ${empresa_id}
+        `;
+        if (!gasto) return res.status(404).json({ error: "Gasto recurrente no encontrado" });
+
+        if (desvincular) {
+            const [result] = await sql`
+                UPDATE gastos_recurrentes_180
+                SET vinculado_perfil_reta_id = NULL, updated_at = NOW()
+                WHERE id = ${id}
+                RETURNING *
+            `;
+            return res.json({ gasto: result, vinculado: false });
+        }
+
+        const [perfil] = titularId
+            ? await sql`
+                SELECT id FROM reta_autonomo_perfil_180
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id = ${titularId}
+                LIMIT 1
+            `
+            : await sql`
+                SELECT id FROM reta_autonomo_perfil_180
+                WHERE empresa_id = ${empresa_id} AND ejercicio = ${ejercicio} AND titular_id IS NULL
+                LIMIT 1
+            `;
+        if (!perfil) {
+            return res.status(404).json({
+                error: "No existe perfil RETA para este ejercicio. Genera primero la estimación del autónomo.",
+            });
+        }
+
+        const [result] = await sql`
+            UPDATE gastos_recurrentes_180
+            SET vinculado_perfil_reta_id = ${perfil.id}, updated_at = NOW()
+            WHERE id = ${id}
+            RETURNING *
+        `;
+        return res.json({ gasto: result, vinculado: true, perfil_id: perfil.id });
+    } catch (err) {
+        console.error("vincularReta error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
 export async function actualizar(req, res) {
     try {
         const { id } = req.params;
