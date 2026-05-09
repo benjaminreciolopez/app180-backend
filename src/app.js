@@ -87,6 +87,7 @@ import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
 import asesorAgregadosRoutes from "./routes/asesorAgregadosRoutes.js";
+import importRoutes from "./routes/importRoutes.js";
 import asesorRetaRoutes from "./routes/asesorRetaRoutes.js";
 import asesorCertificadosRoutes from "./routes/asesorCertificadosRoutes.js";
 import asesorCertificadoRoutes from "./routes/asesorCertificadoRoutes.js";
@@ -321,6 +322,7 @@ app.use("/api/admin/fabricante", fabricanteProtectedRouter); // Modulo fabricant
 app.use("/admin/sugerencias", authRequired, sugerenciasRoutes); // Sugerencias (usuarios)
 app.use("/api/admin/fabricante/sugerencias", sugerenciasFabricanteRouter); // Sugerencias (fabricante)
 app.use("/api/admin/contabilidad", asesorWriteGuard("contabilidad"), adminContabilidadRoutes); // Módulo contabilidad
+app.use("/api/admin/import", importRoutes); // Importación masiva CSV (clientes, facturas)
 app.use("/api/admin/gastos-recurrentes", gastosRecurrentesRoutes); // Gastos recurrentes
 app.use("/api/admin/facturacion/recurrentes", facturaRecurrenteRoutes); // Facturas recurrentes
 app.use("/api/admin/fichajes/integridad", fichajeIntegridadRoutes); // Integridad fichajes RD 8/2019
