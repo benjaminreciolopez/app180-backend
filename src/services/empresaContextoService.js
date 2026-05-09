@@ -1,12 +1,16 @@
 // backend/src/services/empresaContextoService.js
 //
-// Helpers para trabajar con el campo empresa_180.contexto_tipo introducido por
-// la migración 20260509_empresa_contexto_tipo.sql.
-//
-// Niveles de contexto:
+// Helpers para clasificar empresas en el ecosistema asesor:
 //   - 'despacho_propio'    : empresa contable propia de una asesoría
 //   - 'cliente_gestionado' : empresa cliente vinculada a una asesoría
 //   - 'autonomo'           : empresa estándar
+//
+// Diseño: el contexto_tipo se DERIVA en runtime a partir de los datos de
+// verdad (asesorias_180.empresa_id + asesoria_clientes_180 + empresa_180.
+// gestionada_por_asesoria_id), por lo que estos helpers NO requieren la
+// columna `empresa_180.contexto_tipo` para funcionar. La migración
+// 20260509_empresa_contexto_tipo.sql es una optimización opcional para
+// queries más rápidas.
 //
 // Estos helpers usan poolSql (sin tenant context ALS) porque algunas queries
 // son cross-tenant (un asesor consultando datos agregados de todos sus
@@ -16,16 +20,38 @@
 import { poolSql } from "../db.js";
 
 /**
- * Devuelve el contexto_tipo de una empresa.
+ * Devuelve el contexto de una empresa, derivándolo en runtime.
  * @param {string} empresaId
  * @returns {Promise<'despacho_propio'|'cliente_gestionado'|'autonomo'|null>}
  */
 export async function getContextoEmpresa(empresaId) {
   if (!empresaId) return null;
-  const [row] = await poolSql`
-    SELECT contexto_tipo FROM empresa_180 WHERE id = ${empresaId}
+
+  const [esDespacho] = await poolSql`
+    SELECT 1 FROM asesorias_180 WHERE empresa_id = ${empresaId} LIMIT 1
   `;
-  return row?.contexto_tipo ?? null;
+  if (esDespacho) return "despacho_propio";
+
+  const [esCliente] = await poolSql`
+    SELECT 1
+    FROM empresa_180 e
+    WHERE e.id = ${empresaId}
+      AND (
+        e.gestionada_por_asesoria_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM asesoria_clientes_180 ac
+          WHERE ac.empresa_id = e.id AND ac.estado = 'activo'
+        )
+      )
+    LIMIT 1
+  `;
+  if (esCliente) return "cliente_gestionado";
+
+  // Solo confirmamos 'autonomo' si la empresa existe.
+  const [exists] = await poolSql`
+    SELECT 1 FROM empresa_180 WHERE id = ${empresaId} LIMIT 1
+  `;
+  return exists ? "autonomo" : null;
 }
 
 /**
@@ -50,18 +76,18 @@ export async function getDespachoEmpresaId(asesoriaId) {
  */
 export async function listClientesGestionados(asesoriaId) {
   if (!asesoriaId) return [];
+  // No depende de empresa_180.contexto_tipo: la pertenencia se decide por
+  // gestionada_por_asesoria_id o por vínculo activo en asesoria_clientes_180.
   const rows = await poolSql`
     SELECT e.id AS empresa_id, e.nombre
     FROM empresa_180 e
-    WHERE e.contexto_tipo = 'cliente_gestionado'
-      AND (
-        e.gestionada_por_asesoria_id = ${asesoriaId}
-        OR EXISTS (
-          SELECT 1 FROM asesoria_clientes_180 ac
-          WHERE ac.asesoria_id = ${asesoriaId}
-            AND ac.empresa_id = e.id
-            AND ac.estado = 'activo'
-        )
+    WHERE
+      e.gestionada_por_asesoria_id = ${asesoriaId}
+      OR EXISTS (
+        SELECT 1 FROM asesoria_clientes_180 ac
+        WHERE ac.asesoria_id = ${asesoriaId}
+          AND ac.empresa_id = e.id
+          AND ac.estado = 'activo'
       )
     ORDER BY e.nombre NULLS LAST
   `;
