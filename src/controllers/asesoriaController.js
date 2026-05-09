@@ -96,6 +96,9 @@ export async function getDashboard(req, res) {
 export async function getClientes(req, res) {
   try {
     const asesoriaId = req.user.asesoria_id;
+    // Por defecto solo se devuelven activos y pendientes. Para ver inactivos
+    // (revocado/rechazado) pasar ?incluir_inactivos=true desde la UI.
+    const incluirInactivos = req.query.incluir_inactivos === "true";
 
     // Get the asesoria's own empresa_id (para excluirla del listado)
     const [asesoria] = await sql`
@@ -104,30 +107,30 @@ export async function getClientes(req, res) {
     const ownEmpresaId = asesoria?.empresa_id || null;
 
     // Get client empresas (incluye gestionadas sin app: e.user_id IS NULL)
-    const clientes = await sql`
-      SELECT
-        ac.id AS vinculo_id,
-        ac.empresa_id,
-        e.nombre,
-        e.tipo_contribuyente,
-        e.gestionada_por_asesoria_id,
-        e.user_id AS empresa_user_id,
-        ac.estado,
-        ac.invitado_por,
-        ac.permisos,
-        ac.connected_at,
-        ac.created_at,
-        (
-          SELECT u.email
-          FROM users_180 u
-          WHERE u.id = e.user_id
-          LIMIT 1
-        ) AS email
-      FROM asesoria_clientes_180 ac
-      JOIN empresa_180 e ON e.id = ac.empresa_id
-      WHERE ac.asesoria_id = ${asesoriaId}
-      ORDER BY ac.estado ASC, e.nombre ASC
-    `;
+    const clientes = incluirInactivos
+      ? await sql`
+        SELECT
+          ac.id AS vinculo_id, ac.empresa_id,
+          e.nombre, e.tipo_contribuyente, e.gestionada_por_asesoria_id, e.user_id AS empresa_user_id,
+          ac.estado, ac.invitado_por, ac.permisos, ac.connected_at, ac.created_at,
+          (SELECT u.email FROM users_180 u WHERE u.id = e.user_id LIMIT 1) AS email
+        FROM asesoria_clientes_180 ac
+        JOIN empresa_180 e ON e.id = ac.empresa_id
+        WHERE ac.asesoria_id = ${asesoriaId}
+        ORDER BY ac.estado ASC, e.nombre ASC
+      `
+      : await sql`
+        SELECT
+          ac.id AS vinculo_id, ac.empresa_id,
+          e.nombre, e.tipo_contribuyente, e.gestionada_por_asesoria_id, e.user_id AS empresa_user_id,
+          ac.estado, ac.invitado_por, ac.permisos, ac.connected_at, ac.created_at,
+          (SELECT u.email FROM users_180 u WHERE u.id = e.user_id LIMIT 1) AS email
+        FROM asesoria_clientes_180 ac
+        JOIN empresa_180 e ON e.id = ac.empresa_id
+        WHERE ac.asesoria_id = ${asesoriaId}
+          AND ac.estado IN ('activo', 'pendiente')
+        ORDER BY ac.estado ASC, e.nombre ASC
+      `;
 
     // Excluir la propia empresa de la asesoría del listado de clientes
     // (la asesoría no es cliente de sí misma)
@@ -526,6 +529,77 @@ export async function updateClientePermisos(req, res) {
   } catch (err) {
     console.error("Error updateClientePermisos:", err);
     return res.status(500).json({ error: "Error actualizando permisos del cliente" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/:empresa_id/desactivar
+ * Marca el vínculo asesoría↔cliente como 'revocado'. El cliente desaparece del
+ * listado (a menos que se pida ?incluir_inactivos=true) y deja de generar
+ * notificaciones / alertas / datos en agregados.
+ */
+export async function desactivarCliente(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const empresaId = req.params.empresa_id;
+
+    const [updated] = await sql`
+      UPDATE asesoria_clientes_180
+      SET estado = 'revocado'
+      WHERE asesoria_id = ${asesoriaId}
+        AND empresa_id = ${empresaId}
+        AND estado IN ('activo', 'pendiente')
+      RETURNING id, estado
+    `;
+    if (!updated) {
+      return res.status(404).json({ error: "Vínculo no encontrado o ya inactivo" });
+    }
+
+    // Apagar notificaciones pendientes relativas a esta empresa para no
+    // dejar avisos huérfanos del cliente recién desactivado.
+    try {
+      await sql`
+        UPDATE notificaciones_asesor_180
+        SET leida = TRUE, leida_at = NOW()
+        WHERE asesoria_id = ${asesoriaId}
+          AND empresa_id = ${empresaId}
+          AND leida = FALSE
+      `;
+    } catch (err) {
+      console.error("Error apagando notificaciones tras desactivar:", err);
+    }
+
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error("Error desactivarCliente:", err);
+    return res.status(500).json({ error: "Error desactivando cliente" });
+  }
+}
+
+/**
+ * PUT /asesor/clientes/:empresa_id/reactivar
+ * Reactiva un vínculo previamente revocado (estado → 'activo').
+ */
+export async function reactivarCliente(req, res) {
+  try {
+    const asesoriaId = req.user.asesoria_id;
+    const empresaId = req.params.empresa_id;
+
+    const [updated] = await sql`
+      UPDATE asesoria_clientes_180
+      SET estado = 'activo'
+      WHERE asesoria_id = ${asesoriaId}
+        AND empresa_id = ${empresaId}
+        AND estado IN ('revocado', 'rechazado')
+      RETURNING id, estado
+    `;
+    if (!updated) {
+      return res.status(404).json({ error: "Vínculo no encontrado o ya activo" });
+    }
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error("Error reactivarCliente:", err);
+    return res.status(500).json({ error: "Error reactivando cliente" });
   }
 }
 

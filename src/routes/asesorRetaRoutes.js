@@ -15,6 +15,7 @@ import {
     confirmCambioBase, descartarCambioBase, getCambiosPendientes,
     parsearPdfCambioBase, importarCambioBase,
     crearCuotaRecurrenteReta,
+    lanzarScanAlertas,
     getSimulacion,
     createPreOnboarding, getPreOnboarding, updatePreOnboarding,
     vincularPreOnboarding, listPreOnboarding,
@@ -40,6 +41,9 @@ router.put("/alertas/:id/leer", marcarAlertaLeida);
 
 // Bandeja de cambios pendientes (cross-cliente)
 router.get("/cambios-pendientes", getCambiosPendientes);
+
+// Lanzar escaneo de alertas on-demand (sin esperar al cron 8AM)
+router.post("/scan-alertas", lanzarScanAlertas);
 
 // Parser PDF resolución TGSS (para autorrellenar el formulario de import)
 router.post("/parsear-pdf-cambio-base", upload.single("pdf"), parsearPdfCambioBase);

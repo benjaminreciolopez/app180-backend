@@ -76,6 +76,8 @@ router.get("/export/multi-cliente", exportMultiCliente);
 // Rutas con empresa_id específica (requieren vínculo activo)
 router.put("/clientes/:empresa_id/tipo-contribuyente", asesorClienteRequired(), updateClienteTipoContribuyente);
 router.put("/clientes/:empresa_id/permisos", asesorClienteRequired(), updateClientePermisos);
+router.put("/clientes/:empresa_id/desactivar", asesorClienteRequired(), desactivarCliente);
+router.put("/clientes/:empresa_id/reactivar", reactivarCliente);
 router.get("/clientes/:empresa_id/datos", asesorClienteRequired(), getClienteDatos);
 router.put("/clientes/:empresa_id/datos", asesorClienteRequired("configuracion", "write"), updateClienteDatos);
 router.get("/clientes/:empresa_id/resumen", asesorClienteRequired(), getClienteResumen);

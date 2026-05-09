@@ -1038,6 +1038,32 @@ export async function crearCuotaRecurrenteReta(req, res) {
 }
 
 /**
+ * POST /asesor/reta/scan-alertas
+ * Dispara on-demand el escaneo completo de alertas RETA. Útil tras un cambio
+ * de configuración (vinculaciones, perfiles) sin esperar al cron diario.
+ */
+export async function lanzarScanAlertas(req, res) {
+    try {
+        const { runRetaAlertScan } = await import("../services/retaAlertService.js");
+        await runRetaAlertScan();
+        // Devuelve el resumen del usuario (cuántas alertas tiene ahora)
+        const ejercicio = new Date().getFullYear();
+        const [{ pendientes }] = await sql`
+            SELECT COUNT(*)::int AS pendientes
+            FROM reta_alertas_180 a
+            JOIN asesoria_clientes_180 ac ON ac.empresa_id = a.empresa_id AND ac.estado = 'activo'
+            WHERE ac.asesoria_id = ${req.user.asesoria_id}
+              AND a.ejercicio = ${ejercicio}
+              AND a.descartada = false
+        `;
+        res.json({ ok: true, alertas_pendientes: pendientes });
+    } catch (err) {
+        console.error("lanzarScanAlertas error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}
+
+/**
  * GET /asesor/reta/cambios-pendientes
  * Bandeja del asesor: cambios comunicados por cliente que esperan revisión,
  * y cambios propuestos por el asesor que el cliente aún no ha aceptado.
