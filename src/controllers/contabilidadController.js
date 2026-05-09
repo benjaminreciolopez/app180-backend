@@ -10,7 +10,7 @@ import archiver from "archiver";
 
 export async function getCuentas(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { grupo, tipo, activa, search } = req.query;
 
     let cuentas;
@@ -81,7 +81,7 @@ export async function getCuentas(req, res) {
 
 export async function crearCuenta(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { codigo, nombre, tipo, grupo, subgrupo, nivel, padre_codigo } = req.body;
 
     if (!codigo || !nombre || !tipo || !grupo) {
@@ -112,7 +112,7 @@ export async function crearCuenta(req, res) {
 
 export async function actualizarCuenta(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { id } = req.params;
     const { nombre, activa } = req.body;
 
@@ -145,7 +145,7 @@ export async function actualizarCuenta(req, res) {
 
 export async function fusionarCuentas(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { source_codigo, target_codigo } = req.body;
 
     if (!source_codigo || !target_codigo) {
@@ -237,7 +237,7 @@ export async function fusionarCuentas(req, res) {
 
 export async function inicializarPGC(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const result = await contabilidadService.inicializarPGC(empresaId);
     res.json(result);
   } catch (err) {
@@ -252,7 +252,7 @@ export async function inicializarPGC(req, res) {
 
 export async function getAsientos(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, buscar, page = 1, limit = 50, sort_field, sort_dir } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -329,7 +329,7 @@ export async function getAsientos(req, res) {
 
 export async function getAsientoById(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { id } = req.params;
 
     const [asiento] = await sql`
@@ -356,7 +356,7 @@ export async function getAsientoById(req, res) {
 
 export async function crearAsiento(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha, concepto, tipo, referencia_tipo, referencia_id, notas, lineas } = req.body;
 
     if (!fecha || !concepto || !lineas) {
@@ -384,7 +384,7 @@ export async function crearAsiento(req, res) {
 
 export async function editarAsiento(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { id } = req.params;
     const { concepto, notas, lineas } = req.body;
 
@@ -474,7 +474,7 @@ export async function editarAsiento(req, res) {
 
 export async function validarAsiento(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { id } = req.params;
 
     const [asiento] = await sql`
@@ -494,7 +494,7 @@ export async function validarAsiento(req, res) {
 
 export async function validarAsientosMultiple(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { ids } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -525,7 +525,7 @@ export async function validarAsientosMultiple(req, res) {
 
 export async function anularAsiento(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { id } = req.params;
 
     const [asiento] = await sql`
@@ -545,7 +545,7 @@ export async function anularAsiento(req, res) {
 
 export async function eliminarAsiento(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { id } = req.params;
 
     const [exists] = await sql`SELECT id FROM asientos_180 WHERE id = ${id} AND empresa_id = ${empresaId}`;
@@ -563,7 +563,7 @@ export async function eliminarAsiento(req, res) {
 
 export async function eliminarAsientosMultiple(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids requeridos" });
 
@@ -585,7 +585,7 @@ export async function eliminarAsientosMultiple(req, res) {
 
 export async function getLibroMayor(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { cuenta_codigo } = req.params;
     const { fecha_desde, fecha_hasta } = req.query;
 
@@ -606,7 +606,7 @@ export async function getLibroMayor(req, res) {
 
 export async function getBalance(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha } = req.query;
     const fechaHasta = fecha || new Date().toISOString().split("T")[0];
 
@@ -620,7 +620,7 @@ export async function getBalance(req, res) {
 
 export async function getPyG(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha_desde, fecha_hasta } = req.query;
 
     const anio = new Date().getFullYear();
@@ -641,7 +641,7 @@ export async function getPyG(req, res) {
 
 export async function getEjercicios(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const ejercicios = await sql`
       SELECT * FROM ejercicios_contables_180
       WHERE empresa_id = ${empresaId}
@@ -656,7 +656,7 @@ export async function getEjercicios(req, res) {
 
 export async function cerrarEjercicio(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { anio } = req.params;
 
     const result = await contabilidadService.cerrarEjercicio(empresaId, parseInt(anio), req.user.id);
@@ -673,7 +673,7 @@ export async function cerrarEjercicio(req, res) {
 
 export async function generarAsientosPeriodo(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha_desde, fecha_hasta } = req.body;
 
     if (!fecha_desde || !fecha_hasta) {
@@ -700,7 +700,7 @@ export async function generarAsientosPeriodo(req, res) {
 
 export async function exportarAsientos(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { ejercicio, fecha_desde, fecha_hasta, tipo, estado, buscar, formato = "excel" } = req.query;
 
     // Fetch all asientos matching filters (no pagination)
@@ -910,7 +910,7 @@ export async function exportarAsientos(req, res) {
 
 export async function importarAsientos(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const creadoPor = req.user.id;
 
     if (!req.file) {
@@ -1094,7 +1094,7 @@ export async function importarAsientos(req, res) {
 
 export async function revisarAsientos(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { ids, simular } = req.body;
     const soloSimular = simular === true || simular === "true";
     const asientoIds = Array.isArray(ids) ? ids : [];
@@ -1118,7 +1118,7 @@ export async function revisarAsientos(req, res) {
  */
 export async function aplicarCambiosSelectivos(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { cambios } = req.body;
 
     if (!Array.isArray(cambios) || cambios.length === 0) {
@@ -1187,7 +1187,7 @@ export async function aplicarCambiosSelectivos(req, res) {
  */
 export async function marcarRevisadoUsuario(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { ids, revisado = true } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -1213,7 +1213,7 @@ export async function marcarRevisadoUsuario(req, res) {
  */
 export async function obtenerHistorialCambios(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { desde, hasta, asiento_id, tipo_cambio, limit: lim = 50, offset = 0 } = req.query;
 
     let query = sql`
@@ -1315,7 +1315,7 @@ function styleExportSheet(ws) {
  */
 export async function exportarBalance(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha, formato = "excel" } = req.query;
     const fechaHasta = fecha || new Date().toISOString().split("T")[0];
 
@@ -1407,7 +1407,7 @@ export async function exportarBalance(req, res) {
  */
 export async function exportarPyG(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha_desde, fecha_hasta, formato = "excel" } = req.query;
     const desde = fecha_desde || `${new Date().getFullYear()}-01-01`;
     const hasta = fecha_hasta || new Date().toISOString().split("T")[0];
@@ -1477,7 +1477,7 @@ export async function exportarPyG(req, res) {
  */
 export async function exportarMayor(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { cuenta_codigo, fecha_desde, fecha_hasta, formato = "excel" } = req.query;
     const desde = fecha_desde || `${new Date().getFullYear()}-01-01`;
     const hasta = fecha_hasta || new Date().toISOString().split("T")[0];
@@ -1573,7 +1573,7 @@ export async function exportarMayor(req, res) {
  */
 export async function exportarCuentas(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { grupo, tipo, activa, formato = "excel" } = req.query;
 
     const cuentas = await sql`
@@ -1645,7 +1645,7 @@ export async function exportarCuentas(req, res) {
  */
 export async function exportarPaquete(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { fecha_desde, fecha_hasta } = req.query;
     const desde = fecha_desde || `${new Date().getFullYear()}-01-01`;
     const hasta = fecha_hasta || new Date().toISOString().split("T")[0];

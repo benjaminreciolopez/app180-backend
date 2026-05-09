@@ -20,7 +20,7 @@ import {
  */
 export async function importarExtracto(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
     if (!req.file) {
       return res.status(400).json({ error: "No se ha subido ningún archivo" });
@@ -66,7 +66,7 @@ export async function importarExtracto(req, res) {
  */
 export async function matchearExtracto(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { movimientos, txIds } = req.body;
 
     if (!Array.isArray(movimientos) || movimientos.length === 0) {
@@ -105,7 +105,7 @@ export async function matchearExtracto(req, res) {
  */
 export async function confirmarExtracto(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const creadoPor = req.user.id;
     const { confirmados, txIds: allTxIds } = req.body;
 
@@ -216,7 +216,7 @@ export async function confirmarExtracto(req, res) {
  */
 export async function listarTransaccionesBancarias(req, res) {
   try {
-    const empresaId = req.user.empresa_id;
+    const empresaId = req.targetEmpresaId || req.user.empresa_id;
     const { estado, desde, hasta, limit, offset } = req.query;
 
     const result = await listarTransacciones(empresaId, {
