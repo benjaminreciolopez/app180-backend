@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { resolveTargetEmpresa } from "../middlewares/resolveTargetEmpresa.js";
 import {
     listarCompras,
     crearCompra,
@@ -33,7 +34,7 @@ const upload = multer({
 });
 
 // Todas las rutas de compras requieren ser admin
-router.use(authRequired, roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"), resolveTargetEmpresa({ permission: "gastos" }));
 
 /**
  * @route GET /admin/purchases/proxy

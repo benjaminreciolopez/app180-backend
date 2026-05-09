@@ -19,7 +19,7 @@ import { crearNotificacionSistema } from "./notificacionesController.js";
 export async function getFiscalAlerts(req, res) {
     try {
         const { year, trimestre } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year || !trimestre) {
             return res.status(400).json({ error: "Año y trimestre requeridos" });
@@ -96,7 +96,7 @@ async function createAlertNotifications(empresaId, alerts, year, quarter) {
 export async function simulateFiscalImpact(req, res) {
     try {
         const { year, trimestre, operation } = req.body;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year || !trimestre || !operation) {
             return res.status(400).json({ error: "year, trimestre y operation requeridos" });
@@ -123,7 +123,7 @@ export async function simulateFiscalImpact(req, res) {
  */
 export async function getAlertConfig(req, res) {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const config = await getConfig(empresaId);
 
         // Cargar epígrafes personalizados de la empresa
@@ -154,7 +154,7 @@ export async function getAlertConfig(req, res) {
  */
 export async function addEpigrafe(req, res) {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const { sector, codigo, descripcion } = req.body;
 
         if (!sector || !codigo || !descripcion) {
@@ -180,7 +180,7 @@ export async function addEpigrafe(req, res) {
  */
 export async function deleteEpigrafe(req, res) {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const { codigo } = req.params;
         const { sector } = req.query;
 
@@ -202,7 +202,7 @@ export async function deleteEpigrafe(req, res) {
  */
 export async function updateAlertConfig(req, res) {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const { iae_code, sector, thresholds, enabled } = req.body;
 
         // Leer config actual como objeto (protección contra datos corrompidos)

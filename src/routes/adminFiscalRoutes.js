@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { resolveTargetEmpresa } from "../middlewares/resolveTargetEmpresa.js";
 import {
     getFiscalData,
     getLibroVentas,
@@ -40,7 +41,7 @@ import {
 const router = Router();
 
 // Todas las rutas requieren admin
-router.use(authRequired, roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"), resolveTargetEmpresa({ permission: "fiscal" }));
 
 /**
  * @route GET /admin/fiscal/models

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { resolveTargetEmpresa } from "../middlewares/resolveTargetEmpresa.js";
 
 import * as facturasController from "../controllers/facturasController.js";
 import * as proformasController from "../controllers/proformasController.js";
@@ -13,7 +14,7 @@ import * as informesController from "../controllers/adminInformesFacturacionCont
 const router = Router();
 
 // Todas las rutas requieren autenticación y rol admin
-router.use(authRequired, roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"), resolveTargetEmpresa({ permission: "facturas" }));
 
 /* ================= FACTURAS ================= */
 

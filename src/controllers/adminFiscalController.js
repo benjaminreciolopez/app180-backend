@@ -1084,7 +1084,7 @@ export async function calcularModelo347(empresaId, year) {
 export async function getModelo390(req, res) {
     try {
         const { year } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         if (!year) return res.status(400).json({ error: "Ano requerido" });
         const data = await calcularModelo390(empresaId, year);
         res.json({ success: true, data });
@@ -1097,7 +1097,7 @@ export async function getModelo390(req, res) {
 export async function getModelo190(req, res) {
     try {
         const { year } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         if (!year) return res.status(400).json({ error: "Ano requerido" });
         const data = await calcularModelo190(empresaId, year);
         res.json({ success: true, data });
@@ -1110,7 +1110,7 @@ export async function getModelo190(req, res) {
 export async function getModelo180(req, res) {
     try {
         const { year } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         if (!year) return res.status(400).json({ error: "Ano requerido" });
         const data = await calcularModelo180(empresaId, year);
         res.json({ success: true, data });
@@ -1123,7 +1123,7 @@ export async function getModelo180(req, res) {
 export async function getModelo347(req, res) {
     try {
         const { year } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         if (!year) return res.status(400).json({ error: "Ano requerido" });
         const data = await calcularModelo347(empresaId, year);
         res.json({ success: true, data });
@@ -1139,7 +1139,7 @@ export async function getModelo347(req, res) {
 export async function downloadBOEAnual(req, res) {
     try {
         const { year, modelo } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year || !modelo) {
             return res.status(400).json({ error: "Ano y modelo requeridos" });
@@ -1237,7 +1237,7 @@ export async function downloadBOEAnual(req, res) {
 export async function getFiscalData(req, res) {
     try {
         const { year, trimestre, cuotas_compensar_303 } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year || !trimestre) return res.status(400).json({ error: "Año y Trimestre requeridos" });
 
@@ -1261,7 +1261,7 @@ export async function getFiscalData(req, res) {
 export async function getLibroVentas(req, res) {
     try {
         const year = req.query.year || new Date().getFullYear();
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         const facturas = await sql`
             SELECT
@@ -1300,7 +1300,7 @@ export async function getLibroVentas(req, res) {
 export async function getLibroGastos(req, res) {
     try {
         const year = req.query.year || new Date().getFullYear();
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         const gastos = await sql`
             SELECT
@@ -1328,7 +1328,7 @@ export async function getLibroGastos(req, res) {
 export async function getLibroNominas(req, res) {
     try {
         const { year } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year) return res.status(400).json({ error: "Año requerido" });
 
@@ -1359,7 +1359,7 @@ export async function getLibroNominas(req, res) {
 export async function getCalendarioFiscal(req, res) {
     try {
         const { year } = req.params;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year) return res.status(400).json({ error: "Año requerido" });
 
@@ -1389,7 +1389,7 @@ export async function getCalendarioFiscal(req, res) {
 export async function downloadBOE(req, res) {
     try {
         const { year, trimestre, modelo, cuotas_compensar_303 } = req.query;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!year || !trimestre || !modelo) {
             return res.status(400).json({ error: "Año, trimestre y modelo requeridos" });
@@ -1455,7 +1455,7 @@ export async function presentarFiscalModel(req, res) {
     try {
         const { presentarModelo: presentarAEAT } = await import('../services/aeatPresentacionService.js');
 
-        const empresaId = req.params.empresa_id || req.user?.empresa_id;
+        const empresaId = req.targetEmpresaId || req.params.empresa_id || req.user?.empresa_id;
         if (!empresaId) {
             return res.status(400).json({ success: false, error: "empresa_id requerido" });
         }

@@ -81,7 +81,7 @@ export const getNominas = async (req, res) => {
     try {
         const yearRaw = req.query.year;
         const monthRaw = req.query.month;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!yearRaw) {
             return res.status(400).json({ error: "Año requerido" });
@@ -131,7 +131,7 @@ export const createNomina = async (req, res) => {
             base_cotizacion, tipo_contingencias_comunes, tipo_desempleo, tipo_formacion, tipo_fogasa,
             horas_extra, complementos, notas
         } = req.body;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!anio || !mes || bruto === undefined) {
             return res.status(400).json({ error: "Datos obligatorios faltantes (año, mes, bruto)" });
@@ -204,7 +204,7 @@ export const createNomina = async (req, res) => {
 export const updateNomina = async (req, res) => {
     try {
         const { id } = req.params;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         // Comprobar existencia y estado
         const [existing] = await sql`
@@ -272,7 +272,7 @@ export const updateNomina = async (req, res) => {
 export const anularNomina = async (req, res) => {
     try {
         const { id } = req.params;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const { motivo } = req.body || {};
 
         if (!motivo || motivo.trim().length < 3) {
@@ -316,7 +316,7 @@ export const anularNomina = async (req, res) => {
 export const deleteNomina = async (req, res) => {
     try {
         const { id } = req.params;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         const [deleted] = await sql`
       UPDATE nominas_180 SET deleted_at = NOW()
@@ -342,7 +342,7 @@ export const deleteNomina = async (req, res) => {
 export const resumenAnual = async (req, res) => {
     try {
         const yearRaw = req.query.year;
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
 
         if (!yearRaw) return res.status(400).json({ error: "Año requerido" });
         const year = parseInt(yearRaw, 10);
@@ -409,7 +409,7 @@ export const resumenAnual = async (req, res) => {
  */
 export const resumenEmpresario = async (req, res) => {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const yearRaw = req.query.year;
         const monthRaw = req.query.month;
 
@@ -507,7 +507,7 @@ export const resumenEmpresario = async (req, res) => {
  */
 export const descargarSiltraCRA = async (req, res) => {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const { year, month } = req.query;
 
         if (!year || !month) {
@@ -621,7 +621,7 @@ export const descargarSiltraCRA = async (req, res) => {
  */
 export const descargarSepaNominas = async (req, res) => {
     try {
-        const empresaId = req.user.empresa_id;
+        const empresaId = req.targetEmpresaId || req.user.empresa_id;
         const { year, month, fechaPago } = req.query;
 
         if (!year || !month) {

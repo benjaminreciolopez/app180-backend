@@ -5,6 +5,7 @@
 import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { resolveTargetEmpresa } from "../middlewares/resolveTargetEmpresa.js";
 import {
     listarInmovilizado,
     getInmovilizadoConAmortizacion,
@@ -15,7 +16,7 @@ import {
 
 const router = Router();
 
-router.use(authRequired, roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"), resolveTargetEmpresa({ permission: "fiscal" }));
 
 router.get("/", listarInmovilizado);
 router.get("/amortizacion/:ejercicio", getInmovilizadoConAmortizacion);

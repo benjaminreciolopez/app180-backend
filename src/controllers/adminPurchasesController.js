@@ -40,7 +40,7 @@ async function lookupProviderDefaults(empresaId, proveedor) {
  */
 export async function getProviderDefaults(req, res) {
     try {
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
         const { proveedor } = req.query;
         if (!proveedor) return res.json({ data: null });
 
@@ -61,7 +61,7 @@ export async function ocrGasto(req, res) {
 
         if (!file) return res.status(400).json({ error: "No se subió ningún archivo" });
 
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
 
         // 0. Calcular hash del fichero para detectar duplicado ANTES de gastar en IA
         const fileHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
@@ -209,7 +209,7 @@ NOTA: base_imponible e iva_importe son OBLIGATORIOS. Si la cuota de IVA no es ce
  */
 export async function listarCompras(req, res) {
     try {
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
         let {
             fecha_inicio,
             fecha_fin,
@@ -269,7 +269,7 @@ export async function listarCompras(req, res) {
  */
 export async function crearCompra(req, res) {
     try {
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
         const {
             proveedor,
             descripcion,
@@ -444,7 +444,7 @@ export async function crearCompra(req, res) {
 export async function actualizarCompra(req, res) {
     try {
         const { id } = req.params;
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
         const updateData = req.body;
 
         const allowedFields = [
@@ -545,7 +545,7 @@ export async function actualizarCompra(req, res) {
 export async function eliminarCompra(req, res) {
     try {
         const { id } = req.params;
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
 
         const [actual] = await sql`
             SELECT fecha_compra FROM purchases_180
@@ -577,7 +577,7 @@ export async function eliminarCompra(req, res) {
 
 export async function getUniqueValues(req, res) {
     try {
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
         const { field = 'categoria' } = req.query;
 
         // Validar campo para evitar inyección SQL (aunque sql`` debería proteger, mejor whitelist)
@@ -700,7 +700,7 @@ export async function bankImportPreview(req, res) {
     try {
         const file = req.file;
         if (!file) return res.status(400).json({ error: "No se subió ningún archivo" });
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
 
         const mime = file.mimetype || "";
         const name = (file.originalname || "").toLowerCase();
@@ -872,7 +872,7 @@ Responde SOLO un JSON array:
  */
 export async function bankImportConfirm(req, res) {
     try {
-        const { empresa_id } = req.user;
+        const empresa_id = req.targetEmpresaId || req.user.empresa_id;
         const { transactions, source_file_name } = req.body;
 
         if (!Array.isArray(transactions) || transactions.length === 0) {

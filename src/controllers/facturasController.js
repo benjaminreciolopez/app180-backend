@@ -17,6 +17,8 @@ import { registrarEventoVerifactu } from "./verifactuEventosController.js";
 async function getEmpresaId(userIdOrReq) {
   // Soportar tanto getEmpresaId(req) como getEmpresaId(req)
   if (typeof userIdOrReq === 'object' && userIdOrReq.user) {
+    // Prioridad: empresa target resuelta por resolveTargetEmpresa (ej. asesor mirando a un cliente)
+    if (userIdOrReq.targetEmpresaId) return userIdOrReq.targetEmpresaId;
     if (userIdOrReq.user.empresa_id) return userIdOrReq.user.empresa_id;
     userIdOrReq = userIdOrReq.user.id;
   }
@@ -156,7 +158,7 @@ function parseNumeroFactura(numero) {
 
 export async function listFacturas(req, res) {
   try {
-    let empresaId = req.user.empresa_id;
+    let empresaId = req.targetEmpresaId || req.user.empresa_id;
     if (!empresaId) {
       empresaId = await getEmpresaId(req);
     }

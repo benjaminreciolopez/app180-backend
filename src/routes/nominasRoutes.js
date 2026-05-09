@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { authRequired } from "../middlewares/authMiddleware.js";
 import { roleRequired } from "../middlewares/roleRequired.js";
+import { resolveTargetEmpresa } from "../middlewares/resolveTargetEmpresa.js";
 import {
   getNominas,
   createNomina,
@@ -18,7 +19,7 @@ import upload from "../middlewares/uploadMiddleware.js";
 
 const router = Router();
 
-router.use(authRequired, roleRequired("admin"));
+router.use(authRequired, roleRequired("admin"), resolveTargetEmpresa({ permission: "nominas" }));
 
 router.get("/resumen-anual", resumenAnual);
 router.get("/resumen-empresario", resumenEmpresario);

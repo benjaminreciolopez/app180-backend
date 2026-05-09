@@ -40,7 +40,7 @@ const MODELO_DESCRIPTIONS = {
  * Helper: obtener empresa_id segun contexto (admin vs asesor)
  */
 function getEmpresaId(req) {
-    return req.params.empresa_id || req.user.empresa_id;
+    return req.targetEmpresaId || req.params.empresa_id || req.user.empresa_id;
 }
 
 // ============================================================

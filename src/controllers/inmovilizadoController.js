@@ -8,7 +8,7 @@ import { COEFS_DEFECTO, calcularAmortizacionAcumulada } from "../services/amorti
 import logger from "../utils/logger.js";
 
 function resolveEmpresaId(req) {
-    return req.params.empresa_id || req.user?.empresa_id;
+    return req.targetEmpresaId || req.params.empresa_id || req.user?.empresa_id;
 }
 
 const GRUPOS_VALIDOS = Object.keys(COEFS_DEFECTO);
