@@ -86,6 +86,7 @@ import asesorRoutes from "./routes/asesorRoutes.js";
 import asesorNominasRoutes from "./routes/asesorNominasRoutes.js";
 import asesorEmpleadosRoutes from "./routes/asesorEmpleadosRoutes.js";
 import asesorClientesRoutes from "./routes/asesorClientesRoutes.js";
+import asesorAgregadosRoutes from "./routes/asesorAgregadosRoutes.js";
 import asesorRetaRoutes from "./routes/asesorRetaRoutes.js";
 import asesorCertificadosRoutes from "./routes/asesorCertificadosRoutes.js";
 import asesorCertificadoRoutes from "./routes/asesorCertificadoRoutes.js";
@@ -332,6 +333,7 @@ app.use("/admin", adminParteConfigRoutes); // Partes configurables
 app.use("/asesor/nominas", asesorNominasRoutes); // Nóminas cross-client asesor
 app.use("/asesor/empleados", asesorEmpleadosRoutes); // Empleados cross-client asesor
 app.use("/asesor/mis-clientes", asesorClientesRoutes); // Clientes propios asesor
+app.use("/asesor/agregados", asesorAgregadosRoutes); // Agregados cross-cliente del asesor (Nivel 3)
 app.use("/asesor/reta", asesorRetaRoutes); // RETA: base cotizacion autonomos
 app.use("/asesor/certificados", asesorCertificadosRoutes); // Certificados digitales metadata (asesor)
 app.use("/asesor/clientes/:empresa_id/certificados", asesorCertificadoRoutes); // Certificados digitales upload real (asesor)
