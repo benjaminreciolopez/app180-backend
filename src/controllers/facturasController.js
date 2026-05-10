@@ -651,6 +651,9 @@ export async function createFactura(req, res) {
         const ret_imp = (subtotal * ret_pct) / 100;
         const total = Math.round((subtotal + iva_total + compensacion.importe - ret_imp) * 100) / 100;
 
+        const ivaPctEfectivo = subtotal > 0
+          ? Math.round((iva_total / subtotal) * 10000) / 100
+          : 0;
         const [updatedRecord] = await tx`
           update factura_180
           set estado = 'VALIDADA',
@@ -661,7 +664,7 @@ export async function createFactura(req, res) {
               es_test = true,
               subtotal = ${Math.round(subtotal * 100) / 100},
               iva_total = ${Math.round(iva_total * 100) / 100},
-              iva_global = ${Math.round(iva_total * 100) / 100},
+              iva_global = ${ivaPctEfectivo},
               compensacion_reagp_pct = ${compensacion.pct},
               compensacion_reagp_importe = ${compensacion.importe},
               retencion_importe = ${Math.round(ret_imp * 100) / 100},
@@ -980,6 +983,9 @@ export async function validarFactura(req, res) {
       const total = Math.round((subtotal + iva_total + compensacion.importe - retencion_importe) * 100) / 100;
 
       // Actualizar factura
+      const ivaPctEfectivo = subtotal > 0
+        ? Math.round((iva_total / subtotal) * 10000) / 100
+        : 0;
       const [updatedRecord] = await tx`
         update factura_180
         set estado = 'VALIDADA',
@@ -990,7 +996,7 @@ export async function validarFactura(req, res) {
             mensaje_iva = ${mensaje_iva !== undefined ? n(mensaje_iva) : sql`mensaje_iva`},
             subtotal = ${Math.round(subtotal * 100) / 100},
             iva_total = ${Math.round(iva_total * 100) / 100},
-            iva_global = ${Math.round(iva_total * 100) / 100},
+            iva_global = ${ivaPctEfectivo},
             compensacion_reagp_pct = ${compensacion.pct},
             compensacion_reagp_importe = ${compensacion.importe},
             retencion_importe = ${Math.round(retencion_importe * 100) / 100},
@@ -1215,6 +1221,9 @@ export async function batchValidar(req, res) {
           const retencion_importe = (subtotal * retencion_porcentaje) / 100;
           const total = Math.round((subtotal + iva_total + compensacion.importe - retencion_importe) * 100) / 100;
 
+          const ivaPctEfectivo = subtotal > 0
+            ? Math.round((iva_total / subtotal) * 10000) / 100
+            : 0;
           const [updatedRecord] = await tx`
             update factura_180
             set estado = 'VALIDADA',
@@ -1224,7 +1233,7 @@ export async function batchValidar(req, res) {
                 fecha_validacion = current_date,
                 subtotal = ${Math.round(subtotal * 100) / 100},
                 iva_total = ${Math.round(iva_total * 100) / 100},
-                iva_global = ${Math.round(iva_total * 100) / 100},
+                iva_global = ${ivaPctEfectivo},
                 compensacion_reagp_pct = ${compensacion.pct},
                 compensacion_reagp_importe = ${compensacion.importe},
                 retencion_importe = ${Math.round(retencion_importe * 100) / 100},
