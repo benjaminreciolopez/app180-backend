@@ -10,11 +10,18 @@
 import { sql } from "../db.js";
 import {
   parseCsv,
+  parseSpreadsheet,
   parseNumero,
   parseFecha,
   parseBool,
   detectarSerie,
 } from "../services/csvImportService.js";
+
+// Helper común: parsea CSV o XLSX según la extensión y mimetype del archivo.
+async function readSheet(file) {
+  const { buffer, originalname, mimetype } = file;
+  return parseSpreadsheet(buffer, originalname || "", mimetype || "");
+}
 
 // =============================================================================
 // CLIENTES (clients_180 + client_fiscal_data_180)
@@ -48,9 +55,8 @@ function mapCol(row, alias) {
  */
 export async function previewClientesCsv(req, res) {
   try {
-    if (!req.file) return res.status(400).json({ error: "Falta el CSV" });
-    const text = req.file.buffer.toString("utf8");
-    const { headers, rows } = parseCsv(text);
+    if (!req.file) return res.status(400).json({ error: "Falta el archivo (CSV o XLSX)" });
+    const { headers, rows } = await readSheet(req.file);
     if (rows.length === 0) {
       return res.status(400).json({ error: "El CSV no tiene filas (¿falta cabecera?)" });
     }
@@ -118,9 +124,8 @@ export async function previewClientesCsv(req, res) {
  */
 export async function confirmClientesCsv(req, res) {
   try {
-    if (!req.file) return res.status(400).json({ error: "Falta el CSV" });
-    const text = req.file.buffer.toString("utf8");
-    const { rows } = parseCsv(text);
+    if (!req.file) return res.status(400).json({ error: "Falta el archivo (CSV o XLSX)" });
+    const { rows } = await readSheet(req.file);
     if (rows.length === 0) {
       return res.status(400).json({ error: "El CSV no tiene filas" });
     }
@@ -241,9 +246,8 @@ const FACTURA_HEADER_HINTS = {
  */
 export async function previewFacturasCsv(req, res) {
   try {
-    if (!req.file) return res.status(400).json({ error: "Falta el CSV" });
-    const text = req.file.buffer.toString("utf8");
-    const { headers, rows } = parseCsv(text);
+    if (!req.file) return res.status(400).json({ error: "Falta el archivo (CSV o XLSX)" });
+    const { headers, rows } = await readSheet(req.file);
     if (rows.length === 0) {
       return res.status(400).json({ error: "El CSV no tiene filas" });
     }
@@ -315,9 +319,27 @@ export async function previewFacturasCsv(req, res) {
         if (dup.length > 0) duplicada = true;
       }
 
-      // Cruce con asiento existente: misma fecha + total ± 0.02 + cuenta cliente típica (4300 + nif)
+      // Cruce con asiento existente. Prioridad: número de factura, luego
+      // heurístico por fecha + total.
       let asiento_match = null;
-      if (f.fecha && f.total != null) {
+      if (f.numero) {
+        try {
+          const numLike = `%${f.numero}%`;
+          const aRef = await sql`
+            SELECT id, numero FROM asientos_180
+            WHERE empresa_id = ${empresaId}
+              AND estado != 'anulado'
+              AND (
+                (referencia_tipo = 'factura' AND referencia_id = ${f.numero})
+                OR concepto ILIKE ${numLike}
+                OR notas ILIKE ${numLike}
+              )
+            LIMIT 1
+          `;
+          if (aRef.length > 0) asiento_match = { ...aRef[0], match_por: "numero" };
+        } catch { /* tabla puede no existir */ }
+      }
+      if (!asiento_match && f.fecha && f.total != null) {
         const totalNum = Number(f.total);
         try {
           const ax = await sql`
@@ -330,7 +352,7 @@ export async function previewFacturasCsv(req, res) {
               AND a.estado != 'anulado'
             LIMIT 1
           `;
-          if (ax.length > 0) asiento_match = ax[0];
+          if (ax.length > 0) asiento_match = { ...ax[0], match_por: "fecha_total" };
         } catch { /* tabla puede no existir aún en algunos entornos */ }
       }
 
@@ -374,9 +396,8 @@ export async function previewFacturasCsv(req, res) {
  */
 export async function confirmFacturasCsv(req, res) {
   try {
-    if (!req.file) return res.status(400).json({ error: "Falta el CSV" });
-    const text = req.file.buffer.toString("utf8");
-    const { rows } = parseCsv(text);
+    if (!req.file) return res.status(400).json({ error: "Falta el archivo (CSV o XLSX)" });
+    const { rows } = await readSheet(req.file);
     if (rows.length === 0) {
       return res.status(400).json({ error: "El CSV no tiene filas" });
     }
@@ -488,22 +509,45 @@ export async function confirmFacturasCsv(req, res) {
           continue;
         }
 
-        // Cruce con asiento existente (mismo día + importe ± 0.02)
+        // Cruce con asiento existente. Prioridad:
+        //   1) Match exacto por número de factura: referencia_id = numero
+        //      o concepto/notas contienen el número.
+        //   2) Match heurístico: misma fecha + total ± 0.02 €.
         let asientoId = null;
         try {
-          const ax = await sql`
-            SELECT DISTINCT a.id
-            FROM asientos_180 a
-            JOIN asiento_lineas_180 l ON l.asiento_id = a.id
-            WHERE a.empresa_id = ${empresaId}
-              AND a.fecha = ${f.fecha}
-              AND ABS((l.debe + l.haber) - ${f.total}) <= 0.02
-              AND a.estado != 'anulado'
+          // 1) Cruce por número de factura
+          const numLike = `%${f.numero}%`;
+          const aRef = await sql`
+            SELECT id FROM asientos_180
+            WHERE empresa_id = ${empresaId}
+              AND estado != 'anulado'
+              AND (
+                (referencia_tipo = 'factura' AND referencia_id = ${f.numero})
+                OR concepto ILIKE ${numLike}
+                OR notas ILIKE ${numLike}
+              )
             LIMIT 1
           `;
-          if (ax.length > 0) {
-            asientoId = ax[0].id;
+          if (aRef.length > 0) {
+            asientoId = aRef[0].id;
             asientosVinculados++;
+          }
+          // 2) Fallback por fecha + total
+          if (!asientoId) {
+            const ax = await sql`
+              SELECT DISTINCT a.id
+              FROM asientos_180 a
+              JOIN asiento_lineas_180 l ON l.asiento_id = a.id
+              WHERE a.empresa_id = ${empresaId}
+                AND a.fecha = ${f.fecha}
+                AND ABS((l.debe + l.haber) - ${f.total}) <= 0.02
+                AND a.estado != 'anulado'
+              LIMIT 1
+            `;
+            if (ax.length > 0) {
+              asientoId = ax[0].id;
+              asientosVinculados++;
+            }
           }
         } catch { /* asientos puede no existir */ }
 

@@ -461,6 +461,15 @@ export async function createFactura(req, res) {
       let subtotal = 0;
       let iva_total = 0;
 
+      // ¿La emite un asesor en nombre del cliente? (no es el dueño de la empresa)
+      // Detectamos: role asesor original o flag isAsesorContext seteado por
+      // authMiddleware/resolveTargetEmpresa cuando llega X-Empresa-Id.
+      const emiteAsesor = !!(
+        req.user?.originalRole === "asesor" ||
+        req.user?.isAsesorContext === true
+      );
+      const creadaPorAsesorId = emiteAsesor ? req.user.id : null;
+
       // Crear factura
       const [factura] = await tx`
         insert into factura_180 (
@@ -468,6 +477,7 @@ export async function createFactura(req, res) {
           subtotal, iva_total, total,
           retencion_porcentaje, retencion_importe,
           tipo_factura,
+          creada_por_asesor_id,
           created_at
         ) values (
           ${empresaId},
@@ -480,6 +490,7 @@ export async function createFactura(req, res) {
           0, 0, 0,
           ${retencion_porcentaje}, 0,
           ${tipo_factura},
+          ${creadaPorAsesorId},
           now()
         )
         returning *
@@ -572,6 +583,39 @@ export async function createFactura(req, res) {
         datosNuevos: { cliente_id, fecha, total: createdFactura.total }
       });
     });
+
+    // Si el asesor emitió en nombre del cliente Y el cliente tiene la app
+    // instalada (empresa_180.user_id no es null), avisar al cliente para que
+    // vea la factura en su panel y sepa que la emitió su gestor.
+    try {
+      if (req.user?.originalRole === "asesor" || req.user?.isAsesorContext === true) {
+        const [empresa] = await sql`
+          SELECT user_id, nombre FROM empresa_180 WHERE id = ${empresaId} LIMIT 1
+        `;
+        if (empresa?.user_id) {
+          const totalFmt = Number(createdFactura.total || 0).toFixed(2);
+          await sql`
+            INSERT INTO notificaciones_180 (
+              empresa_id, user_id, tipo, titulo, mensaje, origen, categoria, datos_extra
+            ) VALUES (
+              ${empresaId}, ${empresa.user_id},
+              'factura_emitida_por_asesor',
+              'Tu gestor ha emitido una factura por ti',
+              ${`Factura por ${totalFmt} € (fecha ${fecha}). Puedes verla y descargarla desde tu panel de facturación.`},
+              'facturacion', 'facturas',
+              ${JSON.stringify({
+                factura_id: createdFactura.id,
+                cliente_id,
+                fecha,
+                total: createdFactura.total,
+              })}
+            )
+          `;
+        }
+      }
+    } catch (err) {
+      console.error("Error notificando al cliente sobre factura emitida por asesor:", err);
+    }
 
     // --- AUTO-VALIDACIÓN EN MODO TEST ---
     // En modo TEST las facturas son ficticias (prueba de envío a AEAT),

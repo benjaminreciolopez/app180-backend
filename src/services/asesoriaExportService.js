@@ -8,6 +8,16 @@ import { sql } from "../db.js";
 // ============================================================
 
 /**
+ * Devuelve true si el valor de factura_180.estado_pago indica que está
+ * cobrada/pagada. Acepta variantes (masculino/femenino) porque el sistema
+ * almacena 'pagado' por defecto pero histórico puede tener 'pagada'/'cobrada'.
+ */
+function esFacturaPagada(estadoPago) {
+  const s = String(estadoPago || "").toLowerCase().trim();
+  return ["pagado", "pagada", "cobrado", "cobrada"].includes(s);
+}
+
+/**
  * Calcula las fechas de inicio y fin para un trimestre dado.
  * @param {number} anio - Año (e.g. 2026)
  * @param {number} trimestre - Trimestre (1-4)
@@ -117,6 +127,7 @@ async function fetchFacturasEmitidas(empresaId, desde, hasta) {
     LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
     WHERE f.empresa_id = ${empresaId}
       AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+      AND COALESCE(f.es_test, false) = false
       AND f.fecha >= ${desde}::date
       AND f.fecha <= ${hasta}::date
     ORDER BY f.fecha, f.numero
@@ -259,7 +270,7 @@ export async function generateExcelTrimestral(empresaId, anio, trimestre) {
       iva_total: parseFloat(f.iva_total),
       total: parseFloat(f.total),
       estado: f.estado,
-      cobrada: f.estado_pago === "cobrada" || f.estado_pago === "pagada" ? "Sí" : "No",
+      cobrada: esFacturaPagada(f.estado_pago) ? "Sí" : "No",
     });
   }
 
@@ -462,7 +473,7 @@ export async function generateCsvPack(empresaId, anio, trimestre) {
       { label: "IVA", getValue: (r) => parseFloat(r.iva_total).toFixed(2) },
       { label: "Total", getValue: (r) => parseFloat(r.total).toFixed(2) },
       { label: "Estado", getValue: (r) => r.estado },
-      { label: "Cobrada", getValue: (r) => (r.estado_pago === "cobrada" || r.estado_pago === "pagada") ? "Si" : "No" },
+      { label: "Cobrada", getValue: (r) => esFacturaPagada(r.estado_pago) ? "Si" : "No" },
     ],
     facturas
   );
@@ -790,7 +801,7 @@ function buildFacturasSheet(workbook, facturas) {
       iva_total: parseFloat(f.iva_total),
       total: parseFloat(f.total),
       estado: f.estado,
-      cobrada: f.estado_pago === "cobrada" || f.estado_pago === "pagada" ? "Si" : "No",
+      cobrada: esFacturaPagada(f.estado_pago) ? "Si" : "No",
     });
   }
   ws.getColumn("base_imponible").numFmt = CURRENCY_FORMAT;

@@ -1,14 +1,19 @@
 // backend/src/services/csvImportService.js
 //
-// Utilidades de parseo CSV/TSV para importaciones masivas (clientes, facturas,
-// gastos, etc.). Implementación local, sin dependencias adicionales — soporta:
-//   - Separadores ; , \t
-//   - Cabecera obligatoria en primera línea
-//   - Campos entrecomillados con " (RFC 4180-light)
+// Utilidades de parseo de hojas de cálculo (CSV / XLSX) para importaciones
+// masivas (clientes, facturas, gastos, etc.). Soporta:
+//   - CSV con separadores ; , \t y campos entrecomillados (RFC 4180-light)
+//   - XLSX (Excel moderno) vía exceljs (ya en dependencias del proyecto)
 //   - Formato de números español (1.234,56) y anglosajón (1234.56)
-//   - Fechas DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD
+//   - Fechas DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, y Date object de Excel
+//
+// API principal:
+//   - parseSpreadsheet(buffer, filename, mimetype) → { headers, rows }
+//   - parseCsv(text) (legacy / uso directo)
 //
 // Devuelve `{ headers, rows }` donde rows es un array de objetos por fila.
+
+import ExcelJS from "exceljs";
 
 /**
  * Detecta el separador más probable (;, , \t).
@@ -46,6 +51,101 @@ function parseLine(line, sep) {
   }
   out.push(cur);
   return out.map((s) => s.trim());
+}
+
+/**
+ * Parsea un Excel .xlsx desde un buffer. Toma la primera hoja con datos.
+ * Devuelve { headers, rows } con el mismo contrato que parseCsv:
+ *   - headers: array de strings en minúscula y trim.
+ *   - rows: array de objetos con keys = headers.
+ *   - cada fila incluye __line con el número de fila origen (1-based).
+ */
+export async function parseXlsx(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets.find((w) => w.rowCount > 0) || workbook.worksheets[0];
+  if (!sheet) return { headers: [], rows: [] };
+
+  const headers = [];
+  const headerRow = sheet.getRow(1);
+  headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+    headers[colNumber - 1] = String(cell.text || "").toLowerCase().trim();
+  });
+  // Rellenar huecos con strings vacías
+  for (let i = 0; i < headers.length; i++) if (!headers[i]) headers[i] = "";
+
+  const rows = [];
+  for (let r = 2; r <= sheet.rowCount; r++) {
+    const row = sheet.getRow(r);
+    const obj = {};
+    let empty = true;
+    for (let c = 1; c <= headers.length; c++) {
+      const h = headers[c - 1];
+      if (!h) continue;
+      const cell = row.getCell(c);
+      let val = "";
+      const v = cell.value;
+      if (v == null) {
+        val = "";
+      } else if (v instanceof Date) {
+        // Excel guarda fechas como Date; convertimos a DD/MM/YYYY (parseFecha lo soporta)
+        const d = v;
+        val = `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+      } else if (typeof v === "object" && v !== null) {
+        // Fórmulas: { result, formula }
+        if ("result" in v) val = String(v.result ?? "");
+        else if ("text" in v) val = String(v.text ?? "");
+        else if ("richText" in v && Array.isArray(v.richText)) {
+          val = v.richText.map((rt) => rt.text || "").join("");
+        } else {
+          val = cell.text || "";
+        }
+      } else {
+        val = String(v);
+      }
+      obj[h] = val.trim();
+      if (val !== "") empty = false;
+    }
+    if (!empty) {
+      obj.__line = r;
+      rows.push(obj);
+    }
+  }
+  return { headers: headers.filter(Boolean), rows };
+}
+
+/**
+ * Detecta tipo de archivo por extensión + mimetype y delega al parser
+ * adecuado. Buffer puede ser CSV (texto) o XLSX (binario).
+ */
+export async function parseSpreadsheet(buffer, filename = "", mimetype = "") {
+  const lower = (filename || "").toLowerCase();
+  const isXlsx =
+    lower.endsWith(".xlsx") ||
+    mimetype.includes("spreadsheetml") ||
+    mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const isXlsLegacy = lower.endsWith(".xls") && !isXlsx;
+
+  if (isXlsLegacy) {
+    const e = new Error(
+      "Formato .xls antiguo (Excel 97-2003) no soportado. Guárdalo como .xlsx o .csv y vuelve a subirlo."
+    );
+    e.status = 400;
+    throw e;
+  }
+
+  if (isXlsx) {
+    return await parseXlsx(buffer);
+  }
+
+  // Fallback CSV (texto). Probamos UTF-8 y, si trae caracteres raros, latin1.
+  let text = buffer.toString("utf8");
+  // Heurístico: si no hay separadores típicos pero buffer tiene contenido,
+  // intentamos latin1 (común en exports de software español antiguo).
+  if (text && !/[;,\t\n]/.test(text.slice(0, 200))) {
+    text = buffer.toString("latin1");
+  }
+  return parseCsv(text);
 }
 
 /**
