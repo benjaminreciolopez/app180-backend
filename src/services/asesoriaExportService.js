@@ -18,6 +18,21 @@ function esFacturaPagada(estadoPago) {
 }
 
 /**
+ * Formatea el tipo de IVA de una factura para el reporte. La query devuelve
+ * un string que puede ser numérico ("21.00") o el sentinel "Varios" cuando
+ * la factura tiene líneas con tipos distintos. Conserva la cifra cuando es
+ * numérica, devuelve literal "Varios" cuando lo es.
+ */
+function formatTipoIvaFactura(v) {
+  if (v == null) return "0.00";
+  const s = String(v).trim();
+  if (s === "" ) return "0.00";
+  if (/^varios$/i.test(s)) return "Varios";
+  const num = parseFloat(s);
+  return isNaN(num) ? s : num.toFixed(2);
+}
+
+/**
  * Calcula las fechas de inicio y fin para un trimestre dado.
  * @param {number} anio - Año (e.g. 2026)
  * @param {number} trimestre - Trimestre (1-4)
@@ -117,7 +132,21 @@ async function fetchFacturasEmitidas(empresaId, desde, hasta) {
       c.nombre AS cliente_nombre,
       COALESCE(NULLIF(cfd.nif_cif, ''), NULLIF(c.nif_cif, ''), NULLIF(c.nif, ''), '') AS nif_cliente,
       COALESCE(f.subtotal, 0) AS base_imponible,
-      COALESCE(f.iva_global, 0) AS iva_porcentaje,
+      -- Tipo de IVA derivado directamente de las líneas: si hay un único
+      -- tipo lo devolvemos numérico; si hay varios devolvemos 'Varios'.
+      -- Así el reporte refleja la realidad multi-IVA de cada factura.
+      COALESCE(
+        (
+          SELECT CASE
+            WHEN COUNT(DISTINCT lf.iva_percent) = 0 THEN COALESCE(f.iva_global, 0)::text
+            WHEN COUNT(DISTINCT lf.iva_percent) = 1 THEN MIN(lf.iva_percent)::text
+            ELSE 'Varios'
+          END
+          FROM lineafactura_180 lf
+          WHERE lf.factura_id = f.id
+        ),
+        COALESCE(f.iva_global, 0)::text
+      ) AS iva_porcentaje,
       COALESCE(f.iva_total, 0) AS iva_total,
       COALESCE(f.total, 0) AS total,
       f.estado,
@@ -131,6 +160,62 @@ async function fetchFacturasEmitidas(empresaId, desde, hasta) {
       AND f.fecha >= ${desde}::date
       AND f.fecha <= ${hasta}::date
     ORDER BY f.fecha, f.numero
+  `;
+}
+
+/**
+ * Devuelve UNA fila por par (factura, tipo de IVA). Útil para facturas
+ * multi-IVA: una factura con líneas a 21% y 4% genera dos filas con sus
+ * respectivas bases y cuotas. Cada factura mono-IVA genera una sola fila.
+ *
+ * El resultado se ordena por fecha + número + tipo IVA para que en el Excel
+ * las filas de una misma factura queden contiguas.
+ */
+async function fetchLineasIvaVentas(empresaId, desde, hasta) {
+  return sql`
+    SELECT
+      f.numero,
+      f.fecha,
+      c.nombre AS cliente_nombre,
+      COALESCE(NULLIF(cfd.nif_cif, ''), NULLIF(c.nif_cif, ''), NULLIF(c.nif, ''), '') AS nif_cliente,
+      COALESCE(lf.iva_percent, 0)::numeric AS iva_percent,
+      ROUND(SUM(lf.cantidad * lf.precio_unitario)::numeric, 2) AS base,
+      ROUND(SUM(lf.cantidad * lf.precio_unitario * COALESCE(lf.iva_percent, 0) / 100)::numeric, 2) AS cuota
+    FROM lineafactura_180 lf
+    JOIN factura_180 f ON f.id = lf.factura_id
+    LEFT JOIN clients_180 c ON f.cliente_id = c.id
+    LEFT JOIN client_fiscal_data_180 cfd ON cfd.cliente_id = c.id
+    WHERE f.empresa_id = ${empresaId}
+      AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+      AND COALESCE(f.es_test, false) = false
+      AND f.fecha >= ${desde}::date
+      AND f.fecha <= ${hasta}::date
+    GROUP BY f.numero, f.fecha, c.nombre, cfd.nif_cif, c.nif_cif, c.nif, lf.iva_percent
+    ORDER BY f.fecha, f.numero, lf.iva_percent
+  `;
+}
+
+/**
+ * Resumen agregado por tipo de IVA repercutido (ventas) en el periodo.
+ * Devuelve una fila por tipo: 0%, 4%, 10%, 21%, etc., con base y cuota.
+ * Pensado para alimentar el modelo 303 directamente.
+ */
+async function fetchResumenIvaVentas(empresaId, desde, hasta) {
+  return sql`
+    SELECT
+      COALESCE(lf.iva_percent, 0)::numeric AS iva_percent,
+      ROUND(SUM(lf.cantidad * lf.precio_unitario)::numeric, 2) AS base,
+      ROUND(SUM(lf.cantidad * lf.precio_unitario * COALESCE(lf.iva_percent, 0) / 100)::numeric, 2) AS cuota,
+      COUNT(DISTINCT lf.factura_id)::int AS num_facturas
+    FROM lineafactura_180 lf
+    JOIN factura_180 f ON f.id = lf.factura_id
+    WHERE f.empresa_id = ${empresaId}
+      AND f.estado IN ('VALIDADA', 'ENVIADA', 'COBRADA')
+      AND COALESCE(f.es_test, false) = false
+      AND f.fecha >= ${desde}::date
+      AND f.fecha <= ${hasta}::date
+    GROUP BY lf.iva_percent
+    ORDER BY lf.iva_percent
   `;
 }
 
@@ -233,8 +318,10 @@ export async function generateExcelTrimestral(empresaId, anio, trimestre) {
   const { mesInicio, mesFin } = getMesesTrimestre(trimestre);
 
   // Obtener datos en paralelo
-  const [facturas, gastos, nominas, datosFiscales] = await Promise.all([
+  const [facturas, lineasIva, resumenIva, gastos, nominas, datosFiscales] = await Promise.all([
     fetchFacturasEmitidas(empresaId, desde, hasta),
+    fetchLineasIvaVentas(empresaId, desde, hasta),
+    fetchResumenIvaVentas(empresaId, desde, hasta),
     fetchGastosCompras(empresaId, desde, hasta),
     fetchNominas(empresaId, anio, mesInicio, mesFin),
     fetchDatosFiscales(empresaId),
@@ -266,7 +353,7 @@ export async function generateExcelTrimestral(empresaId, anio, trimestre) {
       cliente: f.cliente_nombre || "",
       nif_cliente: f.nif_cliente || "",
       base_imponible: parseFloat(f.base_imponible),
-      iva_porcentaje: parseFloat(f.iva_porcentaje),
+      iva_porcentaje: formatTipoIvaFactura(f.iva_porcentaje),
       iva_total: parseFloat(f.iva_total),
       total: parseFloat(f.total),
       estado: f.estado,
@@ -282,7 +369,38 @@ export async function generateExcelTrimestral(empresaId, anio, trimestre) {
 
   styleSheet(wsFacturas);
 
-  // --- Sheet 2: Gastos-Compras ---
+  // --- Sheet 2: Detalle IVA Ventas (multi-IVA) ---
+  // Una fila por par (factura, tipo IVA). Las facturas mono-IVA aparecen
+  // con una sola fila; las que tienen líneas a varios tipos aparecen
+  // varias veces. Esta hoja es la fuente de verdad para el modelo 303.
+  const wsDetalleIva = workbook.addWorksheet("Detalle IVA Ventas");
+  wsDetalleIva.columns = [
+    { header: "N° Factura", key: "numero", width: 16 },
+    { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Cliente", key: "cliente", width: 28 },
+    { header: "NIF Cliente", key: "nif_cliente", width: 16 },
+    { header: "Tipo IVA (%)", key: "iva_percent", width: 14 },
+    { header: "Base", key: "base", width: 14 },
+    { header: "Cuota IVA", key: "cuota", width: 14 },
+  ];
+  for (const li of lineasIva) {
+    wsDetalleIva.addRow({
+      numero: li.numero || "Borrador",
+      fecha: li.fecha ? new Date(li.fecha) : "",
+      cliente: li.cliente_nombre || "",
+      nif_cliente: li.nif_cliente || "",
+      iva_percent: parseFloat(li.iva_percent),
+      base: parseFloat(li.base),
+      cuota: parseFloat(li.cuota),
+    });
+  }
+  wsDetalleIva.getColumn("base").numFmt = CURRENCY_FORMAT;
+  wsDetalleIva.getColumn("cuota").numFmt = CURRENCY_FORMAT;
+  wsDetalleIva.getColumn("fecha").numFmt = "DD/MM/YYYY";
+  wsDetalleIva.getColumn("iva_percent").numFmt = '0.00"%"';
+  styleSheet(wsDetalleIva);
+
+  // --- Sheet 3: Gastos-Compras ---
   const wsGastos = workbook.addWorksheet("Gastos-Compras");
   wsGastos.columns = [
     { header: "Fecha", key: "fecha", width: 14 },
@@ -349,45 +467,63 @@ export async function generateExcelTrimestral(empresaId, anio, trimestre) {
 
   styleSheet(wsNominas);
 
-  // --- Sheet 4: Resumen IVA ---
+  // --- Sheet 4: Resumen IVA (con desglose por tipo) ---
   const wsResumenIva = workbook.addWorksheet("Resumen IVA");
   wsResumenIva.columns = [
-    { header: "Concepto", key: "concepto", width: 32 },
-    { header: "Importe", key: "importe", width: 18 },
+    { header: "Concepto", key: "concepto", width: 36 },
+    { header: "Base", key: "base", width: 14 },
+    { header: "Importe", key: "importe", width: 14 },
   ];
 
-  const totalIvaRepercutido = facturas.reduce(
-    (sum, f) => sum + parseFloat(f.iva_total || 0),
-    0
-  );
+  // 1) Desglose IVA repercutido por tipo (alimenta directamente el modelo 303)
+  wsResumenIva.addRow({ concepto: "IVA REPERCUTIDO (VENTAS) — desglose por tipo" }).font = { bold: true };
+  let totalIvaRepercutido = 0;
+  let totalBaseVentas = 0;
+  for (const r of resumenIva) {
+    const base = parseFloat(r.base || 0);
+    const cuota = parseFloat(r.cuota || 0);
+    totalBaseVentas += base;
+    totalIvaRepercutido += cuota;
+    wsResumenIva.addRow({
+      concepto: `  Tipo ${parseFloat(r.iva_percent).toFixed(2)} % (${r.num_facturas} fact.)`,
+      base: Math.round(base * 100) / 100,
+      importe: Math.round(cuota * 100) / 100,
+    });
+  }
+  wsResumenIva.addRow({
+    concepto: "TOTAL IVA Repercutido",
+    base: Math.round(totalBaseVentas * 100) / 100,
+    importe: Math.round(totalIvaRepercutido * 100) / 100,
+  }).font = { bold: true };
+
+  wsResumenIva.addRow({});
+
+  // 2) IVA soportado (gastos)
   const totalIvaSoportado = gastos.reduce(
     (sum, g) => sum + parseFloat(g.iva_importe || 0),
     0
   );
-  const diferenciaIva = totalIvaRepercutido - totalIvaSoportado;
-
-  wsResumenIva.addRow({
-    concepto: "IVA Repercutido (Ventas)",
-    importe: Math.round(totalIvaRepercutido * 100) / 100,
-  });
+  const totalBaseGastos = gastos.reduce(
+    (sum, g) => sum + parseFloat(g.base_imponible || 0),
+    0
+  );
   wsResumenIva.addRow({
     concepto: "IVA Soportado (Compras)",
+    base: Math.round(totalBaseGastos * 100) / 100,
     importe: Math.round(totalIvaSoportado * 100) / 100,
   });
 
-  // Fila separadora vacía
   wsResumenIva.addRow({});
 
+  // 3) Diferencia
+  const diferenciaIva = totalIvaRepercutido - totalIvaSoportado;
   const filaDiferencia = wsResumenIva.addRow({
     concepto: diferenciaIva >= 0 ? "A INGRESAR" : "A COMPENSAR / DEVOLVER",
     importe: Math.round(diferenciaIva * 100) / 100,
   });
+  filaDiferencia.eachCell((cell) => { cell.font = { bold: true, size: 12 }; });
 
-  // Destacar la fila de resultado
-  filaDiferencia.eachCell((cell) => {
-    cell.font = { bold: true, size: 12 };
-  });
-
+  wsResumenIva.getColumn("base").numFmt = CURRENCY_FORMAT;
   wsResumenIva.getColumn("importe").numFmt = CURRENCY_FORMAT;
 
   styleSheet(wsResumenIva);
@@ -441,8 +577,9 @@ export async function generateCsvPack(empresaId, anio, trimestre) {
   const { desde, hasta } = getTrimestreDates(anio, trimestre);
   const { mesInicio, mesFin } = getMesesTrimestre(trimestre);
 
-  const [facturas, gastos, nominas] = await Promise.all([
+  const [facturas, lineasIva, gastos, nominas] = await Promise.all([
     fetchFacturasEmitidas(empresaId, desde, hasta),
+    fetchLineasIvaVentas(empresaId, desde, hasta),
     fetchGastosCompras(empresaId, desde, hasta),
     fetchNominas(empresaId, anio, mesInicio, mesFin),
   ]);
@@ -469,7 +606,7 @@ export async function generateCsvPack(empresaId, anio, trimestre) {
       { label: "Cliente", getValue: (r) => r.cliente_nombre || "" },
       { label: "NIF Cliente", getValue: (r) => r.nif_cliente || "" },
       { label: "Base Imponible", getValue: (r) => parseFloat(r.base_imponible).toFixed(2) },
-      { label: "Tipo IVA (%)", getValue: (r) => parseFloat(r.iva_porcentaje).toFixed(2) },
+      { label: "Tipo IVA (%)", getValue: (r) => formatTipoIvaFactura(r.iva_porcentaje) },
       { label: "IVA", getValue: (r) => parseFloat(r.iva_total).toFixed(2) },
       { label: "Total", getValue: (r) => parseFloat(r.total).toFixed(2) },
       { label: "Estado", getValue: (r) => r.estado },
@@ -508,10 +645,25 @@ export async function generateCsvPack(empresaId, anio, trimestre) {
     nominas
   );
 
+  // CSV Detalle IVA Ventas (multi-IVA: una fila por par factura+tipo)
+  const csvDetalleIva = toCsv(
+    [
+      { label: "N Factura", getValue: (r) => r.numero || "Borrador" },
+      { label: "Fecha", getValue: (r) => r.fecha ? new Date(r.fecha).toLocaleDateString("es-ES") : "" },
+      { label: "Cliente", getValue: (r) => r.cliente_nombre || "" },
+      { label: "NIF Cliente", getValue: (r) => r.nif_cliente || "" },
+      { label: "Tipo IVA (%)", getValue: (r) => parseFloat(r.iva_percent).toFixed(2) },
+      { label: "Base", getValue: (r) => parseFloat(r.base).toFixed(2) },
+      { label: "Cuota IVA", getValue: (r) => parseFloat(r.cuota).toFixed(2) },
+    ],
+    lineasIva
+  );
+
   const q = `Q${trimestre}`;
 
   return [
     { filename: `facturas_emitidas_${anio}_${q}.csv`, content: csvFacturas },
+    { filename: `detalle_iva_ventas_${anio}_${q}.csv`, content: csvDetalleIva },
     { filename: `facturas_recibidas_${anio}_${q}.csv`, content: csvGastos },
     { filename: `nominas_${anio}_${q}.csv`, content: csvNominas },
   ];
@@ -581,8 +733,10 @@ export async function generateExcelMensual(empresaId, anio, mes) {
   const lastDay = new Date(y, m, 0).getDate();
   const hasta = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-  const [facturas, gastos, nominas, datosFiscales] = await Promise.all([
+  const [facturas, lineasIva, resumenIva, gastos, nominas, datosFiscales] = await Promise.all([
     fetchFacturasEmitidas(empresaId, desde, hasta),
+    fetchLineasIvaVentas(empresaId, desde, hasta),
+    fetchResumenIvaVentas(empresaId, desde, hasta),
     fetchGastosCompras(empresaId, desde, hasta),
     fetchNominas(empresaId, anio, m, m),
     fetchDatosFiscales(empresaId),
@@ -593,9 +747,10 @@ export async function generateExcelMensual(empresaId, anio, mes) {
   workbook.created = new Date();
 
   buildFacturasSheet(workbook, facturas);
+  buildDetalleIvaSheet(workbook, lineasIva);
   buildGastosSheet(workbook, gastos);
   buildNominasSheet(workbook, nominas);
-  buildResumenIvaSheet(workbook, facturas, gastos);
+  buildResumenIvaSheet(workbook, facturas, gastos, resumenIva);
   buildDatosFiscalesSheet(workbook, datosFiscales);
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -797,7 +952,7 @@ function buildFacturasSheet(workbook, facturas) {
       cliente: f.cliente_nombre || "",
       nif_cliente: f.nif_cliente || "",
       base_imponible: parseFloat(f.base_imponible),
-      iva_porcentaje: parseFloat(f.iva_porcentaje),
+      iva_porcentaje: formatTipoIvaFactura(f.iva_porcentaje),
       iva_total: parseFloat(f.iva_total),
       total: parseFloat(f.total),
       estado: f.estado,
@@ -872,24 +1027,100 @@ function buildNominasSheet(workbook, nominas) {
   styleSheet(ws);
 }
 
-function buildResumenIvaSheet(workbook, facturas, gastos) {
+function buildDetalleIvaSheet(workbook, lineasIva) {
+  const ws = workbook.addWorksheet("Detalle IVA Ventas");
+  ws.columns = [
+    { header: "N° Factura", key: "numero", width: 16 },
+    { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Cliente", key: "cliente", width: 28 },
+    { header: "NIF Cliente", key: "nif_cliente", width: 16 },
+    { header: "Tipo IVA (%)", key: "iva_percent", width: 14 },
+    { header: "Base", key: "base", width: 14 },
+    { header: "Cuota IVA", key: "cuota", width: 14 },
+  ];
+  for (const li of lineasIva) {
+    ws.addRow({
+      numero: li.numero || "Borrador",
+      fecha: li.fecha ? new Date(li.fecha) : "",
+      cliente: li.cliente_nombre || "",
+      nif_cliente: li.nif_cliente || "",
+      iva_percent: parseFloat(li.iva_percent),
+      base: parseFloat(li.base),
+      cuota: parseFloat(li.cuota),
+    });
+  }
+  ws.getColumn("base").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("cuota").numFmt = CURRENCY_FORMAT;
+  ws.getColumn("fecha").numFmt = "DD/MM/YYYY";
+  ws.getColumn("iva_percent").numFmt = '0.00"%"';
+  styleSheet(ws);
+}
+
+/**
+ * Hoja "Resumen IVA" con desglose por tipo (alimenta directamente el modelo
+ * 303). Si `resumenIva` no se pasa, calcula sin desglose para preservar
+ * compatibilidad.
+ */
+function buildResumenIvaSheet(workbook, facturas, gastos, resumenIva = null) {
   const ws = workbook.addWorksheet("Resumen IVA");
   ws.columns = [
-    { header: "Concepto", key: "concepto", width: 32 },
-    { header: "Importe", key: "importe", width: 18 },
+    { header: "Concepto", key: "concepto", width: 36 },
+    { header: "Base", key: "base", width: 14 },
+    { header: "Importe", key: "importe", width: 14 },
   ];
-  const totalIvaRep = facturas.reduce((s, f) => s + parseFloat(f.iva_total || 0), 0);
-  const totalIvaSop = gastos.reduce((s, g) => s + parseFloat(g.iva_importe || 0), 0);
-  const dif = totalIvaRep - totalIvaSop;
 
-  ws.addRow({ concepto: "IVA Repercutido (Ventas)", importe: Math.round(totalIvaRep * 100) / 100 });
-  ws.addRow({ concepto: "IVA Soportado (Compras)", importe: Math.round(totalIvaSop * 100) / 100 });
+  let totalIvaRep = 0;
+  let totalBaseVentas = 0;
+
+  if (Array.isArray(resumenIva) && resumenIva.length > 0) {
+    ws.addRow({ concepto: "IVA REPERCUTIDO (VENTAS) — desglose por tipo" }).font = { bold: true };
+    for (const r of resumenIva) {
+      const base = parseFloat(r.base || 0);
+      const cuota = parseFloat(r.cuota || 0);
+      totalBaseVentas += base;
+      totalIvaRep += cuota;
+      ws.addRow({
+        concepto: `  Tipo ${parseFloat(r.iva_percent).toFixed(2)} % (${r.num_facturas} fact.)`,
+        base: Math.round(base * 100) / 100,
+        importe: Math.round(cuota * 100) / 100,
+      });
+    }
+    ws.addRow({
+      concepto: "TOTAL IVA Repercutido",
+      base: Math.round(totalBaseVentas * 100) / 100,
+      importe: Math.round(totalIvaRep * 100) / 100,
+    }).font = { bold: true };
+  } else {
+    // Fallback sin desglose
+    totalIvaRep = facturas.reduce((s, f) => s + parseFloat(f.iva_total || 0), 0);
+    totalBaseVentas = facturas.reduce((s, f) => s + parseFloat(f.base_imponible || 0), 0);
+    ws.addRow({
+      concepto: "IVA Repercutido (Ventas)",
+      base: Math.round(totalBaseVentas * 100) / 100,
+      importe: Math.round(totalIvaRep * 100) / 100,
+    });
+  }
+
   ws.addRow({});
+
+  const totalIvaSop = gastos.reduce((s, g) => s + parseFloat(g.iva_importe || 0), 0);
+  const totalBaseGastos = gastos.reduce((s, g) => s + parseFloat(g.base_imponible || 0), 0);
+  ws.addRow({
+    concepto: "IVA Soportado (Compras)",
+    base: Math.round(totalBaseGastos * 100) / 100,
+    importe: Math.round(totalIvaSop * 100) / 100,
+  });
+
+  ws.addRow({});
+
+  const dif = totalIvaRep - totalIvaSop;
   const filaDif = ws.addRow({
     concepto: dif >= 0 ? "A INGRESAR" : "A COMPENSAR / DEVOLVER",
     importe: Math.round(dif * 100) / 100,
   });
   filaDif.eachCell((cell) => { cell.font = { bold: true, size: 12 }; });
+
+  ws.getColumn("base").numFmt = CURRENCY_FORMAT;
   ws.getColumn("importe").numFmt = CURRENCY_FORMAT;
   styleSheet(ws);
 }

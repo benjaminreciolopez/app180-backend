@@ -42,6 +42,30 @@ function n(v) {
   return v === undefined || v === null ? null : v;
 }
 
+/**
+ * Devuelve el porcentaje de IVA "global" de una factura a partir de sus
+ * líneas. Si todas las líneas tienen el mismo `iva_percent`, lo devuelve
+ * literalmente. Si hay varios tipos distintos (multi-IVA) devuelve 0,
+ * que actúa como sentinel para que el listado/export lo etiquete como
+ * "Varios" mirando directamente las líneas.
+ *
+ * Mantiene `factura_180.iva_global` semánticamente coherente con el
+ * resto del código (que lo trata como porcentaje, nunca como importe).
+ */
+function calcularIvaGlobalPorLineas(lineas) {
+  if (!Array.isArray(lineas) || lineas.length === 0) return 0;
+  const tipos = new Set();
+  for (const l of lineas) {
+    const p = Number(l.iva_percent ?? l.iva ?? 0);
+    if (!isNaN(p)) tipos.add(p);
+  }
+  if (tipos.size === 1) {
+    return [...tipos][0];
+  }
+  // Multi-IVA: el reporte/UI lo distingue mirando las líneas directamente.
+  return 0;
+}
+
 // REAGP: el autónomo agrícola/ganadero/pesca no repercute IVA (Art. 130 LIVA)
 // pero percibe compensación a tanto alzado (12% agric/forestal o 10,5% ganadería/pesca).
 async function loadRegimenEmisor(executor, empresaId) {
@@ -651,9 +675,9 @@ export async function createFactura(req, res) {
         const ret_imp = (subtotal * ret_pct) / 100;
         const total = Math.round((subtotal + iva_total + compensacion.importe - ret_imp) * 100) / 100;
 
-        const ivaPctEfectivo = subtotal > 0
-          ? Math.round((iva_total / subtotal) * 10000) / 100
-          : 0;
+        // En multi-IVA dejamos iva_global=0 y el listado/export muestra
+        // "Varios" mirando directamente las líneas.
+        const ivaPctEfectivo = calcularIvaGlobalPorLineas(lineas_db);
         const [updatedRecord] = await tx`
           update factura_180
           set estado = 'VALIDADA',
@@ -983,9 +1007,8 @@ export async function validarFactura(req, res) {
       const total = Math.round((subtotal + iva_total + compensacion.importe - retencion_importe) * 100) / 100;
 
       // Actualizar factura
-      const ivaPctEfectivo = subtotal > 0
-        ? Math.round((iva_total / subtotal) * 10000) / 100
-        : 0;
+      // Multi-IVA → 0 (el export lo etiquetará como "Varios")
+      const ivaPctEfectivo = calcularIvaGlobalPorLineas(lineas);
       const [updatedRecord] = await tx`
         update factura_180
         set estado = 'VALIDADA',
@@ -1221,9 +1244,8 @@ export async function batchValidar(req, res) {
           const retencion_importe = (subtotal * retencion_porcentaje) / 100;
           const total = Math.round((subtotal + iva_total + compensacion.importe - retencion_importe) * 100) / 100;
 
-          const ivaPctEfectivo = subtotal > 0
-            ? Math.round((iva_total / subtotal) * 10000) / 100
-            : 0;
+          // Multi-IVA → 0 (el export lo etiquetará como "Varios")
+          const ivaPctEfectivo = calcularIvaGlobalPorLineas(lineas);
           const [updatedRecord] = await tx`
             update factura_180
             set estado = 'VALIDADA',
