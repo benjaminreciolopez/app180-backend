@@ -22,7 +22,7 @@ export async function getContratos(req, res) {
       rows = await sql`
         SELECT c.*,
                COALESCE(u.nombre, e.nombre) AS nombre_empleado,
-               e.dni, e.puesto
+               e.dni_nif AS dni, e.puesto
         FROM contratos_180 c
         JOIN employees_180 e ON c.employee_id = e.id
         LEFT JOIN users_180 u ON e.user_id = u.id
@@ -35,7 +35,7 @@ export async function getContratos(req, res) {
       rows = await sql`
         SELECT c.*,
                COALESCE(u.nombre, e.nombre) AS nombre_empleado,
-               e.dni, e.puesto
+               e.dni_nif AS dni, e.puesto
         FROM contratos_180 c
         JOIN employees_180 e ON c.employee_id = e.id
         LEFT JOIN users_180 u ON e.user_id = u.id
@@ -47,7 +47,7 @@ export async function getContratos(req, res) {
       rows = await sql`
         SELECT c.*,
                COALESCE(u.nombre, e.nombre) AS nombre_empleado,
-               e.dni, e.puesto
+               e.dni_nif AS dni, e.puesto
         FROM contratos_180 c
         JOIN employees_180 e ON c.employee_id = e.id
         LEFT JOIN users_180 u ON e.user_id = u.id
@@ -59,7 +59,7 @@ export async function getContratos(req, res) {
       rows = await sql`
         SELECT c.*,
                COALESCE(u.nombre, e.nombre) AS nombre_empleado,
-               e.dni, e.puesto
+               e.dni_nif AS dni, e.puesto
         FROM contratos_180 c
         JOIN employees_180 e ON c.employee_id = e.id
         LEFT JOIN users_180 u ON e.user_id = u.id
