@@ -17,6 +17,33 @@ import logger from "../utils/logger.js";
 
 const ENABLED = process.env.RLS_TENANT_CONTEXT_ENABLED === "true";
 
+/**
+ * Ejecuta `fn` dentro de un contexto RLS programático.
+ * Útil en handlers que no pasan por el middleware (auth/login) y que
+ * necesitan setear app.empresa_id una vez identificada la empresa.
+ *
+ * Si RLS está desactivado, simplemente ejecuta `fn` sin reservar conexión.
+ */
+export async function withTenantContext({ empresaId, role = "admin", asesoriaId = null }, fn) {
+  if (!ENABLED || !empresaId) return fn();
+
+  const reserved = await poolSql.reserve();
+  try {
+    await reserved`SELECT set_config('app.empresa_id', ${String(empresaId)}, false)`;
+    await reserved`SELECT set_config('app.role', ${role}, false)`;
+    if (asesoriaId) {
+      await reserved`SELECT set_config('app.asesoria_id', ${String(asesoriaId)}, false)`;
+    }
+    return await new Promise((resolve, reject) => {
+      tenantStorage.run(reserved, () => {
+        Promise.resolve(fn()).then(resolve, reject);
+      });
+    });
+  } finally {
+    try { reserved.release(); } catch (e) { logger.warn("withTenantContext release failed", { message: e.message }); }
+  }
+}
+
 export async function tenantContext(req, res, next) {
   if (!ENABLED) return next();
 

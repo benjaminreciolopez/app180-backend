@@ -11,6 +11,7 @@ import { ensureSelfEmployee } from "../../services/ensureSelfEmployee.js";
 import { backupService } from "../../services/backupService.js";
 import { seedKnowledge } from "../../services/knowledgeSeedService.js";
 import { registrarEventoVerifactu } from "../verifactuEventosController.js";
+import { withTenantContext } from "../../middlewares/tenantContext.js";
 
 export const googleAuth = async (req, res) => {
   try {
@@ -143,10 +144,13 @@ export const googleAuth = async (req, res) => {
         pagos: true,
         fiscal: true,
       };
-      await sql`
-        INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens, ai_limite_diario, ai_limite_mensual, ai_creditos_extra)
-        VALUES (${empresaId}, ${sql.json(allModulos)}, 1000, 0, 0, 0)
-      `;
+      // INSERT en tabla tenant: necesita app.empresa_id seteado para que RLS WITH CHECK pase.
+      await withTenantContext({ empresaId, role: user.role }, async () => {
+        await sql`
+          INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens, ai_limite_diario, ai_limite_mensual, ai_creditos_extra)
+          VALUES (${empresaId}, ${sql.json(allModulos)}, 1000, 0, 0, 0)
+        `;
+      });
 
       // Inicializar Base de Conocimiento
       seedKnowledge(empresaId).catch(err => {
@@ -164,69 +168,72 @@ export const googleAuth = async (req, res) => {
 
     }
 
-    // Load modules
+    // Todo lo que sigue toca tablas tenant (empresa_config_180, employees_180,
+    // employee_devices_180) — ejecutarlo dentro del contexto RLS de la empresa.
     let modulos = {};
-    if (empresaId) {
-      const cfg = await sql`
-        SELECT modulos, modulos_mobile FROM empresa_config_180
-        WHERE empresa_id = ${empresaId} LIMIT 1
-      `;
-      modulos = cfg[0]?.modulos || {};
-
-      // Si estamos en movil (hay device_hash en body) y existe config movil, usarla
-      const device_hash_input = req.body.device_hash;
-      if (device_hash_input && cfg[0]?.modulos_mobile) {
-        modulos = { ...modulos, ...cfg[0].modulos_mobile };
-      }
-    }
-
-    // Ensure self employee if module active
     let empleadoId = null;
-    if (user.role === "admin" && empresaId && modulos.empleados !== false) {
-      empleadoId = await ensureSelfEmployee({
-        userId: user.id,
-        empresaId,
-        nombre: user.nombre,
-      });
-    }
 
-    // ===================================
-    // DEVICE REGISTRATION (Added for Google Login)
-    // ===================================
-    const device_hash = req.body.device_hash;
-    const user_agent = req.body.user_agent;
-    const ipActual = req.ip;
-
-
-    if (empleadoId && device_hash) {
-      const deviceRows = await sql`
-        SELECT * FROM employee_devices_180 WHERE empleado_id = ${empleadoId}
-      `;
-
-      if (deviceRows.length === 0) {
-        await sql`
-          INSERT INTO employee_devices_180
-            (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
-          VALUES
-            (${user.id}, ${empleadoId}, ${empresaId}, ${device_hash},
-             ${user_agent || null}, true, ${ipActual})
+    await withTenantContext({ empresaId, role: user.role }, async () => {
+      // Load modules
+      if (empresaId) {
+        const cfg = await sql`
+          SELECT modulos, modulos_mobile FROM empresa_config_180
+          WHERE empresa_id = ${empresaId} LIMIT 1
         `;
-      } else {
-        const device = deviceRows[0];
-        if (device.device_hash !== device_hash) {
-          // Si es admin o empleado, actualizamos para permitir cambio de dispositivo en login social
-          // (O aplicar misma lógica estricta que login normal si se prefiere)
-          await sql`
-            UPDATE employee_devices_180
-            SET device_hash = ${device_hash},
-                user_agent = ${user_agent || device.user_agent},
-                ip_habitual = ${ipActual},
-                updated_at = now()
-            WHERE id = ${device.id}
-           `;
+        modulos = cfg[0]?.modulos || {};
+
+        // Si estamos en movil (hay device_hash en body) y existe config movil, usarla
+        const device_hash_input = req.body.device_hash;
+        if (device_hash_input && cfg[0]?.modulos_mobile) {
+          modulos = { ...modulos, ...cfg[0].modulos_mobile };
         }
       }
-    }
+
+      // Ensure self employee if module active
+      if (user.role === "admin" && empresaId && modulos.empleados !== false) {
+        empleadoId = await ensureSelfEmployee({
+          userId: user.id,
+          empresaId,
+          nombre: user.nombre,
+        });
+      }
+
+      // ===================================
+      // DEVICE REGISTRATION (Added for Google Login)
+      // ===================================
+      const device_hash = req.body.device_hash;
+      const user_agent = req.body.user_agent;
+      const ipActual = req.ip;
+
+      if (empleadoId && device_hash) {
+        const deviceRows = await sql`
+          SELECT * FROM employee_devices_180 WHERE empleado_id = ${empleadoId}
+        `;
+
+        if (deviceRows.length === 0) {
+          await sql`
+            INSERT INTO employee_devices_180
+              (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
+            VALUES
+              (${user.id}, ${empleadoId}, ${empresaId}, ${device_hash},
+               ${user_agent || null}, true, ${ipActual})
+          `;
+        } else {
+          const device = deviceRows[0];
+          if (device.device_hash !== device_hash) {
+            // Si es admin o empleado, actualizamos para permitir cambio de dispositivo en login social
+            await sql`
+              UPDATE employee_devices_180
+              SET device_hash = ${device_hash},
+                  user_agent = ${user_agent || device.user_agent},
+                  ip_habitual = ${ipActual},
+                  updated_at = now()
+              WHERE id = ${device.id}
+             `;
+          }
+        }
+      }
+    });
 
     // ===================================
     // TRIGGER BACKUP SILENCIOSO (Google Auth)

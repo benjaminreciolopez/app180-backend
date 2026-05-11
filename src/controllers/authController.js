@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { sql } from "../db.js";
 import { config } from "../config.js";
 import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
+import { withTenantContext } from "../middlewares/tenantContext.js";
 import crypto from "crypto";
 import { sendEmail } from "../services/emailService.js";
 import { google } from "googleapis";
@@ -336,25 +337,28 @@ export const login = async (req, res) => {
 
     // =========================
     // ADMIN → empleado lógico (si módulo empleados activo)
+    // Necesita contexto RLS porque toca empresa_config_180 y employees_180.
     // =========================
 
     if (user.role === "admin" && empresaId) {
-      const cfg = await sql`
-        SELECT modulos
-        FROM empresa_config_180
-        WHERE empresa_id = ${empresaId}
-        LIMIT 1
-      `;
+      await withTenantContext({ empresaId, role: user.role }, async () => {
+        const cfg = await sql`
+          SELECT modulos
+          FROM empresa_config_180
+          WHERE empresa_id = ${empresaId}
+          LIMIT 1
+        `;
 
-      const modulos = cfg[0]?.modulos || {};
+        const modulos = cfg[0]?.modulos || {};
 
-      if (modulos.empleados !== false) {
-        empleadoId = await ensureSelfEmployee({
-          userId: user.id,
-          empresaId,
-          nombre: user.nombre,
-        });
-      }
+        if (modulos.empleados !== false) {
+          empleadoId = await ensureSelfEmployee({
+            userId: user.id,
+            empresaId,
+            nombre: user.nombre,
+          });
+        }
+      });
     }
 
     // =========================
@@ -463,93 +467,81 @@ export const login = async (req, res) => {
       }
 
     }
-    // cargar módulos empresa
+    // cargar módulos empresa + control de dispositivo (tocan tablas tenant
+    // → contexto RLS obligatorio).
     let modulos = {};
+    let deviceRejected = false;
 
     if (empresaId) {
-      const cfg = await sql`
-        SELECT modulos, modulos_mobile
-        FROM empresa_config_180
-        WHERE empresa_id = ${empresaId}
-        LIMIT 1
-      `;
-
-      modulos = cfg[0]?.modulos || {};
-
-      // Si estamos en movil (hay device_hash) y existe config movil, usarla
-      if (device_hash && cfg[0]?.modulos_mobile) {
-        // Combinamos para asegurar que no falten claves, pero damos prioridad a móvil
-        modulos = { ...modulos, ...cfg[0].modulos_mobile };
-      }
-    }
-
-    // =========================
-    // CONTROL DE DISPOSITIVO (Compartido Admin/Empleado)
-    // =========================
-    if (empleadoId && device_hash) {
-      const deviceRows = await sql`
-        SELECT *
-        FROM employee_devices_180
-        WHERE empleado_id = ${empleadoId}
-      `;
-
-      if (deviceRows.length === 0) {
-        await sql`
-          INSERT INTO employee_devices_180
-            (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
-          VALUES
-            (${user.id}, ${empleadoId}, ${empresaId}, ${device_hash},
-             ${user_agent || null}, true, ${ipActual})
+      await withTenantContext({ empresaId, role: user.role }, async () => {
+        const cfg = await sql`
+          SELECT modulos, modulos_mobile
+          FROM empresa_config_180
+          WHERE empresa_id = ${empresaId}
+          LIMIT 1
         `;
-      } else {
-        const device = deviceRows[0];
 
-        // Si cambia el hash, verificar si era único o actualizar
-        if (device.device_hash !== device_hash) {
-          const count = await sql`
-            SELECT COUNT(*)::int AS total
+        modulos = cfg[0]?.modulos || {};
+
+        if (device_hash && cfg[0]?.modulos_mobile) {
+          modulos = { ...modulos, ...cfg[0].modulos_mobile };
+        }
+
+        // =========================
+        // CONTROL DE DISPOSITIVO (Compartido Admin/Empleado)
+        // =========================
+        if (empleadoId && device_hash) {
+          const deviceRows = await sql`
+            SELECT *
             FROM employee_devices_180
             WHERE empleado_id = ${empleadoId}
           `;
 
-          // Empleados: bloquear login con dispositivo diferente
-          if (user.role === 'empleado') {
-            return res.status(403).json({
-              error: "Dispositivo no autorizado. Contacta a tu administrador para cambiar de dispositivo.",
-            });
-          }
-
-          if (count[0].total === 1) {
-            // Admin: permitir actualizar dispositivo
+          if (deviceRows.length === 0) {
             await sql`
-              UPDATE employee_devices_180
-              SET device_hash = ${device_hash},
-                  user_agent = ${user_agent || device.user_agent},
-                  ip_habitual = ${ipActual},
-                  updated_at = now()
-              WHERE id = ${device.id}
+              INSERT INTO employee_devices_180
+                (user_id, empleado_id, empresa_id, device_hash, user_agent, activo, ip_habitual)
+              VALUES
+                (${user.id}, ${empleadoId}, ${empresaId}, ${device_hash},
+                 ${user_agent || null}, true, ${ipActual})
             `;
           } else {
-            // Si es admin, permitimos actualizar (o ignoramos, pero mejor actualizar para que funcione el fichaje)
-            await sql`
-              UPDATE employee_devices_180
-              SET device_hash = ${device_hash},
-                  user_agent = ${user_agent || device.user_agent},
-                  ip_habitual = ${ipActual},
-                  updated_at = now()
-              WHERE id = ${device.id}
-             `;
+            const device = deviceRows[0];
+
+            if (device.device_hash !== device_hash) {
+              // Empleados: bloquear login con dispositivo diferente
+              if (user.role === 'empleado') {
+                deviceRejected = true;
+                return;
+              }
+
+              // Admin: permitir actualizar dispositivo
+              await sql`
+                UPDATE employee_devices_180
+                SET device_hash = ${device_hash},
+                    user_agent = ${user_agent || device.user_agent},
+                    ip_habitual = ${ipActual},
+                    updated_at = now()
+                WHERE id = ${device.id}
+              `;
+            }
+
+            if (!device.ip_habitual) {
+              await sql`
+                UPDATE employee_devices_180
+                SET ip_habitual = ${ipActual}
+                WHERE id = ${device.id}
+              `;
+            }
           }
         }
+      });
+    }
 
-        if (!device.ip_habitual) {
-          await sql`
-            UPDATE employee_devices_180
-            SET ip_habitual = ${ipActual}
-            WHERE id = ${device.id}
-          `;
-        }
-      }
+    if (deviceRejected) {
+      return res.status(403).json({
+        error: "Dispositivo no autorizado. Contacta a tu administrador para cambiar de dispositivo.",
+      });
     }
 
     const token = jwt.sign(
