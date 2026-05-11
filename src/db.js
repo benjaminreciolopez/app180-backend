@@ -11,9 +11,13 @@ const isTest = process.env.NODE_ENV === 'test';
 // Pool subyacente. Cualquier consumidor que necesite la conexión bruta del
 // pool (jobs cron, scripts de migración, healthchecks) debe importar `poolSql`
 // para evitar que el proxy del request-scope intente leer del ALS.
+// Supavisor session-mode pooler limita pool_size a 15 por instancia.
+// Mantenemos margen para el backup (que reserva ~6 conexiones simultáneas)
+// y el resto del tráfico. Si en el futuro se migra a transaction mode (port
+// 6543) se puede subir.
 export const poolSql = postgres(config.supabase.url, {
   ssl: "require",
-  max: isTest ? 5 : 50, // Supabase free tier allows 60 direct connections
+  max: isTest ? 5 : 12,
   idle_timeout: isTest ? 10 : 15,
   max_lifetime: 60 * 30,
   connect_timeout: 10,
