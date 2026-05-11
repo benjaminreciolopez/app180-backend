@@ -12,6 +12,7 @@ import { backupService } from "../../services/backupService.js";
 import { seedKnowledge } from "../../services/knowledgeSeedService.js";
 import { registrarEventoVerifactu } from "../verifactuEventosController.js";
 import { withTenantContext } from "../../middlewares/tenantContext.js";
+import { callbackHTML } from "../authController.js";
 
 export const googleAuth = async (req, res) => {
   try {
@@ -386,62 +387,60 @@ export const handleUnifiedCallback = async (req, res) => {
 
     const encryptedToken = encrypt(tokens.refresh_token);
 
-    if (type === "complete_setup") {
-      // Save BOTH Calendar and Gmail config
+    // Callback público (sin authRequired): seteamos app.empresa_id manualmente
+    // para que los INSERTs pasen RLS.
+    await withTenantContext({ empresaId, role: "admin" }, async () => {
+      if (type === "complete_setup") {
+        // Save BOTH Calendar and Gmail config
+        await sql`
+          INSERT INTO empresa_email_config_180 (empresa_id, modo, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, from_name, from_email)
+          VALUES (${empresaId}, 'oauth2', 'gmail', ${email}, ${encryptedToken}, now(), ${email.split("@")[0]}, ${email})
+          ON CONFLICT (empresa_id) DO UPDATE SET
+            modo = 'oauth2',
+            oauth2_provider = 'gmail',
+            oauth2_email = ${email},
+            oauth2_refresh_token = ${encryptedToken},
+            oauth2_connected_at = now(),
+            from_email = ${email},
+            updated_at = now()
+        `;
 
-      // 1. Gmail config
-      await sql`
-        INSERT INTO empresa_email_config_180 (empresa_id, modo, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, from_name, from_email)
-        VALUES (${empresaId}, 'oauth2', 'gmail', ${email}, ${encryptedToken}, now(), ${email.split("@")[0]}, ${email})
-        ON CONFLICT (empresa_id) DO UPDATE SET
-          modo = 'oauth2',
-          oauth2_provider = 'gmail',
-          oauth2_email = ${email},
-          oauth2_refresh_token = ${encryptedToken},
-          oauth2_connected_at = now(),
-          from_email = ${email},
-          updated_at = now()
-      `;
-
-      // 2. Calendar config
-      await sql`
-        INSERT INTO empresa_calendar_config_180 (empresa_id, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, sync_enabled)
-        VALUES (${empresaId}, 'google', ${email}, ${encryptedToken}, now(), true)
-        ON CONFLICT (empresa_id) DO UPDATE SET
-          oauth2_email = ${email},
-          oauth2_refresh_token = ${encryptedToken},
-          oauth2_connected_at = now(),
-          sync_enabled = true,
-          updated_at = now()
-      `;
-
-    } else if (type === "calendar") {
-      // Only Calendar
-      await sql`
-        INSERT INTO empresa_calendar_config_180 (empresa_id, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, sync_enabled)
-        VALUES (${empresaId}, 'google', ${email}, ${encryptedToken}, now(), true)
-        ON CONFLICT (empresa_id) DO UPDATE SET
-          oauth2_email = ${email},
-          oauth2_refresh_token = ${encryptedToken},
-          oauth2_connected_at = now(),
-          sync_enabled = true,
-          updated_at = now()
-      `;
-    } else {
-      // Only Gmail (existing flow)
-      await sql`
-        INSERT INTO empresa_email_config_180 (empresa_id, modo, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, from_name, from_email)
-        VALUES (${empresaId}, 'oauth2', 'gmail', ${email}, ${encryptedToken}, now(), ${email.split("@")[0]}, ${email})
-        ON CONFLICT (empresa_id) DO UPDATE SET
-          modo = 'oauth2',
-          oauth2_provider = 'gmail',
-          oauth2_email = ${email},
-          oauth2_refresh_token = ${encryptedToken},
-          oauth2_connected_at = now(),
-          from_email = ${email},
-          updated_at = now()
-      `;
-    }
+        await sql`
+          INSERT INTO empresa_calendar_config_180 (empresa_id, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, sync_enabled)
+          VALUES (${empresaId}, 'google', ${email}, ${encryptedToken}, now(), true)
+          ON CONFLICT (empresa_id) DO UPDATE SET
+            oauth2_email = ${email},
+            oauth2_refresh_token = ${encryptedToken},
+            oauth2_connected_at = now(),
+            sync_enabled = true,
+            updated_at = now()
+        `;
+      } else if (type === "calendar") {
+        await sql`
+          INSERT INTO empresa_calendar_config_180 (empresa_id, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, sync_enabled)
+          VALUES (${empresaId}, 'google', ${email}, ${encryptedToken}, now(), true)
+          ON CONFLICT (empresa_id) DO UPDATE SET
+            oauth2_email = ${email},
+            oauth2_refresh_token = ${encryptedToken},
+            oauth2_connected_at = now(),
+            sync_enabled = true,
+            updated_at = now()
+        `;
+      } else {
+        await sql`
+          INSERT INTO empresa_email_config_180 (empresa_id, modo, oauth2_provider, oauth2_email, oauth2_refresh_token, oauth2_connected_at, from_name, from_email)
+          VALUES (${empresaId}, 'oauth2', 'gmail', ${email}, ${encryptedToken}, now(), ${email.split("@")[0]}, ${email})
+          ON CONFLICT (empresa_id) DO UPDATE SET
+            modo = 'oauth2',
+            oauth2_provider = 'gmail',
+            oauth2_email = ${email},
+            oauth2_refresh_token = ${encryptedToken},
+            oauth2_connected_at = now(),
+            from_email = ${email},
+            updated_at = now()
+        `;
+      }
+    });
 
     return res.send(callbackHTML("success", "Servicios configurados correctamente"));
   } catch (err) {

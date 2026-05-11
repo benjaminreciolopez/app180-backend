@@ -54,6 +54,11 @@ export async function tenantContext(req, res, next) {
   // no reservan conexión.
   if (!req.user?.empresa_id) return next();
 
+  // Idempotente: si ya hay una conexión reservada para este request
+  // (porque otra ruta encadenó tenantContext dos veces), no abrir otra.
+  if (req._tenantContextActive) return next();
+  req._tenantContextActive = true;
+
   let reserved;
   let released = false;
   const release = () => {

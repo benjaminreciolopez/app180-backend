@@ -1093,7 +1093,7 @@ export const verifyCode = async (req, res) => {
 };
 
 // Helper: HTML for callback popup
-function callbackHTML(status, message) {
+export function callbackHTML(status, message) {
   const isSuccess = status === "success";
   return `<!DOCTYPE html>
 <html><head><title>${isSuccess ? "Conectado" : "Error"}</title>

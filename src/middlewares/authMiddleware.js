@@ -4,8 +4,9 @@ import { sql } from "../db.js";
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { ensureSelfEmployee } from "../services/ensureSelfEmployee.js";
+import { tenantContext } from "./tenantContext.js";
 
-export const authRequired = async (req, res, next) => {
+const authMiddlewareFn = async (req, res, next) => {
   // ✅ PERMITIR PREFLIGHT CORS
   if (req.method === "OPTIONS") {
     return next();
@@ -271,3 +272,12 @@ export const authRequired = async (req, res, next) => {
     return res.status(401).json({ error: "Token inválido" });
   }
 };
+
+// `authRequired` ahora es un chain: auth → tenantContext.
+// Express acepta arrays como middleware, así que las ~70 rutas que importan
+// `{ authRequired }` desde este archivo obtienen automáticamente el contexto
+// RLS por empresa sin tocar cada route.
+export const authRequired = [authMiddlewareFn, tenantContext];
+
+// Compat: alias por si algún sitio importa el handler suelto.
+export { authMiddlewareFn as authMiddleware };
