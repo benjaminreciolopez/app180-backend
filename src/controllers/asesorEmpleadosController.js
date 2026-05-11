@@ -265,7 +265,7 @@ export async function createEmpleado(req, res) {
 
     // Crear usuario con password inicial
     const PASSWORD_INICIAL = "123456";
-    const hashed = await bcrypt.hash(PASSWORD_INICIAL, 10);
+    const hashed = await bcrypt.hash(PASSWORD_INICIAL, 12);
 
     const [user] = await sql`
       INSERT INTO users_180 (email, password, nombre, role, password_forced, created_at)

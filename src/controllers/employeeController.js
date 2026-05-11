@@ -28,7 +28,7 @@ export const createEmployee = async (req, res) => {
 
     // 2️⃣ Password inicial
     const PASSWORD_INICIAL = "123456";
-    const hashed = await bcrypt.hash(PASSWORD_INICIAL, 10);
+    const hashed = await bcrypt.hash(PASSWORD_INICIAL, 12);
 
     // 3️⃣ Crear usuario
     const userRows = await sql`

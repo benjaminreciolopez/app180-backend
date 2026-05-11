@@ -50,9 +50,19 @@ export const authRequired = async (req, res, next) => {
       token = parts[1];
     }
   } else if (req.query.token) {
-    // Permitir token en query string para iframes/proxies (ej: proxy de documentos)
-    // NOTA: Solo usar para endpoints que lo necesiten (proxy, descargas)
-    token = req.query.token;
+    // Token en query string permitido SOLO en rutas concretas de proxy/descarga
+    // (iframes/<img> que no pueden enviar Authorization header).
+    // Riesgo: los tokens en query quedan en logs y Referer — limitar al mínimo.
+    const QUERY_TOKEN_ALLOWED = [
+      "/proxy",
+      "/api/admin/purchases/proxy",
+      "/files/",
+      "/api/files/",
+      "/uploads/",
+    ];
+    if (QUERY_TOKEN_ALLOWED.some((p) => path.includes(p))) {
+      token = req.query.token;
+    }
   }
 
   if (!token) {

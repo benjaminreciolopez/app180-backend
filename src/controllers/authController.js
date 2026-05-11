@@ -38,7 +38,7 @@ export const registerFirstAdmin = async (req, res) => {
       });
     }
 
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, 12);
 
     // 1️⃣ Crear usuario admin
     // Crear admin
@@ -116,7 +116,7 @@ export const register = async (req, res) => {
       return res.status(409).json({ error: "Ya existe una cuenta con este email" });
     }
 
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, 12);
 
     // Obtener plan gratis
     const [planGratis] = await sql`
@@ -759,7 +759,7 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ error: "Contraseña actual incorrecta" });
     }
 
-    const hashed = await bcrypt.hash(new_password, 10);
+    const hashed = await bcrypt.hash(new_password, 12);
 
     await sql`
       UPDATE users_180

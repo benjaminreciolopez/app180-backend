@@ -163,7 +163,21 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginOpenerPolicy: { policy: "unsafe-none" },
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    reportOnly: true,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://apis.google.com", "https://accounts.google.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: ["'self'", "https://*.supabase.co", "https://accounts.google.com", "https://www.googleapis.com", "https://api.anthropic.com", "https://api.groq.com", "https://generativelanguage.googleapis.com"],
+      frameSrc: ["'self'", "https://accounts.google.com"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
 }));
 
 // Rate limiters
@@ -177,15 +191,16 @@ const globalLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { error: "Demasiados intentos de acceso. Espera 15 minutos." },
 });
 
 const qrLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 15,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Demasiadas peticiones QR. Espera un momento." },
@@ -208,7 +223,7 @@ app.use(
         "https://www.contendo.es",
       ];
 
-      if (allowed.includes(origin) || origin.endsWith(".vercel.app") || origin.endsWith(".contendo.es") || origin.includes("localhost")) {
+      if (allowed.includes(origin) || origin.endsWith(".contendo.es") || origin.includes("localhost")) {
         return callback(null, true);
       }
 
@@ -229,12 +244,9 @@ app.post("/api/webhook/stripe", express.raw({ type: "application/json" }), strip
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-// Servir archivos estáticos (uploads locales)
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// /uploads eliminado: era estático público, riesgo de exfiltración.
+// Los archivos viven en Supabase Storage; las descargas pasan por
+// controllers con auth (ver asesorDocumentosController / storageController).
 
 // =========================
 // ROUTES

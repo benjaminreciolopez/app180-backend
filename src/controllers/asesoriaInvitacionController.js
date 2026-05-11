@@ -671,7 +671,7 @@ export async function registrarAsesoria(req, res) {
       return res.status(409).json({ error: "Ya existe una asesoría registrada con este email de contacto" });
     }
 
-    const hash = await bcrypt.hash(user_password, 10);
+    const hash = await bcrypt.hash(user_password, 12);
 
     // Use a transaction to create everything atomically
     const result = await sql.begin(async (tx) => {

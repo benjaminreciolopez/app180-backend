@@ -227,7 +227,7 @@ export async function registerVipUser(req, res) {
             return res.status(409).json({ error: "Ya existe una cuenta con este email" });
         }
 
-        const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(password, 12);
 
         // Obtener plan gratis
         const [planGratis] = await sql`
