@@ -360,9 +360,19 @@ export const handleUnifiedCallback = async (req, res) => {
       return res.status(400).send(callbackHTML("error", "Faltan parámetros"));
     }
 
-    const { userId, empresaId, type } = JSON.parse(
-      Buffer.from(state, "base64").toString(),
-    );
+    const stateData = JSON.parse(Buffer.from(state, "base64").toString());
+    const { userId, type } = stateData;
+    let { empresaId } = stateData;
+
+    // Algunos flujos antiguos (emailConfigController) generan state solo con
+    // userId. Si falta empresaId, lo resolvemos vía users_180 → empresa_180.
+    if (!empresaId && userId) {
+      const [emp] = await sql`SELECT id FROM empresa_180 WHERE user_id = ${userId} LIMIT 1`;
+      empresaId = emp?.id;
+    }
+    if (!empresaId) {
+      return res.status(400).send(callbackHTML("error", "No se pudo resolver la empresa del usuario"));
+    }
 
     // Exchange code for tokens
     const oauth2Client = new google.auth.OAuth2(
