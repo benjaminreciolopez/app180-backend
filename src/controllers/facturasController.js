@@ -271,17 +271,47 @@ export async function previewNextNumber(req, res) {
       WHERE empresa_id = ${empresaId}
     `;
 
+    // Si no hay fila de configuración: NO devolvemos null. Aplicamos defaults
+    // (STANDARD, serie='F') y miramos factura_180 para deducir si está en TEST,
+    // así el preview muestra siempre el próximo número real.
+    const tipo = config?.numeracion_tipo || 'STANDARD';
+    const formato = config?.numeracion_formato || 'FAC-{YEAR}-';
+    const serieBase = config?.serie || 'F';
+    const correlativoBase = config?.correlativo_inicial || 0;
+
+    let esModoTest = config?.verifactu_activo && config?.verifactu_modo === 'TEST';
     if (!config) {
-      return res.json({ success: true, numero: null });
+      const [hayTest] = await sql`
+        SELECT 1 AS x FROM factura_180
+        WHERE empresa_id = ${empresaId} AND es_test = true
+        LIMIT 1
+      `;
+      if (hayTest) esModoTest = true;
+
+      // Si no es TEST y hay facturas reales: deducir patrón de la última
+      // factura emitida para no caer en F-0001 inventado.
+      if (!esModoTest) {
+        const [lastFact] = await sql`
+          SELECT numero FROM factura_180
+          WHERE empresa_id = ${empresaId}
+            AND (es_test IS NOT TRUE)
+            AND numero IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
+        if (lastFact?.numero) {
+          const m = lastFact.numero.match(/^(.+?)-(\d+)$/);
+          if (m) {
+            const prefix = m[1];
+            const correlativo = parseInt(m[2], 10) + 1;
+            return res.json({
+              success: true,
+              numero: `${prefix}-${String(correlativo).padStart(4, '0')}`,
+            });
+          }
+        }
+      }
     }
-
-    const tipo = config.numeracion_tipo || 'STANDARD';
-    const formato = config.numeracion_formato || 'FAC-{YEAR}-';
-    const serieBase = config.serie || 'F';
-    const correlativoBase = config.correlativo_inicial || 0;
-
-    // En modo test, mostrar siguiente TEST
-    const esModoTest = config.verifactu_activo && config.verifactu_modo === 'TEST';
     if (esModoTest) {
       const [max] = await sql`
         SELECT MAX(CAST(SUBSTRING(numero FROM '-([0-9]+)$') AS INTEGER)) as ultimo
