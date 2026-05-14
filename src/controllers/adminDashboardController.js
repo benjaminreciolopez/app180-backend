@@ -401,13 +401,16 @@ async function getFacturasPendientesList(empresaId, moduloFacturacion) {
 
   try {
     const rows = await sql`
-      SELECT 
-        f.id, 
-        f.numero, 
-        f.total, 
-        f.fecha as fecha_emision, 
+      SELECT
+        f.id,
+        f.numero,
+        f.total,
+        f.pagado,
+        f.fecha as fecha_emision,
+        f.cliente_id,
         c.nombre as cliente_nombre,
-        f.estado_pago
+        f.estado_pago,
+        f.estado
       FROM factura_180 f
       LEFT JOIN clients_180 c ON c.id = f.cliente_id
       WHERE f.empresa_id = ${empresaId}
