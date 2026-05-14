@@ -44,6 +44,33 @@ export const sql = new Proxy(function () {}, {
   },
   get(_target, prop) {
     const target = activeSql();
+
+    // postgres.js v3 NO añade `.begin` a las conexiones reservadas devueltas por
+    // `pool.reserve()`. Cuando `tenantContext` deja una reserved en el ALS, los
+    // controladores que hacen `sql.begin(async tx => ...)` rompen con
+    // "sql.begin is not a function". Polyfill: si el target no expone `.begin`,
+    // emulamos la transacción con BEGIN/COMMIT/ROLLBACK sobre la misma conexión
+    // (preserva el contexto RLS y el `app.empresa_id` ya fijado).
+    if (prop === "begin" && typeof target.begin !== "function") {
+      return async function emulatedBegin(optionsOrFn, maybeFn) {
+        const fn = typeof optionsOrFn === "function" ? optionsOrFn : maybeFn;
+        const opts = typeof optionsOrFn === "string" ? optionsOrFn : "";
+        if (typeof fn !== "function") {
+          throw new TypeError("sql.begin requires a callback function");
+        }
+        const safeOpts = String(opts || "").replace(/[^a-z ]/gi, "");
+        await target.unsafe("begin " + safeOpts);
+        try {
+          const result = await fn(target);
+          await target.unsafe("commit");
+          return result;
+        } catch (e) {
+          try { await target.unsafe("rollback"); } catch { /* swallow */ }
+          throw e;
+        }
+      };
+    }
+
     const value = target[prop];
     return typeof value === "function" ? value.bind(target) : value;
   },
