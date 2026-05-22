@@ -1232,6 +1232,45 @@ export async function getAlertas(req, res) {
     }
 }
 
+// Resumen ligero de alertas RETA pendientes para un cliente concreto.
+// Devuelve sólo los contadores que necesita el layout para pintar un badge
+// en el tab "RETA" sin tener que abrirlo.
+export async function getAlertasResumenCliente(req, res) {
+    try {
+        const { empresa_id } = req.params;
+        const ejercicio = parseInt(req.query.ejercicio) || new Date().getFullYear();
+
+        // 1) Alertas RETA propias (reta_alertas_180), tanto a nivel empresa
+        //    como a nivel titular si tiene autónomos como titulares.
+        const [{ alertas_pendientes, alertas_no_leidas }] = await sql`
+            SELECT
+                COUNT(*) FILTER (WHERE descartada = false) AS alertas_pendientes,
+                COUNT(*) FILTER (WHERE descartada = false AND leida = false) AS alertas_no_leidas
+            FROM reta_alertas_180
+            WHERE empresa_id = ${empresa_id}
+              AND ejercicio = ${ejercicio}
+        `;
+
+        // 2) Cambios de base pendientes de acción en el flujo bidireccional
+        //    asesor↔cliente (mismos estados que usa la bandeja cross-cliente).
+        const [{ cambios_pendientes }] = await sql`
+            SELECT COUNT(*) AS cambios_pendientes
+            FROM reta_cambios_base_180
+            WHERE empresa_id = ${empresa_id}
+              AND ejercicio = ${ejercicio}
+              AND estado IN ('comunicado_pdte_asesor', 'propuesto_pdte_cliente')
+        `;
+
+        res.json({
+            alertasPendientes: parseInt(alertas_pendientes) || 0,
+            alertasNoLeidas: parseInt(alertas_no_leidas) || 0,
+            cambiosPendientes: parseInt(cambios_pendientes) || 0,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
 export async function marcarAlertaLeida(req, res) {
     try {
         const { id } = req.params;

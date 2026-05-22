@@ -20,6 +20,7 @@ import {
     createPreOnboarding, getPreOnboarding, updatePreOnboarding,
     vincularPreOnboarding, listPreOnboarding,
     getAlertas, marcarAlertaLeida,
+    getAlertasResumenCliente,
     getTramosReferencia,
 } from "../controllers/asesorRetaController.js";
 
@@ -82,5 +83,10 @@ router.post(
     crearCuotaRecurrenteReta
 );
 router.get("/clientes/:empresa_id/simulacion", asesorClienteRequired(), getSimulacion);
+
+// Resumen ligero de alertas RETA pendientes para un cliente concreto.
+// Usado por el layout del cliente para pintar un badge en el tab "RETA" sin
+// tener que cargar el detalle completo de la estimación.
+router.get("/clientes/:empresa_id/alertas-resumen", asesorClienteRequired(), getAlertasResumenCliente);
 
 export default router;
