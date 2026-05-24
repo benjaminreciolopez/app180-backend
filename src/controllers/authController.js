@@ -341,7 +341,7 @@ export const login = async (req, res) => {
     // =========================
 
     if (user.role === "admin" && empresaId) {
-      await withTenantContext({ empresaId, role: user.role }, async () => {
+      await withTenantContext({ empresaId, role: user.role, userId: user.id }, async () => {
         const cfg = await sql`
           SELECT modulos
           FROM empresa_config_180
@@ -473,7 +473,7 @@ export const login = async (req, res) => {
     let deviceRejected = false;
 
     if (empresaId) {
-      await withTenantContext({ empresaId, role: user.role }, async () => {
+      await withTenantContext({ empresaId, role: user.role, userId: user.id }, async () => {
         const cfg = await sql`
           SELECT modulos, modulos_mobile
           FROM empresa_config_180

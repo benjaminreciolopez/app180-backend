@@ -24,7 +24,7 @@ const ENABLED = process.env.RLS_TENANT_CONTEXT_ENABLED === "true";
  *
  * Si RLS está desactivado, simplemente ejecuta `fn` sin reservar conexión.
  */
-export async function withTenantContext({ empresaId, role = "admin", asesoriaId = null }, fn) {
+export async function withTenantContext({ empresaId, role = "admin", asesoriaId = null, userId = null }, fn) {
   if (!ENABLED || !empresaId) return fn();
 
   const reserved = await poolSql.reserve();
@@ -33,6 +33,13 @@ export async function withTenantContext({ empresaId, role = "admin", asesoriaId 
     await reserved`SELECT set_config('app.role', ${role}, false)`;
     if (asesoriaId) {
       await reserved`SELECT set_config('app.asesoria_id', ${String(asesoriaId)}, false)`;
+    }
+    // Forge request.jwt.claims so Supabase's auth.uid() returns the user UUID
+    // when RLS policies are evaluated. The backend connects directly via
+    // postgres.js (not via PostgREST), so auth.uid() would otherwise be NULL
+    // and every policy using `(SELECT ... WHERE id = auth.uid())` would fail.
+    if (userId) {
+      await reserved`SELECT set_config('request.jwt.claims', ${JSON.stringify({ sub: String(userId) })}, false)`;
     }
     return await new Promise((resolve, reject) => {
       tenantStorage.run(reserved, () => {
@@ -84,6 +91,14 @@ export async function tenantContext(req, res, next) {
 
     if (req.user.asesoria_id) {
       await reserved`SELECT set_config('app.asesoria_id', ${String(req.user.asesoria_id)}, false)`;
+    }
+
+    // Forge request.jwt.claims so Supabase's auth.uid() returns the user UUID
+    // when RLS policies are evaluated. The backend connects directly via
+    // postgres.js (not via PostgREST), so auth.uid() would otherwise be NULL
+    // and every policy using `(SELECT ... WHERE id = auth.uid())` would fail.
+    if (req.user.id) {
+      await reserved`SELECT set_config('request.jwt.claims', ${JSON.stringify({ sub: String(req.user.id) })}, false)`;
     }
 
     res.on("finish", release);

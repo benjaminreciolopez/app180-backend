@@ -146,7 +146,7 @@ export const googleAuth = async (req, res) => {
         fiscal: true,
       };
       // INSERT en tabla tenant: necesita app.empresa_id seteado para que RLS WITH CHECK pase.
-      await withTenantContext({ empresaId, role: user.role }, async () => {
+      await withTenantContext({ empresaId, role: user.role, userId: user.id }, async () => {
         await sql`
           INSERT INTO empresa_config_180 (empresa_id, modulos, ai_tokens, ai_limite_diario, ai_limite_mensual, ai_creditos_extra)
           VALUES (${empresaId}, ${sql.json(allModulos)}, 1000, 0, 0, 0)
@@ -174,7 +174,7 @@ export const googleAuth = async (req, res) => {
     let modulos = {};
     let empleadoId = null;
 
-    await withTenantContext({ empresaId, role: user.role }, async () => {
+    await withTenantContext({ empresaId, role: user.role, userId: user.id }, async () => {
       // Load modules
       if (empresaId) {
         const cfg = await sql`
