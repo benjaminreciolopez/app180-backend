@@ -8,10 +8,11 @@
  * la creación de plantillas recurrentes.
  */
 
-import { sql } from "../db.js";
+import { sql, withServiceRole } from "../db.js";
 import { ejecutarGastoRecurrenteInterno } from "../controllers/gastosRecurrentesController.js";
 
 export async function ejecutarGastosRecurrentes() {
+  return withServiceRole(async () => {
     try {
         const hoy = new Date();
         const diaActual = hoy.getDate();
@@ -49,6 +50,7 @@ export async function ejecutarGastosRecurrentes() {
     } catch (err) {
         console.error("[GastosRecurrentes] Error en cron:", err);
     }
+  });
 }
 
 /**
@@ -57,6 +59,7 @@ export async function ejecutarGastosRecurrentes() {
  * Llamar una vez al iniciar la app.
  */
 export async function catchUpGastosRecurrentes() {
+  return withServiceRole(async () => {
     try {
         const hoy = new Date();
         const diaActual = hoy.getDate();
@@ -93,6 +96,7 @@ export async function catchUpGastosRecurrentes() {
     } catch (err) {
         console.error("[GastosRecurrentes] Error en catch-up:", err);
     }
+  });
 }
 
 /**
@@ -102,6 +106,7 @@ export async function catchUpGastosRecurrentes() {
  * que NO tengan ya una plantilla recurrente.
  */
 export async function detectarGastosRecurrentes() {
+  return withServiceRole(async () => {
     try {
         console.log("[GastosRecurrentes] Detectando patrones de gastos repetidos...");
 
@@ -202,4 +207,5 @@ export async function detectarGastosRecurrentes() {
     } catch (err) {
         console.error("[GastosRecurrentes] Error detectando patrones:", err);
     }
+  });
 }

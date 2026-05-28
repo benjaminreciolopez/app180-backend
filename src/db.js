@@ -75,3 +75,26 @@ export const sql = new Proxy(function () {}, {
     return typeof value === "function" ? value.bind(target) : value;
   },
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// withServiceRole: ejecutar bloque como service_role (bypass RLS).
+//
+// Usar SOLO en código de jobs/cron que necesite ver/escribir todas las
+// empresas. Internamente abre una transacción sobre el pool, hace
+// `SET LOCAL ROLE service_role` (válido solo dentro de la tx) y deja la
+// conexión en el AsyncLocalStorage para que el `sql` proxy de los
+// controllers reutilice esa misma conexión durante el callback.
+//
+// Requisito: el rol DB conectado (contendo_app) tiene que ser miembro de
+// service_role → `GRANT service_role TO contendo_app` en producción.
+// ─────────────────────────────────────────────────────────────────────
+export async function withServiceRole(fn) {
+  return await poolSql.begin(async (tx) => {
+    await tx`SET LOCAL ROLE service_role`;
+    return await new Promise((resolve, reject) => {
+      tenantStorage.run(tx, () => {
+        Promise.resolve(fn(tx)).then(resolve, reject);
+      });
+    });
+  });
+}
