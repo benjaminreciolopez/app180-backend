@@ -21,17 +21,17 @@ export async function ejecutarGastosRecurrentes() {
 
         console.log(`[GastosRecurrentes] Cron ejecutando. Día ${diaActual}, ${mesActual}/${anioActual}`);
 
-        // Buscar plantillas activas para hoy que no se hayan ejecutado este mes
+        // Buscar plantillas activas para hoy que no se hayan ejecutado YA HOY.
+        // Antes comparábamos por mes ("no ejecutada este mes"), pero eso hacía
+        // que una ejecución manual cualquier día del mes anulara la ejecución
+        // programada del dia_ejecucion. Ahora la cláusula es estricta: solo
+        // bloquea si la última ejecución es de hoy mismo (idempotencia diaria).
         const plantillas = await sql`
             SELECT *
             FROM gastos_recurrentes_180
             WHERE activo = true
               AND dia_ejecucion = ${diaActual}
-              AND (
-                  ultima_ejecucion IS NULL
-                  OR EXTRACT(MONTH FROM ultima_ejecucion) != ${mesActual}
-                  OR EXTRACT(YEAR FROM ultima_ejecucion) != ${anioActual}
-              )
+              AND (ultima_ejecucion IS NULL OR ultima_ejecucion < ${fechaHoy}::date)
         `;
 
         console.log(`[GastosRecurrentes] ${plantillas.length} plantillas para ejecutar hoy`);
@@ -64,7 +64,10 @@ export async function catchUpGastosRecurrentes() {
         const anioActual = hoy.getFullYear();
         const fechaHoy = hoy.toISOString().split('T')[0];
 
-        // Busca plantillas cuyo día de ejecución ya pasó este mes y no se han ejecutado
+        // Busca plantillas cuyo día de ejecución de este mes ya ha pasado (o es
+        // hoy) y todavía no se han ejecutado en su día programado de este mes.
+        // Reconstruimos la fecha programada del mes en curso y comprobamos que
+        // la última ejecución sea anterior a esa fecha (o NULL).
         const plantillas = await sql`
             SELECT *
             FROM gastos_recurrentes_180
@@ -72,8 +75,7 @@ export async function catchUpGastosRecurrentes() {
               AND dia_ejecucion <= ${diaActual}
               AND (
                   ultima_ejecucion IS NULL
-                  OR EXTRACT(MONTH FROM ultima_ejecucion) != ${mesActual}
-                  OR EXTRACT(YEAR FROM ultima_ejecucion) != ${anioActual}
+                  OR ultima_ejecucion < MAKE_DATE(${anioActual}, ${mesActual}, dia_ejecucion)
               )
         `;
 
