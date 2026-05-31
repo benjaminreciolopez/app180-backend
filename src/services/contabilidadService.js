@@ -317,7 +317,7 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor, cuent
     concepto: esRectificativa
       ? `Rectificativa ${factura.numero || ""} - ${clienteNombre}`.trim()
       : `Factura emitida ${factura.numero || ""} - ${clienteNombre}`.trim(),
-    tipo: esRectificativa ? "auto_rectificativa" : "auto_factura",
+    tipo: "auto_factura",
     referencia_tipo: "factura",
     referencia_id: String(factura.id),
     creado_por: creadoPor,
