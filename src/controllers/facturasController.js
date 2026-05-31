@@ -1647,6 +1647,26 @@ export async function anularFactura(req, res) {
         .catch(err => console.error('VeriFactu: envío async rectificativa falló:', err.message));
     }
 
+    // --- AUTO-GENERAR ASIENTO CONTABLE DE LA RECTIFICATIVA ---
+    // Necesario para que la rectificativa salde el saldo del cliente en
+    // contabilidad (430xxx). Sin esto, la deuda original nunca se cancela.
+    // Se ejecuta fuera de la transacción para no bloquear la respuesta si
+    // contabilidadService falla.
+    try {
+      const [rectFinal] = await sql`
+        SELECT f.*, c.nombre AS cliente_nombre
+        FROM factura_180 f
+        LEFT JOIN clients_180 c ON c.id = f.cliente_id
+        WHERE f.numero = ${numeroRect} AND f.empresa_id = ${empresaId}
+        LIMIT 1
+      `;
+      if (rectFinal) {
+        await generarAsientoFactura(empresaId, rectFinal, req.user?.id || null);
+      }
+    } catch (contErr) {
+      console.error("[Facturas] Error generando asiento de rectificativa:", contErr.message);
+    }
+
     // --- AUTO-GENERAR PDF RECTIFICATIVA ---
     try {
       // Necesitamos el ID de la rectificativa que acabamos de crear

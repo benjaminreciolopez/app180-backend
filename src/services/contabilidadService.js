@@ -217,24 +217,38 @@ async function siguienteNumeroAsientoTx(tx, empresaId, ejercicio) {
 /**
  * Generar asiento automático desde una factura emitida.
  * factura_180 columns: id(int), subtotal, iva_total, total, cliente_id, numero, fecha, retencion_importe
+ *
+ * Si la factura es rectificativa (factura.rectificativa === true o total < 0),
+ * se invierten los lados del asiento (cliente al haber, ventas/IVA al debe)
+ * usando importes absolutos — convención contable estándar para abonos.
  */
 export async function generarAsientoFactura(empresaId, factura, creadoPor, cuentaIngresoIA = null) {
-  const base = parseFloat(factura.subtotal || 0);
-  const retencion = parseFloat(factura.retencion_importe || 0);
+  const baseRaw = parseFloat(factura.subtotal || 0);
+  const retencionRaw = parseFloat(factura.retencion_importe || 0);
 
   // IVA: calcular desde líneas de factura (más preciso que factura.iva_total)
-  let iva = 0;
+  let ivaRaw = 0;
   if (factura.id) {
     const [ivaLineas] = await sql`
       SELECT COALESCE(SUM(cantidad * precio_unitario * iva_percent / 100), 0) as iva_total
       FROM lineafactura_180 WHERE factura_id = ${factura.id}
     `;
-    iva = parseFloat(ivaLineas.iva_total);
+    ivaRaw = parseFloat(ivaLineas.iva_total);
   }
-  if (iva === 0) {
-    iva = parseFloat(factura.iva_total || 0);
+  if (ivaRaw === 0) {
+    ivaRaw = parseFloat(factura.iva_total || 0);
   }
-  const total = parseFloat(factura.total || base + iva - retencion);
+  const totalRaw = parseFloat(factura.total || baseRaw + ivaRaw - retencionRaw);
+  const compensacionReagpRaw = parseFloat(factura.compensacion_reagp_importe || 0);
+
+  const esRectificativa = factura.rectificativa === true || totalRaw < 0;
+
+  const base = Math.abs(baseRaw);
+  const iva = Math.abs(ivaRaw);
+  const retencion = Math.abs(retencionRaw);
+  const total = Math.abs(totalRaw);
+  const compensacionReagp = Math.abs(compensacionReagpRaw);
+
   const clienteNombre = factura.cliente_nombre || "Cliente";
 
   // Auto-crear subcuenta de cliente (430XXXX) si hay cliente_id
@@ -245,61 +259,65 @@ export async function generarAsientoFactura(empresaId, factura, creadoPor, cuent
   // Cuenta de ingreso: IA pre-clasificada > fallback 705
   const cuentaIngreso = cuentaIngresoIA || { codigo: "705", nombre: "Prestaciones de servicios" };
 
+  const etiqueta = esRectificativa ? "Rectificativa" : "Factura";
+  const conceptoLinea = `${etiqueta} ${factura.numero || ""}`.trim();
+
   const lineas = [
     {
       cuenta_codigo: cuentaCliente.codigo,
       cuenta_nombre: cuentaCliente.nombre,
-      debe: total,
-      haber: 0,
-      concepto: `Factura ${factura.numero || ""}`.trim(),
+      debe: esRectificativa ? 0 : total,
+      haber: esRectificativa ? total : 0,
+      concepto: conceptoLinea,
     },
     {
       cuenta_codigo: cuentaIngreso.codigo,
       cuenta_nombre: cuentaIngreso.nombre,
-      debe: 0,
-      haber: base,
-      concepto: `Factura ${factura.numero || ""}`.trim(),
+      debe: esRectificativa ? base : 0,
+      haber: esRectificativa ? 0 : base,
+      concepto: conceptoLinea,
     },
   ];
 
-  if (iva > 0) {
+  if (iva > 0.005) {
     lineas.push({
       cuenta_codigo: "477",
       cuenta_nombre: "Hacienda Pública, IVA repercutido",
-      debe: 0,
-      haber: iva,
-      concepto: `IVA factura ${factura.numero || ""}`.trim(),
+      debe: esRectificativa ? iva : 0,
+      haber: esRectificativa ? 0 : iva,
+      concepto: `IVA ${etiqueta.toLowerCase()} ${factura.numero || ""}`.trim(),
     });
   }
 
   // REAGP: la compensación a tanto alzado (Art. 130 LIVA) se contabiliza como
   // mayor ingreso del autónomo (forma parte del precio percibido), no como IVA.
-  const compensacionReagp = parseFloat(factura.compensacion_reagp_importe || 0);
-  if (compensacionReagp > 0) {
+  if (compensacionReagp > 0.005) {
     lineas.push({
       cuenta_codigo: "705",
       cuenta_nombre: "Compensación REAGP percibida",
-      debe: 0,
-      haber: compensacionReagp,
-      concepto: `Compensación REAGP factura ${factura.numero || ""}`.trim(),
+      debe: esRectificativa ? compensacionReagp : 0,
+      haber: esRectificativa ? 0 : compensacionReagp,
+      concepto: `Compensación REAGP ${etiqueta.toLowerCase()} ${factura.numero || ""}`.trim(),
     });
   }
 
-  if (retencion > 0) {
+  if (retencion > 0.005) {
     lineas.push({
       cuenta_codigo: "4751",
       cuenta_nombre: "HP acreedora por retenciones practicadas",
-      debe: 0,
-      haber: retencion,
-      concepto: `Retención factura ${factura.numero || ""}`.trim(),
+      debe: esRectificativa ? retencion : 0,
+      haber: esRectificativa ? 0 : retencion,
+      concepto: `Retención ${etiqueta.toLowerCase()} ${factura.numero || ""}`.trim(),
     });
   }
 
   return crearAsiento({
     empresaId,
     fecha: factura.fecha || new Date().toISOString().split("T")[0],
-    concepto: `Factura emitida ${factura.numero || ""} - ${clienteNombre}`.trim(),
-    tipo: "auto_factura",
+    concepto: esRectificativa
+      ? `Rectificativa ${factura.numero || ""} - ${clienteNombre}`.trim()
+      : `Factura emitida ${factura.numero || ""} - ${clienteNombre}`.trim(),
+    tipo: esRectificativa ? "auto_rectificativa" : "auto_factura",
     referencia_tipo: "factura",
     referencia_id: String(factura.id),
     creado_por: creadoPor,
