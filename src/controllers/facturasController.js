@@ -1579,12 +1579,20 @@ export async function anularFactura(req, res) {
         where factura_id=${id}
       `;
 
-      // Crear factura rectificativa
+      // Crear factura rectificativa.
+      // Nace SALDADA (estado_pago='pagado'): no hay nada que cobrar sobre ella,
+      // su único fin es cancelar la original. Sin esto, la rectificativa (total
+      // negativo) quedaba como 'pendiente' y descuadraba las deudas en modo
+      // asesoría y empresario, dejando un saldo pendiente negativo eterno.
+      // `pagado` espeja lo cobrado en la original (negado) para que el KPI
+      // "total cobrado" (SUM(pagado)) revierta el cobro de la factura anulada;
+      // en el caso normal (original sin cobrar) es 0.
+      const pagadoRect = -(Number(factura.pagado) || 0);
       const [rect] = await tx`
         insert into factura_180 (
           empresa_id, cliente_id, fecha, numero, estado,
           subtotal, iva_total, total, iva_global, mensaje_iva, metodo_pago,
-          rectificativa, created_at
+          rectificativa, estado_pago, pagado, created_at
         ) values (
           ${empresaId},
           ${factura.cliente_id},
@@ -1598,6 +1606,8 @@ export async function anularFactura(req, res) {
           ${`Factura rectificativa de ${factura.numero}`},
           ${factura.metodo_pago},
           true,
+          'pagado',
+          ${pagadoRect},
           now()
         )
         returning *
